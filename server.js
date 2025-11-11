@@ -733,35 +733,6 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
-        // POST: 공개 사용자 회원가입
-        app.post('/api/auth/signup', async (req, res) => {
-            try {
-                const { username, password } = req.body;
-                if (!username || !password) {
-                    return res.status(400).json({ message: "사용자 이름과 비밀번호를 모두 입력해주세요." });
-                }
-                if (password.length < 4) {
-                    return res.status(400).json({ message: "비밀번호는 4자 이상이어야 합니다." });
-                }
-
-                const existingUser = await usersCollection.findOne({ username });
-                if (existingUser) {
-                    return res.status(409).json({ message: "이미 존재하는 사용자 이름입니다." });
-                }
-
-                const hashedPassword = await bcrypt.hash(password, 10);
-                await usersCollection.insertOne({
-                    username,
-                    password: hashedPassword,
-                    role: 'user' // 일반 사용자로 역할 고정
-                });
-
-                res.status(201).json({ message: "회원가입 성공" });
-            } catch (error) {
-                res.status(500).json({ message: "서버 오류가 발생했습니다.", error: error.message });
-            }
-        });
-
         // POST: 로그인
         app.post('/api/auth/login', async (req, res) => {
             try {
