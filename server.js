@@ -857,5 +857,5 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
 
 run().catch(console.dir);
 
-// 테스트를 위해 app과 client를 export합니다.
-module.exports = { app, client };
+// Vercel 배포를 위해 Express 앱 인스턴스를 내보냅니다.
+module.exports = app;
