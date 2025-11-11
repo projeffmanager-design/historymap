@@ -21,12 +21,12 @@ if (!jwtSecret) {
     throw new Error("JWT_SECRET 환경 변수가 설정되지 않았습니다. .env 파일을 확인해주세요.");
 }
 const client = new MongoClient(mongoUri);
+let db; // Declare db outside to reuse connection
+let collections = {}; // To store references to collections
+let isAppSetup = false; // Flag to ensure setup runs only once
 
-app.use(cors()); // 모든 도메인에서 요청 허용 (개발용)
-app.use(express.json());
-
-// 헬퍼 함수: ID를 MongoDB의 ObjectId로 변환
-function toObjectId(id) {
+// 헬퍼 함수: ID를 MongoDB의 ObjectId로 변환 (전역으로 이동)
+const toObjectId = (id) => {
     if (id && ObjectId.isValid(id)) {
         return new ObjectId(id);
     }
@@ -34,8 +34,8 @@ function toObjectId(id) {
 }
 
 // 💡 [추가] 인증 미들웨어
-const verifyToken = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
+const verifyToken = (req, res, next) => { // (전역으로 이동)
+    const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1]; // Bearer <token>
 
     if (!token) {
@@ -51,8 +51,8 @@ const verifyToken = (req, res, next) => {
     });
 };
 
-const verifyAdmin = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
+const verifyAdmin = (req, res, next) => { // (전역으로 이동)
+    const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1];
 
     if (!token) return res.status(401).json({ message: "인증 토큰이 없습니다." });
@@ -68,8 +68,8 @@ const verifyAdmin = (req, res, next) => {
     });
 };
 
-const verifyAdminOnly = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
+const verifyAdminOnly = (req, res, next) => { // (전역으로 이동)
+    const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1];
 
     if (!token) return res.status(401).json({ message: "인증 토큰이 없습니다." });
@@ -85,8 +85,8 @@ const verifyAdminOnly = (req, res, next) => {
     });
 };
 
-const verifySuperuser = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
+const verifySuperuser = (req, res, next) => { // (전역으로 이동)
+    const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1];
 
     if (!token) return res.status(401).json({ message: "인증 토큰이 없습니다." });
@@ -102,28 +102,46 @@ const verifySuperuser = (req, res, next) => {
     });
 };
 
-async function run() {
-    try {
+app.use(cors()); // 모든 도메인에서 요청 허용 (개발용)
+app.use(express.json());
+
+async function connectToDatabase() {
+    if (db) {
+        return db;
+    }
+    if (!client) {
+        client = new MongoClient(mongoUri);
         await client.connect();
         console.log("MongoDB에 성공적으로 연결되었습니다!");
-        const database = client.db("realhistory"); // 데이터베이스 이름
-        const castleCollection = database.collection("castle");
-        const countryCollection = database.collection("countries");
-        const historyCollection = database.collection("history");
-        const kingsCollection = database.collection("kings");
-        const usersCollection = database.collection("users"); // 💡 [추가] 사용자 컬렉션
-        const generalCollection = database.collection("general"); // ✨ NEW: 장수 컬렉션 추가
-        const eventsCollection = database.collection("events"); // ✨ NEW: 이벤트 컬렉션 추가
-        const drawingsCollection = database.collection("drawings"); // 🚩 [추가] 그리기 컬렉션
+    }
+    db = client.db("realhistory");
+    return db;
+}
+
+// This function will set up all the routes and collections
+async function setupRoutesAndCollections() {
+    if (isAppSetup) {
+        return; // Already set up
+    }
+
+    const database = await connectToDatabase();
+    collections.castle = database.collection("castle");
+    collections.countries = database.collection("countries");
+    collections.history = database.collection("history");
+    collections.kings = database.collection("kings");
+    collections.users = database.collection("users");
+    collections.general = database.collection("general");
+    collections.events = database.collection("events");
+    collections.drawings = database.collection("drawings");
 
         // ----------------------------------------------------
         // 🏰 CASTLE (성/위치) API 엔드포인트
         // ----------------------------------------------------
 
         // GET: 모든 성 정보 반환
-        app.get('/api/castle', verifyToken, async (req, res) => {
+        app.get('/api/castle', verifyToken, async (req, res) => { // (collections.castle로 변경)
             try {
-                const castles = await castleCollection.find({}).toArray();
+                const castles = await collections.castle.find({}).toArray();
                 res.json(castles);
             } catch (error) {
                 console.error("Castle 조회 중 오류:", error);
@@ -140,9 +158,9 @@ async function run() {
                 // 🚨 [필수 수정]: 클라이언트가 countryId를 보내도록 가정
                 newCastle.country_id = toObjectId(newCastle.country_id); 
                 // 기존 newCastle.country 필드가 있다면 삭제 (마이그레이션 구조 유지)
-                if (newCastle.country) delete newCastle.country; 
-                
-                const result = await castleCollection.insertOne(newCastle);
+                if (newCastle.country) delete newCastle.country;
+
+                const result = await collections.castle.insertOne(newCastle);
                 res.status(201).json({ message: "Castle 추가 성공", id: result.insertedId.toString() });
             } catch (error) {
                 console.error("Castle 추가 중 오류:", error);
@@ -167,7 +185,7 @@ async function run() {
                 // country 필드가 넘어온다면 삭제 (ID 기반 구조 유지)
                 if (updatedCastle.country) delete updatedCastle.country;
                 
-                const result = await castleCollection.updateOne(
+                const result = await collections.castle.updateOne(
                     { _id: _id },
                     { $set: updatedCastle }
                 );
@@ -190,7 +208,7 @@ async function run() {
                 const _id = toObjectId(id);
                 if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
 
-                const result = await castleCollection.deleteOne({ _id: _id });
+                const result = await collections.castle.deleteOne({ _id: _id });
 
                 if (result.deletedCount === 0) {
                     return res.status(404).json({ message: "성을 찾을 수 없습니다." });
@@ -210,7 +228,7 @@ async function run() {
 // GET: 모든 장수 정보 반환
 app.get('/api/general', verifyToken, async (req, res) => {
     try {
-        const generals = await generalCollection.find({}).toArray();
+        const generals = await collections.general.find({}).toArray();
         res.json(generals);
     } catch (error) {
         console.error("General 조회 중 오류:", error);
@@ -222,8 +240,8 @@ app.get('/api/general', verifyToken, async (req, res) => {
 app.post('/api/general', verifyAdmin, async (req, res) => {
     try {
         const newGeneral = req.body;
-        if (newGeneral._id) delete newGeneral._id; 
-        const result = await generalCollection.insertOne(newGeneral);
+        if (newGeneral._id) delete newGeneral._id;
+        const result = await collections.general.insertOne(newGeneral);
         res.status(201).json({ message: "General 추가 성공", id: result.insertedId.toString() });
     } catch (error) {
         console.error("General 저장 중 오류:", error);
@@ -238,7 +256,7 @@ app.put('/api/general/:id', verifyAdmin, async (req, res) => {
         const updatedGeneral = req.body;
         if (updatedGeneral._id) delete updatedGeneral._id;
 
-        const result = await generalCollection.updateOne(
+        const result = await collections.general.updateOne(
             { _id: toObjectId(id) },
             { $set: updatedGeneral }
         );
@@ -258,7 +276,7 @@ app.put('/api/general/:id', verifyAdmin, async (req, res) => {
 app.delete('/api/general/:id', verifyAdmin, async (req, res) => {
     try {
         const { id } = req.params;
-        const result = await generalCollection.deleteOne({ _id: toObjectId(id) });
+        const result = await collections.general.deleteOne({ _id: toObjectId(id) });
         if (result.deletedCount === 0) {
             return res.status(404).json({ message: "장수를 찾을 수 없습니다." });
         }
@@ -274,7 +292,7 @@ app.delete('/api/general/:id', verifyAdmin, async (req, res) => {
         // ----------------------------------------------------
 app.get('/api/countries', verifyToken, async (req, res) => {
     try {
-        const countries = await countryCollection.find({}).toArray();
+        const countries = await collections.countries.find({}).toArray();
         res.json(countries);
     } catch (error) {
         console.error("Country 조회 중 오류:", error);
@@ -292,7 +310,7 @@ app.post('/api/countries', verifyAdmin, async (req, res) => {
         // ✨ NEW: ethnicity 필드 추가
         newCountry.ethnicity = newCountry.ethnicity || null;
 
-        const result = await countryCollection.insertOne(newCountry);
+        const result = await collections.countries.insertOne(newCountry);
         // 클라이언트에서 countryOriginalName 필드를 사용하여 신규 여부를 확인하므로, 
         // 응답 시 해당 필드를 함께 반환하는 것이 좋습니다.
         res.status(201).json({ message: "Country 추가 성공", id: result.insertedId.toString(), countryOriginalName: newCountry.name }); 
@@ -314,7 +332,7 @@ app.put('/api/countries/:name', verifyAdmin, async (req, res) => {
         updatedCountry.ethnicity = updatedCountry.ethnicity || null;
         
         // MongoDB는 국가 이름(name)을 Key로 사용하여 업데이트합니다.
-        const result = await countryCollection.updateOne(
+        const result = await collections.countries.updateOne(
             { name: name },
             { $set: updatedCountry }
         );
@@ -336,7 +354,7 @@ app.delete('/api/countries/:name', verifyAdmin, async (req, res) => {
     try {
         const { name } = req.params;
 
-        const result = await countryCollection.deleteOne({ name: name });
+        const result = await collections.countries.deleteOne({ name: name });
 
         if (result.deletedCount === 0) {
             return res.status(404).json({ message: "국가를 찾을 수 없습니다." });
@@ -356,7 +374,7 @@ app.delete('/api/countries/:name', verifyAdmin, async (req, res) => {
 // GET: 모든 왕 정보 반환 (변경 없음)
 app.get('/api/kings', verifyToken, async (req, res) => {
      try {
-        const kings = await kingsCollection.find({}).toArray();
+        const kings = await collections.kings.find({}).toArray();
         res.json(kings);
      } catch (error) {
          res.status(500).json({ message: "Kings 조회 실패" });
@@ -380,7 +398,7 @@ app.post('/api/kings', verifyAdmin, async (req, res) => {
         };
         
         // country_id를 기준으로 문서를 찾거나 새로 생성하고 kings 배열에 push합니다.
-        const result = await kingsCollection.updateOne(
+        const result = await collections.kings.updateOne(
             { country_id: _countryId }, // 🚨 country_id 필드로 변경
             { $push: { kings: newKingWithId } },
             { upsert: true } // 국가 문서가 없으면 새로 생성
@@ -428,7 +446,7 @@ app.put('/api/kings/:id', verifyAdmin, async (req, res) => {
         }
 
         // $set 연산과 arrayFilters를 사용하여 kings 배열 내의 특정 원소의 필드만 업데이트합니다.
-        const result = await kingsCollection.updateOne(
+        const result = await collections.kings.updateOne(
             { "kings._id": _id }, 
             { $set: setOperators }, 
             {
@@ -458,7 +476,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
 
         // 🎯 쿼리: kings 배열에 해당 _id를 가진 요소가 있는 문서를 찾습니다.
-        const result = await kingsCollection.updateOne(
+        const result = await collections.kings.updateOne(
             { "kings._id": _id }, 
             { $pull: { kings: { _id: _id } } }
         );
@@ -479,7 +497,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         app.get('/api/history', verifyToken, async (req, res) => {
              // 임시로 기본 성공 응답을 가정합니다.
              try {
-                const history = await historyCollection.find({}).toArray();
+                const history = await collections.history.find({}).toArray();
                 res.json(history);
              } catch (error) {
                  res.status(500).json({ message: "History 조회 실패" });
@@ -494,7 +512,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 // 🚩 [추가] 이벤트 발생 플래그가 boolean 타입인지 확인
                 newHistory.create_event = typeof newHistory.create_event === 'boolean' ? newHistory.create_event : false;
 
-                const result = await historyCollection.insertOne(newHistory);
+                const result = await collections.history.insertOne(newHistory);
                 res.status(201).json({ message: "History 추가 성공", id: result.insertedId.toString() });
             } catch (error) {
                 console.error("History 추가 중 오류:", error);
@@ -514,7 +532,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 // 🚩 [추가] 이벤트 발생 플래그가 boolean 타입인지 확인
                 updatedHistory.create_event = typeof updatedHistory.create_event === 'boolean' ? updatedHistory.create_event : false;
 
-                const result = await historyCollection.updateOne(
+                const result = await collections.history.updateOne(
                     { _id: _id },
                     { $set: updatedHistory }
                 );
@@ -537,7 +555,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const _id = toObjectId(id);
                 if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
 
-                const result = await historyCollection.deleteOne({ _id: _id });
+                const result = await collections.history.deleteOne({ _id: _id });
 
                 if (result.deletedCount === 0) {
                     return res.status(404).json({ message: "역사 기록을 찾을 수 없습니다." });
@@ -557,7 +575,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // GET: 모든 이벤트 조회
         app.get('/api/events', verifyToken, async (req, res) => {
             try {
-                const events = await eventsCollection.find({}).sort({ year: 1, month: 1 }).toArray();
+                const events = await collections.events.find({}).sort({ year: 1, month: 1 }).toArray();
                 res.json(events);
             } catch (error) {
                 console.error("Events 조회 중 오류:", error);
@@ -570,7 +588,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             try {
                 const newEvent = req.body;
                 if (newEvent._id) delete newEvent._id;
-                const result = await eventsCollection.insertOne(newEvent);
+                const result = await collections.events.insertOne(newEvent);
                 res.status(201).json({ message: "Event 추가 성공", id: result.insertedId.toString() });
             } catch (error) {
                 console.error("Event 추가 중 오류:", error);
@@ -588,7 +606,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const updatedEvent = req.body;
                 if (updatedEvent._id) delete updatedEvent._id;
 
-                const result = await eventsCollection.updateOne({ _id: _id }, { $set: updatedEvent });
+                const result = await collections.events.updateOne({ _id: _id }, { $set: updatedEvent });
                 if (result.matchedCount === 0) return res.status(404).json({ message: "이벤트를 찾을 수 없습니다." });
                 res.json({ message: "Event 정보 업데이트 성공" });
             } catch (error) {
@@ -603,7 +621,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const { id } = req.params;
                 const _id = toObjectId(id);
                 if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
-                const result = await eventsCollection.deleteOne({ _id: _id });
+                const result = await collections.events.deleteOne({ _id: _id });
                 if (result.deletedCount === 0) return res.status(404).json({ message: "이벤트를 찾을 수 없습니다." });
                 res.json({ message: "Event 정보 삭제 성공" });
             } catch (error) {
@@ -619,7 +637,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // GET: 모든 그리기 정보 조회
         app.get('/api/drawings', verifyToken, async (req, res) => {
             try {
-                const drawings = await drawingsCollection.find({}).toArray();
+                const drawings = await collections.drawings.find({}).toArray();
                 res.json(drawings);
             } catch (error) {
                 console.error("Drawings 조회 중 오류:", error);
@@ -632,7 +650,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             try {
                 const newDrawing = req.body;
                 if (newDrawing._id) delete newDrawing._id;
-                const result = await drawingsCollection.insertOne(newDrawing);
+                const result = await collections.drawings.insertOne(newDrawing);
                 res.status(201).json({ message: "Drawing 추가 성공", id: result.insertedId.toString() });
             } catch (error) {
                 console.error("Drawing 추가 중 오류:", error);
@@ -650,7 +668,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const updatedDrawing = req.body;
                 if (updatedDrawing._id) delete updatedDrawing._id;
 
-                const result = await drawingsCollection.updateOne({ _id: _id }, { $set: updatedDrawing });
+                const result = await collections.drawings.updateOne({ _id: _id }, { $set: updatedDrawing });
                 if (result.matchedCount === 0) return res.status(404).json({ message: "그리기 정보를 찾을 수 없습니다." });
                 res.json({ message: "Drawing 정보 업데이트 성공" });
             } catch (error) {
@@ -665,7 +683,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const { id } = req.params;
                 const _id = toObjectId(id);
                 if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
-                const result = await drawingsCollection.deleteOne({ _id: _id });
+                const result = await collections.drawings.deleteOne({ _id: _id });
                 if (result.deletedCount === 0) return res.status(404).json({ message: "그리기 정보를 찾을 수 없습니다." });
                 res.json({ message: "Drawing 정보 삭제 성공" });
             } catch (error) {
@@ -686,13 +704,13 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     return res.status(400).json({ message: "사용자 이름과 비밀번호를 모두 입력해주세요." });
                 }
 
-                const existingUser = await usersCollection.findOne({ username });
+                const existingUser = await collections.users.findOne({ username });
                 if (existingUser) {
                     return res.status(409).json({ message: "이미 존재하는 사용자 이름입니다." });
                 }
 
                 const hashedPassword = await bcrypt.hash(password, 10);
-                await usersCollection.insertOne({
+                await collections.users.insertOne({
                     username,
                     password: hashedPassword,
                     role: role || 'user' // 기본 역할은 'user'
@@ -704,40 +722,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
-        // POST: 공개 사용자 회원가입
-        app.post('/api/auth/signup', async (req, res) => {
-            try {
-                const { username, password } = req.body;
-                if (!username || !password) {
-                    return res.status(400).json({ message: "사용자 이름과 비밀번호를 모두 입력해주세요." });
-                }
-                if (password.length < 4) {
-                    return res.status(400).json({ message: "비밀번호는 4자 이상이어야 합니다." });
-                }
-
-                const existingUser = await usersCollection.findOne({ username });
-                if (existingUser) {
-                    return res.status(409).json({ message: "이미 존재하는 사용자 이름입니다." });
-                }
-
-                const hashedPassword = await bcrypt.hash(password, 10);
-                await usersCollection.insertOne({
-                    username,
-                    password: hashedPassword,
-                    role: 'user' // 일반 사용자로 역할 고정
-                });
-
-                res.status(201).json({ message: "회원가입 성공" });
-            } catch (error) {
-                res.status(500).json({ message: "서버 오류가 발생했습니다.", error: error.message });
-            }
-        });
-
         // POST: 로그인
         app.post('/api/auth/login', async (req, res) => {
             try {
                 const { username, password } = req.body;
-                const user = await usersCollection.findOne({ username });
+                const user = await collections.users.findOne({ username });
                 if (!user) {
                     return res.status(401).json({ message: "사용자 이름 또는 비밀번호가 잘못되었습니다." });
                 }
@@ -762,7 +751,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // GET: 모든 사용자 목록 (관리자 전용)
         app.get('/api/users', verifyAdminOnly, async (req, res) => {
             try {
-                const users = await usersCollection.find({}, { projection: { password: 0 } }).toArray(); // 비밀번호 제외
+                const users = await collections.users.find({}, { projection: { password: 0 } }).toArray(); // 비밀번호 제외
                 res.json(users);
             } catch (error) {
                 res.status(500).json({ message: "사용자 목록 조회 실패", error: error.message });
@@ -777,7 +766,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (!_id) {
                     return res.status(400).json({ message: "잘못된 ID 형식입니다." });
                 }
-                const result = await usersCollection.deleteOne({ _id: _id });
+                const result = await collections.users.deleteOne({ _id: _id });
                 if (result.deletedCount === 0) {
                     return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
                 }
@@ -799,7 +788,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     return res.status(400).json({ message: "유효하지 않은 역할입니다." });
                 }
 
-                const result = await usersCollection.updateOne(
+                const result = await collections.users.updateOne(
                     { _id: _id },
                     { $set: { role: role } }
                 );
@@ -810,23 +799,53 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 res.status(500).json({ message: "사용자 역할 업데이트 실패", error: error.message });
             }
         });
-        // ----------------------------------------------------
-        // 🚀 서버 시작
-        // ----------------------------------------------------
 
-        // 이 파일이 직접 실행될 때만 서버를 시작합니다.
-        if (require.main === module) {
-            app.listen(port, () => {
-                console.log(`Server listening on http://localhost:${port}`);
-            });
-        }
-
-    } catch (err) {
-        console.error("MongoDB 연결 또는 서버 시작 중 치명적인 오류 발생:", err);
-    }
+    isAppSetup = true; // Mark setup as complete
 }
 
-run().catch(console.dir);
+// POST: 공개 사용자 회원가입 (setupRoutesAndCollections 밖으로 이동)
+app.post('/api/auth/signup', async (req, res) => {
+    try {
+        await setupRoutesAndCollections(); // Ensure collections are available
+        const { username, password } = req.body;
+        if (!username || !password) {
+            return res.status(400).json({ message: "사용자 이름과 비밀번호를 모두 입력해주세요." });
+        }
+        if (password.length < 4) {
+            return res.status(400).json({ message: "비밀번호는 4자 이상이어야 합니다." });
+        }
+
+        const existingUser = await collections.users.findOne({ username });
+        if (existingUser) {
+            return res.status(409).json({ message: "이미 존재하는 사용자 이름입니다." });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await collections.users.insertOne({
+            username,
+            password: hashedPassword,
+            role: 'user' // 일반 사용자로 역할 고정
+        });
+
+        res.status(201).json({ message: "회원가입 성공" });
+    } catch (error) {
+        res.status(500).json({ message: "서버 오류가 발생했습니다.", error: error.message });
+    }
+});
+
+// For local development, listen on a port.
+if (require.main === module) {
+    setupRoutesAndCollections().then(() => {
+        app.listen(port, () => {
+            console.log(`Server listening on http://localhost:${port}`);
+        });
+    }).catch(err => {
+        console.error("MongoDB 연결 또는 서버 시작 중 치명적인 오류 발생:", err);
+    });
+}
 
 // Vercel 배포를 위해 Express 앱 인스턴스를 내보냅니다.
-module.exports = app;
+module.exports = async (req, res) => {
+    await setupRoutesAndCollections(); // Ensure app is fully configured
+    return app(req, res); // Let Express handle the request
+};
