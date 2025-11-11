@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>회원 관리</title>
+    <!-- 🚩 [추가] 브라우저 탭 아이콘(파비콘) 설정 -->
+    <link rel="icon" type="image/png" href="https://mblogthumb-phinf.pstatic.net/MjAxNzAyMjdfMTY5/MDAxNDg4MTgzMTM3Njgy.kranOyMCE0geFsNMdN3cFzfhswjppZFRoREZIhB_oowg.qK_GkZnrnCj96GOrscX-MxqnbEiStdtpOD8hxeNGLXEg.PNG.ya0705/%EC%9D%B4%EB%AF%B8%EC%A7%80_3-01.png?type=w2">
+    <style>
+        body {
+            background-color: #0c0d15;
+        //    background-image: url('https://i.pinimg.com/736x/a3/bb/08/a3bb08156e438a1fa2c8ad66c6ffa667.jpg');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            color: #ecf0f1;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        h1, h2 {
+            text-align: center;
+            color: #ecf0f1;
+            text-shadow: 2px 2px 4px #000;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #2c3e50;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            padding: 10px;
+            border: 1px solid #5d7185;
+            text-align: left;
+        }
+        th {
+            background-color: #3e4a56;
+        }
+        form {
+            display: flex; 
+            flex-direction: column; /* 🚩 [수정] 폼 요소들을 수직으로 정렬 */
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        /* 🚩 [추가] 등록 폼은 가로 정렬 유지 */
+        #registerForm {
+            flex-direction: row;
+        }
+        input, select, textarea { /* 🚩 [수정] select, textarea 스타일 추가 */
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #5d7185;
+            background-color: #f0f0f0;
+            color: black;
+            width: 100%; /* 🚩 [추가] 너비를 100%로 설정 */
+            box-sizing: border-box; /* 🚩 [추가] 패딩과 테두리를 너비에 포함 */
+        }
+        button {
+            padding: 8px 15px;
+            width: auto; /* 🚩 [수정] 버튼 너비를 내용에 맞게 자동 조정 */
+            align-self: flex-start; /* 🚩 [수정] 버튼을 왼쪽 정렬 */
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: #00aaff;
+            color: white;
+        }
+        button.danger {
+            background-color: #e74c3c;
+        }
+        #registerForm button {
+            align-self: auto; /* 🚩 [추가] 등록 폼의 버튼은 기본 정렬 유지 */
+        }
+        .nav-links {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .nav-links a {
+            color: #ecf0f1; /* 🚩 [수정] 텍스트 색상 변경 */
+            text-decoration: none;
+            margin: 0 10px;
+        }
+        /* 🚩 [추가] 메일 발송 대상 확인 모달 스타일 */
+        .modal {
+            display: none; 
+            position: fixed; 
+            z-index: 1001; 
+            left: 0;
+            top: 0;
+            width: 100%; 
+            height: 100%; 
+            overflow: auto; 
+            background-color: rgba(0,0,0,0.6); 
+        }
+        .modal-content {
+            background-color: #2c3e50;
+            margin: 15% auto; 
+            padding: 20px;
+            border: 1px solid #5d7185;
+            width: 80%;
+            max-width: 500px;
+            border-radius: 8px;
+        }
+        .modal-content h3 {
+            margin-top: 0;
+            color: #00aaff;
+        }
+        #emailRecipientList {
+            list-style-type: none;
+            padding: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: #3e4a56;
+            border: 1px solid #5d7185;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <h1>회원 관리</h1>
+    <div class="container">
+        <h2>사용자 목록</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>사용자 이름</th>
+                    <th>역할</th>
+                    <th>작업</th>
+                </tr>
+            </thead>
+            <tbody id="userList">
+                <!-- 사용자 목록이 여기에 동적으로 추가됩니다. -->
+            </tbody>
+        </table>
+
+        <h2>새 사용자 등록</h2>
+        <form id="registerForm">
+            <input type="text" id="username" placeholder="사용자 이름" required>
+            <input type="password" id="password" placeholder="비밀번호" required>
+            <select id="role">
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+                <option value="superuser">Superuser</option>
+            </select>
+            <button type="submit">등록</button>
+        </form>
+        <p id="message"></p>
+
+        <hr style="border-color: #5d7185; margin: 30px 0;">
+
+        <h2>일괄 메일 발송</h2>
+        <form id="bulkEmailForm">
+            <input type="text" id="emailSubject" placeholder="메일 제목" required>
+            <textarea id="emailBody" rows="5" placeholder="메일 내용" required></textarea>
+            <button type="submit">전체 발송</button>
+        </form>
+
+        <!-- 🚩 [추가] 메일 발송 대상 확인 모달 -->
+        <div id="emailConfirmModal" class="modal">
+            <div class="modal-content">
+                <h3>메일 발송 대상 확인</h3>
+                <p><strong id="emailConfirmSubject"></strong> 제목으로 아래 사용자들에게 메일을 발송합니다.</p>
+                <ul id="emailRecipientList">
+                    <!-- 발송 대상 목록이 여기에 동적으로 추가됩니다. -->
+                </ul>
+                <div style="text-align: right; display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" id="cancelEmailSend" class="danger">취소</button>
+                    <button type="button" id="confirmEmailSend" class="primary">확인 및 발송</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="nav-links">
+        <a href="index.html" class="button-style primary">메인 지도로 돌아가기</a>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3000/api'; 
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+
+        // 페이지 접근 권한 확인
+        if (!token) {
+            alert('로그인이 필요합니다.');
+            window.location.href = 'login.html';
+        }
+
+        let allUsers = []; // 🚩 [추가] 사용자 목록을 저장할 전역 변수
+
+        // 사용자 목록 불러오기
+        async function fetchUsers() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/users`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (response.status === 403) {
+                    alert('관리자만 접근할 수 있습니다.');
+                    window.location.href = 'index.html';
+                    return;
+                }
+                if (!response.ok) throw new Error('사용자 목록을 불러오지 못했습니다.');
+                
+                allUsers = await response.json(); // 🚩 [수정] 전역 변수에 사용자 목록 저장
+                const userList = document.getElementById('userList');
+                userList.innerHTML = '';
+                allUsers.forEach(user => {
+                    const tr = document.createElement('tr');
+                    // 🚩 [수정] 역할(role)을 수정할 수 있는 select 드롭다운으로 변경
+                    tr.innerHTML = `
+                        <td>${user.username}</td>
+                        <td>
+                            <select onchange="updateUserRole('${user._id}', this.value)">
+                                <option value="user" ${user.role === 'user' ? 'selected' : ''}>User</option>
+                                <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
+                                <option value="superuser" ${user.role === 'superuser' ? 'selected' : ''}>Superuser</option>
+                            </select>
+                        </td>
+                        <td>
+                            <button class="danger" onclick="deleteUser('${user._id}')">삭제</button> 
+                            <!-- 🚩 [참고] 역할 수정 버튼은 select onchange로 대체되어 제거되었습니다.
+                            <button onclick="editUserRole('${user._id}')">역할 수정</button> -->
+                        </td>
+                    `;
+                    userList.appendChild(tr);
+                });
+            } catch (error) {
+                document.getElementById('message').textContent = error.message;
+            }
+        }
+
+        // 사용자 등록
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const role = document.getElementById('role').value;
+            const messageEl = document.getElementById('message');
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/auth/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ username, password, role })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.message);
+                
+                messageEl.textContent = '사용자가 성공적으로 등록되었습니다.';
+                document.getElementById('registerForm').reset();
+                fetchUsers();
+            } catch (error) {
+                messageEl.textContent = error.message;
+            }
+        });
+
+        // 🚩 [추가] 사용자 역할 수정
+        window.updateUserRole = async function(userId, newRole) {
+            const messageEl = document.getElementById('message');
+            if (!confirm(`사용자의 역할을 '${newRole}'(으)로 변경하시겠습니까?`)) {
+                fetchUsers(); // 사용자가 취소하면, select를 원래 값으로 되돌리기 위해 목록을 다시 로드합니다.
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/users/${userId}/role`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ role: newRole })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.message);
+                messageEl.textContent = '사용자 역할이 성공적으로 변경되었습니다.';
+                fetchUsers(); // 변경 후 목록 새로고침
+            } catch (error) {
+                messageEl.textContent = `역할 변경 실패: ${error.message}`;
+            }
+        }
+        // 사용자 삭제
+        window.deleteUser = async function(userId) {
+            if (!confirm('정말로 이 사용자를 삭제하시겠습니까?')) return;
+            try {
+                const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) throw new Error('삭제에 실패했습니다.');
+                fetchUsers();
+            } catch (error) {
+                document.getElementById('message').textContent = error.message;
+            }
+        }
+
+        // 일괄 메일 발송
+        document.getElementById('bulkEmailForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const subject = document.getElementById('emailSubject').value;
+            const body = document.getElementById('emailBody').value;
+            const messageEl = document.getElementById('message');
+            
+            // 🚩 [수정] 모달창에 발송 대상 목록 표시
+            const modal = document.getElementById('emailConfirmModal');
+            const recipientList = document.getElementById('emailRecipientList');
+            const confirmSubject = document.getElementById('emailConfirmSubject');
+
+            confirmSubject.textContent = `'${subject}'`;
+            recipientList.innerHTML = allUsers.map(user => `<li>${user.username}</li>`).join('');
+            modal.style.display = 'block';
+        });
+
+        // 🚩 [추가] 모달의 '확인 및 발송' 버튼 클릭 이벤트
+        document.getElementById('confirmEmailSend').addEventListener('click', async () => {
+            const subject = document.getElementById('emailSubject').value;
+            const body = document.getElementById('emailBody').value;
+            const messageEl = document.getElementById('message');
+            const modal = document.getElementById('emailConfirmModal');
+
+            modal.style.display = 'none'; // 모달 숨기기
+            messageEl.textContent = '메일 발송을 요청했습니다...';
+
+            try {
+                // 실제 이메일 발송을 위해서는 백엔드에 해당 API 구현이 필요합니다.
+                // 여기서는 성공/실패를 시뮬레이션합니다.
+
+                // 아래는 백엔드 API 호출 예시입니다.
+                /*
+                const response = await fetch(`${API_BASE_URL}/users/send-bulk-email`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ subject, body })
+                });
+                if (!response.ok) throw new Error('메일 발송에 실패했습니다.');
+                */
+                
+                // 시뮬레이션 성공 메시지
+                setTimeout(() => {
+                    messageEl.textContent = '전체 메일이 성공적으로 발송되었습니다.';
+                    document.getElementById('bulkEmailForm').reset();
+                }, 1000);
+
+            } catch (error) {
+                messageEl.textContent = error.message;
+            }
+        });
+
+        // 🚩 [추가] 모달의 '취소' 버튼 클릭 이벤트
+        document.getElementById('cancelEmailSend').addEventListener('click', () => {
+            document.getElementById('emailConfirmModal').style.display = 'none';
+        });
+
+        // 초기 로드
+        fetchUsers();
+    </script>
+</body>
+</html>
