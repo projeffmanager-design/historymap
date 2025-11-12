@@ -49,11 +49,13 @@
         }
         /* 🚩 [추가] 등록 폼은 가로 정렬 유지 */
         #registerForm {
-            flex-direction: row;
+            flex-direction: row; /* 가로 정렬 유지 */
+            align-items: flex-end; /* 요소들을 하단에 정렬 */
+            gap: 15px; /* 요소 간 간격 조정 */
         }
         input, select, textarea { /* 🚩 [수정] select, textarea 스타일 추가 */
             padding: 8px;
-            border-radius: 4px;
+            border-radius: 4px; 
             border: 1px solid #5d7185;
             background-color: #f0f0f0;
             color: black;
@@ -62,7 +64,7 @@
         }
         button {
             padding: 8px 15px;
-            width: auto; /* 🚩 [수정] 버튼 너비를 내용에 맞게 자동 조정 */
+            width: auto; 
             align-self: flex-start; /* 🚩 [수정] 버튼을 왼쪽 정렬 */
             border: none;
             border-radius: 4px;
@@ -74,7 +76,24 @@
             background-color: #e74c3c;
         }
         #registerForm button {
-            align-self: auto; /* 🚩 [추가] 등록 폼의 버튼은 기본 정렬 유지 */
+            align-self: flex-end; /* 🚩 [수정] 등록 폼의 버튼도 하단 정렬 */
+            padding: 9px 15px; /* 🚩 [수정] 다른 input과 높이를 맞추기 위해 패딩 조정 */
+        }
+        /* 🚩 [추가] 버튼 로딩 상태 */
+        button.loading {
+            position: relative;
+            color: transparent !important;
+        }
+        button.loading::after {
+            content: '';
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 16px; height: 16px;
+            margin-top: -8px; margin-left: -8px;
+            border: 2px solid #fff;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
         }
         .nav-links {
             text-align: center;
@@ -85,7 +104,29 @@
             text-decoration: none;
             margin: 0 10px;
         }
-        /* 🚩 [추가] 메일 발송 대상 확인 모달 스타일 */
+        /* 🚩 [추가] 애니메이션 */
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        /* 🚩 [추가] 토스트 알림 스타일 */
+        #toastContainer {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toast {
+            padding: 15px 20px;
+            border-radius: 5px;
+            color: white;
+            opacity: 0.9;
+            transition: opacity 0.3s;
+        }
+        .toast.success { background-color: #27ae60; }
+        .toast.error { background-color: #c0392b; }
         .modal {
             display: none; 
             position: fixed; 
@@ -120,6 +161,10 @@
             border-radius: 4px;
             margin-bottom: 15px;
         }
+        /* 🚩 [추가] 확인 모달의 메시지 스타일 */
+        #confirmModalMessage {
+            margin-bottom: 20px;
+        }
     </style>
 </head>
 <body>
@@ -150,7 +195,6 @@
             </select>
             <button type="submit">등록</button>
         </form>
-        <p id="message"></p>
 
         <hr style="border-color: #5d7185; margin: 30px 0;">
 
@@ -175,10 +219,26 @@
                 </div>
             </div>
         </div>
+
+        <!-- 🚩 [추가] 범용 확인 모달 -->
+        <div id="confirmModal" class="modal">
+            <div class="modal-content">
+                <h3>작업 확인</h3>
+                <p id="confirmModalMessage"></p>
+                <div style="text-align: right; display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" id="cancelConfirm" class="danger">취소</button>
+                    <button type="button" id="confirmAction" class="primary">확인</button>
+                </div>
+            </div>
+        </div>
     </div>
     <div class="nav-links">
         <a href="index.html" class="button-style primary">메인 지도로 돌아가기</a>
     </div>
+
+    <!-- 🚩 [추가] 토스트 알림 컨테이너 -->
+    <div id="toastContainer"></div>
+
 
     <script>
         const API_BASE_URL = '/api'; // 💡 상대 경로로 변경
@@ -191,6 +251,49 @@
         }
 
         let allUsers = []; // 🚩 [추가] 사용자 목록을 저장할 전역 변수
+
+        // 🚩 [추가] 토스트 알림 함수
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // 🚩 [추가] 범용 확인 모달 함수
+        function showConfirmModal(message, onConfirm) {
+            const modal = document.getElementById('confirmModal');
+            document.getElementById('confirmModalMessage').textContent = message;
+            modal.style.display = 'block';
+
+            const confirmBtn = document.getElementById('confirmAction');
+            const cancelBtn = document.getElementById('cancelConfirm');
+
+            const confirmHandler = () => {
+                modal.style.display = 'none';
+                onConfirm();
+                cleanup();
+            };
+
+            const cancelHandler = () => {
+                modal.style.display = 'none';
+                cleanup();
+            };
+
+            const cleanup = () => {
+                confirmBtn.removeEventListener('click', confirmHandler);
+                cancelBtn.removeEventListener('click', cancelHandler);
+            };
+
+            confirmBtn.addEventListener('click', confirmHandler, { once: true });
+            cancelBtn.addEventListener('click', cancelHandler, { once: true });
+        }
 
         // 사용자 목록 불러오기
         async function fetchUsers() {
@@ -214,14 +317,14 @@
                     tr.innerHTML = `
                         <td>${user.username}</td>
                         <td>
-                            <select onchange="updateUserRole('${user._id}', this.value)">
+                            <select onchange="updateUserRole(this, '${user._id}', '${user.role}')" data-userid="${user._id}">
                                 <option value="user" ${user.role === 'user' ? 'selected' : ''}>User</option>
                                 <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
                                 <option value="superuser" ${user.role === 'superuser' ? 'selected' : ''}>Superuser</option>
                             </select>
                         </td>
                         <td>
-                            <button class="danger" onclick="deleteUser('${user._id}')">삭제</button> 
+                            <button class="danger" onclick="deleteUser(this, '${user._id}')">삭제</button> 
                             <!-- 🚩 [참고] 역할 수정 버튼은 select onchange로 대체되어 제거되었습니다.
                             <button onclick="editUserRole('${user._id}')">역할 수정</button> -->
                         </td>
@@ -229,7 +332,7 @@
                     userList.appendChild(tr);
                 });
             } catch (error) {
-                document.getElementById('message').textContent = error.message;
+                showToast(error.message, 'error');
             }
         }
 
@@ -239,7 +342,7 @@
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
             const role = document.getElementById('role').value;
-            const messageEl = document.getElementById('message');
+            const submitBtn = e.target.querySelector('button[type="submit"]');
 
             try {
                 const response = await fetch(`${API_BASE_URL}/auth/register`, {
@@ -253,49 +356,60 @@
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.message);
                 
-                messageEl.textContent = '사용자가 성공적으로 등록되었습니다.';
+                showToast('사용자가 성공적으로 등록되었습니다.');
                 document.getElementById('registerForm').reset();
                 fetchUsers();
             } catch (error) {
-                messageEl.textContent = error.message;
+                showToast(error.message, 'error');
             }
         });
 
         // 🚩 [추가] 사용자 역할 수정
-        window.updateUserRole = async function(userId, newRole) {
-            const messageEl = document.getElementById('message');
-            if (!confirm(`사용자의 역할을 '${newRole}'(으)로 변경하시겠습니까?`)) {
-                fetchUsers(); // 사용자가 취소하면, select를 원래 값으로 되돌리기 위해 목록을 다시 로드합니다.
-                return;
-            }
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/users/${userId}/role`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ role: newRole })
-                });
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.message);
-                messageEl.textContent = '사용자 역할이 성공적으로 변경되었습니다.';
-                fetchUsers(); // 변경 후 목록 새로고침
-            } catch (error) {
-                messageEl.textContent = `역할 변경 실패: ${error.message}`;
-            }
+        window.updateUserRole = function(selectElement, userId, oldRole) {
+            const newRole = selectElement.value;
+            showConfirmModal(`사용자의 역할을 '${newRole}'(으)로 변경하시겠습니까?`, async () => {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/users/${userId}/role`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ role: newRole })
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.message);
+                    showToast('사용자 역할이 성공적으로 변경되었습니다.');
+                    // 성공 시 목록을 다시 로드할 필요 없이 oldRole을 업데이트
+                    selectElement.setAttribute('onchange', `updateUserRole(this, '${userId}', '${newRole}')`);
+                } catch (error) {
+                    showToast(`역할 변경 실패: ${error.message}`, 'error');
+                    selectElement.value = oldRole; // 실패 시 원래 역할로 되돌림
+                }
+            });
+            // 사용자가 모달에서 '취소'를 누르면, onConfirm이 실행되지 않으므로 아무 일도 일어나지 않음
+            // select 값은 onchange에 의해 이미 변경되었으므로, 취소 시 원래 값으로 되돌려야 함
+            document.getElementById('cancelConfirm').addEventListener('click', () => {
+                selectElement.value = oldRole;
+            }, { once: true });
         }
         // 사용자 삭제
-        window.deleteUser = async function(userId) {
-            if (!confirm('정말로 이 사용자를 삭제하시겠습니까?')) return;
-            try {
-                const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
-                    method: 'DELETE',
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (!response.ok) throw new Error('삭제에 실패했습니다.');
-                fetchUsers();
-            } catch (error) {
-                document.getElementById('message').textContent = error.message;
-            }
+        window.deleteUser = function(button, userId) {
+            showConfirmModal('정말로 이 사용자를 삭제하시겠습니까?', async () => {
+                button.classList.add('loading');
+                button.disabled = true;
+                try {
+                    const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (!response.ok) throw new Error('삭제에 실패했습니다.');
+                    showToast('사용자가 삭제되었습니다.');
+                    fetchUsers(); // 삭제 후 목록 새로고침
+                } catch (error) {
+                    showToast(error.message, 'error');
+                } finally {
+                    button.classList.remove('loading');
+                    button.disabled = false;
+                }
+            });
         }
 
         // 일괄 메일 발송
@@ -303,7 +417,6 @@
             e.preventDefault();
             const subject = document.getElementById('emailSubject').value;
             const body = document.getElementById('emailBody').value;
-            const messageEl = document.getElementById('message');
             
             // 🚩 [수정] 모달창에 발송 대상 목록 표시
             const modal = document.getElementById('emailConfirmModal');
@@ -319,11 +432,14 @@
         document.getElementById('confirmEmailSend').addEventListener('click', async () => {
             const subject = document.getElementById('emailSubject').value;
             const body = document.getElementById('emailBody').value;
-            const messageEl = document.getElementById('message');
             const modal = document.getElementById('emailConfirmModal');
+            const confirmBtn = document.getElementById('confirmEmailSend');
 
             modal.style.display = 'none'; // 모달 숨기기
-            messageEl.textContent = '메일 발송을 요청했습니다...';
+            showToast('메일 발송을 요청 중입니다...', 'success');
+
+            confirmBtn.classList.add('loading');
+            confirmBtn.disabled = true;
 
             try {
                 // 실제 이메일 발송을 위해서는 백엔드에 해당 API 구현이 필요합니다.
@@ -341,12 +457,16 @@
                 
                 // 시뮬레이션 성공 메시지
                 setTimeout(() => {
-                    messageEl.textContent = '전체 메일이 성공적으로 발송되었습니다.';
+                    showToast('전체 메일이 성공적으로 발송되었습니다.');
                     document.getElementById('bulkEmailForm').reset();
                 }, 1000);
 
             } catch (error) {
-                messageEl.textContent = error.message;
+                showToast(error.message, 'error');
+            } finally {
+                // 시뮬레이션이므로 setTimeout 안에 넣지 않음
+                confirmBtn.classList.remove('loading');
+                confirmBtn.disabled = false;
             }
         });
 
