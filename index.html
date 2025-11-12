@@ -909,6 +909,22 @@
   <div id="castleForm">
         <h3>새로운 오브젝트 추가/편집</h3> <form id="addCastleForm">
       <input type="hidden" id="castleKey">
+      <div class="form-row">
+        <label>마커 타입:</label>
+        <div id="markerTypeSelector" class="marker-type-selector">
+            <button type="button" data-type="normal" class="active">일반</button>
+            <button type="button" data-type="capital">왕성</button>
+            <button type="button" data-type="battle">전장</button>
+            <button type="button" data-type="military">군대</button>
+            <button type="button" data-type="natural">자연</button>
+            <button type="button" data-type="label">지명</button> 
+        </div>
+      </div>
+      <div class="form-row">
+        <label for="castleName">이름:</label>
+      <input type="hidden" id="castleKey">
+      <div class="form-row">
+        <label>마커 타입:</label>
         <div id="markerTypeSelector" class="marker-type-selector">
             <button type="button" data-type="normal" class="active">일반</button>
             <button type="button" data-type="capital">왕성</button>
@@ -1146,6 +1162,10 @@
         </div>
         <div class="form-row">
             <label for="kingName">왕 이름:</label>
+        <input type="text" id="castleName" required>
+      </div>
+      <div class="form-row" id="labelColorRow" style="display:none;">
+        <label for="labelColor">글자 색상:</label>
             <input type="text" id="kingName" required>
         </div>
         <div class="form-row">
@@ -2396,16 +2416,15 @@ function getCountryInfoById(id) {
               document.getElementById('eventEditBtn').style.display = 'inline-block';
 
               addHistoryBtn.style.display = 'inline-block';
-          } else {
+          } else { 
               editMode = false; // 일반 사용자는 편집 모드 비활성화
-              document.getElementById('editBtn').style.display = 'none'; // 편집 버튼 숨김
+              // document.getElementById('editBtn').style.display = 'none'; // 편집 버튼 숨김
               // document.getElementById('editBtn').style.display = 'none'; // 편집 버튼 숨김 - 이 버튼은 이미 HTML에서 제거됨
           }
       } else {
           const adminLink = document.getElementById('adminLink');
-          if (adminLink) {
-              adminLink.style.display = 'none';
-          }
+          if (adminLink) adminLink.style.display = 'none';
+          document.getElementById('editBtn').style.display = 'none';
           editMode = false;
       }
 
@@ -2849,6 +2868,7 @@ function getCountryInfoById(id) {
     editSelectedCityBtn.addEventListener('click', () => {
         const selectedCityId = citySelectForEdit.value;
         if (selectedCityId) { editCitySelectionForm.style.display = 'none'; openCastleForm(selectedCityId); } else { alert('편집할 도시/성을 선택해주세요!'); }
+        if (selectedCityId) { editCitySelectionForm.style.display = 'none'; openCastleForm(selectedCityId); } else { alert('편집할 도시/성을 선택해주세요.'); }
     });
 
     // 🚩 [추가] 국가 편집 버튼 이벤트 리스너
@@ -3568,13 +3588,16 @@ function getCountryInfoById(id) {
         const url = isUpdate ? `${API_BASE_URL}/events/${eventId}` : `${API_BASE_URL}/events`;
         const method = isUpdate ? 'PUT' : 'POST';
 
+        const data = {
         const data = { 
             year: parseInt(document.getElementById('eventYear').value),
             month: parseInt(document.getElementById('eventMonth').value) || 1,
             text: document.getElementById('eventText').value,
             photo: document.getElementById('eventPhoto').value || null, // 🚩 [추가] 사진 URL 데이터 수집
         };
+
         if (isNaN(data.year) || !data.text) {
+            return alert("연도와 이벤트 내용은 필수입니다.");
             return alert("연도와 이벤트 내용은 필수입니다."); 
         }
 
@@ -3585,6 +3608,7 @@ function getCountryInfoById(id) {
                 body: JSON.stringify(data) 
             });
             if (!response.ok) throw new Error('이벤트 저장 실패');
+            if (!response.ok) throw new Error('이벤트 저장 실패'); 
             document.getElementById('eventForm').style.display = 'none';
             initialize();
         } catch (error) { alert(error.message); }
@@ -3638,6 +3662,7 @@ function getCountryInfoById(id) {
         
         const select = kingSelect;
         select.innerHTML = '<option value="">--- 새 왕 추가 ---</option>' + 
+                          kingList.map((k, index) => {
                           kingList.map((k, index) => { 
                               const startMonth = k.start_month || 1;
                               const endMonth = k.end_month || 1;
@@ -3645,7 +3670,7 @@ function getCountryInfoById(id) {
                               
                               return `<option value="${index}" 
                                         data-start="${k.start}" 
-                                        data-end="${k.end}" 
+                                        data-end="${k.end}"
                                         data-start-month="${startMonth}" 
                                         data-end-month="${endMonth}"
                                         data-id="${k._id ? k._id.toString() : ''}"
