@@ -1284,11 +1284,6 @@
         {   id: 'honilBtn', 
             name: '혼일강리역대국도지도', 
             url: 'https://github.com/projeffmanager-design/img/blob/main/4%20%E1%84%87%E1%85%A9%E1%84%80%E1%85%B3%E1%86%B8%E1%84%8B%E1%85%AD%E1%86%BC%20%E1%84%92%E1%85%A9%E1%86%AB%E1%84%8B%E1%85%B5%E1%86%AF%E1%84%80%E1%85%A1%E1%86%BC%E1%84%85%E1%85%B5%E1%84%8B%E1%85%A7%E1%86%A8%E1%84%83%E1%85%A2%E1%84%80%E1%85%AE%E1%86%A8%E1%84%83%E1%85%A9%E1%84%8C%E1%85%B5%E1%84%83%E1%85%A9%20(%E1%84%8E%E1%85%A2%E1%86%A8%E1%84%87%E1%85%A9%E1%84%80%E1%85%A9%20%E1%84%92%E1%85%A1%E1%86%AB%E1%84%80%E1%85%B3%E1%86%AF%E1%84%87%E1%85%A5%E1%86%AB%E1%84%8B%E1%85%A7%E1%86%A8).JPG?raw=true' 
-        },
-        {
-            id: 'goryeoBtn',
-            name: '고려만리지도',
-            url: 'https://github.com/projeffmanager-design/img/blob/main/5.%20%E1%84%80%E1%85%A9%E1%84%85%E1%85%A7%E1%84%86%E1%85%A1%E1%86%AB%E1%84%85%E1%85%B5%E1%84%8C%E1%85%B5%E1%84%83%E1%85%A9.jpg?raw=true'
         }
     ];
 
@@ -1354,7 +1349,7 @@
     // 🚩 [수정] 위성 지도를 기본으로 설정하고, 토글 순서 변경
     const tileLayers = {
         '위성': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18 }),
-        '다크': L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png', { maxZoom: 20 }),
+   //     '다크': L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png', { maxZoom: 20 }),
         '일반': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 })
     };
     let currentTileLayer = tileLayers['위성']; // 기본 레이어
@@ -2385,7 +2380,6 @@ function getCountryInfoById(id) {
               addHistoryBtn.style.display = 'inline-block';
           } else {
               editMode = false; // 일반 사용자는 편집 모드 비활성화
-              // document.getElementById('editBtn').style.display = 'none'; // 편집 버튼 숨김
           }
       } else {
           const adminLink = document.getElementById('adminLink');
@@ -2436,6 +2430,18 @@ function getCountryInfoById(id) {
       updateTime(initialYear, initialMonth); // updateTime으로 초기화
       console.log("초기화 완료.");
     }
+        // 🚩 [추가] 도시/성 선택 드롭다운을 채우는 함수
+    function populateCitySelectForEdit() {
+        const select = citySelectForEdit;
+        select.innerHTML = '<option value="">-- 도시/성 선택 --</option>'; // 초기화
+        // 군대, 자연, 지명 타입이 아닌 성/도시만 목록에 추가
+        const filteredCastles = castles.filter(c => !c.is_military_flag && !c.is_natural_feature && !c.is_label)
+                                       .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+        filteredCastles.forEach(castle => {
+            select.innerHTML += `<option value="${castle._id}">${castle.name} (${getCountryInfoById(castle.country_id)?.name || '알 수 없음'})</option>`;
+        });
+    }
+
         // 🚩 [추가] 슬라이더 눈금을 동적으로 생성하는 함수
     function createSliderTicks() {
         const ticksContainer = document.createElement('div');
@@ -2806,6 +2812,16 @@ function getCountryInfoById(id) {
 
     
     // 지도 클릭 시 성 추가 폼 열기 (편집 모드에서만)
+    map.on('click', (e) => {
+      // 🚩 [수정] 편집 모드가 아닐 때는 아무 동작도 하지 않음
+      if (!editMode || !(currentUser?.role === 'superuser' || currentUser?.role === 'admin')) return;
+      
+      // 🚩 [수정] 그리는 중일 때는 폼을 열지 않고 종료
+      if (isDrawing) return;
+
+      // 🚩 [수정] 지도 클릭 시 바로 폼을 열지 않고, 우클릭 메뉴를 통해 열도록 변경 (아래 contextmenu 이벤트 핸들러 참조)
+      // 이 핸들러는 이제 비어있어도 되지만, 향후 다른 클릭 기반 기능을 위해 남겨둘 수 있습니다.
+    });
 
     // 🚩 [추가] 지도에서 우클릭 시 좌표 복사 팝업 표시
     map.on('contextmenu', (e) => {
