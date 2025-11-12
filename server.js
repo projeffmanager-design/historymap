@@ -6,6 +6,7 @@ const { MongoClient, ObjectId } = require('mongodb');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
+const path = require('path');
 
 const app = express();
 const port = 3000;
@@ -104,6 +105,9 @@ const verifySuperuser = (req, res, next) => { // (전역으로 이동)
 
 app.use(cors()); // 모든 도메인에서 요청 허용 (개발용)
 app.use(express.json());
+// 💡 [추가] Express 앱에서 정적 파일을 제공하도록 설정
+// public 폴더에 있는 index.html, admin.html 등을 서비스할 수 있게 됩니다.
+app.use(express.static(path.join(__dirname, 'public')));
 
 async function connectToDatabase() {
     if (db) {
