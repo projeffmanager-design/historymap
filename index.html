@@ -3539,6 +3539,28 @@ function getCountryInfoById(id) {
         loadKingsForCountry(true); 
     });
 
+    // --- 10. 이벤트 편집 폼 관리 --- (🚩 [신규 추가])
+    eventEditBtn.addEventListener('click', () => { // 이 버튼 자체가 관리자에게만 보이므로 내부 권한 체크는 불필요
+        closeAllFormsExcept('eventForm');
+        document.getElementById('eventForm').style.display = 'block';
+        document.getElementById('editEventForm').reset();
+        document.getElementById('eventMongoId').value = '';
+        document.getElementById('deleteEventBtn').style.display = 'none';
+        document.getElementById('saveEventBtn').textContent = '저장/추가';
+        populateEventSelect();
+    });
+
+    countryEditBtn.addEventListener('click', () => {
+        closeAllFormsExcept('countryForm');
+        document.getElementById('countryForm').style.display = 'block';
+        updateCountrySelectForEdit();
+        document.getElementById('editCountryForm').reset();
+        document.getElementById('countryOriginalName').value = '';
+        document.getElementById('deleteCountryBtn').style.display = 'none';
+        document.getElementById('saveCountryBtn').textContent = '저장/추가';
+        document.getElementById('countryColor').value = '#ffffff'; // 기본 색상으로 설정
+    });
+
     function updateKingFormCountrySelect() {
         const select = kingCountrySelectForForm;
         // 🚩 수정: option value에 국가 이름 대신 국가의 _id를 저장합니다.
@@ -3776,31 +3798,6 @@ kingSelect.addEventListener('change', () => {
         document.getElementById('kingForm').style.display = 'none';
     }); 
     
-    // --- 11. 그리기 폼 관리 --- (🚩 [신규 추가])
-    function openDrawingForm(geojson, drawingData = null) {
-        closeAllFormsExcept('drawingForm');
-        const form = document.getElementById('drawingForm');
-        form.style.display = 'block';
-        document.getElementById('editDrawingForm').reset();
-
-        document.getElementById('drawingGeoJson').value = JSON.stringify(geojson);
-
-        if (drawingData) { // 편집 모드
-            document.getElementById('drawingMongoId').value = drawingData._id;
-            document.getElementById('drawingName').value = drawingData.name;
-            document.getElementById('drawingType').value = drawingData.type;
-            document.getElementById('drawingStartYear').value = drawingData.start_year;
-            document.getElementById('drawingEndYear').value = drawingData.end_year || '';
-            document.getElementById('deleteDrawingBtn').style.display = 'inline-block';
-            document.getElementById('saveDrawingBtn').textContent = '저장';
-        } else { // 추가 모드
-            document.getElementById('drawingMongoId').value = '';
-            document.getElementById('drawingStartYear').value = yearInput.value; // 현재 연도 기본값
-            document.getElementById('deleteDrawingBtn').style.display = 'none';
-            document.getElementById('saveDrawingBtn').textContent = '저장';
-        }
-    }
-
     document.getElementById('editDrawingForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const drawingId = document.getElementById('drawingMongoId').value;
@@ -3849,6 +3846,31 @@ kingSelect.addEventListener('change', () => {
             initialize(); // 전체 데이터 다시 로드
         } catch (error) {
             alert(error.message);
+        }
+    });
+
+    // --- 11. 그리기 폼 관리 --- (🚩 [신규 추가])
+    function openDrawingForm(geojson, drawingData = null) {
+        closeAllFormsExcept('drawingForm');
+        const form = document.getElementById('drawingForm');
+        form.style.display = 'block';
+        document.getElementById('editDrawingForm').reset();
+
+        document.getElementById('drawingGeoJson').value = JSON.stringify(geojson);
+
+        if (drawingData) { // 편집 모드
+            document.getElementById('drawingMongoId').value = drawingData._id;
+            document.getElementById('drawingName').value = drawingData.name;
+            document.getElementById('drawingType').value = drawingData.type;
+            document.getElementById('drawingStartYear').value = drawingData.start_year;
+            document.getElementById('drawingEndYear').value = drawingData.end_year || '';
+            document.getElementById('deleteDrawingBtn').style.display = 'inline-block';
+            document.getElementById('saveDrawingBtn').textContent = '저장';
+        } else { // 추가 모드
+            document.getElementById('drawingMongoId').value = '';
+            document.getElementById('drawingStartYear').value = yearInput.value; // 현재 연도 기본값
+            document.getElementById('deleteDrawingBtn').style.display = 'none';
+            document.getElementById('saveDrawingBtn').textContent = '저장';
         }
     });
     // --- 12. 사서 기록 폼 관리 --- (기존 로직 유지)
