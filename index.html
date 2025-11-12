@@ -802,6 +802,7 @@
             <div class="right-controls" style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap;">
                 <!-- 🚩 [이동] 관리자용 편집 버튼들을 이곳으로 이동 -->
                 <div id="edit-controls" style="display: flex; gap: 5px; flex-shrink: 0;">
+                    <button id="cityEditBtn" style="display:none;">도시/성 편집</button>
                     <button id="countryEditBtn" style="display:none;">국가 편집</button>
                     <button id="kingEditBtn" style="display:none;">왕 편집</button>
                     <button id="eventEditBtn" style="display:none;">이벤트 편집</button>
@@ -831,7 +832,7 @@
       <div id="timeline-container"></div>
   </div>
 
-  <div id="mainContainer" style="position: relative;">
+  <div id="contentContainer" style="display: flex; flex-grow: 1; min-height: 0; padding: 0 10px 10px;">
     <div id="leftColumn" style="display: flex; flex-direction: column; flex-basis: 70%; flex-grow: 1; flex-shrink: 1;">
       <div id="map" style="width: 100%; height: 100%; min-height: 0;">
         <!-- 🚩 [수정] 이벤트 오버레이를 map div 안으로 이동 -->
@@ -846,8 +847,6 @@
     <div id="resizer"></div>
 
     <div id="rightPanel" style="padding: 15px; flex-basis: 30%; flex-grow: 1; flex-shrink: 1;">
-        <!-- 🚩 [제거] authButtons div를 헤더로 이동했으므로 제거합니다. -->
-
         <!-- 🚩 [수정] kingPanel의 height를 flex-basis로 변경 -->
         <div id="kingPanel" style="flex-basis: 30%;">
             <h3 style="margin-top:0;">국가별 왕 목록</h3>
@@ -892,6 +891,20 @@
   </div>
   <div id="castleForm">
         <h3>새로운 오브젝트 추가/편집</h3> <form id="addCastleForm">
+      <input type="hidden" id="castleKey">
+      <div class="form-row">
+        <label>마커 타입:</label>
+        <div id="markerTypeSelector" class="marker-type-selector">
+            <button type="button" data-type="normal" class="active">일반</button>
+            <button type="button" data-type="capital">왕성</button>
+            <button type="button" data-type="battle">전장</button>
+            <button type="button" data-type="military">군대</button>
+            <button type="button" data-type="natural">자연</button>
+            <button type="button" data-type="label">지명</button> 
+        </div>
+      </div>
+      <div class="form-row">
+        <label for="castleName">이름:</label>
       <input type="hidden" id="castleKey">
       <div class="form-row">
         <label>마커 타입:</label>
@@ -992,6 +1005,20 @@
     </form>
   </div>
 
+  <!-- 🚩 [추가] 도시/성 편집 선택 폼 -->
+  <div id="editCitySelectionForm" style="display: none; position: absolute; top: 100px; left: calc(50% - 225px); background: #2c3e50; color: #ecf0f1; border: 1px solid #5d7185; padding: 20px; z-index: 1000; border-radius: 8px; width: 450px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); max-width: 90%; min-width: 350px;">
+      <h3>편집할 도시/성 선택</h3>
+      <div class="form-row">
+          <label for="citySelectForEdit">도시/성:</label>
+          <select id="citySelectForEdit" style="flex-grow: 1;">
+              <option value="">-- 도시/성 선택 --</option>
+          </select>
+      </div>
+      <div class="form-actions" style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
+          <button type="button" id="cancelCitySelectionBtn">취소</button>
+          <button type="button" id="editSelectedCityBtn" class="primary">편집</button>
+      </div>
+  </div>
   <div id="historyForm">
       <h3>사서 기록 편집/추가</h3>
       <form id="addHistoryForm">
@@ -1118,6 +1145,10 @@
         </div>
         <div class="form-row">
             <label for="kingName">왕 이름:</label>
+        <input type="text" id="castleName" required>
+      </div>
+      <div class="form-row" id="labelColorRow" style="display:none;">
+        <label for="labelColor">글자 색상:</label>
             <input type="text" id="kingName" required>
         </div>
         <div class="form-row">
@@ -1396,13 +1427,11 @@
     const countryEditBtn = document.getElementById('countryEditBtn');
     const kingEditBtn = document.getElementById('kingEditBtn');
     const eventEditBtn = document.getElementById('eventEditBtn'); // 🚩 [추가] 이벤트 편집 버튼
-    const cityEditBtn = document.getElementById('cityEditBtn'); // 🚩 [추가] 도시/성 편집 버튼
     const countrySelectForEdit = document.getElementById('countrySelectForEdit');
     const prevHistoryBtn = document.getElementById('prevHistoryBtn'); // 🚩 [추가] 이전 역사 버튼
     const nextHistoryBtn = document.getElementById('nextHistoryBtn'); // 🚩 [추가] 다음 역사 버튼
     const kingCountrySelectForForm = document.getElementById('kingCountryName');
     const kingSelect = document.getElementById('kingSelect');
-    
     
     // 성/위치 폼 내 체크박스 및 상세 정보
     const layerToggles = document.getElementById('layer-toggles');
@@ -2352,7 +2381,7 @@ function getCountryInfoById(id) {
           // 'admin' 또는 'superuser'일 때 편집 모드 바로 활성화
           if (currentUser.role === 'admin' || currentUser.role === 'superuser') {
               editMode = true;
-              // 🚩 [추가] 권한에 따라 편집 버튼들을 표시합니다.
+              cityEditBtn.style.display = 'inline-block'; // 🚩 [추가] 도시/성 편집 버튼 표시
               document.getElementById('countryEditBtn').style.display = 'inline-block';
               document.getElementById('kingEditBtn').style.display = 'inline-block';
               document.getElementById('eventEditBtn').style.display = 'inline-block';
@@ -2365,7 +2394,6 @@ function getCountryInfoById(id) {
       } else {
           const adminLink = document.getElementById('adminLink');
           if (adminLink) adminLink.style.display = 'none';
-          // document.getElementById('editBtn').style.display = 'none'; // 🚩 [제거] editBtn은 더 이상 사용되지 않습니다.
           editMode = false;
       }
 
@@ -2753,6 +2781,14 @@ function getCountryInfoById(id) {
     function collectPathData() {
         const pathPoints = document.querySelectorAll('#pathDataList .path-point-row');
         const pathData = [];
+        pathPoints.forEach(row => {
+            pathData.push({
+                target_year: parseInt(row.querySelector('.path-year').value) || null,
+                target_month: parseInt(row.querySelector('.path-month').value) || 1,
+                lat: parseFloat(row.querySelector('.path-lat').value) || null,
+                lng: parseFloat(row.querySelector('.path-lng').value) || null,
+            });
+        });
         return pathData.filter(p => p.target_year !== null && p.lat !== null && p.lng !== null);
     }
     // 편집 모드 토글
@@ -2773,16 +2809,6 @@ function getCountryInfoById(id) {
 
     
     // 지도 클릭 시 성 추가 폼 열기 (편집 모드에서만)
-    map.on('click', (e) => {
-      // 🚩 [수정] 편집 모드가 아닐 때는 아무 동작도 하지 않음
-      if (!editMode || !(currentUser?.role === 'superuser' || currentUser?.role === 'admin')) return;
-      
-      // 🚩 [수정] 그리는 중일 때는 폼을 열지 않고 종료
-      if (isDrawing) return;
-
-      // 🚩 [수정] 지도 클릭 시 바로 폼을 열지 않고, 우클릭 메뉴를 통해 열도록 변경 (아래 contextmenu 이벤트 핸들러 참조)
-      // 이 핸들러는 이제 비어있어도 되지만, 향후 다른 클릭 기반 기능을 위해 남겨둘 수 있습니다.
-    });
 
     // 🚩 [추가] 지도에서 우클릭 시 좌표 복사 팝업 표시
     map.on('contextmenu', (e) => {
