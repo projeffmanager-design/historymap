@@ -105,9 +105,9 @@ const verifySuperuser = (req, res, next) => { // (전역으로 이동)
 
 app.use(cors()); // 모든 도메인에서 요청 허용 (개발용)
 app.use(express.json());
-// 💡 [추가] Express 앱에서 정적 파일을 제공하도록 설정
-// public 폴더에 있는 index.html, admin.html 등을 서비스할 수 있게 됩니다.
-app.use(express.static(path.join(__dirname, 'public')));
+// 💡 [수정] Express 앱에서 정적 파일을 제공하는 경로를 'public' 폴더에서 프로젝트 루트로 변경합니다.
+// 이제 index.html, admin.html 등을 루트 디렉토리에서 직접 서비스할 수 있습니다.
+app.use(express.static(__dirname));
 
 async function connectToDatabase() {
     if (db) {
