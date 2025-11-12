@@ -833,6 +833,7 @@
   </div>
 
   <div id="contentContainer" style="display: flex; flex-grow: 1; min-height: 0; padding: 0 10px 10px;">
+  <div id="mainContainer" style="position: relative;">
     <div id="leftColumn" style="display: flex; flex-direction: column; flex-basis: 70%; flex-grow: 1; flex-shrink: 1;">
       <div id="map" style="width: 100%; height: 100%; min-height: 0;">
         <!-- 🚩 [수정] 이벤트 오버레이를 map div 안으로 이동 -->
@@ -847,6 +848,8 @@
     <div id="resizer"></div>
 
     <div id="rightPanel" style="padding: 15px; flex-basis: 30%; flex-grow: 1; flex-shrink: 1;">
+        <!-- 🚩 [제거] authButtons div를 헤더로 이동했으므로 제거합니다. -->
+
         <!-- 🚩 [수정] kingPanel의 height를 flex-basis로 변경 -->
         <div id="kingPanel" style="flex-basis: 30%;">
             <h3 style="margin-top:0;">국가별 왕 목록</h3>
@@ -888,6 +891,20 @@
     </div>
     <!-- 🚩 [이동] 토글 버튼을 mainContainer 바로 아래로 이동하여 패널이 숨겨져도 보이도록 함 -->
     <button id="rightPanelToggleBtn" title="패널 접기/펼치기">패널 접기</button>
+  </div>
+  <!-- 🚩 [추가] 도시/성 편집 선택 폼 -->
+  <div id="editCitySelectionForm" style="display: none; position: absolute; top: 100px; left: calc(50% - 225px); background: #2c3e50; color: #ecf0f1; border: 1px solid #5d7185; padding: 20px; z-index: 1000; border-radius: 8px; width: 450px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); max-width: 90%; min-width: 350px;">
+      <h3>편집할 도시/성 선택</h3>
+      <div class="form-row">
+          <label for="citySelectForEdit">도시/성:</label>
+          <select id="citySelectForEdit" style="flex-grow: 1;">
+              <option value="">-- 도시/성 선택 --</option>
+          </select>
+      </div>
+      <div class="form-actions" style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
+          <button type="button" id="cancelCitySelectionBtn">취소</button>
+          <button type="button" id="editSelectedCityBtn" class="primary">편집</button>
+      </div>
   </div>
   <div id="castleForm">
         <h3>새로운 오브젝트 추가/편집</h3> <form id="addCastleForm">
@@ -1288,6 +1305,11 @@
         {   id: 'honilBtn', 
             name: '혼일강리역대국도지도', 
             url: 'https://github.com/projeffmanager-design/img/blob/main/4%20%E1%84%87%E1%85%A9%E1%84%80%E1%85%B3%E1%86%B8%E1%84%8B%E1%85%AD%E1%86%BC%20%E1%84%92%E1%85%A9%E1%86%AB%E1%84%8B%E1%85%B5%E1%86%AF%E1%84%80%E1%85%A1%E1%86%BC%E1%84%85%E1%85%B5%E1%84%8B%E1%85%A7%E1%86%A8%E1%84%83%E1%85%A2%E1%84%80%E1%85%AE%E1%86%A8%E1%84%83%E1%85%A9%E1%84%8C%E1%85%B5%E1%84%83%E1%85%A9%20(%E1%84%8E%E1%85%A2%E1%86%A8%E1%84%87%E1%85%A9%E1%84%80%E1%85%A9%20%E1%84%92%E1%85%A1%E1%86%AB%E1%84%80%E1%85%B3%E1%86%AF%E1%84%87%E1%85%A5%E1%86%AB%E1%84%8B%E1%85%A7%E1%86%A8).JPG?raw=true' 
+        },
+        {
+            id: 'goryeoBtn',
+            name: '고려만리지도',
+            url: 'https://github.com/projeffmanager-design/img/blob/main/5.%20%E1%84%80%E1%85%A9%E1%84%85%E1%85%A7%E1%84%86%E1%85%A1%E1%86%AB%E1%84%85%E1%85%B5%E1%84%8C%E1%85%B5%E1%84%83%E1%85%A9.jpg?raw=true'
         }
     ];
 
@@ -1426,6 +1448,12 @@
     const prevHistoryBtn = document.getElementById('prevHistoryBtn'); // 🚩 [추가] 이전 역사 버튼
     const nextHistoryBtn = document.getElementById('nextHistoryBtn'); // 🚩 [추가] 다음 역사 버튼
     const kingCountrySelectForForm = document.getElementById('kingCountryName');
+    // 🚩 [추가] 도시/성 편집 관련 DOM 요소 맵핑
+    const cityEditBtn = document.getElementById('cityEditBtn');
+    const editCitySelectionForm = document.getElementById('editCitySelectionForm');
+    const citySelectForEdit = document.getElementById('citySelectForEdit');
+    const cancelCitySelectionBtn = document.getElementById('cancelCitySelectionBtn');
+    const editSelectedCityBtn = document.getElementById('editSelectedCityBtn');
     const kingSelect = document.getElementById('kingSelect');
     
     // 성/위치 폼 내 체크박스 및 상세 정보
@@ -2204,6 +2232,7 @@ function updateMap(year, month) {
 
     }
 
+
 function getCountryInfoById(id) {
     // 🚩 [필수 확인] id가 ObjectId 객체일 수도, 문자열일 수도 있으므로, toString()으로 비교
     if (!id) return null;
@@ -2211,6 +2240,7 @@ function getCountryInfoById(id) {
 }
     // --- 5. 데이터 로드 및 초기화 ---
     function updateDrawings() {
+
         drawnItems.clearLayers();
     }
     async function fetchData(endpoint) {
@@ -2233,6 +2263,7 @@ function getCountryInfoById(id) {
     async function initialize() {
       console.log("데이터 초기화 중...");
 
+      
       // 🚩 [핵심 수정] Promise.all을 사용하여 모든 데이터를 병렬로 로드하고, 모두 완료될 때까지 기다립니다.
       const [castlesData, historyData, countriesData, eventsData, kingsDataResult, drawingsData] = await Promise.all([
           fetchData('castle'),
@@ -2360,6 +2391,7 @@ function getCountryInfoById(id) {
       const logoutBtnHeader = document.getElementById('logoutBtnHeader');
       logoutBtnHeader.addEventListener('click', () => {
           if (confirm('로그아웃하시겠습니까?')) {
+
               // 🚩 [수정] 두 저장소의 토큰을 모두 삭제
               localStorage.removeItem('token');
               sessionStorage.removeItem('token');
@@ -2370,6 +2402,7 @@ function getCountryInfoById(id) {
 
       // 🚩 [수정] 사용자 정보 기반 UI 설정
       currentUser = parseJwt(token);
+
       if (currentUser) {
           document.getElementById('usernameDisplay').textContent = `${currentUser.username}님`;
 
@@ -2377,20 +2410,25 @@ function getCountryInfoById(id) {
           if (currentUser.role === 'admin' || currentUser.role === 'superuser') {
               editMode = true;
               cityEditBtn.style.display = 'inline-block'; // 🚩 [추가] 도시/성 편집 버튼 표시
+
               document.getElementById('countryEditBtn').style.display = 'inline-block';
               document.getElementById('kingEditBtn').style.display = 'inline-block';
               document.getElementById('eventEditBtn').style.display = 'inline-block';
 
               addHistoryBtn.style.display = 'inline-block';
           } else {
+          } else { 
               editMode = false; // 일반 사용자는 편집 모드 비활성화
               // document.getElementById('editBtn').style.display = 'none'; // 편집 버튼 숨김
+              // document.getElementById('editBtn').style.display = 'none'; // 편집 버튼 숨김 - 이 버튼은 이미 HTML에서 제거됨
           }
       } else {
           const adminLink = document.getElementById('adminLink');
           if (adminLink) adminLink.style.display = 'none';
+          document.getElementById('editBtn').style.display = 'none';
           editMode = false;
       }
+
 
       // 'admin'일 때만 회원 관리 링크 표시 (역할 체크 분리)
       if (currentUser?.role === 'admin') {
@@ -2563,6 +2601,7 @@ function getCountryInfoById(id) {
     }
 
 
+
     // 🚩 [추가] 국가 필터 드롭다운을 채우는 함수
     function populateCountryFilter() {
         countryFilterSelect.innerHTML = '<option value="all">-- 전체 국가 --</option>'; // 초기화
@@ -2574,11 +2613,13 @@ function getCountryInfoById(id) {
         });
     }
 
+
     function getCurrentYearMonth() {
         const year = parseInt(yearInput.value);
         const month = parseInt(monthInput.value);
         return { year, month };
     }
+
 
     // 🚩 [수정] 슬라이더 이벤트 리스너 분리 (성능 최적화)
     combinedSlider.addEventListener('input', () => {
@@ -2587,6 +2628,7 @@ function getCountryInfoById(id) {
       updateTime(year, month);
     });
     
+
     // 🚩 [제거] 'input' 이벤트에서 모든 업데이트를 처리하므로 'change' 이벤트 리스너는 제거합니다.
     // combinedSlider.addEventListener('change', ...);
 
@@ -2598,6 +2640,7 @@ function getCountryInfoById(id) {
         }
     });
 
+
     // 🚩 [추가] 연도 입력창의 스피너 버튼 클릭 시 월 자동 변경
     yearInput.addEventListener('input', (e) => {
         const year = parseInt(e.target.value) || 0;
@@ -2607,12 +2650,14 @@ function getCountryInfoById(id) {
             updateTime(year, month);
         }
     });
+
     // 🚩 [수정] 월 입력창 변경 시 연도 자동 증감 기능 개선
     monthInput.addEventListener('input', () => {
         const year = parseInt(yearInput.value) || 0;
         const month = parseInt(monthInput.value) || 1;
         updateTime(year, month);
     });
+
 
     function updateTime(year, month) {
         yearInput.value = year;
@@ -2631,6 +2676,7 @@ function getCountryInfoById(id) {
         checkAndDisplayEvent(year, month);
     }
 
+
     // 🚩 [수정] 월 입력 필드에서 화살표 키를 눌렀을 때 연도 변경 로직 충돌 해결
     monthInput.addEventListener('keydown', (e) => {
         let keydownYear = parseInt(yearInput.value) || 0;
@@ -2644,6 +2690,7 @@ function getCountryInfoById(id) {
             updateTime(keydownYear + 1, 1);
         }
     });
+
     // 🚩 [핵심 수정] 재생 제어 로직: BC/AD 전환 및 월 표시 문제 해결
     let playInterval = null;
     
@@ -2694,6 +2741,7 @@ function getCountryInfoById(id) {
         pauseBtn.style.display = 'none';
     }
 
+
     // 초기화 함수 맨 마지막에 버튼 이벤트 리스너 연결
     const originalInitialize = initialize;
     initialize = async () => {
@@ -2720,6 +2768,7 @@ function getCountryInfoById(id) {
         speedDisplay.textContent = `${playbackSpeedSlider.value}월/초`;
     };
     
+
     // --- 7. 역사 기록 패널 업데이트 ---
     function updateHistoryPanel(year) {
       const filteredRecords = history.filter(h => h.year === year);
@@ -2801,6 +2850,13 @@ function getCountryInfoById(id) {
     }
     // 편집 모드 토글
     // 🚩 [추가] 도시/성 편집 버튼 이벤트 리스너
+    if (cityEditBtn) { // cityEditBtn이 존재하는지 확인
+        cityEditBtn.addEventListener('click', () => {
+            closeAllFormsExcept('editCitySelectionForm');
+            editCitySelectionForm.style.display = 'block';
+            populateCitySelectForEdit(); // 목록을 최신 상태로 유지
+        });
+    }
     cityEditBtn.addEventListener('click', () => {
         closeAllFormsExcept('editCitySelectionForm');
         editCitySelectionForm.style.display = 'block';
@@ -2812,11 +2868,47 @@ function getCountryInfoById(id) {
     });
     editSelectedCityBtn.addEventListener('click', () => {
         const selectedCityId = citySelectForEdit.value;
+        if (selectedCityId) { editCitySelectionForm.style.display = 'none'; openCastleForm(selectedCityId); } else { alert('편집할 도시/성을 선택해주세요!'); }
         if (selectedCityId) { editCitySelectionForm.style.display = 'none'; openCastleForm(selectedCityId); } else { alert('편집할 도시/성을 선택해주세요.'); }
     });
 
+    // 🚩 [추가] 국가 편집 버튼 이벤트 리스너
+    countryEditBtn.addEventListener('click', () => {
+        closeAllFormsExcept('countryForm');
+        document.getElementById('countryForm').style.display = 'block';
+        updateCountrySelectForEdit();
+        document.getElementById('editCountryForm').reset();
+        document.getElementById('countryOriginalName').value = '';
+        document.getElementById('deleteCountryBtn').style.display = 'none';
+        document.getElementById('saveCountryBtn').textContent = '저장/추가';
+        document.getElementById('countryColor').value = '#ffffff'; // 기본 색상으로 설정
+
+    });
+
+    // 🚩 [추가] 왕 편집 버튼 이벤트 리스너
+    kingEditBtn.addEventListener('click', () => { // 이 버튼 자체가 관리자에게만 보이므로 내부 권한 체크는 불필요
+        closeAllFormsExcept('kingForm');
+        document.getElementById('kingForm').style.display = 'block';
+        document.getElementById('editKingForm').reset();
+        document.getElementById('kingOriginalKey').value = '';
+        document.getElementById('kingOriginalIndex').value = '';
+        document.getElementById('deleteKingBtn').style.display = 'none';
+        document.getElementById('saveKingBtn').textContent = '추가';
+        
+        loadKingsForCountry(true); 
+    });
     
     // 지도 클릭 시 성 추가 폼 열기 (편집 모드에서만)
+    map.on('click', (e) => {
+      // 🚩 [수정] 편집 모드가 아닐 때는 아무 동작도 하지 않음
+      if (!editMode || !(currentUser?.role === 'superuser' || currentUser?.role === 'admin')) return;
+      
+      // 🚩 [수정] 그리는 중일 때는 폼을 열지 않고 종료
+      if (isDrawing) return;
+
+      // 🚩 [수정] 지도 클릭 시 바로 폼을 열지 않고, 우클릭 메뉴를 통해 열도록 변경 (아래 contextmenu 이벤트 핸들러 참조)
+      // 이 핸들러는 이제 비어있어도 되지만, 향후 다른 클릭 기반 기능을 위해 남겨둘 수 있습니다.
+    });
 
     // 🚩 [추가] 지도에서 우클릭 시 좌표 복사 팝업 표시
     map.on('contextmenu', (e) => {
@@ -3014,6 +3106,7 @@ function getCountryInfoById(id) {
         map.setView([castle.lat, castle.lng], map.getZoom());
     };
     
+
     // 국가 선택 드롭다운 변경 시 건설/파괴 연도 자동 채우기
     castleCountrySelect.addEventListener('change', (e) => {
         const selectedCountryId = e.target.value;
@@ -3030,6 +3123,7 @@ function getCountryInfoById(id) {
             document.getElementById('castleDestroyedMonth').value = 12;
         }
     });
+
     
     // 🚩 [추가] 마커 타입 버튼 상태를 설정하고 관련 UI를 토글하는 함수
     function setActiveMarkerType(type) {
@@ -3044,6 +3138,7 @@ function getCountryInfoById(id) {
         }
 
         // 타입에 따라 상세 옵션 UI 표시/숨김
+
         militaryFlagDetails.style.display = type === 'military' ? 'block' : 'none';
         pathDataSection.style.display = type === 'military' ? 'block' : 'none';
         naturalFeatureDetails.style.display = type === 'natural' ? 'flex' : 'none';
@@ -3068,6 +3163,7 @@ function getCountryInfoById(id) {
         }
     }
     
+
 
     // 성 폼 제출 (저장/업데이트)
     addCastleForm.addEventListener('submit', async (e) => {
@@ -3151,6 +3247,7 @@ function getCountryInfoById(id) {
       }
     });
 
+
     // 성 폼 취소
     cancelCastle.addEventListener('click', () => {
       document.getElementById('castleForm').style.display = 'none';
@@ -3159,6 +3256,7 @@ function getCountryInfoById(id) {
         editMarker = null;
       }
     });
+
 
     // 성 삭제
     deleteCastle.addEventListener('click', async () => {
@@ -3183,6 +3281,7 @@ function getCountryInfoById(id) {
             alert(`Castle 삭제 실패: ${error.message}`);
         }
     });
+
 
     // 🚩 [추가] 성/지물 복제 버튼 이벤트 리스너
     document.getElementById('cloneCastle').addEventListener('click', () => {
@@ -3210,6 +3309,7 @@ function getCountryInfoById(id) {
         alert(`'${originalCastleName}'의 복제가 준비되었습니다. 새로운 국가와 기간을 설정한 후 '추가' 버튼을 눌러주세요.`);
     });
 
+
     /** 국가 목록을 성/위치 폼의 <select>에 업데이트 */
     function updateCountrySelect() {
       const select = document.getElementById('castleCountry');
@@ -3220,6 +3320,7 @@ function getCountryInfoById(id) {
       // 🚩 [추가]: 자연 지물 등 국가가 없는 마커를 위한 옵션 추가
      select.innerHTML += '<option value="자연">--- 자연 (국가 무관) ---</option>';
     }
+
 
     // 지도 검색 기능 (이동만)
     searchBtn.addEventListener('click', async () => {
@@ -3307,6 +3408,8 @@ function getCountryInfoById(id) {
             searchBtn.click(); // 검색 버튼 클릭
         }
     });
+
+
 
     // --- 9. 국가 편집 폼 관리 --- (기존 로직 유지)
     
@@ -3441,6 +3544,7 @@ function getCountryInfoById(id) {
         populateEventSelect();
     });
 
+
     function populateEventSelect() {
         const select = document.getElementById('eventSelect');
         // 🚩 [수정] 연도 순으로 정렬
@@ -3448,6 +3552,7 @@ function getCountryInfoById(id) {
         select.innerHTML = '<option value="">--- 새 이벤트 추가 ---</option>' +
             events.map(event => `<option value="${event._id}">${event.year}년: ${event.text}</option>`).join('');
     }
+
 
     document.getElementById('eventSelect').addEventListener('change', (e) => {
         const eventId = e.target.value;
@@ -3463,6 +3568,7 @@ function getCountryInfoById(id) {
             return;
         }
 
+        
         const event = events.find(ev => ev._id === eventId);
         if (event) {
             document.getElementById('eventMongoId').value = event._id;
@@ -3475,6 +3581,7 @@ function getCountryInfoById(id) {
         }
     });
 
+    
     document.getElementById('editEventForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const eventId = document.getElementById('eventMongoId').value;
@@ -3483,6 +3590,7 @@ function getCountryInfoById(id) {
         const method = isUpdate ? 'PUT' : 'POST';
 
         const data = {
+        const data = { 
             year: parseInt(document.getElementById('eventYear').value),
             month: parseInt(document.getElementById('eventMonth').value) || 1,
             text: document.getElementById('eventText').value,
@@ -3491,6 +3599,7 @@ function getCountryInfoById(id) {
 
         if (isNaN(data.year) || !data.text) {
             return alert("연도와 이벤트 내용은 필수입니다.");
+            return alert("연도와 이벤트 내용은 필수입니다."); 
         }
 
         try {
@@ -3500,6 +3609,7 @@ function getCountryInfoById(id) {
                 body: JSON.stringify(data) 
             });
             if (!response.ok) throw new Error('이벤트 저장 실패');
+            if (!response.ok) throw new Error('이벤트 저장 실패'); 
             document.getElementById('eventForm').style.display = 'none';
             initialize();
         } catch (error) { alert(error.message); }
@@ -3531,8 +3641,10 @@ function getCountryInfoById(id) {
         document.getElementById('deleteKingBtn').style.display = 'none';
         document.getElementById('saveKingBtn').textContent = '추가';
         
+
         loadKingsForCountry(true); 
     });
+
 
     function updateKingFormCountrySelect() {
         const select = kingCountrySelectForForm;
@@ -3541,6 +3653,7 @@ function getCountryInfoById(id) {
         loadKingsForCountry(); 
     } 
     
+
     kingCountrySelectForForm.addEventListener('change', loadKingsForCountry);
     function loadKingsForCountry(resetForm = false) {
         // 🚩 수정: 선택된 value는 이제 countryId입니다.
@@ -3551,6 +3664,7 @@ function getCountryInfoById(id) {
         const select = kingSelect;
         select.innerHTML = '<option value="">--- 새 왕 추가 ---</option>' + 
                           kingList.map((k, index) => {
+                          kingList.map((k, index) => { 
                               const startMonth = k.start_month || 1;
                               const endMonth = k.end_month || 1;
                               const endYearText = k.end === null ? '현재' : `${k.end}년 ${endMonth}월`;
@@ -3559,6 +3673,8 @@ function getCountryInfoById(id) {
                                         data-start="${k.start}" 
                                         data-end="${k.end}"
                                         data-start-month="${startMonth}"
+                                        data-end="${k.end}" 
+                                        data-start-month="${startMonth}" 
                                         data-end-month="${endMonth}"
                                         data-id="${k._id ? k._id.toString() : ''}"
                                 >${k.name} (${k.start}년 ${startMonth}월 ~ ${endYearText})</option>`;
@@ -3575,6 +3691,7 @@ function getCountryInfoById(id) {
             document.getElementById('saveKingBtn').textContent = '추가';
         }
     }
+
 
 kingSelect.addEventListener('change', () => {
     const index = kingSelect.value;
@@ -3600,6 +3717,7 @@ kingSelect.addEventListener('change', () => {
         const king = kingList[parseInt(index)];
         if (!king) return;
         kingMongoIdField.value = king._id ? king._id.toString() : ''; 
+        kingMongoIdField.value = king._id ? king._id.toString() : '';  
         
         
         document.getElementById('kingName').value = king.name;
@@ -3615,6 +3733,7 @@ kingSelect.addEventListener('change', () => {
 
 
 
+    
     // 왕 폼 제출 (추가/수정)
     document.getElementById('editKingForm').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -3718,6 +3837,7 @@ kingSelect.addEventListener('change', () => {
             alert(`King 정보 삭제 실패: ${error.message}`);
         }
     });
+
 
 
     // 👑 왕 편집 모드에서 호출: URL ID를 기반으로 왕 정보 폼에 채우기
@@ -4147,6 +4267,7 @@ kingSelect.addEventListener('change', () => {
     initializeVerticalResizer();
     makeFormsDraggable();
 
+
     // 🚩 [추가] 오른쪽 패널 접기/펼치기 기능 초기화
     function initializeRightPanelToggle() {
         const toggleBtn = document.getElementById('rightPanelToggleBtn'); // 버튼
@@ -4167,6 +4288,7 @@ kingSelect.addEventListener('change', () => {
         });
     }    
     
+
     // 🚩 [추가] 그리기 컨트롤 초기화 (페이지 로드 시 한 번만 실행)
     function initializeDrawControl() {
         // 사용자 권한에 따라 그리기 컨트롤을 지도에 추가
@@ -4196,6 +4318,7 @@ kingSelect.addEventListener('change', () => {
             map.on('draw:drawstop', () => { isDrawing = false; });
         }
     }
+
 
     // 🚩 [핵심 수정] 중복 선언된 DOMContentLoaded 리스너를 하나로 통합하고, 누락된 레이어 토글 이벤트 리스너를 추가합니다.
     document.addEventListener('DOMContentLoaded', async () => {
@@ -4246,5 +4369,6 @@ kingSelect.addEventListener('change', () => {
         });
     });
   </script>
+
 </body>
 </html>
