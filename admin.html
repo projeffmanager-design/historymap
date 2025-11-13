@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <title>회원 관리</title>
+    <!-- 🚩 [추가] Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- 🚩 [추가] 브라우저 탭 아이콘(파비콘) 설정 -->
     <link rel="icon" type="image/png" href="https://mblogthumb-phinf.pstatic.net/MjAxNzAyMjdfMTY5/MDAxNDg4MTgzMTM3Njgy.kranOyMCE0geFsNMdN3cFzfhswjppZFRoREZIhB_oowg.qK_GkZnrnCj96GOrscX-MxqnbEiStdtpOD8hxeNGLXEg.PNG.ya0705/%EC%9D%B4%EB%AF%B8%EC%A7%80_3-01.png?type=w2">
     <style>
@@ -20,6 +22,14 @@
             text-align: center;
             color: #ecf0f1;
             text-shadow: 2px 2px 4px #000;
+        }
+        /* 🚩 [추가] 사용자 검색/필터 컨트롤 영역 */
+        #user-controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+            flex-wrap: wrap; /* 🚩 [추가] 컨트롤이 여러 줄로 나뉘도록 허용 */
+            align-items: center;
         }
         .container {
             max-width: 800px;
@@ -165,17 +175,60 @@
         #confirmModalMessage {
             margin-bottom: 20px;
         }
+        /* 🚩 [추가] 페이지네이션 컨트롤 스타일 */
+        #pagination-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        #pagination-controls button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+        /* 🚩 [추가] 차트 컨테이너 스타일 */
+        #chartContainer {
+            width: 100%;
+            margin-bottom: 30px;
+            background-color: #3e4a56;
+            padding: 20px; border-radius: 8px;
+        }
     </style>
 </head>
 <body>
     <h1>회원 관리</h1>
     <div class="container">
+        <h2>사용자 등록 현황</h2>
+        <!-- 🚩 [추가] 차트 캔버스 -->
+        <div id="chartContainer">
+            <canvas id="registrationChart"></canvas>
+        </div>
+
         <h2>사용자 목록</h2>
+        <!-- 🚩 [추가] 사용자 검색 및 필터 컨트롤 -->
+        <div id="user-controls">
+            <input type="text" id="userSearchInput" placeholder="사용자 이름으로 검색..." style="width: 250px;">
+            <select id="roleFilterSelect" style="width: 180px;">
+                <option value="all">-- 모든 역할 --</option>
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+                <option value="superuser">Superuser</option>
+            </select>
+            <label for="itemsPerPageSelect" style="color: #ecf0f1; font-weight: normal;">항목 수:</label>
+            <select id="itemsPerPageSelect" style="width: 80px;">
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+            </select>
+        </div>
         <table>
             <thead>
                 <tr>
-                    <th>사용자 이름</th>
-                    <th>역할</th>
+                    <th class="sortable" data-sort-by="username">사용자 이름</th>
+                    <th class="sortable" data-sort-by="lastLogin">마지막 로그인</th>
+                    <th class="sortable" data-sort-by="role">역할</th>
                     <th>작업</th>
                 </tr>
             </thead>
@@ -183,6 +236,13 @@
                 <!-- 사용자 목록이 여기에 동적으로 추가됩니다. -->
             </tbody>
         </table>
+
+        <!-- 🚩 [추가] 페이지네이션 컨트롤 -->
+        <div id="pagination-controls">
+            <button id="prevPageBtn">이전</button>
+            <span id="pageInfo"></span>
+            <button id="nextPageBtn">다음</button>
+        </div>
 
         <h2>새 사용자 등록</h2>
         <form id="registerForm">
@@ -251,6 +311,20 @@
         }
 
         let allUsers = []; // 🚩 [추가] 사용자 목록을 저장할 전역 변수
+        // 🚩 [추가] 정렬 상태를 저장할 전역 변수
+        let currentSort = {
+            key: 'username',
+            direction: 'asc'
+        };
+        // 🚩 [추가] 페이지네이션 상태 변수
+        let currentPage = 1;
+        let itemsPerPage = 10;
+        let filteredAndSortedUsers = []; // 필터링 및 정렬된 전체 사용자 목록
+
+        const prevPageBtn = document.getElementById('prevPageBtn');
+        const nextPageBtn = document.getElementById('nextPageBtn');
+        const pageInfo = document.getElementById('pageInfo');
+
 
         // 🚩 [추가] 토스트 알림 함수
         function showToast(message, type = 'success') {
@@ -295,13 +369,96 @@
             cancelBtn.addEventListener('click', cancelHandler, { once: true });
         }
 
+        // 🚩 [추가] 사용자 목록을 화면에 렌더링하는 함수
+        function renderUsers(usersToRender) {
+            const userList = document.getElementById('userList');
+            userList.innerHTML = '';
+            usersToRender.forEach(user => { 
+                const tr = document.createElement('tr');
+                if (user.isLocked) {
+                    tr.classList.add('locked');
+                }
+                const lastLogin = user.lastLogin 
+                    ? new Date(user.lastLogin).toLocaleString() 
+                    : '기록 없음';
+                tr.innerHTML = ` 
+                    <td>${user.username}</td>
+                    <td>${lastLogin}</td>
+                    <td>
+                        <select onchange="updateUserRole(this, '${user._id}', '${user.role}')" data-userid="${user._id}">
+                            <option value="user" ${user.role === 'user' ? 'selected' : ''}>User</option>
+                            <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
+                            <option value="superuser" ${user.role === 'superuser' ? 'selected' : ''}>Superuser</option>
+                        </select>
+                    </td>
+                    <td>
+                        <button class="lock-btn" onclick="toggleLockStatus(this, '${user._id}', ${user.isLocked || false})">${user.isLocked ? '잠금 해제' : '계정 잠금'}</button>
+                        <button onclick="requestPasswordReset(this, '${user.username}')">비밀번호 재설정</button>
+                        <button class="danger" onclick="deleteUser(this, '${user._id}')">삭제</button>
+                    </td>
+                `;
+                userList.appendChild(tr);
+            });
+        }
+
+        // 🚩 [추가] 사용자 등록 차트 렌더링 함수
+        let registrationChartInstance = null;
+        function renderRegistrationChart(users) {
+            if (!users || users.length === 0) return;
+
+            const monthlyCounts = {};
+
+            users.forEach(user => {
+                // ObjectId에서 타임스탬프 추출
+                const timestamp = new Date(parseInt(user._id.substring(0, 8), 16) * 1000);
+                const year = timestamp.getFullYear();
+                const month = (timestamp.getMonth() + 1).toString().padStart(2, '0');
+                const yearMonth = `${year}-${month}`;
+
+                if (!monthlyCounts[yearMonth]) {
+                    monthlyCounts[yearMonth] = 0;
+                }
+                monthlyCounts[yearMonth]++;
+            });
+
+            const sortedMonths = Object.keys(monthlyCounts).sort();
+            const labels = sortedMonths;
+            const data = sortedMonths.map(month => monthlyCounts[month]);
+
+            const ctx = document.getElementById('registrationChart').getContext('2d');
+            
+            if (registrationChartInstance) {
+                registrationChartInstance.destroy();
+            }
+
+            registrationChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '월별 신규 가입자 수',
+                        data: data,
+                        backgroundColor: 'rgba(0, 170, 255, 0.2)',
+                        borderColor: 'rgba(0, 170, 255, 1)',
+                        borderWidth: 2,
+                        tension: 0.1,
+                        fill: true
+                    }]
+                },
+                options: {
+                    scales: { y: { beginAtZero: true, ticks: { color: '#ecf0f1' } }, x: { ticks: { color: '#ecf0f1' } } },
+                    plugins: { legend: { labels: { color: '#ecf0f1' } } }
+                }
+            });
+        }
+
         // 사용자 목록 불러오기
         async function fetchUsers() {
             try {
                 const response = await fetch(`${API_BASE_URL}/users`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
-                if (response.status === 403) {
+                if (response.status === 403) { // 접근 거부
                     alert('관리자만 접근할 수 있습니다.');
                     window.location.href = 'index.html';
                     return;
@@ -309,28 +466,9 @@
                 if (!response.ok) throw new Error('사용자 목록을 불러오지 못했습니다.');
                 
                 allUsers = await response.json(); // 🚩 [수정] 전역 변수에 사용자 목록 저장
-                const userList = document.getElementById('userList');
-                userList.innerHTML = '';
-                allUsers.forEach(user => {
-                    const tr = document.createElement('tr');
-                    // 🚩 [수정] 역할(role)을 수정할 수 있는 select 드롭다운으로 변경
-                    tr.innerHTML = `
-                        <td>${user.username}</td>
-                        <td>
-                            <select onchange="updateUserRole(this, '${user._id}', '${user.role}')" data-userid="${user._id}">
-                                <option value="user" ${user.role === 'user' ? 'selected' : ''}>User</option>
-                                <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
-                                <option value="superuser" ${user.role === 'superuser' ? 'selected' : ''}>Superuser</option>
-                            </select>
-                        </td>
-                        <td>
-                            <button class="danger" onclick="deleteUser(this, '${user._id}')">삭제</button> 
-                            <!-- 🚩 [참고] 역할 수정 버튼은 select onchange로 대체되어 제거되었습니다.
-                            <button onclick="editUserRole('${user._id}')">역할 수정</button> -->
-                        </td>
-                    `;
-                    userList.appendChild(tr);
-                });
+                filterAndRenderUsers(); // 🚩 [수정] 필터링/정렬 후 렌더링
+                renderRegistrationChart(allUsers); // 🚩 [추가] 차트 렌더링
+
             } catch (error) {
                 showToast(error.message, 'error');
             }
@@ -412,6 +550,63 @@
             });
         }
 
+        // 🚩 [추가] 사용자 계정 잠금/해제 토글
+        window.toggleLockStatus = function(button, userId, isCurrentlyLocked) {
+            const actionText = isCurrentlyLocked ? '해제' : '잠금';
+            showConfirmModal(`정말로 이 사용자의 계정을 ${actionText}하시겠습니까?`, async () => {
+                button.classList.add('loading');
+                button.disabled = true;
+                try {
+                    const response = await fetch(`${API_BASE_URL}/users/${userId}/lock`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ lock: !isCurrentlyLocked })
+                    });
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || `계정 ${actionText}에 실패했습니다.`);
+                    }
+                    showToast(`사용자 계정이 성공적으로 ${actionText}되었습니다.`);
+                    // UI 즉시 업데이트
+                    const tr = button.closest('tr');
+                    tr.classList.toggle('locked', !isCurrentlyLocked);
+                    button.textContent = isCurrentlyLocked ? '계정 잠금' : '잠금 해제';
+                    button.setAttribute('onclick', `toggleLockStatus(this, '${userId}', ${!isCurrentlyLocked})`);
+                } catch (error) {
+                    showToast(error.message, 'error');
+                } finally {
+                    button.classList.remove('loading');
+                    button.disabled = false;
+                }
+            });
+        };
+
+        // 🚩 [추가] 비밀번호 재설정 이메일 발송 요청
+        window.requestPasswordReset = function(button, username) {
+            showConfirmModal(`'${username}' 사용자에게 비밀번호 재설정 이메일을 발송하시겠습니까?`, async () => {
+                button.classList.add('loading');
+                button.disabled = true;
+                try {
+                    // 백엔드에 비밀번호 재설정 요청 API가 구현되어 있어야 합니다.
+                    const response = await fetch(`${API_BASE_URL}/auth/request-password-reset`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ username: username })
+                    });
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || '재설정 이메일 발송에 실패했습니다.');
+                    }
+                    showToast(`'${username}' 사용자에게 비밀번호 재설정 이메일을 보냈습니다.`);
+                } catch (error) {
+                    showToast(error.message, 'error');
+                } finally {
+                    button.classList.remove('loading');
+                    button.disabled = false;
+                }
+            });
+        };
+
         // 일괄 메일 발송
         document.getElementById('bulkEmailForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -475,7 +670,121 @@
             document.getElementById('emailConfirmModal').style.display = 'none';
         });
 
+        // 🚩 [추가] 검색 및 필터링 기능
+        const userSearchInput = document.getElementById('userSearchInput');
+        const roleFilterSelect = document.getElementById('roleFilterSelect');
+
+        // 🚩 [추가] 페이지당 항목 수 선택
+        const itemsPerPageSelect = document.getElementById('itemsPerPageSelect');
+        itemsPerPageSelect.addEventListener('change', () => {
+            itemsPerPage = parseInt(itemsPerPageSelect.value, 10);
+            currentPage = 1; // 항목 수가 바뀌면 첫 페이지로 리셋
+            filterAndRenderUsers();
+        });
+
+        // 🚩 [추가] 페이지네이션 UI 업데이트 함수
+        function updatePaginationControls() {
+            const totalPages = Math.ceil(filteredAndSortedUsers.length / itemsPerPage);
+            pageInfo.textContent = `페이지 ${currentPage} / ${totalPages || 1}`;
+            prevPageBtn.disabled = currentPage <= 1;
+            nextPageBtn.disabled = currentPage >= totalPages;
+        }
+
+        // 🚩 [수정] 검색/필터링 함수에 정렬 로직 추가
+        function filterAndRenderUsers() {
+            const searchTerm = userSearchInput.value.toLowerCase();
+            const selectedRole = roleFilterSelect.value;
+
+            // 1. 필터링
+            let tempUsers = allUsers.filter(user => {
+                const matchesSearch = user.username.toLowerCase().includes(searchTerm);
+                const matchesRole = selectedRole === 'all' || user.role === selectedRole;
+                return matchesSearch && matchesRole;
+            });
+
+            // 2. 정렬
+            // filteredAndSortedUsers를 업데이트하기 전에 정렬을 수행합니다.
+            // 이렇게 하면 페이지를 넘길 때마다 정렬할 필요가 없습니다.
+            const key = currentSort.key;
+            const direction = currentSort.direction === 'asc' ? 1 : -1;
+
+            // 정렬 로직
+            tempUsers.sort((a, b) => {
+                let valA = a[key];
+                let valB = b[key];
+
+                if (key === 'lastLogin') {
+                    // '기록 없음' (null) 값을 가장 오래된 것으로 처리
+                    valA = valA ? new Date(valA).getTime() : -Infinity;
+                    valB = valB ? new Date(valB).getTime() : -Infinity;
+                } else {
+                    // 문자열 비교
+                    valA = String(valA || '').toLowerCase();
+                    valB = String(valB || '').toLowerCase();
+                }
+
+                if (valA < valB) {
+                    return -1 * direction;
+                }
+                if (valA > valB) {
+                    return 1 * direction;
+                }
+                return 0;
+            });
+
+            filteredAndSortedUsers = tempUsers;
+
+            // 3. 페이지네이션
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            const paginatedUsers = filteredAndSortedUsers.slice(startIndex, endIndex);
+            renderUsers(paginatedUsers);
+            updatePaginationControls();
+        }
+
+        userSearchInput.addEventListener('input', filterAndRenderUsers);
+        roleFilterSelect.addEventListener('change', filterAndRenderUsers);
+
         // 초기 로드
+        // 🚩 [추가] 테이블 헤더 클릭 이벤트 리스너 (정렬용)
+        // 🚩 [수정] 필터/검색 시 페이지를 1로 리셋
+        userSearchInput.addEventListener('input', () => { currentPage = 1; filterAndRenderUsers(); });
+        roleFilterSelect.addEventListener('change', () => { currentPage = 1; filterAndRenderUsers(); });
+
+        document.querySelector('thead').addEventListener('click', e => {
+            const header = e.target.closest('th.sortable');
+            if (!header) return;
+
+            const sortKey = header.dataset.sortBy;
+
+            if (currentSort.key === sortKey) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.key = sortKey;
+                currentSort.direction = 'asc';
+            }
+
+            // 모든 헤더에서 정렬 클래스 제거
+            document.querySelectorAll('th.sortable').forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc');
+            });
+
+            // 현재 헤더에 정렬 클래스 추가
+            header.classList.add(`sort-${currentSort.direction}`);
+            filterAndRenderUsers();
+        });
+
+        // 🚩 [추가] 페이지네이션 버튼 이벤트 리스너
+        prevPageBtn.addEventListener('click', () => {
+            if (currentPage > 1) {
+                currentPage--;
+                filterAndRenderUsers();
+            }
+        });
+        nextPageBtn.addEventListener('click', () => {
+            currentPage++;
+            filterAndRenderUsers();
+        });
         fetchUsers();
     </script>
 </body>
