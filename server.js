@@ -804,6 +804,55 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // 🚩 [추가] 사용자 계정 잠금/해제
+        app.put('/api/users/:id/lock', verifyAdmin, async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { lock } = req.body; // true: 잠금, false: 해제
+                const _id = toObjectId(id);
+
+                if (!_id) {
+                    return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+                }
+                if (typeof lock !== 'boolean') {
+                    return res.status(400).json({ message: "잠금 상태(lock)는 boolean 값이어야 합니다." });
+                }
+
+                const result = await collections.users.updateOne(
+                    { _id: _id },
+                    { $set: { isLocked: lock } }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+                }
+
+                res.json({ message: `사용자 계정이 성공적으로 ${lock ? '잠금' : '해제'}되었습니다.` });
+            } catch (error) {
+                res.status(500).json({ message: "사용자 계정 상태 변경 실패", error: error.message });
+            }
+        });
+
+        // 🚩 [추가] 비밀번호 재설정 이메일 발송 요청 (관리자용)
+        app.post('/api/auth/request-password-reset', verifyAdmin, async (req, res) => {
+            try {
+                const { username } = req.body;
+                const user = await collections.users.findOne({ username });
+
+                if (!user) {
+                    return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+                }
+
+                // 실제 프로덕션에서는 이메일 발송 로직을 구현해야 합니다.
+                // 예: 토큰 생성, 이메일 전송 등
+                console.log(`'${username}' 사용자에게 비밀번호 재설정 이메일 발송 시뮬레이션`);
+
+                res.json({ message: "비밀번호 재설정 이메일 발송 요청이 성공적으로 처리되었습니다." });
+            } catch (error) {
+                res.status(500).json({ message: "비밀번호 재설정 요청 처리 중 오류 발생", error: error.message });
+            }
+        });
+
     isAppSetup = true; // Mark setup as complete
 }
 
