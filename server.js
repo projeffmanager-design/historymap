@@ -1,29 +1,21 @@
 // server.js
 require('dotenv').config(); // .env 파일의 환경 변수를 로드합니다.
 const express = require('express');
-const { MongoClient, ObjectId } = require('mongodb');
+const { ObjectId } = require('mongodb');
 // 💡 [추가] 인증 관련 라이브러리
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
 const path = require('path');
+const { connectToDatabase, collections } = require('./db'); // 🚩 [추가] DB 연결 모듈
 
 const app = express();
 const port = 3000;
-
-// 환경 변수에서 MongoDB 연결 문자열을 가져옵니다.
-const mongoUri = process.env.MONGO_URI;
-if (!mongoUri) {
-    throw new Error("MONGO_URI 환경 변수가 설정되지 않았습니다. .env 파일을 확인해주세요.");
-}
 // 💡 [추가] JWT 시크릿 키 환경 변수 확인
 const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret) {
     throw new Error("JWT_SECRET 환경 변수가 설정되지 않았습니다. .env 파일을 확인해주세요.");
 }
-const client = new MongoClient(mongoUri);
-let db; // Declare db outside to reuse connection
-let collections = {}; // To store references to collections
 let isAppSetup = false; // Flag to ensure setup runs only once
 
 // 헬퍼 함수: ID를 MongoDB의 ObjectId로 변환 (전역으로 이동)
@@ -109,34 +101,12 @@ app.use(express.json());
 // 이제 index.html, admin.html 등을 루트 디렉토리에서 직접 서비스할 수 있습니다.
 app.use(express.static(__dirname));
 
-async function connectToDatabase() {
-    if (db) {
-        return db;
-    }
-    if (!client) {
-        client = new MongoClient(mongoUri);
-        await client.connect();
-        console.log("MongoDB에 성공적으로 연결되었습니다!");
-    }
-    db = client.db("realhistory");
-    return db;
-}
-
 // This function will set up all the routes and collections
 async function setupRoutesAndCollections() {
     if (isAppSetup) {
         return; // Already set up
     }
-
-    const database = await connectToDatabase();
-    collections.castle = database.collection("castle");
-    collections.countries = database.collection("countries");
-    collections.history = database.collection("history");
-    collections.kings = database.collection("kings");
-    collections.users = database.collection("users");
-    collections.general = database.collection("general");
-    collections.events = database.collection("events");
-    collections.drawings = database.collection("drawings");
+    await connectToDatabase(); // 🚩 [수정] DB 연결 및 컬렉션 초기화
 
         // ----------------------------------------------------
         // 🏰 CASTLE (성/위치) API 엔드포인트
