@@ -1776,18 +1776,14 @@ function updateMap(year, month) {
             layer._leaflet_id = drawingData._id; // 삭제/편집을 위한 ID 연결
             layer.bindPopup(`<b>${drawingData.name}</b> (${drawingData.type})`);
             
-            layer.on('click', () => {
+            // 🚩 [수정] mouseover 팝업을 제거하고, 클릭 시에만 팝업이 나타나도록 수정
+            layer.on('click', (e) => { 
+                layer.openPopup(e.latlng); // 클릭한 위치에 팝업을 엽니다.
+                const bounds = layer.getBounds(); if (bounds.isValid()) { map.flyTo(bounds.getCenter(), 8); }
                 if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) {
                     const geojsonToEdit = drawingData.geojson;
                     openDrawingForm(geojsonToEdit, drawingData);
                 }
-            });
-
-            layer.on('mouseover', function (e) {
-                this.openPopup();
-            });
-            layer.on('mouseout', function (e) {
-                this.closePopup();
             });
         }
 
@@ -1908,12 +1904,11 @@ function updateMap(year, month) {
                 `;
                                 
                 marker.bindPopup(popupHtml);
-                // 팝업 이벤트 추가
-                marker.on('mouseover', function (e) { this.openPopup(); });
-                marker.on('mouseout', function (e) { this.closePopup(); });
+                // 🚩 [수정] 마우스 오버 팝업을 제거하고, 클릭 시에만 팝업이 나타나도록 수정
                 marker.on('click', (e) => { 
+                    marker.openPopup(); // 팝업 열기
                     map.flyTo(e.latlng, 10); // 🚩 [수정] 클릭 시 줌인하며 이동
-                    if (editMode) openCastleForm(castle._id); 
+                    if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) openCastleForm(castle._id); 
                 });
                 markers.push(marker);
                 marker.addTo(map);
