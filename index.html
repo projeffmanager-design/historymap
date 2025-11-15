@@ -2239,39 +2239,33 @@ function getCountryInfoById(id) {
       // 🚩 [수정] 역사 기록과 이벤트를 합쳐서 시간 목록 생성
       historyEventTimes = [...new Set(historyData.map(h => yearMonthToTotalMonths(h.year, h.month)))].sort((a, b) => a - b);
  
-      // 🚩 [핵심 수정] 이전/다음 역사 기록으로 이동 시 '월'까지 정확하게 이동하도록 로직 수정
+      // 🚩 [핵심 수정] 이전/다음 버튼 클릭 시, 기록이 있는 가장 가까운 시간으로 이동하도록 로직 수정
       prevHistoryBtn.addEventListener('click', () => {
           const year = parseInt(yearInput.value);
           const month = parseInt(monthInput.value);
           const currentTotalMonths = yearMonthToTotalMonths(year, month);
-          let foundPrev = false;
+          
+          // 현재 시점보다 이전의 기록들 중 가장 나중의 시간을 찾습니다.
+          const prevTime = historyEventTimes.filter(t => t < currentTotalMonths).pop();
 
-          for (let i = historyEventTimes.length - 1; i >= 0; i--) {
-              if (historyEventTimes[i] < currentTotalMonths) {
-                  const { year: targetYear, month: targetMonth } = totalMonthsToYearMonth(historyEventTimes[i]);
-                  updateTime(targetYear, targetMonth);
-                  foundPrev = true;
-                  break;
-              }
+          if (prevTime !== undefined) {
+              const { year: targetYear, month: targetMonth } = totalMonthsToYearMonth(prevTime);
+              updateTime(targetYear, targetMonth);
           }
-
       });
 
       nextHistoryBtn.addEventListener('click', () => {
           const year = parseInt(yearInput.value);
           const month = parseInt(monthInput.value);
           const currentTotalMonths = yearMonthToTotalMonths(year, month);
-          let foundNext = false;
 
-          for (let i = 0; i < historyEventTimes.length; i++) {
-              if (historyEventTimes[i] > currentTotalMonths) {
-                  const { year: targetYear, month: targetMonth } = totalMonthsToYearMonth(historyEventTimes[i]);
-                  updateTime(targetYear, targetMonth);
-                  foundNext = true;
-                  break;
-              }
+          // 현재 시점보다 이후의 기록들 중 가장 처음의 시간을 찾습니다.
+          const nextTime = historyEventTimes.find(t => t > currentTotalMonths);
+
+          if (nextTime !== undefined) {
+              const { year: targetYear, month: targetMonth } = totalMonthsToYearMonth(nextTime);
+              updateTime(targetYear, targetMonth);
           }
-
       });
 
 
