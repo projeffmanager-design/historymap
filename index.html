@@ -846,9 +846,16 @@
     <div id="resizer"></div>
 
     <div id="rightPanel" style="padding: 15px; flex-basis: 30%; flex-grow: 1; flex-shrink: 1;">
+        <!-- 🚩 [이동] 연대표 필터 패널을 오른쪽 패널 상단으로 이동 -->
+        <!-- 🚩 [수정] 제목과 필터를 한 줄에 표시하도록 flexbox 적용 -->
+        <div id="dynastyTimelineFilterPanel" style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid #5d7185;">
+            <h3 style="margin: 0;">연대표 필터 (잡국)</h3>
+            <div id="ethnicityFilterContainer" style="font-size: 12px;">
+           </div>
+        </div>
         <!-- 🚩 [수정] kingPanel의 height를 flex-basis로 변경 -->
         <div id="kingPanel" style="flex-basis: 30%;">
-            <h3 style="margin-top:0;">국가별 왕 목록</h3>
+            <h3 style="margin-top:15px;">국가별 왕 목록</h3>
             <div class="slider-label" style="text-align:left;">
                 <span id="kingList">해당 연도 왕 정보 없음</span>
             </div>
@@ -1063,6 +1070,11 @@
 
   <div id="countryForm">
     <h3>국가 정보 편집</h3>
+    <!-- 🚩 [추가] 국가 검색 입력란 -->
+    <div class="form-row" style="margin-bottom: 15px;">
+        <label for="countrySearchForEdit">국가 검색:</label>
+        <input type="text" id="countrySearchForEdit" placeholder="국가명 또는 민족으로 검색..." style="flex-grow: 1;">
+    </div>
     <div class="form-row" style="margin-bottom: 15px;">
         <label for="countrySelectForEdit">기존 국가:</label>
         <select id="countrySelectForEdit" style="flex-grow: 1;"></select>
@@ -2441,10 +2453,27 @@ function getCountryInfoById(id) {
         // 기존 sliderTicks를 대체
         const sliderContainer = document.querySelector('.slider-container');
         const existingTicks = sliderContainer.querySelector('div[style*="width:100%"]');
+        // 🚩 [추가] 민족 필터 생성
+        const ethnicityFilterContainer = document.getElementById('ethnicityFilterContainer');
+        const ethnicities = [...new Set(countries.filter(c => !c.is_main_dynasty && c.ethnicity).map(c => c.ethnicity))].sort();
+        
+        // 🚩 [수정] 드롭다운 메뉴로 변경
+        let selectElement = document.createElement('select');
+        selectElement.id = 'ethnicityFilterSelect';
+        selectElement.style.width = '150px'; // 적절한 너비 설정
+        selectElement.innerHTML = '<option value="all">-- 모든 민족 --</option>'; // 기본 옵션
+        ethnicities.forEach(ethnicity => {
+            selectElement.innerHTML += `<option value="${ethnicity}">${ethnicity}</option>`;
+        });
+        ethnicityFilterContainer.innerHTML = ''; // 기존 내용 초기화
+        ethnicityFilterContainer.appendChild(selectElement); // select 엘리먼트 추가
+        selectElement.addEventListener('change', () => {
+            createDynastyTimeline(); // 필터 변경 시 연대표 다시 그리기
+        });
+
         if (existingTicks) existingTicks.remove();
         sliderContainer.appendChild(ticksContainer);
     }
-    // 🚩 [추가] 국가 데이터를 기반으로 연대표를 생성하는 함수
     // 🚩 [수정] 주요 국가와 나머지 국가를 분리하여 렌더링하도록 로직 수정
     function createDynastyTimeline() {
         const timelineContainer = document.getElementById('timeline-container');
@@ -2462,7 +2491,18 @@ function getCountryInfoById(id) {
     
         // 🚩 [수정] is_main_dynasty 플래그가 true인 국가만 필터링합니다.
         const mainDynasties = validCountries.filter(c => c.is_main_dynasty).sort((a, b) => a.start - b.start);
-        const minorDynasties = validCountries.filter(c => !c.is_main_dynasty).sort((a, b) => a.start - b.start);
+        let minorDynasties = validCountries.filter(c => !c.is_main_dynasty).sort((a, b) => a.start - b.start);
+
+        // 🚩 [추가] 민족 필터링 로직
+        // 🚩 [수정] 드롭다운 메뉴에서 선택된 값으로 필터링
+        const checkedEthnicities = document.getElementById('ethnicityFilterSelect').value;
+        if (!checkedEthnicities.includes('all')) {
+            minorDynasties = minorDynasties.filter(country => 
+                checkedEthnicities.includes(country.ethnicity) || !country.ethnicity // 민족 정보가 없는 경우도 포함
+            );
+        }
+
+
     
         const processCountries = (countriesToProcess, isMain, startLane = 0) => {
             const lanes = [];
@@ -2539,9 +2579,9 @@ function getCountryInfoById(id) {
     function populateCountryFilter() {
         countryFilterSelect.innerHTML = '<option value="all">-- 전체 국가 --</option>'; // 초기화
         countries.forEach(country => {
-            const option = document.createElement('option');
+            const option = document.createElement('option'); // 🚩 [수정] 국가 목록에 민족 정보 표시
             option.value = country._id;
-            option.textContent = country.name;
+            option.textContent = `${country.name}${country.ethnicity ? ` (${country.ethnicity})` : ''}`;
             countryFilterSelect.appendChild(option);
         });
     }
@@ -3198,7 +3238,7 @@ function getCountryInfoById(id) {
       const select = document.getElementById('castleCountry');
       // 🚩 [수정] 기본 옵션을 추가하고 그 뒤에 국가 목록을 붙입니다.
       select.innerHTML = '<option value="">-- 국가 선택 --</option>' + 
-                        countries.map(c => `<option value="${c._id}">${c.name}</option>`).join('');
+                        countries.map(c => `<option value="${c._id}">${c.name}${c.ethnicity ? ` (${c.ethnicity})` : ''}</option>`).join('');
       
       // 🚩 [추가]: 자연 지물 등 국가가 없는 마커를 위한 옵션 추가
      select.innerHTML += '<option value="자연">--- 자연 (국가 무관) ---</option>';
@@ -3302,13 +3342,16 @@ function getCountryInfoById(id) {
         document.getElementById('deleteCountryBtn').style.display = 'none';
         document.getElementById('saveCountryBtn').textContent = '저장/추가';
         document.getElementById('countryColor').value = '#ffffff'; // 기본 색상으로 설정
-
+        // 🚩 [추가] 검색창 초기화
+        const searchInput = countryForm.querySelector('#countrySearchForEdit');
+        if (searchInput) searchInput.value = '';
     });
 
     function updateCountrySelectForEdit() {
         const select = countrySelectForEdit;
-        select.innerHTML = '<option value="">--- 기존 국가 선택 ---</option>' + 
-                          countries.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+        // 🚩 [수정] 국가 목록에 민족 정보 표시
+        select.innerHTML = '<option value="">--- 기존 국가 선택 ---</option>' +
+            countries.map(c => `<option value="${c.name}">${c.name}${c.ethnicity ? ` (${c.ethnicity})` : ''}</option>`).join('');
     }
 
     countrySelectForEdit.addEventListener('change', () => {
@@ -3339,6 +3382,26 @@ function getCountryInfoById(id) {
         document.getElementById('saveCountryBtn').textContent = '저장';
     });
     
+    // 🚩 [추가] 국가 편집 폼 내 검색 기능
+    document.getElementById('countrySearchForEdit').addEventListener('input', (e) => {
+        const searchTerm = e.target.value.toLowerCase();
+        const select = document.getElementById('countrySelectForEdit');
+        
+        // 모든 옵션을 순회하며 검색어와 일치하지 않는 것은 숨김
+        for (let i = 0; i < select.options.length; i++) {
+            const option = select.options[i];
+            const optionText = option.textContent.toLowerCase();
+            
+            // '기존 국가 선택' 옵션은 항상 보이도록 함
+            if (option.value === "") {
+                option.style.display = '';
+                continue;
+            }
+            
+            option.style.display = optionText.includes(searchTerm) ? '' : 'none';
+        }
+    });
+
     document.getElementById('editCountryForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         
@@ -3520,7 +3583,7 @@ function getCountryInfoById(id) {
     function updateKingFormCountrySelect() {
         const select = kingCountrySelectForForm;
         // 🚩 수정: option value에 국가 이름 대신 국가의 _id를 저장합니다.
-        select.innerHTML = countries.map(c => `<option value="${c._id}">${c.name}</option>`).join('');
+        select.innerHTML = countries.map(c => `<option value="${c._id}">${c.name}${c.ethnicity ? ` (${c.ethnicity})` : ''}</option>`).join('');
         loadKingsForCountry(); 
     } 
     
