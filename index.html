@@ -321,6 +321,9 @@
     .location-label-marker {
         /* 글꼴 설정 */
         font-size: 15px; /* 큰 글씨 크기 */
+        /* 🚩 [수정] 글자 크기를 CSS 변수로 제어하도록 변경 */
+        font-size: var(--label-font-size, 15px);
+
         font-weight: bold;
         color: #ffffff; /* 밝은 노란색 계열 */
         text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 0px 2px #000; /* 🚩 [수정] 진한 글자 외곽선 효과 */
@@ -655,6 +658,12 @@
         padding-top: 15px; /* 🚩 [추가] 위쪽 콘텐츠와의 간격 확보 */
         justify-content: left; /* 🚩 [추가] 버튼들을 중앙에 정렬 */
     }
+    /* 🚩 [추가] 성곽 그림자 효과를 위한 SVG 필터 */
+    .svg-shadow-filter {
+        -webkit-filter: drop-shadow( 0px 0px 1.5px rgba(0,0,0,1));
+        filter: drop-shadow( 0px 0px 1.5px rgba(0,0,0,1));
+        /* 참고: 일부 브라우저 호환성을 위해 -webkit- 접두사 포함 */
+    }
   </style>
 
   <!-- 🚩 [추가] 팝업 스타일 -->
@@ -917,6 +926,12 @@
         <label for="labelColor">글자 색상:</label>
         <input type="color" id="labelColor" value="#FFFFFF" style="height: 30px; padding: 2px;">
       </div>
+      <!-- 🚩 [추가] 지명 글자 크기 선택 -->
+      <div class="form-row" id="labelSizeRow" style="display:none;">
+        <label for="labelSize">글자 크기:</label>
+        <select id="labelSize">
+            <option value="medium">중</option><option value="large">대</option><option value="small">소</option></select>
+      </div>
       <div class="form-row">
         <label for="castleCountry">국가:</label>
         <select id="castleCountry">
@@ -1000,6 +1015,11 @@
   <!-- 🚩 [추가] 도시/성 편집 선택 폼 -->
   <div id="editCitySelectionForm" style="display: none; position: absolute; top: 100px; left: calc(50% - 225px); background: #2c3e50; color: #ecf0f1; border: 1px solid #5d7185; padding: 20px; z-index: 1000; border-radius: 8px; width: 450px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); max-width: 90%; min-width: 350px;">
       <h3>편집할 도시/성 선택</h3>
+      <!-- 🚩 [추가] 도시/성 검색 입력란 -->
+      <div class="form-row" style="margin-bottom: 15px;">
+          <label for="citySearchForEdit">도시/성 검색:</label>
+          <input type="text" id="citySearchForEdit" placeholder="도시/성 이름으로 검색..." style="flex-grow: 1;">
+      </div>
       <div class="form-row">
           <label for="citySelectForEdit">도시/성:</label>
           <select id="citySelectForEdit" style="flex-grow: 1;">
@@ -1717,7 +1737,7 @@ function updateMap(year, month) {
                              .setText('凹', {
                         repeat: true,
                         offset: 0,
-                        attributes: { 'font-size': '12', 'fill': '#ffffff', 'dy': 5 }
+                        attributes: { 'font-size': '12', 'fill': '#ffffff', 'dy': 5, 'class': 'svg-shadow-filter' }
                     });
                     // 생성된 레이어 그룹에 직접 이벤트를 바인딩합니다.
                     bindDrawingEvents(layer, drawing);
@@ -1866,10 +1886,28 @@ function updateMap(year, month) {
                 if (!layerVisibility.label) return;
                 if (!isWithinDuration) return;
 
+                // 🚩 [추가] 저장된 크기에 따라 폰트 크기 결정
+                let fontSize = '15px'; // 기본 '중'
+                switch (castle.label_size) {
+                    case 'large':
+                        fontSize = '26px';
+                        break;
+                    case 'small':
+                        fontSize = '10px';
+                        break;
+                }
                 const labelIcon = L.divIcon({
-                    className: 'location-label-marker',
-                    html: `<div style="color: ${castle.label_color || '#FFFFFF'};">${castle.name}</div>`,
-                    iconSize: [100, 20], // 크기는 CSS에 맞게 조정
+                    // 🚩 [수정] 줌 레벨에 따른 scale transform이 적용되지 않도록 className을 제거하고, 스타일을 직접 적용합니다.
+                    className: '', 
+                    html: `<div style="
+                        font-size: ${fontSize}; 
+                        font-weight: bold; 
+                        color: ${castle.label_color || '#FFFFFF'}; 
+                        text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 0px 2px #000;
+                        white-space: nowrap;
+                        text-align: center;
+                    ">${castle.name}</div>`,
+                    iconSize: [150, 40], // 아이콘 크기를 넉넉하게 잡아 텍스트가 잘리지 않도록 함
                     iconAnchor: [50, 15] // 중앙에 맞추기
                 });
                 marker = L.marker([castle.lat, castle.lng], { icon: labelIcon });
@@ -2183,9 +2221,9 @@ function updateMap(year, month) {
                         radius: map.getZoom() <= 5 ? 100 : (map.getZoom() <= 7 ? 80 : 60),
                         blur: map.getZoom() <= 5 ? 30 : (map.getZoom() <= 7 ? 25 : 20),
                         max: 1.0, // 강도 최대치를 1.0으로 설정하여 일관된 표현
-                        maxZoom: 10, // 특정 줌 레벨 이하에서만 보이도록 설정
-                        // 🚩 [수정] countryInfo.color가 유효하지 않을 경우를 대비해 기본 색상('grey')을 사용합니다.
-                        gradient: { 0: 'transparent', 1: countryInfo.color || 'grey' } 
+                        maxZoom: 10, // 특정 줌 레벨 이하에서만 보이도록 설정 
+                        // 🚩 [수정] 강역 표시 색상을 더 강하게 만들기 위해 gradient 수정
+                        gradient: { 1.0: countryInfo.color || 'grey', 1: countryInfo.color || 'grey' }
                     }).addTo(map);
                     
                     // 생성된 레이어를 관리를 위해 저장
@@ -2818,6 +2856,8 @@ function getCountryInfoById(id) {
         cityEditBtn.addEventListener('click', () => {
             closeAllFormsExcept('editCitySelectionForm');
             editCitySelectionForm.style.display = 'block';
+            const searchInput = editCitySelectionForm.querySelector('#citySearchForEdit');
+            if (searchInput) searchInput.value = ''; // 🚩 [추가] 검색창 초기화
             populateCitySelectForEdit(); // 목록을 최신 상태로 유지
         });
     }
@@ -2985,6 +3025,7 @@ function getCountryInfoById(id) {
         } else if (castle.is_label) {
             currentType = 'label';
         }
+        document.getElementById('labelSize').value = castle.label_size || 'medium'; // 🚩 [추가] 글자 크기 로드
         setActiveMarkerType(currentType);
 
         // 🚩 [추가] 자연 또는 지명 타입일 경우 국가 필드를 '자연지물'로 설정
@@ -3074,6 +3115,14 @@ function getCountryInfoById(id) {
         
         // 🚩 [추가] '지명' 타입일 때만 색상 선택 UI를 표시합니다.
         document.getElementById('labelColorRow').style.display = type === 'label' ? 'flex' : 'none';
+        // 🚩 [추가] '지명' 타입일 때만 크기 선택 UI를 표시합니다.
+        document.getElementById('labelSizeRow').style.display = type === 'label' ? 'flex' : 'none';
+
+        // 🚩 [수정] '지명' 타입일 때 국가, 설명, 사진 필드를 숨깁니다.
+        document.getElementById('castleCountry').closest('.form-row').style.display = type === 'label' ? 'none' : 'flex';
+        document.getElementById('castleDesc').closest('.form-row').style.display = type === 'label' ? 'none' : 'flex';
+        document.getElementById('castlePhoto').closest('.form-row').style.display = type === 'label' ? 'none' : 'flex';
+
 
         // 🚩 [추가] 자연 지물 선택 시 국가 필드 처리
         const castleCountrySelect = document.getElementById('castleCountry');
@@ -3117,8 +3166,8 @@ function getCountryInfoById(id) {
         destroyed_month: parseInt(document.getElementById('castleDestroyedMonth').value) || 12,
         lat: parseFloat(document.getElementById('castleLat').value),
         lng: parseFloat(document.getElementById('castleLng').value),
-        photo: document.getElementById('castlePhoto').value || null,
-        desc: document.getElementById('castleDesc').value,
+        photo: selectedType === 'label' ? null : (document.getElementById('castlePhoto').value || null),
+        desc: selectedType === 'label' ? null : document.getElementById('castleDesc').value,
         // 🚩 [수정] 선택된 타입에 따라 boolean 값 설정
         is_capital: selectedType === 'capital',
         is_battle: selectedType === 'battle',
@@ -3126,6 +3175,7 @@ function getCountryInfoById(id) {
         is_natural_feature: selectedType === 'natural',
         is_label: selectedType === 'label', // 🚩 [추가]
         label_color: selectedType === 'label' ? document.getElementById('labelColor').value : null, // 🚩 [추가]
+        label_size: selectedType === 'label' ? document.getElementById('labelSize').value : null, // 🚩 [추가]
         natural_feature_type: selectedType === 'natural' ? document.getElementById('naturalFeatureType').value : null,
       };
 
@@ -4302,6 +4352,25 @@ kingSelect.addEventListener('change', () => {
                         map.flyTo([capital.lat, capital.lng], 10); // 줌 레벨 10으로 클로즈업
                     }
                 }
+            }
+        });
+
+        // 🚩 [추가] 도시/성 편집 폼 내 검색 기능
+        document.getElementById('citySearchForEdit').addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            const select = document.getElementById('citySelectForEdit');
+            
+            for (let i = 0; i < select.options.length; i++) {
+                const option = select.options[i];
+                const optionText = option.textContent.toLowerCase();
+                
+                // '-- 도시/성 선택 --' 옵션은 항상 보이도록 함
+                if (option.value === "") {
+                    option.style.display = '';
+                    continue;
+                }
+                
+                option.style.display = optionText.includes(searchTerm) ? '' : 'none';
             }
         });
     });
