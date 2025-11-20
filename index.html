@@ -42,7 +42,7 @@
         display: flex; /* 🚩 [추가] flex 레이아웃으로 변경 */
         flex-direction: column; /* 🚩 [추가] 수직 정렬 */
     }
-    /* 🚩 [수정] mainContainer가 body의 남은 공간을 모두 차지하도록 flex-grow: 1 설정하고, 내부 요소 간 간격 추가 */
+    /* 🚩 [수정] mainContainer가 body의 남은 공간을 모두 차지하도록 flex-grow: 1 설정 */
     #mainContainer {
         display: flex; /* 🚩 [수정] mainContainer를 flex로 변경 */
         width: 100%; /* 너비 100% */
@@ -112,7 +112,6 @@
         display: flex; /* 🚩 [추가] flex 레이아웃으로 변경 */
         flex-direction: column; /* 🚩 [추가] 수직 정렬 */
         flex-shrink: 0; /* 🚩 [추가] 패널 높이가 줄어들지 않도록 설정 */
-        padding-bottom: 10px; /* 🚩 [수정] 하단 여백 조정 */
         border-bottom: 1px solid #5d7185;
         min-height: 0; /* flex 아이템의 최소 높이 문제 해결 */
     }
@@ -121,10 +120,10 @@
         flex-grow: 1; /* 남은 공간을 모두 차지 */
         overflow-y: auto; /* 내용이 넘칠 경우 스크롤바 표시 */
     }
-    #historyPanel {
+    #historyPanelContainer {
         display: flex; /* 🚩 [수정] 내부 요소를 flex로 제어 */
         flex-direction: column;
-        flex-grow: 1; /* 남은 공간을 모두 차지 */
+        flex-basis: 70%;
         padding-top: 15px;
         min-height: 0; /* flex 아이템의 최소 높이 문제 해결 */
     }
@@ -134,6 +133,19 @@
         overflow-y: auto; /* 내용이 넘칠 경우 스크롤바 표시 */
         min-height: 0; /* flex 아이템의 최소 높이 문제 해결 */
         padding-right: 5px; /* 스크롤바와의 간격 확보 */
+    }
+    #historyPanel {
+        display: flex;
+        flex-direction: column;
+        flex-grow: 1;
+        transition: all 0.3s ease-in-out; /* 🚩 [추가] 접고 펴질 때 부드러운 애니메이션 효과 */
+    }
+    #historyPanel.collapsed {
+        display: none;
+    }
+    #historyPanelToggleBtn {
+        margin-left: 10px;
+        cursor: pointer;
     }
     /* 🚩 [추가] 연대표 패널 스타일 */
     #dynastyTimelinePanel {
@@ -843,8 +855,10 @@
     #title-container {
         text-align: center;
         padding: 0 20px 10px; /* 제목 아래에만 패딩 적용 */
+        display: flex;
+        justify-content: center;
+        align-items: center;
     }
-
     #top-right-auth {
         display: flex;
         align-items: center;
@@ -931,9 +945,58 @@
     }
   </style>
 </head>
+<style>
+    /* 🚩 [추가] PC 버전 상단 패널 토글 버튼 스타일 */
+    #pcTopPanelToggleBtn {
+        position: static; /* 🚩 [수정] absolute 포지션 제거 */
+        z-index: 1003; /* Ensure it's above the map */
+        display: none; /* Hidden by default, shown on PC */
+        padding: 8px 12px;
+        margin-right: 15px; /* 🚩 [추가] 제목과의 간격 */
+    }
+
+    @media (min-width: 769px) { /* Show on PC */
+        #pcTopPanelToggleBtn {
+            display: block;
+        }
+    }
+
+    /* 🚩 [추가] 상단 패널 숨김 클래스 */
+    body.top-panels-hidden #top-bar-container,
+    body.top-panels-hidden #title-container,
+    body.top-panels-hidden #controls-wrapper {
+        display: none;
+    }
+    /* 🚩 [추가] 오른쪽 패널 숨김 클래스 */
+    body.right-panel-hidden #rightPanel {
+        flex-basis: 0 !important; /* Force to 0 */
+        overflow: hidden;
+        padding: 0;
+        border: none;
+    }
+    body.right-panel-hidden #resizer {
+        display: none;
+    }
+
+    /* 🚩 [수정] 오른쪽 패널 토글 버튼 PC 스타일 */
+    @media (min-width: 769px) {
+        #rightPanelToggleBtn {
+            writing-mode: vertical-rl; /* Revert to vertical for PC */
+            top: 10px; /* Adjust position */
+            left: -28px; /* Adjust position */
+            right: auto; /* Reset mobile right position */
+            bottom: auto; /* Reset mobile bottom position */
+            width: auto; /* Reset mobile width */
+            height: auto; /* Reset mobile height */
+            border-radius: 5px 0 0 5px; /* Reset mobile border-radius */
+            font-size: 12px; /* Reset mobile font-size */
+            line-height: 1; /* Reset mobile line-height */
+            padding: 10px 5px; /* Reset mobile padding */
+        }
+    }
+</style>
 <body>
-  <!-- 🚩 [추가] 모바일용 상단 패널 토글 버튼 -->
-  <button id="topPanelToggleBtn">☰ 컨트롤</button>
+
 
   <!-- 🚩 [수정] 헤더를 최상단 바와 제목 컨테이너로 분리 -->
   <div id="top-bar-container">
@@ -948,13 +1011,13 @@
       </div>
   </div>
   <div id="title-container">
-    <h1 style="font-family: 'Noto Serif KR', serif; font-size: 2.2em; margin: 0; display: inline-block; color: #f5e9d2; text-shadow: 2px 2px 4px #000;">고려만리지도 <span class="hanja-title">(高麗萬里地圖)</span></h1>
+    <!-- 🚩 [수정] PC 버전 상단 패널 토글 버튼을 타이틀 왼쪽으로 다시 이동 -->
+    <button id="pcTopPanelToggleBtn" class="button-style" title="컨트롤 패널 숨기기/보이기" style="display: none;">▲ 컨트롤 숨기기</button><h1 style="font-family: 'Noto Serif KR', serif; font-size: 2.2em; margin: 0; display: inline-block; color: #f5e9d2; text-shadow: 2px 2px 4px #000;">고려만리지도 <span class="hanja-title">(高麗萬里地圖)</span></h1>
   </div>
 
   <!-- 🚩 [수정] 컨트롤러들을 별도의 wrapper로 분리 -->
   <div id="controls-wrapper" style="padding: 10px; box-sizing: border-box;">
       <div class="slider-container" style="text-align:left; margin-bottom:4px; width: 100%;">
-
         <div id="top-controls-container" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px;">
             <!-- 🚩 [수정] 왼쪽 컨트롤 그룹 (시간 및 속도) -->
             <div class="time-controls" style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
@@ -993,6 +1056,7 @@
                     <button type="button" class="layer-toggle-btn active" data-layer="natural">자연</button> <!-- 🚩 [수정] 지명, 자연 토글 기본 비활성화 -->
                     <button type="button" class="layer-toggle-btn active" data-layer="event">이벤트</button>
                     <button type="button" class="layer-toggle-btn" data-layer="territory">강역</button>
+                    <button type="button" class="layer-toggle-btn active" data-layer="timeline">연대표</button>
                 </div>
                 <div id="country-filter-container" style="flex-shrink: 0;">
                     <select id="countryFilterSelect" style="padding: 5px; border-radius: 4px; border: 1px solid #5d7185; font-size: 12px;">
@@ -1018,6 +1082,8 @@
 
   <!-- 🚩 [수정] contentContainer를 mainContainer로 변경하고, leftColumn과 rightPanel을 포함하도록 구조 변경 -->
   <div id="mainContainer">
+    <!-- 🚩 [이동] 모바일용 상단 패널 토글 버튼을 지도 패널의 부모로 이동 -->
+    <button id="topPanelToggleBtn">☰ 컨트롤</button>
     <div id="leftColumn" style="flex-basis: 70%; flex-grow: 1; flex-shrink: 1;">
       <div id="map" style="width: 100%; height: 100%; min-height: 0;">
         <!-- 🚩 [수정] 이벤트 오버레이를 map div 안으로 이동 -->
@@ -1043,8 +1109,10 @@
 
         <div id="historyPanel" style="display: flex; flex-direction: column;">
             <h3 style="margin-top: 0; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-start;">
-                <span id="historyYearTitle"></span>
+                <!-- 🚩 [수정] 제목과 토글 버튼을 함께 묶음 -->
+                <span style="display: flex; align-items: center;"><span id="historyYearTitle"></span></span>
                 <div style="display: flex; align-items: flex-start; gap: 5px; flex-shrink: 0;">
+                    <!-- 🚩 [수정] 편집 버튼을 토글 버튼과 분리 -->
                     <button id="addHistoryBtn" class="primary" style="display: none;">추가</button>
                     <button id="prevHistoryBtn" title="이전 기록">◀</button>
                     <button id="nextHistoryBtn" title="다음 기록">▶</button>
@@ -1073,6 +1141,7 @@
     <!-- 🚩 [이동] 토글 버튼을 mainContainer 바로 아래로 이동하여 패널이 숨겨져도 보이도록 함 -->
     <button id="rightPanelToggleBtn" title="패널 접기/펼치기">패널 접기</button>
   </div> <!-- mainContainer 종료 -->
+
   <div id="castleForm">
         <h3>새로운 오브젝트 추가/편집</h3> <form id="addCastleForm">
       <input type="hidden" id="castleKey">
@@ -1525,7 +1594,8 @@
         battle: true,     // 전장
         natural: true,    // 자연
         territory: false,
-        event: true       // 🚩 [추가] 이벤트 레이어 가시성
+        event: true,      // 🚩 [추가] 이벤트 레이어 가시성
+        timeline: true    // 🚩 [추가] 연대표 가시성
     };
 
     // --- 2. DOM 요소 맵핑 ---
@@ -2691,8 +2761,14 @@ function getCountryInfoById(id) {
         const timelineContainer = document.getElementById('timeline-container');
         if (!timelineContainer || countries.length === 0) return;
     
-        timelineContainer.innerHTML = ''; // 컨테이너 초기화
-    
+        // 🚩 [수정] 연대표 가시성 상태에 따라 컨테이너를 비우거나 숨깁니다.
+        if (!layerVisibility.timeline) {
+            timelineContainer.innerHTML = '';
+            timelineContainer.style.display = 'none';
+            return;
+        }
+        timelineContainer.style.display = 'block';
+        timelineContainer.innerHTML = ''; // 컨테이너 초기화    
         const validCountries = countries.filter(c => c.start !== null);
         if (validCountries.length === 0) return;
     
@@ -4419,10 +4495,30 @@ kingSelect.addEventListener('change', () => {
         }
     }
 
+    // 🚩 [추가] PC 버전 상단 패널 토글 기능 초기화
+    function initializeTopPanelToggle() {
+        const toggleBtn = document.getElementById('pcTopPanelToggleBtn');
+        const body = document.body;
+        const controlsWrapper = document.getElementById('controls-wrapper'); // This is the panel to hide/show
+        const timelineContainer = document.getElementById('timeline-container');
+        let isControlsHidden = false;
+
+        toggleBtn.addEventListener('click', () => {
+            isControlsHidden = !isControlsHidden;
+            controlsWrapper.style.display = isControlsHidden ? 'none' : 'block';
+            toggleBtn.textContent = isControlsHidden ? '▼ 컨트롤 보이기' : '▲ 컨트롤 숨기기';
+            map.invalidateSize(); // Recalculate map size
+            timelineContainer.style.display = isControlsHidden ? 'none' : 'block';
+        });
+    }
+
+
     // 🚩 [핵심 수정] 중복 선언된 DOMContentLoaded 리스너를 하나로 통합하고, 누락된 레이어 토글 이벤트 리스너를 추가합니다.
     document.addEventListener('DOMContentLoaded', async () => {
         await initialize();
         initializeRightPanelToggle();
+        initializeTopPanelToggle(); // 🚩 [추가] PC 버전 상단 패널 토글 초기화
+
         createSliderTicks(); // 🚩 [추가] 슬라이더 눈금 생성 함수 호출
         createDynastyTimeline(); // 🚩 [추가] 연대표 생성 함수 호출
         initializeDrawControl(); // 그리기 컨트롤 초기화 함수 호출
@@ -4447,11 +4543,35 @@ kingSelect.addEventListener('change', () => {
         });
 
         // Hammer.js를 이용한 스와이프 이벤트 처리
-        const hammertime = new Hammer(document.body);
-        // 위에서 아래로 스와이프하면 상단 패널 열기
+        const hammertime = new Hammer(mapElement); // 🚩 [수정] 지도 영역에서만 스와이프를 감지하도록 변경
+
+        // 🚩 [수정] 스와이프 방향을 모두 감지하도록 설정
+        hammertime.get('swipe').set({ direction: Hammer.DIRECTION_ALL });
+
+        // 아래로 스와이프: 상단 패널 열기
         hammertime.on('swipedown', function(ev) {
-            if (window.innerWidth <= 768 && window.scrollY === 0) { // 화면 최상단에서만 동작
+            if (window.innerWidth <= 768) {
                 controlsWrapper.classList.add('visible');
+            }
+        });
+        // 위로 스와이프: 상단 패널 닫기
+        hammertime.on('swipeup', function(ev) {
+            if (window.innerWidth <= 768) {
+                controlsWrapper.classList.remove('visible');
+            }
+        });
+        // 왼쪽으로 스와이프: 오른쪽 패널 열기
+        hammertime.on('swipeleft', function(ev) {
+            if (window.innerWidth <= 768) {
+                rightPanel.classList.add('visible');
+                document.getElementById('rightPanelToggleBtn').innerHTML = '✕';
+            }
+        });
+        // 오른쪽으로 스와이프: 오른쪽 패널 닫기
+        hammertime.on('swiperight', function(ev) {
+            if (window.innerWidth <= 768) {
+                rightPanel.classList.remove('visible');
+                document.getElementById('rightPanelToggleBtn').innerHTML = '📜';
             }
         });
 
@@ -4480,8 +4600,13 @@ kingSelect.addEventListener('change', () => {
                 button.classList.toggle('active');
                 layerVisibility[layerType] = button.classList.contains('active');
                 
-                const { year, month } = getCurrentYearMonth();
-                updateMap(year, month);
+                // 🚩 [수정] 연대표 토글 시에는 createDynastyTimeline만 호출
+                if (layerType === 'timeline') {
+                    createDynastyTimeline();
+                } else {
+                    const { year, month } = getCurrentYearMonth();
+                    updateMap(year, month);
+                }
             }
         });
 
