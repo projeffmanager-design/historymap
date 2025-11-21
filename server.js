@@ -124,7 +124,8 @@ async function setupRoutesAndCollections() {
         });
 
         // POST: 성 정보 추가
-        app.post('/api/castle', verifyAdmin, async (req, res) => {
+        // 🚩 [수정] 일반 사용자도 성을 추가할 수 있도록 verifyAdmin을 verifyToken으로 변경
+        app.post('/api/castle', verifyToken, async (req, res) => {
             try {
                 const newCastle = req.body;
                 if (newCastle._id) delete newCastle._id; 
@@ -143,7 +144,8 @@ async function setupRoutesAndCollections() {
         });
 
         // PUT: 성 정보 업데이트
-        app.put('/api/castle/:id', verifyAdmin, async (req, res) => {
+        // 🚩 [수정] 일반 사용자도 성을 수정할 수 있도록 verifyAdmin을 verifyToken으로 변경
+        app.put('/api/castle/:id', verifyToken, async (req, res) => {
             try {
                 const { id } = req.params;
                 const _id = toObjectId(id);

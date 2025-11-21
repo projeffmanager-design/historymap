@@ -3259,6 +3259,7 @@ function getCountryInfoById(id) {
     window.openCastleForm = function(id) {
         if (!editMode || !(currentUser?.role === 'superuser' || currentUser?.role === 'admin')) return; 
         const castle = castles.find(c => c._id === id);
+        map.closePopup();
         if (!castle) return alert("성 정보를 찾을 수 없습니다.");
         const countryInfo = getCountryInfoById(castle.country_id); 
 
@@ -3491,11 +3492,33 @@ function getCountryInfoById(id) {
           });
 
           if (!response.ok) {
-              throw new Error(`HTTP error! status: ${response.status}`);
+              const errorData = await response.json();
+              throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
           }
 
           document.getElementById('castleForm').style.display = 'none';
-          initialize();
+          if (editMarker && map.hasLayer(editMarker) && editMarker.getPopup()) {
+              editMarker.closePopup();
+          }
+          if (editMarker) {
+              map.removeLayer(editMarker);
+              editMarker = null;
+          }
+          
+          // 🚩 [핵심 수정] 전체 갱신 대신, 생성된 오브젝트만 지도에 추가합니다.
+          if (isUpdate) {
+              // 수정의 경우, 데이터 정합성을 위해 전체 갱신
+              initialize();
+          } else {
+              // 추가의 경우, 전체 갱신 없이 새 데이터만 반영
+              const newCastle = await response.json();
+              data._id = newCastle.id; // 서버에서 받은 ID를 데이터에 추가
+              castles.push(data); // 전역 데이터에 새 성 추가
+              
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month); // 지도만 다시 그리기
+              populateCitySelectForEdit(); // 편집용 도시 선택 목록 갱신
+          }
       } catch (error) {
         console.error("Castle 저장 중 오류:", error);
         alert(`Castle 저장 실패: ${error.message}`);
@@ -3505,6 +3528,10 @@ function getCountryInfoById(id) {
     // 성 폼 취소
     cancelCastle.addEventListener('click', () => {
       document.getElementById('castleForm').style.display = 'none';
+      // 🚩 [추가] 마커의 팝업을 명시적으로 닫은 후 레이어를 제거합니다.
+      if (editMarker && map.hasLayer(editMarker) && editMarker.getPopup()) {
+          editMarker.closePopup();
+      }
       if (editMarker) {
         map.removeLayer(editMarker);
         editMarker = null;
@@ -3527,6 +3554,14 @@ function getCountryInfoById(id) {
 
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
+            // 🚩 [핵심 수정] 성 삭제 성공 후, 임시 편집 마커와 팝업을 제거합니다.
+            if (editMarker && map.hasLayer(editMarker) && editMarker.getPopup()) {
+                editMarker.closePopup();
+            }
+            if (editMarker) {
+                map.removeLayer(editMarker);
+                editMarker = null;
+            }
             document.getElementById('castleForm').style.display = 'none';
             initialize();
         } catch (error) {
