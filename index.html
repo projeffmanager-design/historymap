@@ -55,8 +55,10 @@
         height: 100%;
         border: 1px solid #ccc;
         border-radius: 5px;
+        background-color: #19191b; /* 🚩 [추가] 타일 로딩 전 배경색 설정 */
         position: relative; /* 🚩 [추가] 이벤트 오버레이의 기준점으로 설정 */
       //  .leaflet-tile { filter: brightness(0.7);}
+        overflow: hidden; /* 🚩 [추가] 타일 로딩 중 경계가 보이는 현상 방지 */
     }
     /* 🚩 [추가] 리사이저 핸들 스타일 */
     #resizer { 
@@ -921,9 +923,8 @@
         font-size: 0.9em; /* 한글과의 조화를 위해 크기 미세 조정 */
     }
   </style>
-  <!-- 🚩 [추가] 모바일용 상단 패널 토글 버튼 스타일 -->
-  <style>
-      #topPanelToggleBtn {
+  <!-- 🚩 [핵심 수정] 이벤트 오버레이 스타일을 별도의 <style> 태그로 분리하여 CSS 충돌 해결 -->
+  <style> 
     #event-overlay {
         position: absolute;
         top: 50%;
@@ -932,8 +933,8 @@
         background-color: rgba(0, 0, 0, 1);
         color: #e5ff00;
         padding: 20px 40px;
-        border-radius: 12px;
-        z-index: 1001; /* 폼보다 위에, 지도보다 위에 */
+        border-radius: 12px; /* 🚩 [수정] z-index를 매우 높게 설정하여 모든 요소 위에 오도록 함 */
+        z-index: 9999;
         font-size: 2.5em;
         /* 🚩 [수정] 텍스트와 이미지를 함께 표시하기 위해 flexbox 사용 */
         display: flex;
@@ -1523,9 +1524,9 @@
     // ----------------------------------------------------
     // ⚙️ 설정
     // ----------------------------------------------------
-    // 🚩 [수정] 고대 지도 정보를 배열로 관리 (추가/수정 용이)
+    // 🚩 [수정] 고대 지도 정보를 배열로 관리
     const ancientMaps = [
-        { 
+        {
             id: 'daecheongBtn', 
             name: '대청광여도', 
             url: 'https://github.com/projeffmanager-design/img/blob/main/1.%20%E1%84%83%E1%85%A2%E1%84%8E%E1%85%A5%E1%86%BC%E1%84%80%E1%85%AA%E1%86%BC%E1%84%8B%E1%85%A7%E1%84%83%E1%85%A9.JPG?raw=true' 
@@ -1601,15 +1602,29 @@
     // 🚩 [수정] 지도가 작아졌을 때 흰 바탕이 보이지 않도록 maxBounds와 minZoom 옵션을 추가
     const map = L.map('map', {
         center: [36, 120],
-        zoom: 5,
+        zoom: 6,
         minZoom: 4, // 지도를 너무 작게 축소하는 것을 방지
         worldCopyJump: true // 🚩 [추가] 지도 좌우 롤링(연속 스크롤) 기능 활성화
-    });
+    });    
     // 🚩 [수정] 위성 지도를 기본으로 설정하고, 토글 순서 변경
     const tileLayers = {
-        '위성': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18 }),
+        '위성': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { 
+            maxZoom: 18, // 최대 줌 레벨
+            keepBuffer: 8, // 뷰포트 주변에 추가로 로드할 타일 수
+            updateWhenIdle: false, // 🚩 [수정] 지도 이동 중에도 타일 로딩을 계속하여 응답성 향상
+            updateInterval: 200, // 🚩 [추가] 타일 업데이트 주기(ms)를 설정하여 과도한 요청 방지
+            unloadInvisibleTiles: true, // 🚩 [추가] 보이지 않는 타일을 메모리에서 제거하여 성능 향상
+            fadeAnimation: false // 타일 로딩 시 페이드 효과 제거
+        }),
    //     '다크': L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png', { maxZoom: 20 }),
-        '일반': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 })
+        '일반': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { 
+            maxZoom: 19, // 최대 줌 레벨
+            keepBuffer: 8, // 뷰포트 주변에 추가로 로드할 타일 수
+            updateWhenIdle: false, // 🚩 [수정] 지도 이동 중에도 타일 로딩을 계속하여 응답성 향상
+            updateInterval: 200, // 🚩 [추가] 타일 업데이트 주기(ms)를 설정하여 과도한 요청 방지
+            unloadInvisibleTiles: true, // 🚩 [추가] 보이지 않는 타일을 메모리에서 제거하여 성능 향상
+            fadeAnimation: false // 타일 로딩 시 페이드 효과 제거
+        })
     };
     let currentTileLayer = tileLayers['위성']; // 기본 레이어
     currentTileLayer.addTo(map);
@@ -1894,9 +1909,13 @@ function getKingByYear(countryName, year, month) {
 
 /** 연도/월에 해당하는 이벤트를 찾아 화면에 표시합니다. */
     function checkAndDisplayEvent(year, month) {
+        // 🚩 [수정] 함수가 호출될 때마다 이전의 이벤트 표시 타이머를 항상 취소합니다.
+        if (eventDisplayTimeout) clearTimeout(eventDisplayTimeout);
+
         // 🚩 [추가] 이벤트 레이어가 비활성화 상태이면, 즉시 숨기고 함수를 종료합니다.
         if (!layerVisibility.event) {
             eventOverlay.classList.remove('visible');
+            // 🚩 [추가] 이벤트 레이어가 비활성화되면, 숨김 타이머도 취소하고 null로 설정합니다.
             if (eventDisplayTimeout) {
                 clearTimeout(eventDisplayTimeout);
                 eventDisplayTimeout = null;
@@ -1904,36 +1923,25 @@ function getKingByYear(countryName, year, month) {
             return;
         }
 
-        // 🚩 [수정] 이벤트가 없는 시간으로 이동했을 때, 이전 타이머를 명확히 취소하고 창을 숨깁니다.
-        if (eventDisplayTimeout) {
-            clearTimeout(eventDisplayTimeout);            
-            eventDisplayTimeout = null;
-        }
-
-        const currentEvent = events.find(e => e.year === year && e.month === month);
+        const currentEvent = events.find(e => e.year === year && (e.month ?? 1) === month);
 
         if (currentEvent) {
-            // 이벤트가 있으면, 기존 오버레이를 잠시 숨겼다가 다시 표시하여 깜빡임 효과를 줍니다.
-            eventOverlay.classList.remove('visible');            
-            setTimeout(() => {
-                eventOverlayText.textContent = currentEvent.text;
-                if (currentEvent.photo) {
-                    eventOverlayImage.src = currentEvent.photo;
-                    eventOverlayImage.style.display = 'block';
-                } else {
-                    eventOverlayImage.style.display = 'none'; // 사진이 없으면 이미지 태그 숨김
-                }
-                eventOverlay.classList.add('visible');
-                if (currentEvent.lat && currentEvent.lng) {
-                    map.flyTo([currentEvent.lat, currentEvent.lng], 10);
-                }
+            // 🚩 [핵심 수정] setTimeout을 사용한 깜빡임 효과를 제거하고, 직접 DOM을 조작하여 렌더링 충돌을 방지합니다.
+            eventOverlayText.textContent = currentEvent.text;
+            if (currentEvent.photo) {
+                eventOverlayImage.src = currentEvent.photo;
+                eventOverlayImage.style.display = 'block';
+            } else {
+                eventOverlayImage.style.display = 'none';
+            }
+            eventOverlay.classList.add('visible');
 
-                // 1.5초 후에 창을 숨기는 타이머 설정
-                eventDisplayTimeout = setTimeout(() => {
-                    eventOverlay.classList.remove('visible');
-                    eventDisplayTimeout = null;                    
-                }, 1500); // 🚩 [수정] 이벤트 표시 시간을 1.5초로 조정
-            }, 10);
+            // 1.5초 후에 창을 숨기는 타이머의 역할은 그대로 유지합니다.
+            eventDisplayTimeout = setTimeout(() => {
+                eventOverlay.classList.remove('visible');
+                eventDisplayTimeout = null;
+            }, 1500);
+
         } else {
             // 이벤트가 없으면 즉시 창을 숨깁니다.
             eventOverlay.classList.remove('visible');
@@ -1946,16 +1954,9 @@ function updateMap(year, month) {
         // 🚩 [수정] 히트맵 레이어를 포함한 모든 레이어 초기화
         Object.values(heatmapLayers).forEach(layer => map.removeLayer(layer));
         heatmapLayers = {};
-        castleLayerGroup.clearLayers(); 
-
-        markers.forEach(m => map.removeLayer(m));
-        if (editMarker) {
-            map.removeLayer(editMarker);
-            editMarker = null;
-        }
 
         // 🚩 [수정] 그리기 레이어 초기화를 다른 레이어 초기화와 함께 처리
-        drawnItems.clearLayers();
+        if (drawnItems) drawnItems.clearLayers();
 
         // 🚩 [추가] 저장된 그리기 데이터 렌더링
         drawings.forEach(drawing => {
@@ -2065,10 +2066,10 @@ function updateMap(year, month) {
         }
 
         // 🚩 [추가] 강역 표시를 위한 국가별 포인트 데이터 수집
-        const countryPoints = {};
-        if (layerVisibility.territory) {
-            const currentTotalMonths = yearMonthToTotalMonths(year, month);
+        const currentTotalMonths = yearMonthToTotalMonths(year, month);
+        const newHeatmapData = {}; // { countryId: [[lat, lng, intensity], ...] }
 
+        if (layerVisibility.territory) {
             castles.forEach(castle => {
                 if (!castle.country_id || typeof castle.lat !== "number" || typeof castle.lng !== "number") return;
 
@@ -2076,41 +2077,88 @@ function updateMap(year, month) {
                 const destroyedCombined = yearMonthToTotalMonths(castle.destroyed || castle.destroyed_year || 9999, castle.destroyed_month || 12);
                 
                 if (builtCombined <= currentTotalMonths && currentTotalMonths <= destroyedCombined) {
-                    if (!countryPoints[castle.country_id]) {
-                        countryPoints[castle.country_id] = [];
+                    if (!newHeatmapData[castle.country_id]) {
+                        newHeatmapData[castle.country_id] = [];
                     }
 
                     // 🚩 [수정] 국가 선택 여부에 따라 히트맵 강도(intensity)를 다르게 설정
                     let intensity = 1.2; // 🚩 [수정] 기본 강도 상향
                     if (selectedCountryId !== 'all') {
                         if (castle.country_id === selectedCountryId) {
-                            intensity = 2.0; // 🚩 [수정] 선택된 국가는 더 강하게
+                            intensity = 2.0; // 🚩 [수정] 선택된 국가는 더 강하게 표시
                         } else {
-                            intensity = 0.5; // 🚩 [수정] 나머지 국가는 약간 더 강하게
+                            intensity = 0.5; // 🚩 [수정] 나머지 국가는 약간 약하게 표시
                         }
                     }
-                    countryPoints[castle.country_id].push([castle.lat, castle.lng, intensity]); 
+                    newHeatmapData[castle.country_id].push([castle.lat, castle.lng, intensity]); 
                 }
             });
         }
 
+        // 🚩 [추가] 히트맵 레이어 업데이트 또는 생성
+        const activeCountryIds = new Set(Object.keys(newHeatmapData));
+        const existingCountryIds = new Set(Object.keys(heatmapLayers));
 
+        for (const countryId of activeCountryIds) {
+            const points = newHeatmapData[countryId];
+            const countryInfo = getCountryInfoById(countryId);
+
+            if (countryInfo && countryInfo.color && points.length > 0) {
+                if (heatmapLayers[countryId]) {
+                    heatmapLayers[countryId].setLatLngs(points);
+                    if (!map.hasLayer(heatmapLayers[countryId])) {
+                        heatmapLayers[countryId].addTo(map);
+                    }
+                } else {
+                    const heatLayer = L.heatLayer(points, {
+                        radius: map.getZoom() <= 5 ? 100 : (map.getZoom() <= 7 ? 80 : 60),
+                        blur: map.getZoom() <= 5 ? 30 : (map.getZoom() <= 7 ? 25 : 20),
+                        max: 1.0,
+                        maxZoom: 10,
+                        gradient: { 1.0: countryInfo.color || 'grey', 1: countryInfo.color || 'grey' }
+                    });
+                    heatmapLayers[countryId] = heatLayer;
+                    heatLayer.addTo(map);
+                }
+            } else if (heatmapLayers[countryId]) {
+                map.removeLayer(heatmapLayers[countryId]);
+                delete heatmapLayers[countryId];
+            }
+        }
+
+        for (const countryId of existingCountryIds) {
+            if (!activeCountryIds.has(countryId)) {
+                if (heatmapLayers[countryId]) {
+                    map.removeLayer(heatmapLayers[countryId]);
+                    delete heatmapLayers[countryId];
+                }
+            }
+        }
+
+        if (!layerVisibility.territory) {
+            for (const countryId in heatmapLayers) {
+                map.removeLayer(heatmapLayers[countryId]);
+            }
+            heatmapLayers = {};
+        }
+
+        castleLayerGroup.clearLayers(); // 마커 레이어는 기존처럼 클리어 후 다시 추가
         markers = [];
         if (!Array.isArray(castles) || castles.length === 0) return;
-        let marker = null;
+        let marker;
         
+        castleLayerGroup.clearLayers();
         castles.forEach(castle => {
             // 🚩 [추가] 국가 필터링 로직
             if (selectedCountryId !== 'all' && castle.country_id && castle.country_id !== selectedCountryId) {
                 return; // 선택된 국가와 일치하지 않으면 이 마커를 건너뜁니다.
-            }
-            
+            }            
             let popupHtml; 
             if (typeof castle.lat !== "number" || isNaN(castle.lat) || typeof castle.lng !== "number" || isNaN(castle.lng)) return;
             
-        // 🚨 [수정 1] country, countryId 변수를 루프 시작 부분에서 선언하여 충돌 방지
+        // 🚨 [수정 1] country, countryId 변수를 루프 시작 부분에서 선언하여 충돌 방지        
         const currentTotalMonths = yearMonthToTotalMonths(year, month);
-        const builtTotalMonths = yearMonthToTotalMonths(castle.built_year || castle.built || 0, castle.built_month || 1);
+        const builtTotalMonths = yearMonthToTotalMonths(castle.built_year || castle.built || -4000, castle.built_month || 1);
         const destroyedTotalMonths = yearMonthToTotalMonths(castle.destroyed || castle.destroyed_year || 9999, castle.destroyed_month || 12);
         const isWithinDuration = builtTotalMonths <= currentTotalMonths && currentTotalMonths <= destroyedTotalMonths;
         const castleBuiltYear = castle.built_year || castle.built || 0;
@@ -2122,6 +2170,7 @@ function updateMap(year, month) {
         const countryInfo = getCountryInfoById(countryId); // ⬅️ 'country' 대신 'countryInfo' 사용 (충돌 회피)
         
         const countryName = countryInfo ? countryInfo.name : '알 수 없음';
+
         const dotColor = countryInfo ? countryInfo.color : 'white'; 
         
         const king = getKingByYear(countryName, year, month); // ⬅️ king 조회는 countryName 사용
@@ -2129,7 +2178,7 @@ function updateMap(year, month) {
             // 🚩 0. 지역명/텍스트 라벨 마커 (NEW)
             if (castle.is_label) {
                 if (!layerVisibility.label) return;
-                if (!isWithinDuration) return;
+                if (!isWithinDuration) return;                
 
                 // 🚩 [추가] 저장된 크기에 따라 폰트 크기 결정
                 let fontSize = '15px'; // 기본 '중'
@@ -2169,7 +2218,7 @@ function updateMap(year, month) {
                 if (editMode) openCastleForm(castle._id); 
               });
               markers.push(marker);
-              marker.addTo(map); 
+               marker.addTo(castleLayerGroup);
               return; // 🚩 [복원] 다른 마커 타입으로 넘어가지 않도록 return 추가
             } 
             // 🚩 1. 자연 지물 마커 (NEW)
@@ -2206,7 +2255,7 @@ function updateMap(year, month) {
                     if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) openCastleForm(castle._id); 
                 });
                 markers.push(marker);
-                marker.addTo(map);
+                 marker.addTo(castleLayerGroup);
                 return; // 🚩 [복원] 다른 마커 타입으로 넘어가지 않도록 return 추가
             }
             // 🚩 2. 전장 마커 (기존 로직 유지)
@@ -2243,7 +2292,7 @@ function updateMap(year, month) {
                         if (editMode) openCastleForm(castle._id); 
                     });
                     markers.push(marker);
-                    marker.addTo(map);
+                     marker.addTo(castleLayerGroup);
                     return; // 🚩 [복원] 다른 마커 타입으로 넘어가지 않도록 return 추가
                 } else {
                     return; 
@@ -2336,7 +2385,7 @@ function updateMap(year, month) {
                     if (editMode) openCastleForm(castle._id); 
                 });
                 markers.push(marker);
-                marker.addTo(map);
+                 marker.addTo(castleLayerGroup);
                 return; // 🚩 [복원] 군대 마커가 일반 성 마커로 덮어씌워지는 것을 방지
             }
 
@@ -2449,33 +2498,10 @@ function updateMap(year, month) {
                 if (editMode) openCastleForm(castle._id); 
               });
               markers.push(marker);
-              marker.addTo(map);
+              marker.addTo(castleLayerGroup);
               marker = null; 
             }
         });
-
-        // 🚩 [추가] 수집된 포인트로 국가별 히트맵 레이어 생성 및 추가
-        if (layerVisibility.territory) {
-            for (const countryId in countryPoints) {
-                const points = countryPoints[countryId];
-                const countryInfo = getCountryInfoById(countryId);
-                // 🚩 [수정] countryInfo와 countryInfo.color가 모두 유효한지 확인합니다.
-                if (countryInfo && countryInfo.color && points.length > 0) {
-                    const heatLayer = L.heatLayer(points, {
-                        // 🚩 [수정] 줌 레벨에 따른 radius, blur 값 재조정
-                        radius: map.getZoom() <= 5 ? 100 : (map.getZoom() <= 7 ? 80 : 60),
-                        blur: map.getZoom() <= 5 ? 30 : (map.getZoom() <= 7 ? 25 : 20),
-                        max: 1.0, // 강도 최대치를 1.0으로 설정하여 일관된 표현
-                        maxZoom: 10, // 특정 줌 레벨 이하에서만 보이도록 설정 
-                        // 🚩 [수정] 강역 표시 색상을 더 강하게 만들기 위해 gradient 수정
-                        gradient: { 1.0: countryInfo.color || 'grey', 1: countryInfo.color || 'grey' }
-                    }).addTo(map);
-                    
-                    // 생성된 레이어를 관리를 위해 저장
-                    heatmapLayers[countryId] = heatLayer;
-                }
-            }
-        }
 
     }
 
@@ -2527,8 +2553,11 @@ function getCountryInfoById(id) {
       drawings = drawingsData;
 
       // 🚩 [수정] 역사 기록과 이벤트를 합쳐서 시간 목록 생성
-      historyEventTimes = [...new Set(historyData.map(h => yearMonthToTotalMonths(h.year, h.month)))].sort((a, b) => a - b);
- 
+      const historyTimes = historyData.map(h => yearMonthToTotalMonths(h.year, h.month || 1));
+      const eventTimes = eventsData.map(e => yearMonthToTotalMonths(e.year, e.month || 1));
+      // Set을 사용하여 중복된 시간을 제거하고, 오름차순으로 정렬합니다.
+      historyEventTimes = [...new Set([...historyTimes, ...eventTimes])].sort((a, b) => a - b);
+
       // 🚩 [핵심 수정] 이전/다음 버튼 클릭 시, 기록이 있는 가장 가까운 시간으로 이동하도록 로직 수정
       prevHistoryBtn.addEventListener('click', () => {
           const year = parseInt(yearInput.value);
@@ -2870,7 +2899,7 @@ function getCountryInfoById(id) {
       const ganjiText = getGanji(year, month);
       timeLabelDisplay.innerHTML = `연도: ${yearText}년 ${monthText}월 ${ganjiText}`;
       updateHistoryPanel(year);
-      updateKingLabel(year, month); 
+      updateKingLabel(year, month);
     }
 
 
@@ -2938,7 +2967,6 @@ function getCountryInfoById(id) {
         
         updateMap(year, month);
         updateUI(year, month);
-        // 🚩 [핵심 수정] 어떤 방식으로든 시간이 변경되면 항상 이벤트를 확인합니다.
         checkAndDisplayEvent(year, month);
     }
 
