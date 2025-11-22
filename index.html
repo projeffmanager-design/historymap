@@ -692,7 +692,7 @@
     }
 
     /* ------------------- 5. 모바일 반응형 슬라이드 패널 (NEW) ------------------- */
-    @media (max-width: 768px) {
+    @media (max-width: 768px) { /* 🚩 [수정] 강제 모바일 뷰 클래스 제거 */
         /* 기본적으로 body 스크롤을 막습니다. */
         html, body {
             /* 🚩 [추가] 모바일 기본 글씨 크기 키워서 가독성 향상 */
@@ -990,7 +990,7 @@
     }
 
     /* 🚩 [수정] 오른쪽 패널 토글 버튼 PC 스타일 */
-    @media (min-width: 769px) {
+    @media (min-width: 769px) { /* 🚩 [수정] 강제 모바일 뷰 관련 조건 제거 */
         #rightPanelToggleBtn {
             writing-mode: vertical-rl; /* Revert to vertical for PC */
             top: 10px; /* Adjust position */
@@ -1599,10 +1599,11 @@
     };
 
     // --- 2. DOM 요소 맵핑 ---
-    // 🚩 [수정] 지도가 작아졌을 때 흰 바탕이 보이지 않도록 maxBounds와 minZoom 옵션을 추가
+    // 🚩 [핵심 수정] 모바일 뷰일 때 기본 줌 레벨을 다르게 설정합니다.
+    const isMobileOnLoad = window.innerWidth <= 768;
     const map = L.map('map', {
         center: [36, 120],
-        zoom: 6,
+        zoom: isMobileOnLoad ? 5 : 6, // 모바일이면 5, 데스크톱이면 6
         minZoom: 4, // 지도를 너무 작게 축소하는 것을 방지
         worldCopyJump: true // 🚩 [추가] 지도 좌우 롤링(연속 스크롤) 기능 활성화
     });    
@@ -2106,19 +2107,25 @@ function updateMap(year, month) {
             if (countryInfo && countryInfo.color && points.length > 0) {
                 if (heatmapLayers[countryId]) {
                     heatmapLayers[countryId].setLatLngs(points);
-                    if (!map.hasLayer(heatmapLayers[countryId])) {
-                        heatmapLayers[countryId].addTo(map);
-                    }
                 } else {
+                    // 🚩 [핵심 수정] 줌 레벨에 따라 반경을 동적으로 계산합니다.
+                    // 줌 레벨 5를 기준으로 80px 반경을 설정하고, 줌 레벨이 1씩 변경될 때마다 반경을 2배씩 조절합니다.
+                    const currentZoom = map.getZoom();
+                    const radius = 60 * Math.pow(2, currentZoom - 5);
+                    const blur = 0; // 🚩 [수정] 블러 효과를 제거하여 원색으로 칠한 효과를 냅니다.
+
                     const heatLayer = L.heatLayer(points, {
-                        radius: map.getZoom() <= 5 ? 100 : (map.getZoom() <= 7 ? 80 : 60),
-                        blur: map.getZoom() <= 5 ? 30 : (map.getZoom() <= 7 ? 25 : 20),
-                        max: 1.0,
-                        maxZoom: 10,
-                        gradient: { 1.0: countryInfo.color || 'grey', 1: countryInfo.color || 'grey' }
+                        radius: radius,
+                        blur: blur,
+                        max: 0, // 🚩 [핵심 수정] max 값을 극단적으로 낮춰 거의 불투명한 원색으로 표시되도록 합니다.
+                        gradient: { 0.1: countryInfo.color || 'grey' }, // 🚩 [핵심 수정] 낮은 강도에서도 색상이 진하게 표시되도록 gradient 시작점을 낮춥니다.
+                        opacity: 0.8 // 🚩 [핵심 수정] 히트맵 레이어의 불투명도를 높여 색상을 더 진하게 만듭니다.
                     });
                     heatmapLayers[countryId] = heatLayer;
-                    heatLayer.addTo(map);
+                }
+                // 레이어가 지도에 없으면 추가합니다.
+                if (!map.hasLayer(heatmapLayers[countryId])) {
+                    heatmapLayers[countryId].addTo(map);
                 }
             } else if (heatmapLayers[countryId]) {
                 map.removeLayer(heatmapLayers[countryId]);
@@ -2627,9 +2634,18 @@ function getCountryInfoById(id) {
       };
             // 🚩 [추가] 줌 레벨 변경 시 강역(히트맵)을 다시 그리도록 이벤트 리스너 추가
       // 🚩 [수정] 불필요한 updateMap 호출을 제거하여 이벤트 충돌 및 멈춤 현상을 방지합니다.
-      map.on('zoomend', () => {
-          const { year, month } = getCurrentYearMonth();
-          updateKingLabel(year, month);
+      map.on('zoomend', function() {
+          const currentZoom = map.getZoom();
+          // 🚩 [핵심 수정] 줌 레벨이 변경될 때마다 모든 히트맵 레이어의 반경과 블러를 다시 설정합니다.
+          for (const countryId in heatmapLayers) {
+              if (heatmapLayers.hasOwnProperty(countryId)) {
+                  const radius = 80 * Math.pow(2, currentZoom - 5);
+                  const blur = 0; // 🚩 [수정] 줌 변경 시에도 블러 효과를 0으로 유지합니다.
+                  heatmapLayers[countryId].setOptions({ radius: radius, blur: blur });
+              }
+          }
+          const { year, month } = getCurrentYearMonth(); // 🚩 [추가] 왕 목록도 함께 업데이트
+          updateKingLabel(year, month); // 🚩 [추가] 왕 목록도 함께 업데이트
       });
       
       // 🚩 [추가] 속도 슬라이더 값 변경 시 디스플레이 업데이트
@@ -4612,6 +4628,7 @@ kingSelect.addEventListener('change', () => {
         initializeTopPanelToggle(); // 🚩 [추가] PC 버전 상단 패널 토글 초기화
 
         createSliderTicks(); // 🚩 [추가] 슬라이더 눈금 생성 함수 호출
+
         createDynastyTimeline(); // 🚩 [추가] 연대표 생성 함수 호출
         initializeDrawControl(); // 그리기 컨트롤 초기화 함수 호출
 
