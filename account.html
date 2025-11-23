@@ -2,7 +2,8 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>회원가입 - 우리 민족의 역사</title>
+    <title>계정 관리</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/jpg" href="https://pds.joongang.co.kr/news/component/htmlphoto_mmdata/200609/htm_20060904073327a000a010-001.JPG">
     <style>
         body {
@@ -15,12 +16,12 @@
             height: 100vh;
             margin: 0;
         }
-        .register-container {
+        .account-container {
             background: #2c3e50;
             padding: 40px;
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            width: 320px;
+            width: 350px;
             text-align: center;
         }
         h2 {
@@ -59,65 +60,81 @@
         }
         #message {
             margin-top: 15px;
-            color: #e74c3c;
+            font-weight: bold;
         }
-        .login-link {
+        .message.success { color: #2ecc71; }
+        .message.error { color: #e74c3c; }
+        .nav-links {
             margin-top: 20px;
             font-size: 14px;
         }
-        .login-link a {
+        .nav-links a {
             color: #00aaff;
             text-decoration: none;
         }
     </style>
 </head>
 <body>
-    <div class="register-container">
-        <h2>회원가입</h2>
-        <form id="registerForm">
+    <div class="account-container">
+        <h2>비밀번호 변경</h2>
+        <form id="changePasswordForm">
             <div class="input-group">
-                <label for="username">사용자 이름</label>
-                <input type="text" id="username" name="username" required>
+                <label for="currentPassword">현재 비밀번호</label>
+                <input type="password" id="currentPassword" required>
             </div>
             <div class="input-group">
-                <label for="email">이메일</label>
-                <input type="email" id="email" name="email" required>
+                <label for="newPassword">새 비밀번호</label>
+                <input type="password" id="newPassword" required>
             </div>
             <div class="input-group">
-                <label for="password">비밀번호</label>
-                <input type="password" id="password" name="password" required>
+                <label for="confirmPassword">새 비밀번호 확인</label>
+                <input type="password" id="confirmPassword" required>
             </div>
-            <button type="submit">가입하기</button>
+            <button type="submit">변경하기</button>
         </form>
         <p id="message"></p>
-        <div class="login-link">
-            이미 계정이 있으신가요? <a href="login.html">로그인</a>
+        <div class="nav-links">
+            <a href="index.html">메인 지도로 돌아가기</a>
         </div>
     </div>
 
     <script>
-        const API_BASE_URL = '/api'; // 💡 상대 경로로 변경
+        const API_BASE_URL = '/api';
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
 
-        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+        if (!token) {
+            alert('로그인이 필요합니다.');
+            window.location.href = 'login.html';
+        }
+
+        document.getElementById('changePasswordForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const username = document.getElementById('username').value;
-            const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
+            const currentPassword = document.getElementById('currentPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
             const messageEl = document.getElementById('message');
 
+            if (newPassword !== confirmPassword) {
+                messageEl.textContent = '새 비밀번호가 일치하지 않습니다.';
+                messageEl.className = 'message error';
+                return;
+            }
+
             try {
-                const response = await fetch(`${API_BASE_URL}/auth/signup`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, email, password })
+                const response = await fetch(`${API_BASE_URL}/auth/change-password`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ currentPassword, newPassword })
                 });
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.message);
                 
-                alert('회원가입이 완료되었습니다. 로그인 페이지로 이동합니다.');
-                window.location.href = 'login.html';
+                messageEl.textContent = '비밀번호가 성공적으로 변경되었습니다.';
+                messageEl.className = 'message success';
+                document.getElementById('changePasswordForm').reset();
             } catch (error) {
                 messageEl.textContent = error.message;
+                messageEl.className = 'message error';
             }
         });
     </script>

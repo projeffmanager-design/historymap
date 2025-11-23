@@ -675,21 +675,29 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // POST: 사용자 등록 (관리자만 가능)
         app.post('/api/auth/register', verifyAdminOnly, async (req, res) => {
             try {
-                const { username, password, role } = req.body;
-                if (!username || !password) {
-                    return res.status(400).json({ message: "사용자 이름과 비밀번호를 모두 입력해주세요." });
+                const { username, password, email, role } = req.body;
+                if (!username || !password || !email) {
+                    return res.status(400).json({ message: "사용자 이름, 이메일, 비밀번호를 모두 입력해주세요." });
                 }
 
                 const existingUser = await collections.users.findOne({ username });
                 if (existingUser) {
                     return res.status(409).json({ message: "이미 존재하는 사용자 이름입니다." });
                 }
+                // 🚩 [추가] 이메일 중복 확인
+                const existingEmail = await collections.users.findOne({ email });
+                if (existingEmail) {
+                    return res.status(409).json({ message: "이미 사용 중인 이메일입니다." });
+                }
 
                 const hashedPassword = await bcrypt.hash(password, 10);
                 await collections.users.insertOne({
                     username,
+                    email,
                     password: hashedPassword,
-                    role: role || 'user' // 기본 역할은 'user'
+                    role: role || 'user', // 기본 역할은 'user'
+                    createdAt: new Date(), // 🚩 [추가] 생성일 기록
+                    lastLogin: null
                 });
 
                 res.status(201).json({ message: "사용자 등록 성공" });
@@ -712,6 +720,23 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     return res.status(401).json({ message: "사용자 이름 또는 비밀번호가 잘못되었습니다." });
                 }
 
+                // 🚩 [추가] 계정 잠금 상태 확인
+                if (user.isLocked) {
+                    return res.status(403).json({ message: "계정이 잠겨있습니다. 관리자에게 문의하세요." });
+                }
+
+                // 🚩 [추가] 로그인 로그 기록
+                await collections.loginLogs.insertOne({
+                    userId: user._id,
+                    timestamp: new Date()
+                });
+
+                // 🚩 [추가] 마지막 로그인 시간 업데이트
+                await collections.users.updateOne(
+                    { _id: user._id },
+                    { $set: { lastLogin: new Date() } }
+                );
+
                 const token = jwt.sign(
                     { userId: user._id, username: user.username, role: user.role },
                     jwtSecret,
@@ -724,6 +749,76 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // 🚩 [추가] GET: 최근 7일간 일일 접속자 수 (관리자 전용)
+        app.get('/api/stats/daily-logins', verifyAdminOnly, async (req, res) => {
+            try {
+                const sevenDaysAgo = new Date();
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                sevenDaysAgo.setHours(0, 0, 0, 0);
+
+                const dailyLogins = await collections.loginLogs.aggregate([
+                    { $match: { timestamp: { $gte: sevenDaysAgo } } },
+                    {
+                        $group: {
+                            _id: {
+                                year: { $year: "$timestamp" },
+                                month: { $month: "$timestamp" },
+                                day: { $dayOfMonth: "$timestamp" }
+                            },
+                            uniqueUsers: { $addToSet: "$userId" }
+                        }
+                    },
+                    { $project: { date: "$_id", count: { $size: "$uniqueUsers" }, _id: 0 } },
+                    { $sort: { "date.year": 1, "date.month": 1, "date.day": 1 } }
+                ]).toArray();
+
+                res.json(dailyLogins);
+            } catch (error) {
+                console.error("일일 접속자 수 통계 조회 중 오류:", error);
+                res.status(500).json({ message: "통계 조회 실패", error: error.message });
+            }
+        });
+
+        // 🚩 [추가] PUT: 사용자 비밀번호 변경 (로그인한 사용자 본인)
+        app.put('/api/auth/change-password', verifyToken, async (req, res) => {
+            try {
+                const { userId } = req.user; // verifyToken에서 추가된 사용자 ID
+                const { currentPassword, newPassword } = req.body;
+
+                if (!currentPassword || !newPassword) {
+                    return res.status(400).json({ message: "현재 비밀번호와 새 비밀번호를 모두 입력해주세요." });
+                }
+
+                const user = await collections.users.findOne({ _id: toObjectId(userId) });
+                if (!user) {
+                    return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+                }
+
+                // 현재 비밀번호 확인
+                const isMatch = await bcrypt.compare(currentPassword, user.password);
+                if (!isMatch) {
+                    return res.status(401).json({ message: "현재 비밀번호가 일치하지 않습니다." });
+                }
+
+                // 새 비밀번호 해시
+                const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+                // 데이터베이스 업데이트
+                const result = await collections.users.updateOne(
+                    { _id: toObjectId(userId) },
+                    { $set: { password: hashedNewPassword } }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).json({ message: "사용자 정보 업데이트 중 오류가 발생했습니다." });
+                }
+
+                res.json({ message: "비밀번호가 성공적으로 변경되었습니다." });
+            } catch (error) {
+                res.status(500).json({ message: "서버 오류가 발생했습니다.", error: error.message });
+            }
+        });
+
         // GET: 모든 사용자 목록 (관리자 전용)
         app.get('/api/users', verifyAdminOnly, async (req, res) => {
             try {
@@ -731,6 +826,51 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 res.json(users);
             } catch (error) {
                 res.status(500).json({ message: "사용자 목록 조회 실패", error: error.message });
+            }
+        });
+
+        // 🚩 [추가] PUT: 사용자 정보 업데이트 (관리자 전용)
+        app.put('/api/users/:id', verifyAdminOnly, async (req, res) => {
+            try {
+                const { id } = req.params;
+                const _id = toObjectId(id);
+                if (!_id) {
+                    return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+                }
+
+                const { username, email, role, password } = req.body;
+                const updateData = { username, email, role };
+
+                // 사용자 이름 중복 확인 (자신 제외)
+                const existingUser = await collections.users.findOne({ username, _id: { $ne: _id } });
+                if (existingUser) {
+                    return res.status(409).json({ message: "이미 존재하는 사용자 이름입니다." });
+                }
+
+                // 이메일 중복 확인 (자신 제외)
+                const existingEmail = await collections.users.findOne({ email, _id: { $ne: _id } });
+                if (existingEmail) {
+                    return res.status(409).json({ message: "이미 사용 중인 이메일입니다." });
+                }
+
+                // 비밀번호가 제공된 경우에만 해시하여 업데이트 객체에 추가
+                if (password) {
+                    updateData.password = await bcrypt.hash(password, 10);
+                }
+
+                const result = await collections.users.updateOne(
+                    { _id: _id },
+                    { $set: updateData }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+                }
+
+                res.json({ message: "사용자 정보 업데이트 성공" });
+            } catch (error) {
+                console.error("사용자 정보 업데이트 중 오류:", error);
+                res.status(500).json({ message: "사용자 정보 업데이트 실패", error: error.message });
             }
         });
 
@@ -805,26 +945,6 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
-        // 🚩 [추가] 비밀번호 재설정 이메일 발송 요청 (관리자용)
-        app.post('/api/auth/request-password-reset', verifyAdmin, async (req, res) => {
-            try {
-                const { username } = req.body;
-                const user = await collections.users.findOne({ username });
-
-                if (!user) {
-                    return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
-                }
-
-                // 실제 프로덕션에서는 이메일 발송 로직을 구현해야 합니다.
-                // 예: 토큰 생성, 이메일 전송 등
-                console.log(`'${username}' 사용자에게 비밀번호 재설정 이메일 발송 시뮬레이션`);
-
-                res.json({ message: "비밀번호 재설정 이메일 발송 요청이 성공적으로 처리되었습니다." });
-            } catch (error) {
-                res.status(500).json({ message: "비밀번호 재설정 요청 처리 중 오류 발생", error: error.message });
-            }
-        });
-
     isAppSetup = true; // Mark setup as complete
 }
 
@@ -832,24 +952,32 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
 app.post('/api/auth/signup', async (req, res) => {
     try {
         await setupRoutesAndCollections(); // Ensure collections are available
-        const { username, password } = req.body;
-        if (!username || !password) {
-            return res.status(400).json({ message: "사용자 이름과 비밀번호를 모두 입력해주세요." });
+        const { username, password, email } = req.body;
+        if (!username || !password || !email) {
+            return res.status(400).json({ message: "사용자 이름, 이메일, 비밀번호를 모두 입력해주세요." });
         }
         if (password.length < 4) {
             return res.status(400).json({ message: "비밀번호는 4자 이상이어야 합니다." });
         }
 
+        // 🚩 [수정] 사용자 이름 및 이메일 중복 확인
         const existingUser = await collections.users.findOne({ username });
         if (existingUser) {
             return res.status(409).json({ message: "이미 존재하는 사용자 이름입니다." });
+        }
+        const existingEmail = await collections.users.findOne({ email });
+        if (existingEmail) {
+            return res.status(409).json({ message: "이미 사용 중인 이메일입니다." });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
         await collections.users.insertOne({
             username,
+            email,
             password: hashedPassword,
-            role: 'user' // 일반 사용자로 역할 고정
+            role: 'user', // 일반 사용자로 역할 고정
+            createdAt: new Date(), // 🚩 [추가] 생성일 기록
+            lastLogin: null
         });
 
         res.status(201).json({ message: "회원가입 성공" });

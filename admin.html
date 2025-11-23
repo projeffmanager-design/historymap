@@ -34,7 +34,7 @@
             align-items: center;
         }
         .container {
-            max-width: 800px;
+            max-width: 1200px;
             margin: 0 auto;
             background: #2c3e50;
             padding: 20px;
@@ -197,6 +197,12 @@
             background-color: #3e4a56;
             padding: 20px; border-radius: 8px;
         }
+        #dailyLoginsChartContainer {
+            width: 100%;
+            margin-bottom: 30px;
+            background-color: #3e4a56;
+            padding: 20px; border-radius: 8px;
+        }
     </style>
     <!-- 🚩 [추가] 모바일 반응형 스타일 -->
     <style>
@@ -233,6 +239,31 @@
             }
         }
     </style>
+    <!-- 🚩 [추가] 사용자 정보 수정 모달 스타일 -->
+    <style>
+        #editUserModal .modal-content {
+            max-width: 500px;
+        }
+        #editUserModal form {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        #editUserModal .form-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        #editUserModal .form-row label {
+            width: 100px;
+            flex-shrink: 0;
+            text-align: right;
+        }
+        #editUserModal .form-row input,
+        #editUserModal .form-row select {
+            flex-grow: 1;
+        }
+    </style>
 </head>
 <body>
     <h1>회원 관리</h1>
@@ -243,11 +274,17 @@
             <canvas id="registrationChart"></canvas>
         </div>
 
+        <h2>최근 7일 접속자 수</h2>
+        <!-- 🚩 [추가] 일일 접속자 수 차트 컨테이너 -->
+        <div id="dailyLoginsChartContainer">
+            <canvas id="dailyLoginsChart"></canvas>
+        </div>
+
         <h2>사용자 목록</h2>
         <!-- 🚩 [추가] 사용자 검색 및 필터 컨트롤 -->
         <div id="user-controls">
             <input type="text" id="userSearchInput" placeholder="사용자 이름으로 검색..." style="width: 250px;">
-            <select id="roleFilterSelect" style="width: 180px;">
+            <select id="roleFilterSelect" style="width: 150px;">
                 <option value="all">-- 모든 역할 --</option>
                 <option value="user">User</option>
                 <option value="admin">Admin</option>
@@ -264,6 +301,7 @@
             <thead>
                 <tr>
                     <th class="sortable" data-sort-by="username">사용자 이름</th>
+                    <th class="sortable" data-sort-by="email">이메일</th>
                     <th class="sortable" data-sort-by="lastLogin">마지막 로그인</th>
                     <th class="sortable" data-sort-by="role">역할</th>
                     <th>작업</th>
@@ -284,6 +322,7 @@
         <h2>새 사용자 등록</h2>
         <form id="registerForm">
             <input type="text" id="username" placeholder="사용자 이름" required>
+            <input type="email" id="email" placeholder="이메일" required>
             <input type="password" id="password" placeholder="비밀번호" required>
             <select id="role">
                 <option value="user">User</option>
@@ -328,6 +367,40 @@
                 </div>
             </div>
         </div>
+
+        <!-- 🚩 [추가] 사용자 정보 수정 모달 -->
+        <div id="editUserModal" class="modal">
+            <div class="modal-content">
+                <h3>사용자 정보 수정</h3>
+                <form id="editUserForm">
+                    <input type="hidden" id="editUserId">
+                    <div class="form-row">
+                        <label for="editUsername">사용자 이름</label>
+                        <input type="text" id="editUsername" required>
+                    </div>
+                    <div class="form-row">
+                        <label for="editEmail">이메일</label>
+                        <input type="email" id="editEmail" required>
+                    </div>
+                    <div class="form-row">
+                        <label for="editPassword">새 비밀번호</label>
+                        <input type="password" id="editPassword" placeholder="변경할 경우에만 입력">
+                    </div>
+                    <div class="form-row">
+                        <label for="editRole">역할</label>
+                        <select id="editRole" required>
+                            <option value="user">User</option>
+                            <option value="admin">Admin</option>
+                            <option value="superuser">Superuser</option>
+                        </select>
+                    </div>
+                    <div style="text-align: right; display: flex; gap: 10px; justify-content: flex-end; margin-top: 15px;">
+                        <button type="button" id="cancelUserEdit" class="danger">취소</button>
+                        <button type="submit" id="saveUserEdit" class="primary">저장</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
     <div class="nav-links">
         <a href="index.html" class="button-style primary">메인 지도로 돌아가기</a>
@@ -335,8 +408,6 @@
 
     <!-- 🚩 [추가] 토스트 알림 컨테이너 -->
     <div id="toastContainer"></div>
-
-
     <script>
         const API_BASE_URL = '/api'; // 💡 상대 경로로 변경
         const token = localStorage.getItem('token') || sessionStorage.getItem('token');
@@ -420,17 +491,19 @@
                     : '기록 없음';
                 tr.innerHTML = ` 
                     <td>${user.username}</td>
+                    <td>${user.email || '미입력'}</td>
                     <td>${lastLogin}</td>
                     <td>
                         <select onchange="updateUserRole(this, '${user._id}', '${user.role}')" data-userid="${user._id}">
                             <option value="user" ${user.role === 'user' ? 'selected' : ''}>User</option>
+                            <!-- 🚩 [수정] 비밀번호 재설정 버튼을 '수정' 기능으로 통합 -->
                             <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
                             <option value="superuser" ${user.role === 'superuser' ? 'selected' : ''}>Superuser</option>
                         </select>
                     </td>
                     <td>
                         <button class="button lock-btn" onclick="toggleLockStatus(this, '${user._id}', ${user.isLocked || false})">${user.isLocked ? '잠금 해제' : '계정 잠금'}</button>
-                        <button class="button" onclick="requestPasswordReset(this, '${user.username}')">비밀번호 재설정</button>
+                        <button class="primary" onclick="openEditUserModal('${user._id}')">수정</button>
                         <button class="button danger" onclick="deleteUser(this, '${user._id}')">삭제</button>
                     </td>
                 `;
@@ -489,6 +562,61 @@
             });
         }
 
+        // 🚩 [추가] 일일 접속자 수 차트 렌더링 함수
+        let dailyLoginsChartInstance = null;
+        async function fetchAndRenderDailyLoginsChart() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/stats/daily-logins`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) throw new Error('접속자 통계를 불러오지 못했습니다.');
+                
+                const data = await response.json();
+
+                // 지난 7일간의 날짜 레이블 생성
+                const labels = [];
+                for (let i = 6; i >= 0; i--) {
+                    const d = new Date();
+                    d.setDate(d.getDate() - i);
+                    labels.push(`${d.getMonth() + 1}/${d.getDate()}`);
+                }
+
+                // API 데이터와 날짜 레이블 매핑
+                const chartData = labels.map(label => {
+                    const [month, day] = label.split('/').map(Number);
+                    const record = data.find(d => d.date.month === month && d.date.day === day);
+                    return record ? record.count : 0;
+                });
+
+                const ctx = document.getElementById('dailyLoginsChart').getContext('2d');
+                if (dailyLoginsChartInstance) {
+                    dailyLoginsChartInstance.destroy();
+                }
+                dailyLoginsChartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: '일일 고유 접속자 수',
+                            data: chartData,
+                            backgroundColor: 'rgba(46, 204, 113, 0.5)',
+                            borderColor: 'rgba(46, 204, 113, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            y: { beginAtZero: true, ticks: { color: '#ecf0f1', stepSize: 1 } },
+                            x: { ticks: { color: '#ecf0f1' } }
+                        },
+                        plugins: { legend: { labels: { color: '#ecf0f1' } } }
+                    }
+                });
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
         // 사용자 목록 불러오기
         async function fetchUsers() {
             try {
@@ -505,6 +633,7 @@
                 allUsers = await response.json(); // 🚩 [수정] 전역 변수에 사용자 목록 저장
                 filterAndRenderUsers(); // 🚩 [수정] 필터링/정렬 후 렌더링
                 renderRegistrationChart(allUsers); // 🚩 [추가] 차트 렌더링
+                fetchAndRenderDailyLoginsChart(); // 🚩 [추가] 일일 접속자 차트 렌더링
 
             } catch (error) {
                 showToast(error.message, 'error');
@@ -516,6 +645,7 @@
             e.preventDefault();
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
+            const email = document.getElementById('email').value;
             const role = document.getElementById('role').value;
             const submitBtn = e.target.querySelector('button[type="submit"]');
 
@@ -526,7 +656,7 @@
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${token}`
                     },
-                    body: JSON.stringify({ username, password, role })
+                    body: JSON.stringify({ username, password, email, role })
                 });
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.message);
@@ -618,48 +748,7 @@
             });
         };
 
-        // 🚩 [추가] 비밀번호 재설정 이메일 발송 요청
-        window.requestPasswordReset = function(button, username) {
-            showConfirmModal(`'${username}' 사용자에게 비밀번호 재설정 이메일을 발송하시겠습니까?`, async () => {
-                button.classList.add('loading');
-                button.disabled = true;
-                try {
-                    // 백엔드에 비밀번호 재설정 요청 API가 구현되어 있어야 합니다.
-                    const response = await fetch(`${API_BASE_URL}/auth/request-password-reset`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify({ username: username })
-                    });
-                    if (!response.ok) {
-                        const errorData = await response.json();
-                        throw new Error(errorData.message || '재설정 이메일 발송에 실패했습니다.');
-                    }
-                    showToast(`'${username}' 사용자에게 비밀번호 재설정 이메일을 보냈습니다.`);
-                } catch (error) {
-                    showToast(error.message, 'error');
-                } finally {
-                    button.classList.remove('loading');
-                    button.disabled = false;
-                }
-            });
-        };
-
-        // 일괄 메일 발송
-        document.getElementById('bulkEmailForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const subject = document.getElementById('emailSubject').value;
-            const body = document.getElementById('emailBody').value;
-            
-            // 🚩 [수정] 모달창에 발송 대상 목록 표시
-            const modal = document.getElementById('emailConfirmModal');
-            const recipientList = document.getElementById('emailRecipientList');
-            const confirmSubject = document.getElementById('emailConfirmSubject');
-
-            confirmSubject.textContent = `'${subject}'`;
-            recipientList.innerHTML = allUsers.map(user => `<li>${user.username}</li>`).join('');
-            modal.style.display = 'block';
-        });
-
+        // TODO: 일괄 메일 발송 기능은 현재 비활성화되어 있습니다. (관련 폼 ID 'bulkEmailForm' 없음)
         // 🚩 [추가] 모달의 '확인 및 발송' 버튼 클릭 이벤트
         document.getElementById('confirmEmailSend').addEventListener('click', async () => {
             const subject = document.getElementById('emailSubject').value;
@@ -822,6 +911,73 @@
             currentPage++;
             filterAndRenderUsers();
         });
+
+        // 🚩 [추가] 사용자 정보 수정 모달 관련 로직
+        const editUserModal = document.getElementById('editUserModal');
+        const editUserForm = document.getElementById('editUserForm');
+
+        window.openEditUserModal = (userId) => {
+            const user = allUsers.find(u => u._id === userId);
+            if (!user) {
+                showToast('사용자 정보를 찾을 수 없습니다.', 'error');
+                return;
+            }
+
+            document.getElementById('editUserId').value = user._id;
+            document.getElementById('editUsername').value = user.username;
+            document.getElementById('editEmail').value = user.email;
+            document.getElementById('editRole').value = user.role;
+            document.getElementById('editPassword').value = ''; // 비밀번호 필드는 항상 비움
+
+            editUserModal.style.display = 'block';
+        };
+
+        document.getElementById('cancelUserEdit').addEventListener('click', () => {
+            editUserModal.style.display = 'none';
+        });
+
+        editUserForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const userId = document.getElementById('editUserId').value;
+            const saveBtn = document.getElementById('saveUserEdit');
+
+            const data = {
+                username: document.getElementById('editUsername').value,
+                email: document.getElementById('editEmail').value,
+                role: document.getElementById('editRole').value,
+            };
+
+            const password = document.getElementById('editPassword').value;
+            if (password) {
+                data.password = password;
+            }
+
+            saveBtn.classList.add('loading');
+            saveBtn.disabled = true;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || '사용자 정보 수정에 실패했습니다.');
+                }
+
+                showToast('사용자 정보가 성공적으로 수정되었습니다.');
+                editUserModal.style.display = 'none';
+                await fetchUsers(); // 목록 새로고침
+            } catch (error) {
+                showToast(error.message, 'error');
+            } finally {
+                saveBtn.classList.remove('loading');
+                saveBtn.disabled = false;
+            }
+        });
+
         fetchUsers();
     </script>
 </body>

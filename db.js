@@ -29,6 +29,7 @@ async function connectToDatabase() {
         collections.general = db.collection("general");
         collections.events = db.collection("events");
         collections.drawings = db.collection("drawings");
+        collections.loginLogs = db.collection("login_logs"); // 🚩 [추가] 로그인 로그 컬렉션 초기화
 
         return { db, collections };
     } catch (err) {
