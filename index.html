@@ -1088,8 +1088,11 @@
                     <div id="ethnicityFilterContainer" style="font-size: 12px;">
                    </div>
                 </div>
-                <div style="display: flex; align-items: center;">
-                    <input type="text" id="searchInput" placeholder="검색어 입력 (기록, 지명)"/>
+                <div style="display: flex; align-items: center; position: relative;">
+                    <input type="text" id="searchInput" placeholder="검색어 입력 (기록, 지명)" autocomplete="off"/>
+                    <div id="mainSearchResults" style="position: absolute; top: 100%; left: 0; right: 0; background: #3e4a56; border: 1px solid #5d7185; z-index: 1001; max-height: 250px; overflow-y: auto; display: none;">
+                        <!-- 검색 결과가 여기에 표시됩니다. -->
+                    </div>
                     <button id="searchBtn" class="primary" style="border-radius: 0 4px 4px 0; border-left: none;">검색</button>
                 </div>
             </div>
@@ -1261,16 +1264,16 @@
   <!-- 🚩 [추가] 도시/성 편집 선택 폼 -->
   <div id="editCitySelectionForm" style="display: none; position: absolute; top: 100px; left: calc(50% - 225px); background: #2c3e50; color: #ecf0f1; border: 1px solid #5d7185; padding: 20px; z-index: 1000; border-radius: 8px; width: 450px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); max-width: 90%; min-width: 350px;">
       <h3>편집할 도시/성 선택</h3>
-      <!-- 🚩 [추가] 도시/성 검색 입력란 -->
+      <!-- 🚩 [핵심 수정] 도시/성 선택 UI를 자동 완성 검색 방식으로 변경 -->
       <div class="form-row" style="margin-bottom: 15px;">
-          <label for="citySearchForEdit">도시/성 검색:</label>
-          <input type="text" id="citySearchForEdit" placeholder="도시/성 이름으로 검색..." style="flex-grow: 1;">
-      </div>
-      <div class="form-row">
-          <label for="citySelectForEdit">도시/성:</label>
-          <select id="citySelectForEdit" style="flex-grow: 1;">
-              <option value="">-- 도시/성 선택 --</option>
-          </select>
+          <label for="citySearchInputForEdit">도시/성:</label>
+          <div style="display: flex; flex-grow: 1; gap: 10px; position: relative;">
+              <div style="position: relative; flex-grow: 1;">
+                  <input type="text" id="citySearchInputForEdit" placeholder="도시/성 이름으로 검색..." autocomplete="off">
+                  <div id="citySearchResults" style="position: absolute; top: 100%; left: 0; right: 0; background: #3e4a56; border: 1px solid #5d7185; z-index: 1001; max-height: 150px; overflow-y: auto; display: none;"></div>
+              </div>
+              <select id="citySelectForEdit" style="width: 180px; flex-shrink: 0;"></select>
+          </div>
       </div>
       <div class="form-actions" style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
           <button type="button" id="cancelCitySelectionBtn">취소</button>
@@ -1336,14 +1339,14 @@
 
   <div id="countryForm">
     <h3>국가 정보 편집</h3>
-    <!-- 🚩 [추가] 국가 검색 입력란 -->
-    <div class="form-row" style="margin-bottom: 15px;">
-        <label for="countrySearchForEdit">국가 검색:</label>
-        <input type="text" id="countrySearchForEdit" placeholder="국가명 또는 민족으로 검색..." style="flex-grow: 1;">
-    </div>
+    <!-- 🚩 [수정] 국가 선택 UI를 자동 완성 검색 방식으로 변경 -->
     <div class="form-row" style="margin-bottom: 15px;">
         <label for="countrySelectForEdit">기존 국가:</label>
-        <select id="countrySelectForEdit" style="flex-grow: 1;"></select>
+        <div style="display: flex; flex-grow: 1; gap: 10px; position: relative;">
+            <input type="text" id="countrySearchForEdit" placeholder="국가명 또는 민족으로 검색..." autocomplete="off" style="flex-grow: 1;">
+            <div id="countrySearchResults" style="position: absolute; top: 100%; left: 0; right: 0; background: #3e4a56; border: 1px solid #5d7185; z-index: 1001; max-height: 150px; overflow-y: auto; display: none;"></div>
+            <select id="countrySelectForEdit" style="width: 180px; flex-shrink: 0;"></select>
+        </div>
     </div>
     <form id="editCountryForm">
         <input type="hidden" id="countryOriginalName">
@@ -1396,9 +1399,18 @@
         <input type="hidden" id="kingMongoId" name="kingMongoId">
         <input type="hidden" id="kingOriginalKey">
         <input type="hidden" id="kingOriginalIndex">
-        <div class="form-row">
-            <label for="kingCountryName">국가:</label>
-            <select id="kingCountryName"></select>
+        <!-- 🚩 [수정] 국가 선택을 자동 완성 검색 방식으로 변경 -->
+        <input type="hidden" id="kingCountryId">
+        <div class="form-row" style="margin-bottom: 15px;">
+            <label for="kingCountryNameInput">국가:</label>
+            <!-- 🚩 [핵심 수정] 국가 검색 입력창과 선택 목록을 나란히 배치합니다. -->
+            <div style="display: flex; flex-grow: 1; gap: 10px; position: relative;">
+                <div style="position: relative; flex-grow: 1;">
+                    <input type="text" id="kingCountryNameInput" placeholder="국가명 입력..." autocomplete="off">
+                    <div id="kingCountryResults" style="position: absolute; top: 100%; left: 0; right: 0; background: #3e4a56; border: 1px solid #5d7185; z-index: 1001; max-height: 150px; overflow-y: auto; display: none;"></div>
+                </div>
+                <select id="kingCountrySelect" style="width: 180px; flex-shrink: 0;"></select>
+            </div>
         </div>
         <div class="form-row">
             <label for="kingSelect">왕 선택/추가:</label>
@@ -2771,8 +2783,8 @@ function getCountryInfoById(id) {
       });
 
       updateCountrySelect();
-      populateCountryFilter();
-      updateKingFormCountrySelect();
+      populateCountryFilter(); // 🚩 [수정] 함수 이름 변경에 따른 호출 수정
+      populateKingCountrySelect(); // 🚩 [수정] 함수 이름 변경에 따른 호출 수정
       populateCitySelectForEdit(); // 🚩 [추가] 도시/성 선택 드롭다운 채우기
       createSliderTicks();
       const initialTotalMonths = parseInt(combinedSlider.value);
@@ -2874,11 +2886,10 @@ function getCountryInfoById(id) {
         let minorDynasties = validCountries.filter(c => !c.is_main_dynasty).sort((a, b) => a.start - b.start);
 
         // 🚩 [추가] 민족 필터링 로직
-        // 🚩 [수정] 드롭다운 메뉴에서 선택된 값으로 필터링
-        const checkedEthnicities = document.getElementById('ethnicityFilterSelect').value;
-        if (!checkedEthnicities.includes('all')) {
-            minorDynasties = minorDynasties.filter(country => 
-                checkedEthnicities.includes(country.ethnicity) || !country.ethnicity // 민족 정보가 없는 경우도 포함
+        const selectedEthnicity = ethnicityFilterSelect ? ethnicityFilterSelect.value : 'all';
+        if (selectedEthnicity !== 'all') {
+            minorDynasties = minorDynasties.filter(country =>
+                country.ethnicity === selectedEthnicity
             );
         }
 
@@ -3768,6 +3779,73 @@ function getCountryInfoById(id) {
         }
     });
 
+    // 🚩 [추가] 메인 검색창 자동 완성 기능
+    const mainSearchResults = document.getElementById('mainSearchResults');
+
+    searchInput.addEventListener('input', () => {
+        const query = searchInput.value.trim().toLowerCase();
+        mainSearchResults.innerHTML = '';
+
+        if (query.length === 0) {
+            mainSearchResults.style.display = 'none';
+            return;
+        }
+
+        // 검색 로직 (기존 searchBtn 클릭 이벤트와 유사)
+        const matchingCastles = castles
+            .filter(c => (c.name && c.name.toLowerCase().includes(query)) || (c.general_name && c.general_name.toLowerCase().includes(query)))
+            .map(c => ({ type: 'castle', text: `[성/도시] ${c.name} (${c.built_year || c.built || 0}년)`, data: c }));
+
+        const matchingHistory = history
+            .filter(h => (h.event_name && h.event_name.toLowerCase().includes(query)) || (h.records?.korean?.content && h.records.korean.content.toLowerCase().includes(query)) || (h.records?.foreign?.content && h.records.foreign.content.toLowerCase().includes(query)) || (h.records?.true_history?.content && h.records.true_history.content.toLowerCase().includes(query)))
+            .map(h => ({ type: 'history', text: `[역사] ${h.event_name} (${h.year}년)`, data: h }));
+
+        const matchingDrawings = drawings
+            .filter(d => d.name && d.name.toLowerCase().includes(query))
+            .map(d => ({ type: 'drawing', text: `[지형] ${d.name} (${d.start_year || 0}년)`, data: d }));
+
+        const combinedResults = [...matchingCastles, ...matchingHistory, ...matchingDrawings]
+            .sort((a, b) => (a.data.year || a.data.built_year || a.data.start_year || 0) - (b.data.year || b.data.built_year || b.data.start_year || 0));
+
+        if (combinedResults.length === 0) {
+            mainSearchResults.style.display = 'none';
+            return;
+        }
+
+        combinedResults.forEach(result => {
+            const div = document.createElement('div');
+            div.textContent = result.text;
+            div.style.padding = '8px';
+            div.style.cursor = 'pointer';
+            div.onmouseover = () => div.style.backgroundColor = '#5d7185';
+            div.onmouseout = () => div.style.backgroundColor = '';
+            div.onclick = () => {
+                // 항목 클릭 시 동작 (기존 searchBtn 로직과 동일)
+                if (result.type === 'castle') {
+                    const castle = result.data;
+                    const year = castle.built_year || castle.built;
+                    const month = castle.built_month || 1;
+                    if (year) updateTime(year, month);
+                    map.flyTo([castle.lat, castle.lng], 10);
+                } else if (result.type === 'history') {
+                    const historyItem = result.data;
+                    if (historyItem.year) updateTime(historyItem.year, historyItem.month || 1);
+                } else if (result.type === 'drawing') {
+                    const drawing = result.data;
+                    if (drawing.start_year) updateTime(drawing.start_year, 1);
+                    const tempLayer = L.geoJSON(drawing.geojson);
+                    const bounds = tempLayer.getBounds();
+                    if (bounds.isValid()) map.flyTo(bounds.getCenter(), 8);
+                }
+                searchInput.value = '';
+                mainSearchResults.style.display = 'none';
+            };
+            mainSearchResults.appendChild(div);
+        });
+
+        mainSearchResults.style.display = 'block';
+    });
+
     // --- 9. 국가 편집 폼 관리 --- (기존 로직 유지)
     
     function updateCountrySelectForEdit() {
@@ -3805,24 +3883,39 @@ function getCountryInfoById(id) {
         document.getElementById('saveCountryBtn').textContent = '저장';
     });
     
-    // 🚩 [추가] 국가 편집 폼 내 검색 기능
-    document.getElementById('countrySearchForEdit').addEventListener('input', (e) => {
-        const searchTerm = e.target.value.toLowerCase();
-        const select = document.getElementById('countrySelectForEdit');
-        
-        // 모든 옵션을 순회하며 검색어와 일치하지 않는 것은 숨김
-        for (let i = 0; i < select.options.length; i++) {
-            const option = select.options[i];
-            const optionText = option.textContent.toLowerCase();
-            
-            // '기존 국가 선택' 옵션은 항상 보이도록 함
-            if (option.value === "") {
-                option.style.display = '';
-                continue;
-            }
-            
-            option.style.display = optionText.includes(searchTerm) ? '' : 'none';
+    // 🚩 [수정] 국가 편집 폼 내 검색 기능을 자동 완성 방식으로 변경
+    const countrySearchInputForEdit = document.getElementById('countrySearchForEdit');
+    const countrySearchResults = document.getElementById('countrySearchResults');
+
+    countrySearchInputForEdit.addEventListener('input', () => {
+        const searchTerm = countrySearchInputForEdit.value.toLowerCase();
+        countrySearchResults.innerHTML = '';
+        if (searchTerm.length === 0) {
+            countrySearchResults.style.display = 'none';
+            return;
         }
+
+        const filteredCountries = countries.filter(c => 
+            c.name.toLowerCase().includes(searchTerm) || 
+            (c.ethnicity && c.ethnicity.toLowerCase().includes(searchTerm))
+        );
+
+        filteredCountries.forEach(country => {
+            const div = document.createElement('div');
+            div.textContent = `${country.name}${country.ethnicity ? ` (${country.ethnicity})` : ''}`;
+            div.style.padding = '8px';
+            div.style.cursor = 'pointer';
+            div.onmouseover = () => div.style.backgroundColor = '#5d7185';
+            div.onmouseout = () => div.style.backgroundColor = '';
+            div.onclick = () => {
+                countrySearchInputForEdit.value = ''; // 입력창 비우기
+                countrySelectForEdit.value = country.name; // select 태그 값 변경
+                countrySelectForEdit.dispatchEvent(new Event('change')); // change 이벤트 강제 발생
+                countrySearchResults.style.display = 'none'; // 결과 목록 숨기기
+            };
+            countrySearchResults.appendChild(div);
+        });
+        countrySearchResults.style.display = filteredCountries.length > 0 ? 'block' : 'none';
     });
 
     document.getElementById('editCountryForm').addEventListener('submit', async (e) => {
@@ -3868,8 +3961,23 @@ function getCountryInfoById(id) {
 
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-            document.getElementById('countryForm').style.display = 'none';
-            initialize(); 
+            alert(isUpdate ? "국가 정보가 성공적으로 수정되었습니다." : "새 국가가 성공적으로 추가되었습니다.");
+
+            // 1. 데이터베이스 갱신 (전체 데이터 다시 로드)
+            await initialize();
+
+            // 2. 폼 필드를 먼저 리셋합니다.
+            document.getElementById('editCountryForm').reset();
+            document.getElementById('countryOriginalName').value = '';
+            document.getElementById('deleteCountryBtn').style.display = 'none';
+            document.getElementById('saveCountryBtn').textContent = '저장/추가';
+            document.getElementById('countryColor').value = '#ffffff'; // 색상 기본값
+            document.getElementById('countrySearchForEdit').value = ''; // 검색창 초기화
+
+            // 3. 🚩 [핵심 수정] 데이터가 새로고침된 후에, 수정했던 국가를 다시 선택해줍니다.
+            // 이렇게 하면 initialize()에 의해 드롭다운이 재생성된 후에도 선택이 유지됩니다.
+            document.getElementById('countrySelectForEdit').value = newName;
+
         } catch (error) {
             console.error("Country 저장 중 오류:", error);
             alert(`Country 저장 실패: ${error.message}`);
@@ -3981,18 +4089,73 @@ function getCountryInfoById(id) {
 
     // --- 10. 왕 편집 폼 관리 --- (기존 로직 유지)
 
-    function updateKingFormCountrySelect() {
-        const select = kingCountrySelectForForm;
-        // 🚩 수정: option value에 국가 이름 대신 국가의 _id를 저장합니다.
-        select.innerHTML = countries.map(c => `<option value="${c._id}">${c.name}${c.ethnicity ? ` (${c.ethnicity})` : ''}</option>`).join('');
-        loadKingsForCountry(); 
-    } 
+    // 🚩 [수정] 왕 편집 폼의 국가 선택 드롭다운을 채우는 함수
+    function populateKingCountrySelect() {
+        const select = document.getElementById('kingCountrySelect');
+        if (!select) return;
+        select.innerHTML = '<option value="">-- 목록에서 선택 --</option>' + 
+            countries.map(c => `<option value="${c._id}">${c.name}${c.ethnicity ? ` (${c.ethnicity})` : ''}</option>`).join('');
+    }
+
+    // 🚩 [추가] 국가 선택 드롭다운 변경 시, 입력창과 ID를 업데이트하는 이벤트 리스너
+    document.getElementById('kingCountrySelect').addEventListener('change', (e) => {
+        const countryId = e.target.value;
+        const country = getCountryInfoById(countryId);
+        
+        document.getElementById('kingCountryId').value = countryId;
+        document.getElementById('kingCountryNameInput').value = country ? country.name : '';
+        
+        if (countryId) {
+            loadKingsForCountry();
+        }
+    });
     
-    kingCountrySelectForForm.addEventListener('change', loadKingsForCountry);
+    // 🚩 [수정] 왕 편집 폼의 국가 검색 자동 완성 기능 (드롭다운과 연동)
+    const kingCountryNameInput = document.getElementById('kingCountryNameInput');
+    const kingCountryResults = document.getElementById('kingCountryResults');
+    const kingCountryIdInput = document.getElementById('kingCountryId');
+
+    kingCountryNameInput.addEventListener('input', () => {
+        const searchTerm = kingCountryNameInput.value.toLowerCase();
+        kingCountryResults.innerHTML = '';
+        if (searchTerm.length === 0) {
+            kingCountryResults.style.display = 'none';
+            return;
+        }
+
+        const filteredCountries = countries.filter(c => c.name.toLowerCase().includes(searchTerm));
+        
+        filteredCountries.forEach(country => {
+            const div = document.createElement('div');
+            div.textContent = `${country.name}${country.ethnicity ? ` (${country.ethnicity})` : ''}`;
+            div.style.padding = '8px';
+            div.style.cursor = 'pointer';
+            div.onmouseover = () => div.style.backgroundColor = '#5d7185';
+            div.onmouseout = () => div.style.backgroundColor = '';
+            div.onclick = () => {
+                kingCountryNameInput.value = country.name;
+                kingCountryIdInput.value = country._id;
+                document.getElementById('kingCountrySelect').value = country._id; // 🚩 [추가] 드롭다운도 함께 변경
+                kingCountryResults.style.display = 'none';
+                loadKingsForCountry(); // 국가가 선택되었으므로 왕 목록을 로드합니다.
+            };
+            kingCountryResults.appendChild(div);
+        });
+
+        kingCountryResults.style.display = filteredCountries.length > 0 ? 'block' : 'none';
+    });
+
+    // 입력창 외부 클릭 시 결과 목록 숨기기
+    document.addEventListener('click', (e) => {
+        if (e.target !== kingCountryNameInput && e.target !== kingCountryResults) {
+            kingCountryResults.style.display = 'none';
+        }
+    });
+
     function loadKingsForCountry(resetForm = false) {
-        // 🚩 수정: 선택된 value는 이제 countryId입니다.
-        const countryId = kingCountrySelectForForm.value;
-        const kingKey = countryId; // 이제 key는 countryId가 됩니다.
+        // 🚩 [수정] 숨겨진 input에서 countryId를 가져옵니다.
+        const countryId = kingCountryIdInput.value;
+        const kingKey = countryId;
         const kingList = kings[kingKey] || [];
         
         const select = kingSelect;
@@ -4025,8 +4188,8 @@ function getCountryInfoById(id) {
 
 kingSelect.addEventListener('change', () => {
     const index = kingSelect.value;
-    // 🚩 수정: kingKey를 countryId로 사용 (이전 kingKey 로직을 제거)
-    const countryId = kingCountrySelectForForm.value;
+    // 🚩 [수정] 숨겨진 input에서 countryId를 가져옵니다.
+    const countryId = kingCountryIdInput.value;
     const kingList = kings[countryId] || []; // ⬅️ 올바른 조회
     const kingMongoIdField = document.getElementById('kingMongoId'); 
         
@@ -4069,8 +4232,8 @@ kingSelect.addEventListener('change', () => {
         const kingMongoId = document.getElementById('kingMongoId').value; 
         const isUpdate = kingMongoId !== '';
         
-        // 🚩 수정: countryName 대신 countryId를 가져옵니다.
-        const countryId = document.getElementById('kingCountryName').value;
+        // 🚩 [수정] 숨겨진 input에서 countryId를 가져옵니다.
+        const countryId = document.getElementById('kingCountryId').value;
 
         const newKingData = {
             countryId: countryId, // 🚨 countryId를 전송
@@ -4109,7 +4272,7 @@ kingSelect.addEventListener('change', () => {
                 await initialize();
                 
                 // 2. 국가명과 국가 ID는 유지
-                document.getElementById('kingCountryName').value = countryId; 
+                document.getElementById('kingCountryId').value = countryId; 
                 
                 // 3. 폼 필드 리셋
                 document.getElementById('editKingForm').reset();
@@ -4127,10 +4290,25 @@ kingSelect.addEventListener('change', () => {
 
             //    alert("왕 기록이 추가되었습니다. 같은 국가에 연속 추가할 수 있습니다.");
 
-            } else { // 수정(PUT) 성공 시 폼 닫고 초기화
-                alert("왕 기록이 성공적으로 수정되었습니다.");
-                document.getElementById('kingForm').style.display = 'none';
-                initialize();
+            } else { // 수정(PUT) 성공 시
+                // 1. 데이터베이스 갱신 (전체 데이터 다시 로드)
+                await initialize();
+
+                // 2. 국가 선택 유지
+                document.getElementById('kingCountryId').value = countryId;
+
+                // 3. 폼 필드 리셋
+                document.getElementById('editKingForm').reset();
+                document.getElementById('kingSelect').value = ''; // '새 왕 추가' 선택
+                document.getElementById('kingStartMonth').value = 1;
+                document.getElementById('kingEndMonth').value = 12;
+                document.getElementById('deleteKingBtn').style.display = 'none';
+                document.getElementById('saveKingBtn').textContent = '추가';
+                document.getElementById('kingMongoId').value = ''; // 🚩 [핵심 수정] 수정 완료 후, 다음 작업을 위해 왕 ID를 명시적으로 초기화합니다.
+
+                // 4. 현재 국가의 왕 목록을 다시 로드하여 드롭다운 갱신
+                loadKingsForCountry(false);
+                alert("왕 기록이 성공적으로 수정되었습니다. 연속해서 작업할 수 있습니다.");
             }
 
         } catch (error) {
@@ -4195,8 +4373,10 @@ kingSelect.addEventListener('change', () => {
         return alert('해당 ID를 가진 왕 정보를 찾을 수 없습니다. (데이터 불일치)');
     }
     // 🚨 [핵심 수정] countryId를 <select>에 설정하여 loadKingsForCountry가 작동하도록 함
-    document.getElementById('kingCountryName').value = countryId;  
-        // 🚩 [추가] 국가를 선택했으므로, 해당 국가의 왕 목록을 로드하여 <select>에 채웁니다.
+    kingCountryIdInput.value = countryId;
+    kingCountryNameInput.value = getCountryInfoById(countryId)?.name || '';
+    document.getElementById('kingCountrySelect').value = countryId; // 🚩 [추가] 드롭다운도 함께 변경
+    // 🚩 [추가] 국가를 선택했으므로, 해당 국가의 왕 목록을 로드하여 <select>에 채웁니다.
     loadKingsForCountry(false); // false로 설정하여 현재 폼 값(countryId)을 유지
 
     // 🚩 [추가] 로드된 목록에서 현재 왕을 찾아서 kingSelect를 설정합니다.
@@ -4838,7 +5018,7 @@ kingSelect.addEventListener('change', () => {
         });
 
         // 🚩 [추가] 도시/성 편집 폼 내 검색 기능
-        document.getElementById('citySearchForEdit').addEventListener('input', (e) => {
+        document.getElementById('citySearchInputForEdit').addEventListener('input', (e) => {
             const searchTerm = e.target.value.toLowerCase();
             const select = document.getElementById('citySelectForEdit');
             
@@ -4856,10 +5036,59 @@ kingSelect.addEventListener('change', () => {
             }
         });
 
+        // 🚩 [추가] 도시/성 편집 폼의 자동 완성 검색 기능
+        const citySearchInputForEdit = document.getElementById('citySearchInputForEdit');
+        const citySearchResults = document.getElementById('citySearchResults');
+        const citySelectForEdit = document.getElementById('citySelectForEdit');
+
+        citySearchInputForEdit.addEventListener('input', () => {
+            const searchTerm = citySearchInputForEdit.value.toLowerCase();
+            citySearchResults.innerHTML = '';
+            if (searchTerm.length === 0) {
+                citySearchResults.style.display = 'none';
+                return;
+            }
+
+            // 군대, 자연, 지명 타입이 아닌 성/도시만 필터링
+            const filteredCastles = castles.filter(c => 
+                !c.is_military_flag && 
+                !c.is_natural_feature && 
+                !c.is_label &&
+                c.name.toLowerCase().includes(searchTerm)
+            );
+
+            filteredCastles.forEach(castle => {
+                const div = document.createElement('div');
+                const countryName = getCountryInfoById(castle.country_id)?.name || '알 수 없음';
+                div.textContent = `${castle.name} (${countryName})`;
+                div.style.padding = '8px';
+                div.style.cursor = 'pointer';
+                div.onmouseover = () => div.style.backgroundColor = '#5d7185';
+                div.onmouseout = () => div.style.backgroundColor = '';
+                div.onclick = () => {
+                    citySearchInputForEdit.value = ''; // 입력창 비우기
+                    citySelectForEdit.value = castle._id; // select 태그 값 변경
+                    citySearchResults.style.display = 'none'; // 결과 목록 숨기기
+                };
+                citySearchResults.appendChild(div);
+            });
+
+            citySearchResults.style.display = filteredCastles.length > 0 ? 'block' : 'none';
+        });
+
+
         // 🚩 [추가] 드롭다운 메뉴 바깥 영역 클릭 시 메뉴 닫기
         window.addEventListener('click', (e) => {
             if (mainEditBtn && !mainEditBtn.contains(e.target) && editDropdownMenu && !editDropdownMenu.contains(e.target)) {
                 editDropdownMenu.classList.remove('show');
+            }
+            // 🚩 [추가] 메인 검색창 외부 클릭 시 결과 숨기기
+            if (searchInput && !searchInput.contains(e.target) && mainSearchResults && !mainSearchResults.contains(e.target)) {
+                mainSearchResults.style.display = 'none';
+            }
+            // 🚩 [추가] 국가 편집 검색창 외부 클릭 시 결과 숨기기
+            if (countrySearchInputForEdit && !countrySearchInputForEdit.contains(e.target) && countrySearchResults && !countrySearchResults.contains(e.target)) {
+                countrySearchResults.style.display = 'none';
             }
         });
     });
