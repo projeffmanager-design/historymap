@@ -2214,8 +2214,12 @@ function updateMap(year, month) {
                 marker = L.marker([castle.lat, castle.lng], { icon: labelIcon });
                 
              //   const builtText = `${castleBuiltYear}년 ${castle.built_month || ''}월`;
-              //  const destroyedText = castle.destroyed || castle.destroyed_year ? `${castleDestroyedYear}년 ${castle.destroyed_month || ''}월` : '알 수 없음';
-                popupHtml = `<b>지역명: ${castle.name}</b><br>기간: ${builtText} ~ ${destroyedText}<br>설명: ${castle.desc ?? ''}`;
+               //  const destroyedText = castle.destroyed || castle.destroyed_year ? `${castleDestroyedYear}년 ${castle.destroyed_month || ''}월` : '알 수 없음';
+                const editorInfoHtml = castle.lastModifiedBy 
+                    ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
+                    : (castle.createdBy ? `<br><small>생성자: ${castle.createdBy}</small>` : '');
+                
+                popupHtml = `<b>지역명: ${castle.name}</b><br>기간: ${builtText} ~ ${destroyedText}<br>설명: ${castle.desc ?? ''}${editorInfoHtml}`;
                 
                 //marker.bindPopup(popupHtml);
                 // 팝업 이벤트 추가 (일반 마커와 동일한 깜빡임 방지 로직 적용 가능)
@@ -2247,11 +2251,16 @@ function updateMap(year, month) {
                 
             //    const builtText = `${castleBuiltYear}년 ${castle.built_month || ''}월`;
              //   const destroyedText = castle.destroyed || castle.destroyed_year ? `${castleDestroyedYear}년 ${castle.destroyed_month || ''}월` : '알 수 없음';
+                const editorInfoHtml = castle.lastModifiedBy 
+                    ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
+                    : (castle.createdBy ? `<br><small>생성자: ${castle.createdBy}</small>` : '');
+                
                 // 🚩 [수정] 팝업 HTML에 사진 URL을 포함하도록 추가합니다.
                 popupHtml = `
                     ${castle.name}</b><br>
                     ${castle.desc ?? ''}
                     ${castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ""}
+                    ${editorInfoHtml}
                 `;
                                 
                 marker.bindPopup(popupHtml);
@@ -2282,12 +2291,17 @@ function updateMap(year, month) {
                     
              //       const builtText = `${castleBuiltYear}년 ${castle.built_month || ''}월`;
               //      const destroyedText = castle.destroyed || castle.destroyed_year ? `${castleDestroyedYear}년 ${castle.destroyed_month || ''}월` : '알 수 없음';
+                    const editorInfoHtml = castle.lastModifiedBy 
+                        ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
+                        : (castle.createdBy ? `<br><small>생성자: ${castle.createdBy}</small>` : '');
+                    
                     // 🚩 [수정] 팝업 HTML에 사진 URL을 포함하도록 추가합니다.
                     popupHtml = `
                         <b>전장: ${castle.name}</b><br>
                         기간: ${builtText} ~ ${destroyedText}<br>
                         설명: ${castle.desc ?? ''}
                         ${castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ""}
+                        ${editorInfoHtml}
                     `;
                                         
                     marker.bindPopup(popupHtml);
@@ -2372,6 +2386,11 @@ function updateMap(year, month) {
                 
                 const flagHtml = countryInfo.flag ? `<img src="${countryInfo.flag}" class="country-flag-img" style="width: 20px; height: 13px; border: 1px solid #ccc; vertical-align: middle; margin-right: 5px;">` : '';
 
+                const editorInfoHtml = castle.lastModifiedBy 
+                    ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
+                    : (castle.createdBy ? `<br><small>생성자: ${castle.createdBy}</small>` : '');
+
+                
                 popupHtml = `
                     ${flagHtml}<b>${countryName}</b>
                     ${countryInfo.ethnicity ? `<br>민족: ${countryInfo.ethnicity}` : ''}<br>
@@ -2379,7 +2398,8 @@ function updateMap(year, month) {
                     병력: ${troops} <br> 
                     위치: ${castle.name}<br>
 
-                    ${generalPhotoUrl ? `<img src="${generalPhotoUrl}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}<br>
+                    ${generalPhotoUrl ? `<br><img src="${generalPhotoUrl}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}
+                    ${editorInfoHtml}
                     ${castle.desc ?? ''}
                 `;
                 
@@ -2420,14 +2440,18 @@ function updateMap(year, month) {
         const flagHtml = currentCountry.flag ?
             `<img src="${currentCountry.flag}" class="country-flag-img" style="width: 20px; height: 13px; border: 1px solid #ccc; margin-right: 5px; vertical-align: middle;">` : '';
         const countryEthnicity = currentCountry.ethnicity ? `<br>민족: ${currentCountry.ethnicity}` : '';
+        const editorInfoHtml = castle.lastModifiedBy 
+            ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
+            : (castle.createdBy ? `<br><small>생성자: ${castle.createdBy}</small>` : '');
         
-        popupHtml = `
+        popupHtml = ` 
                 <b>${castle.name}</b>
                 <br>${flagHtml} ${countryName}${countryEthnicity}<br>
                 존속: ${builtText} ~ ${destroyedText}` 
                 + (castle.desc ? `<br><span>${castle.desc}</span>` : "") 
                 + (castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : "") 
                 + kingHtml
+                + editorInfoHtml;
 
 
             if (currentCountry.flag && !castle.is_capital) {
@@ -3092,10 +3116,21 @@ function getCountryInfoById(id) {
       const foreignContainer = document.getElementById('foreignRecords');
       const trueHistoryContainer = document.getElementById('trueHistoryRecords');
 
+      // 🚩 [추가] 생성자/수정자 정보를 표시하는 HTML을 생성하는 헬퍼 함수
+      const createEditorInfoHtml = (record) => {
+          const editorInfo = record.lastModifiedBy 
+              ? `마지막 수정: ${record.lastModifiedBy}` 
+              : (record.createdBy ? `생성자: ${record.createdBy}` : '');
+          
+          return editorInfo 
+              ? `<small style="float: right; color: #555; font-size: 10px;">${editorInfo}</small>` 
+              : '';
+      };
+
       // 🚩 [수정] 템플릿 리터럴 내의 공백과 줄바꿈을 제거하여 왼쪽 정렬을 맞춥니다.
-      koreanContainer.innerHTML = filteredRecords.filter(r => r.records?.korean?.content).map(r => `<div class="record-item"><button onclick="editHistory('${r._id}')" ${editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin') ? '' : 'style="display:none;"'}>편집</button>${r.records.korean.source ? `<span style="font-weight: bold; color: #000000;">출전: ${r.records.korean.source}</span><br>` : ''}${r.records.korean.content.trim()}</div>`).join('') || '기록 없음';
-      foreignContainer.innerHTML = filteredRecords.filter(r => r.records?.foreign?.content).map(r => `<div class="record-item foreign"><button onclick="editHistory('${r._id}')" ${editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin') ? '' : 'style="display:none;"'}>편집</button>${r.records.foreign.source ? `<span style="font-weight: bold; color: #000000;">출전: ${r.records.foreign.source}</span><br>` : ''}${r.records.foreign.content.trim()}</div>`).join('') || '기록 없음';
-      trueHistoryContainer.innerHTML = filteredRecords.filter(r => r.records?.true_history?.content).map(r => `<div class="record-item true_history"><button onclick="editHistory('${r._id}')" ${editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin') ? '' : 'style="display:none;"'}>편집</button>${r.records.true_history.content.trim()}</div>`).join('') || '기록 없음';
+      koreanContainer.innerHTML = filteredRecords.filter(r => r.records?.korean?.content).map(r => `<div class="record-item"><button onclick="editHistory('${r._id}')" ${editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin') ? '' : 'style="display:none;"'}>편집</button>${createEditorInfoHtml(r)}${r.records.korean.source ? `<span style="font-weight: bold; color: #000000;">출전: ${r.records.korean.source}</span><br>` : ''}${r.records.korean.content.trim()}</div>`).join('') || '기록 없음';
+      foreignContainer.innerHTML = filteredRecords.filter(r => r.records?.foreign?.content).map(r => `<div class="record-item foreign"><button onclick="editHistory('${r._id}')" ${editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin') ? '' : 'style="display:none;"'}>편집</button>${createEditorInfoHtml(r)}${r.records.foreign.source ? `<span style="font-weight: bold; color: #000000;">출전: ${r.records.foreign.source}</span><br>` : ''}${r.records.foreign.content.trim()}</div>`).join('') || '기록 없음';
+      trueHistoryContainer.innerHTML = filteredRecords.filter(r => r.records?.true_history?.content).map(r => `<div class="record-item true_history"><button onclick="editHistory('${r._id}')" ${editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin') ? '' : 'style="display:none;"'}>편집</button>${createEditorInfoHtml(r)}${r.records.true_history.content.trim()}</div>`).join('') || '기록 없음';
 
       
       // 🚩 [수정] 관리자이고 편집 모드일 때만 '기록 추가' 버튼 표시
@@ -3472,6 +3507,13 @@ function getCountryInfoById(id) {
         label_size: selectedType === 'label' ? document.getElementById('labelSize').value : null, // 🚩 [추가]
         natural_feature_type: selectedType === 'natural' ? document.getElementById('naturalFeatureType').value : null,
       };
+
+      // 🚩 [추가] 생성자 및 수정자 정보 추가
+      if (isUpdate) {
+        data.lastModifiedBy = currentUser.username;
+      } else {
+        data.createdBy = currentUser.username;
+      }
 
       if (data.is_military_flag) {
         // 🚩 수정: generalNameInput, troopCountInput, generalPhotoInput 사용
