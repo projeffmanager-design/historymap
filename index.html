@@ -967,7 +967,7 @@
 <style>
     /* 🚩 [추가] PC 버전 상단 패널 토글 버튼 스타일 */
     #pcTopPanelToggleBtn {
-        display: block; /* 🚩 [수정] 모바일에서도 보이도록 기본값을 block으로 변경 */
+        display: none; /* 🚩 [수정] 기본적으로 숨기고, 모바일에서만 표시 */
         /* 🚩 [제거] 개별 마진 제거, gap으로 통일 */
         padding: 6px 10px;
         background-color: transparent; /* 배경 투명 */
@@ -992,6 +992,9 @@
     /* 🚩 [수정] 오른쪽 패널 토글 버튼 PC 스타일 */
     @media (min-width: 769px) { /* 🚩 [수정] 강제 모바일 뷰 관련 조건 제거 */
         #rightPanelToggleBtn {
+            /* 🚩 [추가] PC에서는 ⚙️ 버튼 숨김 */
+            #pcTopPanelToggleBtn { display: none; }
+
             writing-mode: vertical-rl; /* Revert to vertical for PC */
             top: 10px; /* Adjust position */
             left: -28px; /* Adjust position */
@@ -1004,6 +1007,10 @@
             line-height: 1; /* Reset mobile line-height */
             padding: 10px 5px; /* Reset mobile padding */
         }
+    }
+    /* 🚩 [추가] 모바일 화면에서만 ⚙️ 버튼 표시 */
+    @media (max-width: 768px) {
+        #pcTopPanelToggleBtn { display: block; }
     }
 </style>
 <body>
@@ -2787,10 +2794,19 @@ function getCountryInfoById(id) {
 
         // 🚩 [추가] 슬라이더 눈금을 동적으로 생성하는 함수
     function createSliderTicks() {
+        const sliderContainer = document.querySelector('.slider-container');
+        const existingTicks = sliderContainer.querySelector('.slider-ticks-container');
+        if (existingTicks) existingTicks.remove(); // 기존 눈금 컨테이너가 있다면 먼저 제거합니다.
+
+        // 🚩 [핵심 수정] 연대표가 비활성화 상태이면 눈금을 생성하지 않고 함수를 종료합니다.
+        if (!layerVisibility.timeline) {
+            return;
+        }
+
         const ticksContainer = document.createElement('div');
         // 🚩 [추가] 클래스를 부여하여 쉽게 선택하고 제어할 수 있도록 함
         ticksContainer.className = 'slider-ticks-container';
-        ticksContainer.style.cssText = "width:100%; margin: 0 auto; display: flex; font-size: 0.8em; color: #ccc; position: relative; top: -50px; z-index: 30; padding-left: 8px;";
+        ticksContainer.style.cssText = "width:100%; margin: 0 auto; display: flex; font-size: 0.8em; color: #ccc; position: relative; top: -50px; z-index: 29; padding-left: 8px;";
 
         const sliderMin = parseInt(combinedSlider.min);
         const totalSliderMonths = parseInt(combinedSlider.max) - sliderMin;
@@ -2805,9 +2821,6 @@ function getCountryInfoById(id) {
             ticksContainer.appendChild(tick);
         }
 
-        // 기존 sliderTicks를 대체
-        const sliderContainer = document.querySelector('.slider-container');
-        const existingTicks = sliderContainer.querySelector('div[style*="width:100%"]');
         // 🚩 [추가] 민족 필터 생성
         const ethnicityFilterContainer = document.getElementById('ethnicityFilterContainer');
         const ethnicities = [...new Set(countries.filter(c => !c.is_main_dynasty && c.ethnicity).map(c => c.ethnicity))].sort();
@@ -2826,8 +2839,6 @@ function getCountryInfoById(id) {
         selectElement.addEventListener('change', () => {
             createDynastyTimeline(); // 필터 변경 시 연대표 다시 그리기
         });
-
-        if (existingTicks) existingTicks.remove();
         sliderContainer.appendChild(ticksContainer);
     }
     // 🚩 [수정] 주요 국가와 나머지 국가를 분리하여 렌더링하도록 로직 수정
@@ -4649,11 +4660,11 @@ kingSelect.addEventListener('change', () => {
                 isControlsHidden = !isControlsHidden;
 
                 // 🚩 [수정] 전체 패널을 숨기는 대신, 특정 부분만 숨기도록 변경
-                const rightControls = controlsWrapper.querySelector('.right-controls');
+                const slider = document.getElementById('combinedSlider');
                 const sliderTicks = controlsWrapper.querySelector('.slider-ticks-container'); // 눈금 컨테이너
 
-                if (rightControls) rightControls.style.display = isControlsHidden ? 'none' : 'flex';
-                if (sliderTicks) sliderTicks.style.display = isControlsHidden ? 'none' : 'flex';
+                if (slider) slider.style.display = isControlsHidden ? 'none' : 'block';
+                if (sliderTicks) sliderTicks.style.display = isControlsHidden ? 'none' : 'flex'; // 눈금은 flex로 복원
                 if (timelineContainer) timelineContainer.style.display = isControlsHidden ? 'none' : 'block';
 
                 // 🚩 [수정] 버튼 상태 업데이트
@@ -4727,7 +4738,20 @@ kingSelect.addEventListener('change', () => {
                 
                 // 🚩 [수정] 연대표 토글 시에는 createDynastyTimeline만 호출
                 if (layerType === 'timeline') {
-                    createDynastyTimeline();
+                    const slider = document.getElementById('combinedSlider');
+                    const sliderTicks = document.querySelector('.slider-ticks-container');
+                    const timelineContainer = document.getElementById('timeline-container');
+
+                    // 🚩 [핵심 수정] 연대표 가시성 상태에 따라 관련 UI 요소들을 모두 제어합니다.
+                    if (slider) slider.style.display = layerVisibility.timeline ? 'block' : 'none';
+                    if (timelineContainer) {
+                        // 연대표를 다시 그리거나, 숨길 때 높이와 마진을 조절하여 레이아웃 깨짐을 방지합니다.
+                        createDynastyTimeline(); // createDynastyTimeline은 이제 내부적으로 가시성을 확인합니다.
+                        timelineContainer.style.height = layerVisibility.timeline ? `${timelineContainer.children.length > 0 ? timelineContainer.scrollHeight : 0}px` : '0px';
+                        timelineContainer.style.marginTop = layerVisibility.timeline ? '-38px' : '0px';
+                    }
+                    // 🚩 [핵심 수정] 눈금 숨김 처리를 가장 마지막에 실행하여 다른 UI 변경으로 인한 간섭을 방지합니다.
+                    if (sliderTicks) sliderTicks.style.display = layerVisibility.timeline ? 'flex' : 'none';
                 } else {
                     const { year, month } = getCurrentYearMonth();
                     updateMap(year, month);
