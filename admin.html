@@ -192,13 +192,15 @@
         }
         /* 🚩 [추가] 차트 컨테이너 스타일 */
         #chartContainer {
-            width: 100%;
+            position: relative; /* 🚩 [수정] 차트 반응형을 위해 position 추가 */
+            max-height: 350px; /* 🚩 [수정] 차트 최대 높이 제한 */
             margin-bottom: 30px;
             background-color: #3e4a56;
             padding: 20px; border-radius: 8px;
         }
         #dailyLoginsChartContainer {
-            width: 100%;
+            position: relative; /* 🚩 [수정] 차트 반응형을 위해 position 추가 */
+            max-height: 350px; /* 🚩 [수정] 차트 최대 높이 제한 */
             margin-bottom: 30px;
             background-color: #3e4a56;
             padding: 20px; border-radius: 8px;
@@ -379,8 +381,8 @@
                         <input type="text" id="editUsername" required>
                     </div>
                     <div class="form-row">
-                        <label for="editEmail">이메일</label>
-                        <input type="email" id="editEmail" required>
+                        <label for="editEmail">Email</label>
+                        <input type="email" id="editEmail">
                     </div>
                     <div class="form-row">
                         <label for="editPassword">새 비밀번호</label>
@@ -493,14 +495,7 @@
                     <td>${user.username}</td>
                     <td>${user.email || '미입력'}</td>
                     <td>${lastLogin}</td>
-                    <td>
-                        <select onchange="updateUserRole(this, '${user._id}', '${user.role}')" data-userid="${user._id}">
-                            <option value="user" ${user.role === 'user' ? 'selected' : ''}>User</option>
-                            <!-- 🚩 [수정] 비밀번호 재설정 버튼을 '수정' 기능으로 통합 -->
-                            <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
-                            <option value="superuser" ${user.role === 'superuser' ? 'selected' : ''}>Superuser</option>
-                        </select>
-                    </td>
+                    <td>${user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'N/A'}</td>
                     <td>
                         <button class="button lock-btn" onclick="toggleLockStatus(this, '${user._id}', ${user.isLocked || false})">${user.isLocked ? '잠금 해제' : '계정 잠금'}</button>
                         <button class="primary" onclick="openEditUserModal('${user._id}')">수정</button>
@@ -556,6 +551,7 @@
                     }]
                 },
                 options: {
+                    maintainAspectRatio: false, // 🚩 [수정] 컨테이너 크기에 맞게 비율을 조정하도록 설정
                     scales: { y: { beginAtZero: true, ticks: { color: '#ecf0f1' } }, x: { ticks: { color: '#ecf0f1' } } },
                     plugins: { legend: { labels: { color: '#ecf0f1' } } }
                 }
@@ -605,6 +601,7 @@
                         }]
                     },
                     options: {
+                        maintainAspectRatio: false, // 🚩 [수정] 컨테이너 크기에 맞게 비율을 조정하도록 설정
                         scales: {
                             y: { beginAtZero: true, ticks: { color: '#ecf0f1', stepSize: 1 } },
                             x: { ticks: { color: '#ecf0f1' } }
@@ -669,32 +666,6 @@
             }
         });
 
-        // 🚩 [추가] 사용자 역할 수정
-        window.updateUserRole = function(selectElement, userId, oldRole) {
-            const newRole = selectElement.value;
-            showConfirmModal(`사용자의 역할을 '${newRole}'(으)로 변경하시겠습니까?`, async () => {
-                try {
-                    const response = await fetch(`${API_BASE_URL}/users/${userId}/role`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify({ role: newRole })
-                    });
-                    const data = await response.json();
-                    if (!response.ok) throw new Error(data.message);
-                    showToast('사용자 역할이 성공적으로 변경되었습니다.');
-                    // 성공 시 목록을 다시 로드할 필요 없이 oldRole을 업데이트
-                    selectElement.setAttribute('onchange', `updateUserRole(this, '${userId}', '${newRole}')`);
-                } catch (error) {
-                    showToast(`역할 변경 실패: ${error.message}`, 'error');
-                    selectElement.value = oldRole; // 실패 시 원래 역할로 되돌림
-                }
-            });
-            // 사용자가 모달에서 '취소'를 누르면, onConfirm이 실행되지 않으므로 아무 일도 일어나지 않음
-            // select 값은 onchange에 의해 이미 변경되었으므로, 취소 시 원래 값으로 되돌려야 함
-            document.getElementById('cancelConfirm').addEventListener('click', () => {
-                selectElement.value = oldRole;
-            }, { once: true });
-        }
         // 사용자 삭제
         window.deleteUser = function(button, userId) {
             showConfirmModal('정말로 이 사용자를 삭제하시겠습니까?', async () => {
