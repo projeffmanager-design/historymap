@@ -116,7 +116,34 @@ async function setupRoutesAndCollections() {
         app.get('/api/castle', verifyToken, async (req, res) => { // (collections.castle로 변경)
             try {
                 const castles = await collections.castle.find({}).toArray();
-                res.json(castles);
+
+                // Normalize each castle for backward compatibility: if `history` is missing,
+                // derive a minimal history array from legacy fields so the client works
+                const normalized = castles.map(castle => {
+                    try {
+                        if (Array.isArray(castle.history) && castle.history.length > 0) return castle;
+
+                        const h = {};
+                        h.name = castle.name || '';
+                        // prefer existing country_id; preserve country name if present
+                        if (castle.country_id) h.country_id = castle.country_id;
+                        else if (castle.country) h.country_name = castle.country;
+
+                        h.start_year = castle.built_year ?? castle.built ?? castle.start ?? null;
+                        h.start_month = castle.built_month ?? castle.start_month ?? 1;
+                        h.end_year = castle.destroyed_year ?? castle.destroyed ?? castle.end ?? null;
+                        h.end_month = castle.destroyed_month ?? castle.end_month ?? 12;
+                        h.is_capital = !!castle.is_capital;
+
+                        // Attach a derived history array without mutating DB
+                        return { ...castle, history: [h] };
+                    } catch (e) {
+                        // On any problem just return original castle
+                        return castle;
+                    }
+                });
+
+                res.json(normalized);
             } catch (error) {
                 console.error("Castle 조회 중 오류:", error);
                 res.status(500).json({ message: "Castle 조회 실패", error: error.message });
@@ -160,6 +187,16 @@ async function setupRoutesAndCollections() {
                 }
                 // country 필드가 넘어온다면 삭제 (ID 기반 구조 유지)
                 if (updatedCastle.country) delete updatedCastle.country;
+
+                // ✨ [수정] history 배열 내의 country_id를 ObjectId로 변환
+                if (Array.isArray(updatedCastle.history)) {
+                    updatedCastle.history.forEach(h => {
+                        // history 항목에 country_id가 있고, 유효한 ObjectId 문자열이 아닌 경우 변환
+                        if (h.country_id && typeof h.country_id === 'string') {
+                            h.country_id = toObjectId(h.country_id);
+                        }
+                    });
+                }
                 
                 const result = await collections.castle.updateOne(
                     { _id: _id },
