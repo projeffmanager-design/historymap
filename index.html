@@ -3712,7 +3712,7 @@ function getCountryInfoById(id) {
         row.innerHTML = `
             <div class="history-field-container history-name"><label>이름</label><input type="text" class="history-name" name="history-name" placeholder="이름" value="${history.name || ''}" required></div>
             <div class="history-field-container history-country" style="position: relative;"><label>국가</label><input type="text" class="history-country-name" placeholder="국가명 입력..." autocomplete="off" value="${countryName}"><input type="hidden" class="history-country-id" value="${history.country_id || ''}"><div class="autocomplete-results"></div></div>
-            <div class="history-field-container history-start-year"><label>시작연도</label><input type="number" class="history-start-year" name="history-start-year" placeholder="시작" value="${history.start_year || ''}" required></div>
+            <div class="history-field-container history-start-year"><label>시작연도</label><input type="number" class="history-start-year" name="history-start-year" placeholder="시작" value="${history.start_year ?? ''}" required></div>
             <div class="history-field-container history-start-month"><label>월</label><input type="number" class="history-start-month" name="history-start-month" placeholder="월" min="1" max="12" value="${history.start_month || 1}" required></div>
             <span style="align-self: flex-end;">~</span>
             <div class="history-field-container history-end-year"><label>종료연도</label><input type="number" class="history-end-year" placeholder="종료" value="${history.end_year ?? ''}"></div>
@@ -3720,7 +3720,14 @@ function getCountryInfoById(id) {
             <div class="history-field-container" style="align-self: flex-end;"><label style="margin-bottom: 8px;">수도</label><input type="checkbox" class="history-is-capital" ${history.is_capital ? 'checked' : ''}></div>
             <button type="button" onclick="this.parentElement.remove()">X</button>
         `;
-        container.appendChild(row);
+                // 폼 제출 시 required 에러 방지: 빈 값이면 required 제거 또는 기본값 설정
+                setTimeout(() => {
+                    const startYearInput = row.querySelector('input.history-start-year');
+                    if (startYearInput && (startYearInput.value === '' || startYearInput.value == null)) {
+                        startYearInput.required = false;
+                    }
+                }, 0);
+                container.appendChild(row);
     }
     // 🚩 [추가] '역사 기록 추가' 버튼 이벤트 리스너
     document.getElementById('addCastleHistoryBtn').addEventListener('click', () => addCastleHistoryRow());
