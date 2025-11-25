@@ -2197,15 +2197,22 @@ function updateMap(year, month) {
                     // 🚩 [핵심 수정] 줌 레벨에 따라 반경을 동적으로 계산합니다.
                     // 줌 레벨 5를 기준으로 80px 반경을 설정하고, 줌 레벨이 1씩 변경될 때마다 반경을 2배씩 조절합니다.
                     const currentZoom = map.getZoom(); // 🚩 [수정] 줌 레벨에 따른 반경 계산
-                    const radius = 60 * Math.pow(2, currentZoom - 5); // 🚩 [수정] 반경을 80으로 상향 조정
-                    const blur = 0; // 블러 효과 제거
-
+                    const radius = 50 * Math.pow(2, currentZoom - 5);
+                    const blur = 0; // 약간의 블러
+                    // gradient를 더 부드럽게, 진하지만 과하지 않게
+                    const gradient = {
+                        0.2: countryInfo.color || 'grey',
+                        0.5: countryInfo.color || 'grey',
+                        0.8: countryInfo.color || 'grey',
+                        1.0: countryInfo.color || 'grey'
+                    };
                     const heatLayer = L.heatLayer(points, {
                         radius: radius,
                         blur: blur,
-                        max: 0.1, // 🚩 [핵심 수정] max 값을 극단적으로 낮춰 거의 불투명한 원색으로 표시되도록 합니다.
-                        gradient: { 0.1: countryInfo.color || 'grey' }, // 🚩 [핵심 수정] 낮은 강도(0.1)에서도 색상이 진하게 표시되도록 gradient 시작점을 낮춥니다.
-                        opacity: 0.9 // 🚩 [핵심 수정] 히트맵 레이어의 불투명도를 0.9로 높여 색상을 더 진하게 만듭니다.
+                        max: 0.25, // 기존보다 약간 더 진하게
+                        minOpacity: 0.4, // 최소 불투명도
+                        gradient: gradient,
+                        opacity: 0.7 // 전체 불투명도는 0.7로 (과하지 않게)
                     });
                     heatmapLayers[countryId] = heatLayer;
                 }
