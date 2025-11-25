@@ -2158,27 +2158,37 @@ function updateMap(year, month) {
 
         if (layerVisibility.territory) {
             castles.forEach(castle => {
-                if (!castle.country_id || typeof castle.lat !== "number" || typeof castle.lng !== "number") return;
+                if (typeof castle.lat !== "number" || typeof castle.lng !== "number") return;
 
-                const builtCombined = yearMonthToTotalMonths(castle.built_year || castle.built || 0, castle.built_month || 1);
-                const destroyedCombined = yearMonthToTotalMonths(castle.destroyed || castle.destroyed_year || 9999, castle.destroyed_month || 12);
+                // 🚩 [핵심 수정] 현재 시간에 맞는 역사 기록을 찾아서 그 country_id를 사용
+                const activeHistoryRecord = castle.history?.find(h => {
+                    const hStartYear = (h.start_year !== undefined && h.start_year !== null && h.start_year !== '') ? parseInt(h.start_year) : -4000;
+                    const hStartMonth = (h.start_month !== undefined && h.start_month !== null && h.start_month !== '') ? parseInt(h.start_month) : 1;
+                    const start = yearMonthToTotalMonths(hStartYear, hStartMonth);
+                    const hasEnd = (h.end_year !== undefined && h.end_year !== null && h.end_year !== '');
+                    const end = hasEnd ? yearMonthToTotalMonths(parseInt(h.end_year), (h.end_month !== undefined && h.end_month !== null && h.end_month !== '') ? parseInt(h.end_month) : 12) : Infinity;
+                    return currentTotalMonths >= start && currentTotalMonths <= end;
+                });
                 
-                if (builtCombined <= currentTotalMonths && currentTotalMonths <= destroyedCombined) {
-                    if (!newHeatmapData[castle.country_id]) {
-                        newHeatmapData[castle.country_id] = [];
-                    }
+                // 🚩 [핵심 수정] 현재 시간에 맞는 역사 기록이 없으면 스킵
+                if (!activeHistoryRecord || !activeHistoryRecord.country_id) return;
+                
+                const countryId = activeHistoryRecord.country_id;
 
-                    // 🚩 [수정] 국가 선택 여부에 따라 히트맵 강도(intensity)를 다르게 설정
-                    let intensity = 1.2; // 🚩 [수정] 기본 강도 상향
-                    if (selectedCountryId !== 'all') {
-                        if (castle.country_id === selectedCountryId) {
-                            intensity = 2.0; // 🚩 [수정] 선택된 국가는 더 강하게 표시
-                        } else {
-                            intensity = 0.5; // 🚩 [수정] 나머지 국가는 약간 약하게 표시
-                        }
-                    }
-                    newHeatmapData[castle.country_id].push([castle.lat, castle.lng, intensity]); 
+                if (!newHeatmapData[countryId]) {
+                    newHeatmapData[countryId] = [];
                 }
+
+                // 🚩 [수정] 국가 선택 여부에 따라 히트맵 강도(intensity)를 다르게 설정
+                let intensity = 1.2; // 🚩 [수정] 기본 강도 상향
+                if (selectedCountryId !== 'all') {
+                    if (countryId === selectedCountryId) {
+                        intensity = 2.0; // 🚩 [수정] 선택된 국가는 더 강하게 표시
+                    } else {
+                        intensity = 0.5; // 🚩 [수정] 나머지 국가는 약간 약하게 표시
+                    }
+                }
+                newHeatmapData[countryId].push([castle.lat, castle.lng, intensity]); 
             });
         }
 
@@ -2944,6 +2954,213 @@ function getCountryInfoById(id) {
       const { year: initialYear, month: initialMonth } = totalMonthsToYearMonth(initialTotalMonths);
       updateTime(initialYear, initialMonth); // updateTime으로 초기화
       console.log("초기화 완료.");
+      
+      // 🚩 [추가] 디버깅 함수: 표시되지 않는 도시 찾기
+      window.findHiddenCastles = function(year = 2000, month = 1) {
+          const currentTotalMonths = yearMonthToTotalMonths(year, month);
+          const hiddenCastles = [];
+          
+          castles.forEach(castle => {
+              if (!castle.name || castle.is_military_flag || castle.is_natural_feature || castle.is_label) return;
+              
+              // 현재 시간에 맞는 역사 기록 찾기
+              const activeHistoryRecord = castle.history?.find(h => {
+                  const hStartYear = (h.start_year !== undefined && h.start_year !== null && h.start_year !== '') ? parseInt(h.start_year) : -4000;
+                  const hStartMonth = (h.start_month !== undefined && h.start_month !== null && h.start_month !== '') ? parseInt(h.start_month) : 1;
+                  const start = yearMonthToTotalMonths(hStartYear, hStartMonth);
+                  const hasEnd = (h.end_year !== undefined && h.end_year !== null && h.end_year !== '');
+                  const end = hasEnd ? yearMonthToTotalMonths(parseInt(h.end_year), (h.end_month !== undefined && h.end_month !== null && h.end_month !== '') ? parseInt(h.end_month) : 12) : Infinity;
+                  return currentTotalMonths >= start && currentTotalMonths <= end;
+              });
+              
+              // 조건을 만족하지 않는 도시를 수집
+              const issues = [];
+              
+              if (!activeHistoryRecord) {
+                  issues.push('현재 시간에 맞는 히스토리가 없음');
+              } else {
+                  if (!activeHistoryRecord.country_id) {
+                      issues.push('히스토리의 country_id가 없음');
+                  }
+              }
+              
+              if (typeof castle.lat !== "number" || typeof castle.lng !== "number") {
+                  issues.push(`좌표 문제 (lat: ${castle.lat}, lng: ${castle.lng})`);
+              }
+              
+              if (issues.length > 0) {
+                  hiddenCastles.push({
+                      name: castle.name,
+                      _id: castle._id,
+                      lat: castle.lat,
+                      lng: castle.lng,
+                      country_id: castle.country_id,
+                      history_count: castle.history?.length || 0,
+                      history: castle.history,
+                      issues: issues
+                  });
+              }
+          });
+          
+          console.log(`========== ${year}년 ${month}월 기준 ==========`);
+          console.log(`총 도시: ${castles.filter(c => !c.is_military_flag && !c.is_natural_feature && !c.is_label).length}`);
+          console.log(`표시되지 않는 도시: ${hiddenCastles.length}`);
+          console.table(hiddenCastles.map(c => ({
+              '도시명': c.name,
+              '히스토리 수': c.history_count,
+              '문제점': c.issues.join(', ')
+          })));
+          console.log('자세히 보기:', hiddenCastles);
+          
+          return hiddenCastles;
+      };
+      
+      // 🚩 [추가] 특정 도시 상세 분석 함수
+      window.analyzeCastle = function(castleName) {
+          const castle = castles.find(c => c.name === castleName);
+          if (!castle) {
+              console.log(`"${castleName}"라는 도시를 찾을 수 없습니다.`);
+              return null;
+          }
+          
+          console.log(`\n========== "${castleName}" 상세 정보 ==========`);
+          console.log(`ID: ${castle._id}`);
+          console.log(`기본 국가 ID: ${castle.country_id}`);
+          console.log(`좌표: (${castle.lat}, ${castle.lng})`);
+          console.log(`\n히스토리 목록:`);
+          
+          if (castle.history && castle.history.length > 0) {
+              castle.history.forEach((h, index) => {
+                  console.log(`  [${index + 1}] ${h.start_year}년 ${h.start_month}월 ~ ${h.end_year ? h.end_year + '년 ' + (h.end_month || 12) + '월' : '현재'}`);
+                  console.log(`       국가: ${h.country_id}`);
+                  console.log(`       이름: ${h.name}`);
+              });
+          } else {
+              console.log('  (히스토리 없음)');
+          }
+          
+          return castle;
+      };
+      
+      // 🚩 [추가] 완전히 표시가 누락되는 성을 찾는 함수
+      window.findCompletelyHiddenCastles = function() {
+          const completelyHidden = [];
+          
+          castles.forEach(castle => {
+              if (!castle.name || castle.is_military_flag || castle.is_natural_feature || castle.is_label) return;
+              
+              // 이 성이 어떤 시점에서도 표시될 수 없는지 확인
+              const canBeDisplayed = castle.history && castle.history.length > 0 && castle.history.some(h => h.country_id);
+              
+              if (!canBeDisplayed) {
+                  completelyHidden.push({
+                      name: castle.name,
+                      _id: castle._id,
+                      lat: castle.lat,
+                      lng: castle.lng,
+                      country_id: castle.country_id,
+                      history_count: castle.history?.length || 0,
+                      has_valid_history: castle.history && castle.history.length > 0,
+                      has_country_id: castle.history && castle.history.some(h => h.country_id),
+                      reason: !castle.history || castle.history.length === 0 
+                          ? '히스토리 레코드가 없음' 
+                          : '모든 히스토리에 country_id가 없음'
+                  });
+              }
+          });
+          
+          console.log(`\n========== 완전히 표시되지 않는 성 ==========`);
+          console.log(`총 성: ${castles.filter(c => !c.is_military_flag && !c.is_natural_feature && !c.is_label).length}`);
+          console.log(`완전히 표시 누락: ${completelyHidden.length}`);
+          
+          if (completelyHidden.length > 0) {
+              console.table(completelyHidden.map(c => ({
+                  '성명': c.name,
+                  '히스토리수': c.history_count,
+                  '이유': c.reason
+              })));
+              console.log('자세한 정보:', completelyHidden);
+          } else {
+              console.log('✓ 완전히 표시 누락되는 성이 없습니다!');
+          }
+          
+          return completelyHidden;
+      };
+      
+      // 🚩 [추가] 모든 성의 상태를 종합적으로 검사하는 함수
+      window.auditAllCastles = function() {
+          const audit = {
+              총성: 0,
+              정상표시: 0,
+              시간별표시: 0,
+              완전누락: 0,
+              좌표누락: 0,
+              details: []
+          };
+          
+          castles.forEach(castle => {
+              if (castle.is_military_flag || castle.is_natural_feature || castle.is_label) return;
+              
+              audit.총성++;
+              
+              const issues = [];
+              
+              // 좌표 확인
+              if (typeof castle.lat !== "number" || typeof castle.lng !== "number") {
+                  audit.좌표누락++;
+                  issues.push('좌표 누락');
+              }
+              
+              // 히스토리 확인
+              const hasValidHistory = castle.history && castle.history.length > 0 && castle.history.some(h => h.country_id);
+              
+              if (!hasValidHistory) {
+                  audit.완전누락++;
+                  issues.push(
+                      !castle.history || castle.history.length === 0 
+                          ? '히스토리 없음' 
+                          : 'country_id 없음'
+                  );
+              } else {
+                  // 히스토리가 있지만 시간에 따라 표시가 되기도 안 되기도 함
+                  const allTimeRangesValid = castle.history.every(h => {
+                      const startYear = (h.start_year !== undefined && h.start_year !== null && h.start_year !== '') ? parseInt(h.start_year) : -4000;
+                      const endYear = (h.end_year !== undefined && h.end_year !== null && h.end_year !== '') ? parseInt(h.end_year) : null;
+                      return startYear !== undefined && startYear !== null;
+                  });
+                  
+                  if (allTimeRangesValid) {
+                      audit.정상표시++;
+                  } else {
+                      audit.시간별표시++;
+                      issues.push('일부 히스토리의 시간 데이터 불완전');
+                  }
+              }
+              
+              if (issues.length > 0) {
+                  audit.details.push({
+                      name: castle.name,
+                      issues: issues.join(', ')
+                  });
+              }
+          });
+          
+          console.log(`\n========== 성 데이터 감사 보고서 ==========`);
+          console.log(`총 성: ${audit.총성}`);
+          console.log(`✓ 정상 표시: ${audit.정상표시}`);
+          console.log(`⚠ 시간별 표시: ${audit.시간별표시}`);
+          console.log(`✗ 완전 누락: ${audit.완전누락}`);
+          console.log(`✗ 좌표 누락: ${audit.좌표누락}`);
+          console.log(`\n문제가 있는 성:`);
+          
+          if (audit.details.length > 0) {
+              console.table(audit.details);
+          } else {
+              console.log('✓ 모든 성이 정상입니다!');
+          }
+          
+          return audit;
+      };
     }
         // 🚩 [추가] 도시/성 선택 드롭다운을 채우는 함수
     function populateCitySelectForEdit() {
@@ -3647,6 +3864,14 @@ function getCountryInfoById(id) {
 
         // 복잡한 역사 기록 섹션
         castleHistorySection.style.display = isCastle ? 'block' : 'none';
+        
+        // 🚩 [핵심 수정] 히스토리 섹션이 숨겨질 때 required 속성 제거
+        const historyInputs = castleHistorySection.querySelectorAll('input[required]');
+        historyInputs.forEach(input => {
+            if (!isCastle) {
+                input.removeAttribute('required');
+            }
+        });
 
         // 단순 기간 설정 섹션
         simpleDateSection.style.display = isCastle ? 'none' : 'block';
@@ -3743,6 +3968,15 @@ function getCountryInfoById(id) {
     // 성 폼 제출 (저장/업데이트)
     addCastleForm.addEventListener('submit', async (e) => {
       e.preventDefault();
+      
+      // 🚩 [핵심 수정] 숨겨진 필드의 required 속성을 임시로 제거하여 HTML5 검증 우회
+      const historyRows = document.querySelectorAll('#castleHistoryList .history-record-row');
+      historyRows.forEach(row => {
+          const nameInput = row.querySelector('input.history-name');
+          const startYearInput = row.querySelector('input.history-start-year');
+          if (nameInput) nameInput.removeAttribute('required');
+          if (startYearInput) startYearInput.removeAttribute('required');
+      });
       
       const isUpdate = editingCastleKey !== null;
       const url = isUpdate ? `${API_BASE_URL}/castle/${editingCastleKey}` : `${API_BASE_URL}/castle`;
