@@ -355,20 +355,105 @@
     /* ------------------- 3. 폼 및 패널 디자인 CSS ------------------- */
     /* 🚩 [수정] 폼 패널 스타일 개선 */
     /* 🚩 [수정] 폼 이동을 위해 left, transform 속성 제거 */
-    #castleForm, #historyForm, #countryForm, #kingForm, #eventForm, #drawingForm {
-      /* 🚩 [수정] top 속성을 제거하고 JS에서 동적으로 설정합니다. */
-      position: absolute; 
-      background: #2c3e50; color: #ecf0f1; border: 1px solid #5d7185;
-      padding: 20px; 
-      z-index: 1000; 
-      border-radius: 8px;
-      width: 600px;
-      left: calc(50% - 300px); /* (100% - 600px) / 2 */
-      /* 🚩 [추가] 폼이 너무 길어질 경우 스크롤이 생기도록 max-height 설정 */
-      max-height: 90vh;
-      box-shadow: 0 5px 15px rgba(0,0,0,0.5); max-width: 90%; min-width: 350px;
-      overflow-y: hidden; /* 🚩 [수정] 전체 폼 스크롤을 숨깁니다. */
-    }
+        #castleForm, #historyForm, #countryForm, #kingForm, #eventForm, #drawingForm {
+            /* 🚩 [수정] top 속성을 제거하고 JS에서 동적으로 설정합니다. */
+            position: absolute; 
+            background: #2c3e50; color: #ecf0f1; border: 1px solid #5d7185;
+            padding: 20px; 
+            z-index: 1000; 
+            border-radius: 8px;
+            width: 600px;
+            left: calc(50% - 300px); /* (100% - 600px) / 2 */
+            /* 🚩 [추가] 폼이 너무 길어질 경우 스크롤이 생기도록 max-height 설정 */
+            max-height: 90vh;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5); max-width: 90%; min-width: 350px;
+            overflow-y: hidden; /* 🚩 [수정] 전체 폼 스크롤을 숨깁니다. */
+        }
+
+        /* ------------------- 모바일 폼 반응형 ------------------- */
+                @media (max-width: 768px) {
+                    #castleForm, #historyForm, #countryForm, #kingForm, #eventForm, #drawingForm {
+                        width: 90vw !important;
+                        left: 5vw !important;
+                        min-width: unset !important;
+                        max-width: 95vw !important;
+                        max-height: 90vh !important;
+                        overflow-y: auto !important;
+                        padding-bottom: 80px !important; /* 버튼 공간 확보 */
+                    }
+                    #castleForm .form-actions,
+                    #historyForm .form-actions,
+                    #countryForm .form-actions,
+                    #kingForm .form-actions,
+                    #eventForm .form-actions,
+                    #drawingForm .form-actions {
+                        position: sticky;
+                        bottom: 0;
+                        background: #2c3e50;
+                        z-index: 10;
+                        padding: 10px 0 0 0;
+                        margin-bottom: 0;
+                    }
+                }
+
+</body>
+<script>
+// 🚩 폼 드래그: 터치 지원 추가 (모바일)
+function enableFormDrag(formId) {
+    const form = document.getElementById(formId);
+    if (!form) return;
+    const header = form.querySelector('h3');
+    if (!header) return;
+    let offsetX = 0, offsetY = 0, startX = 0, startY = 0, dragging = false;
+
+    // 마우스 이벤트
+    header.onmousedown = function(e) {
+        dragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        const rect = form.getBoundingClientRect();
+        offsetX = startX - rect.left;
+        offsetY = startY - rect.top;
+        document.onmousemove = function(e2) {
+            if (!dragging) return;
+            form.style.left = (e2.clientX - offsetX) + 'px';
+            form.style.top = (e2.clientY - offsetY) + 'px';
+            form.style.right = '';
+        };
+        document.onmouseup = function() {
+            dragging = false;
+            document.onmousemove = null;
+            document.onmouseup = null;
+        };
+    };
+
+    // 터치 이벤트
+    header.ontouchstart = function(e) {
+        if (e.touches.length !== 1) return;
+        dragging = true;
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        const rect = form.getBoundingClientRect();
+        offsetX = startX - rect.left;
+        offsetY = startY - rect.top;
+        document.ontouchmove = function(e2) {
+            if (!dragging || e2.touches.length !== 1) return;
+            form.style.left = (e2.touches[0].clientX - offsetX) + 'px';
+            form.style.top = (e2.touches[0].clientY - offsetY) + 'px';
+            form.style.right = '';
+            e2.preventDefault();
+        };
+        document.ontouchend = function() {
+            dragging = false;
+            document.ontouchmove = null;
+            document.ontouchend = null;
+        };
+    };
+}
+
+// 여러 폼에 적용
+['castleForm','historyForm','countryForm','kingForm','eventForm','drawingForm'].forEach(enableFormDrag);
+</script>
     #castleForm, #historyForm, #countryForm, #kingForm, #eventForm, #drawingForm { display: none; }
 
     /* 🚩 [추가] 폼 제목 스타일 */
@@ -1167,7 +1252,7 @@
     <button id="rightPanelToggleBtn" title="패널 접기/펼치기">📜</button>
   </div> <!-- mainContainer 종료 -->
 
-  <div id="castleForm">
+    <div id="castleForm" style="display:none;">
         <h3>새로운 오브젝트 추가/편집</h3> <form id="addCastleForm"><input type="hidden" id="castleKey"><div class="form-row"><label>마커 타입:</label><div id="markerTypeSelector" class="marker-type-selector"><button type="button" data-type="normal" class="active">성/도시</button><button type="button" data-type="battle">전장</button><button type="button" data-type="military">군대</button><button type="button" data-type="natural">자연</button><button type="button" data-type="label">지명</button></div></div><div class="form-row"><label for="castleName">이름:</label>
         <input type="text" id="castleName" style="width: 280px;" required> 
       </div>
@@ -1339,7 +1424,7 @@
           <button type="button" id="editSelectedCityBtn" class="primary">편집</button>
       </div>
   </div>
-  <div id="historyForm">
+    <div id="historyForm" style="display:none;">
       <h3>사서 기록 편집/추가</h3>
       <form id="addHistoryForm">
           <input type="hidden" id="historyKey"> 
@@ -1396,7 +1481,7 @@
       </form>
   </div>
 
-  <div id="countryForm">
+    <div id="countryForm" style="display:none;">
     <h3>국가 정보 편집</h3>
     <!-- 🚩 [수정] 국가 선택 UI를 자동 완성 검색 방식으로 변경 -->
     <div class="form-row" style="margin-bottom: 15px;">
@@ -1452,7 +1537,7 @@
     </form>
   </div>
   
-  <div id="kingForm">
+    <div id="kingForm" style="display:none;">
     <h3>왕 정보 편집</h3>
     <form id="editKingForm">
         <input type="hidden" id="kingMongoId" name="kingMongoId">
@@ -1505,7 +1590,7 @@
   </div>
 
   <!-- 🚩 [추가] 이벤트 편집 폼 -->
-  <div id="eventForm" style="display: none;">
+    <div id="eventForm" style="display:none;">
     <h3>연도별 이벤트 편집</h3> <!-- 🚩 [수정] 폼 구조를 다른 폼과 통일 -->
     <form id="editEventForm">
         <input type="hidden" id="eventMongoId">
@@ -1538,7 +1623,7 @@
   </div>
   
   <!-- 🚩 [추가] 그리기(강, 성곽 등) 편집 폼 -->
-  <div id="drawingForm" style="display: none;">
+    <div id="drawingForm" style="display:none;">
     <h3>지형/지물 그리기</h3>
     <form id="editDrawingForm">
         <input type="hidden" id="drawingMongoId">
