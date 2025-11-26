@@ -57,9 +57,7 @@
         border-radius: 5px;
         background-color: #19191b; /* 🚩 [추가] 타일 로딩 전 배경색 설정 */
         position: relative; /* 🚩 [추가] 이벤트 오버레이의 기준점으로 설정 */
-      //  .leaflet-tile { filter: brightness(0.7);}
-        overflow: hidden; /* 🚩 [추가] 타일 로딩 중 경계가 보이는 현상 방지 */
-    }
+                overflow: hidden; /* 🚩 [추가] 타일 로딩 중 경계가 보이는 현상 방지 */
     /* 🚩 [추가] 리사이저 핸들 스타일 */
     #resizer { 
         width: 5px; 
@@ -424,64 +422,6 @@
                     }
                 }
 
-</body>
-<script>
-// 🚩 폼 드래그: 터치 지원 추가 (모바일)
-function enableFormDrag(formId) {
-    const form = document.getElementById(formId);
-    if (!form) return;
-    const header = form.querySelector('h3');
-    if (!header) return;
-    let offsetX = 0, offsetY = 0, startX = 0, startY = 0, dragging = false;
-
-    // 마우스 이벤트
-    header.onmousedown = function(e) {
-        dragging = true;
-        startX = e.clientX;
-        startY = e.clientY;
-        const rect = form.getBoundingClientRect();
-        offsetX = startX - rect.left;
-        offsetY = startY - rect.top;
-        document.onmousemove = function(e2) {
-            if (!dragging) return;
-            form.style.left = (e2.clientX - offsetX) + 'px';
-            form.style.top = (e2.clientY - offsetY) + 'px';
-            form.style.right = '';
-        };
-        document.onmouseup = function() {
-            dragging = false;
-            document.onmousemove = null;
-            document.onmouseup = null;
-        };
-    };
-
-    // 터치 이벤트
-    header.ontouchstart = function(e) {
-        if (e.touches.length !== 1) return;
-        dragging = true;
-        startX = e.touches[0].clientX;
-        startY = e.touches[0].clientY;
-        const rect = form.getBoundingClientRect();
-        offsetX = startX - rect.left;
-        offsetY = startY - rect.top;
-        document.ontouchmove = function(e2) {
-            if (!dragging || e2.touches.length !== 1) return;
-            form.style.left = (e2.touches[0].clientX - offsetX) + 'px';
-            form.style.top = (e2.touches[0].clientY - offsetY) + 'px';
-            form.style.right = '';
-            e2.preventDefault();
-        };
-        document.ontouchend = function() {
-            dragging = false;
-            document.ontouchmove = null;
-            document.ontouchend = null;
-        };
-    };
-}
-
-// 여러 폼에 적용
-['castleForm','historyForm','countryForm','kingForm','eventForm','drawingForm'].forEach(enableFormDrag);
-</script>
     #castleForm, #historyForm, #countryForm, #kingForm, #eventForm, #drawingForm { display: none; }
 
     /* 🚩 [추가] 폼 제목 스타일 */
@@ -827,51 +767,48 @@ function enableFormDrag(formId) {
         }
 
         /* 상단 컨트롤러와 오른쪽 패널을 화면 밖으로 이동시킵니다. */
+
         #controls-wrapper, #rightPanel {
             position: fixed !important;
-            z-index: 1002; /* 폼보다 위에, 이벤트 오버레이보다 위에 */
-            background-color: #1e2a38e0; /* 반투명 배경 */
-            backdrop-filter: blur(10px); /* 블러 효과 */
-            transition: transform 0.3s ease-in-out;
+            z-index: 1002;
+            background-color: #1e2a38e0;
+            backdrop-filter: blur(10px);
+            transition: none;
             box-shadow: 0 0 20px rgba(0,0,0,0.5);
         }
 
-        /* 상단 컨트롤러 초기 위치 (화면 위쪽) */
         #controls-wrapper {
             top: 0;
             left: 0;
-            width: 100%;
-            transform: translateY(-100%);
+            width: 100vw;
             border-bottom: 2px solid #00aaff;
+            display: block !important;
+            transform: none !important;
         }
-        /* 🚩 [추가] 모바일에서 닫기 버튼 표시 */
         #closeControlsBtn {
             display: block;
         }
 
-        /* 오른쪽 패널 초기 위치 (화면 오른쪽) */
         #rightPanel {
-            /* 🚩 [수정] 패널이 오른쪽에서 나오도록 복원 */
             top: 0;
             right: 0;
-            width: 85%; /* 화면의 85% 너비 */
+            width: 85vw;
             max-width: 400px;
-            height: 100%;
-            transform: translateX(100%);
+            height: 100vh;
             border-left: 2px solid #00aaff;
-            border-top: none; /* 상단 테두리 제거 */
+            border-top: none;
+            display: flex !important;
+            transform: none !important;
         }
 
-        /* 패널이 활성화되었을 때의 스타일 */
         #controls-wrapper.visible {
-            transform: translateY(0);
-        }
-        /* 🚩 [추가] 컨트롤 패널이 열렸을 때, 원래 토글 버튼은 숨김 */
-        body.controls-visible #topPanelToggleBtn {
-            display: none;
+            transform: none !important;
         }
         #rightPanel.visible {
-            transform: translateX(0);
+            transform: none !important;
+        }
+        body.controls-visible #topPanelToggleBtn {
+            display: none;
         }
 
         /* 가로/세로 리사이저는 모바일에서 숨깁니다. */
@@ -881,20 +818,19 @@ function enableFormDrag(formId) {
 
         /* 오른쪽 패널 토글 버튼 위치 조정 */
         #rightPanelToggleBtn {
-            /* 🚩 [수정] 버튼을 오른쪽 하단으로 이동 */
             top: auto;
             bottom: 15px;
-            left: auto; /* 오른쪽 정렬을 위해 left는 auto로 둡니다. */
+            left: auto;
             right: 15px;
-            z-index: 1003; /* 🚩 [추가] 패널(z-index: 1002)보다 위에 오도록 설정 */
-            /* 🚩 [수정] 모바일용 디자인 변경 */
-            writing-mode: horizontal-tb; /* 세로쓰기 해제 */
-            width: 40px; /* 🚩 [수정] 버튼 크기 축소 */
-            height: 40px; /* 🚩 [수정] 버튼 크기 축소 */
-            border-radius: 50%; /* 원형 버튼 */
-            font-size: 20px; /* 🚩 [수정] 아이콘 크기 축소 */
-            line-height: 40px; /* 🚩 [수정] 아이콘 세로 중앙 정렬 */
+            z-index: 1003;
+            writing-mode: horizontal-tb;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            font-size: 20px;
+            line-height: 40px;
             padding: 0;
+            display: block !important;
         }
         /* 🚩 [추가] 패널이 열렸을 때 닫기 버튼 위치 조정 */
         #rightPanel.visible + #rightPanelToggleBtn {
