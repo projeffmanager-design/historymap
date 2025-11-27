@@ -1,4 +1,11 @@
 <style>
+    /* 팝업이 항상 label marker 위에 오도록 z-index 강제 */
+    .leaflet-popup-pane {
+        z-index: 1000 !important;
+    }
+    .location-label-marker {
+        z-index: 600 !important;
+    }
 @media (max-width: 600px) {
         #top-bar-container {
             overflow-x: auto;
@@ -438,18 +445,19 @@ body.force-mobile #rightPanelToggleBtn {
 
     /* ------------------- 지역명 텍스트 마커 CSS 추가 ------------------- */
         .location-label-marker {
-                font-size: var(--label-font-size, 15px);
-                font-weight: bold;
-                color: #ffffff;
-                text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 0px 2px #000;
-                background-color: rgba(44, 62, 80, 0);
-                border-radius: 5px;
-                padding: 5px 10px;
-                white-space: nowrap;
-                line-height: 1.2;
-                text-align: center;
-                z-index: 900;
-                transform: scale(var(--marker-scale, 1));
+    font-size: var(--label-font-size, 15px);
+    font-weight: bold;
+    color: #ffffff;
+    text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 0px 2px #000;
+    background-color: rgba(44, 62, 80, 0);
+    border-radius: 5px;
+    padding: 5px 10px;
+    white-space: nowrap;
+    line-height: 1.2;
+    text-align: center;
+    z-index: 600;
+    pointer-events: none;
+    transform: scale(var(--marker-scale, 1));
         }
 
         /* 모바일에서 지도 마커/지명/아이콘만 크게 */
@@ -2014,6 +2022,12 @@ function enableFormDrag(formId) {
     map.createPane('drawingPane');
     map.getPane('drawingPane').style.zIndex = 650;
 
+    // 🚩 [추가] 지명(label)만을 위한 최상위 pane 생성
+    if (!map.getPane('labelPane')) {
+    map.createPane('labelPane');
+    map.getPane('labelPane').style.zIndex = 700;
+    }
+
     let castleLayerGroup = L.layerGroup().addTo(map); 
     map.addLayer(drawnItems); // 🚩 [추가] 그린 도형을 담을 레이어 그룹 추가
     const combinedSlider = document.getElementById('combinedSlider'); // 🚩 [추가] 슬라이더 DOM 요소
@@ -2577,7 +2591,7 @@ function updateMap(year, month) {
                         break;
                 }
                 const labelIcon = L.divIcon({
-                    // 🚩 [수정] 줌 레벨에 따른 scale transform이 적용되지 않도록 className을 제거하고, 스타일을 직접 적용합니다.
+                    // 🚩 [수정] pane: 'labelPane'을 지정하여 항상 최상위에 보이도록 함
                     className: '', 
                     html: `<div style="
                         font-size: ${fontSize}; 
@@ -2587,10 +2601,11 @@ function updateMap(year, month) {
                         white-space: nowrap;
                         text-align: center;
                     ">${castleName}</div>`,
-                    iconSize: [150, 40], // 아이콘 크기를 넉넉하게 잡아 텍스트가 잘리지 않도록 함
-                    iconAnchor: [50, 15] // 중앙에 맞추기
+                    iconSize: [150, 40],
+                    iconAnchor: [50, 15],
+                    pane: 'labelPane'
                 });
-                marker = L.marker([castle.lat, castle.lng], { icon: labelIcon });
+                marker = L.marker([castle.lat, castle.lng], { icon: labelIcon, pane: 'labelPane' });
                 
              //   const builtText = `${castleBuiltYear}년 ${castle.built_month || ''}월`;
                //  const destroyedText = castle.destroyed || castle.destroyed_year ? `${castleDestroyedYear}년 ${castle.destroyed_month || ''}월` : '알 수 없음';
