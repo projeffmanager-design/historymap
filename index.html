@@ -24,32 +24,7 @@
     }
 </style>
 <script>
-// 모바일 모드: 세로가 가로보다 길면 모바일 모드 강제
-function updateMobileModeByBreakpoint() {
-    const rightPanel = document.getElementById('rightPanel');
-    const controlsWrapper = document.getElementById('controls-wrapper');
-    // 967px 이하(모바일/태블릿)에서 force-mobile 적용
-    if (window.innerWidth <= 967) {
-        document.body.classList.add('force-mobile');
-        if (rightPanel) rightPanel.classList.remove('visible');
-        if (controlsWrapper) controlsWrapper.classList.remove('visible');
-        document.body.classList.remove('controls-visible');
-    } else {
-        document.body.classList.remove('force-mobile');
-    }
-}
-window.addEventListener('resize', updateMobileModeByBreakpoint);
-window.addEventListener('orientationchange', updateMobileModeByBreakpoint);
-document.addEventListener('DOMContentLoaded', updateMobileModeByBreakpoint);
-document.addEventListener('DOMContentLoaded', function() {
-    const rightPanel = document.getElementById('rightPanel');
-    const controlsWrapper = document.getElementById('controls-wrapper');
-    if (document.body.classList.contains('force-mobile')) {
-        if (rightPanel) rightPanel.classList.remove('visible');
-        if (controlsWrapper) controlsWrapper.classList.remove('visible');
-        document.body.classList.remove('controls-visible');
-    }
-});
+// (removed duplicate/conflicting menu toggle logic)
 </script>
 <style>
 /* 세로가 가로보다 길면(모바일 강제) 모바일 레이아웃 적용 */
@@ -70,16 +45,25 @@ body.force-mobile #rightPanel {
     box-shadow: 0 0 20px rgba(0,0,0,0.5);
 }
 body.force-mobile #controls-wrapper {
-    top: 0;
+    top: 56px; /* height of #top-bar-container, adjust if needed */
     left: 0;
     width: 100vw;
     border-bottom: 2px solid #00aaff;
+    position: fixed !important;
+    z-index: 1002;
+    background-color: #1e2a38e0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    border-radius: 0 0 12px 12px;
     display: none !important;
-    transform: translateY(-100%) !important;
+    transform: none !important;
+    animation: none !important;
 }
 body.force-mobile #controls-wrapper.visible {
     display: block !important;
-    transform: none !important;
+}
+@keyframes slideDownMenu {
+    from { transform: translateY(-100%); }
+    to { transform: none; }
 }
 body.force-mobile #rightPanel {
     top: 0;
@@ -618,6 +602,27 @@ function enableFormDrag(formId) {
 
 // 여러 폼에 적용
 ['castleForm','historyForm','countryForm','kingForm','eventForm','drawingForm'].forEach(enableFormDrag);
+    <script>
+    // 모바일 상단 메뉴(controls-wrapper) 토글: ⚙️ 버튼 클릭 시 (single source of truth)
+    window.addEventListener('DOMContentLoaded', function() {
+        var gearBtn = document.getElementById('pcTopPanelToggleBtn');
+        var controlsWrapper = document.getElementById('controls-wrapper');
+        var closeBtn = document.getElementById('closeControlsBtn');
+        if (gearBtn && controlsWrapper) {
+            gearBtn.addEventListener('click', function() {
+                if (controlsWrapper.classList.contains('visible')) {
+                    controlsWrapper.classList.remove('visible');
+                } else {
+                    controlsWrapper.classList.add('visible');
+                }
+            });
+        }
+        if (closeBtn && controlsWrapper) {
+            closeBtn.addEventListener('click', function() {
+                controlsWrapper.classList.remove('visible');
+            });
+        }
+    });
     </script>
     
     /* 사서 기록 칼럼 스타일 */
@@ -1913,7 +1918,14 @@ function enableFormDrag(formId) {
     let heatmapLayers = {}; // 국가별 히트맵 레이어 저장 
 
     // UI 상태 관리 변수 (isLoggedIn 기반으로 초기화)
-    let editMode = isLoggedIn; // 🚩 [수정] 로그인 상태에 따라 초기 편집 모드 설정
+    let editMode = false;
+    // 🚩 [추가] 편집모드 상태를 localStorage에서 복원
+    if (typeof localStorage !== 'undefined') {
+        const savedEditMode = localStorage.getItem('editMode');
+        if (savedEditMode === 'true') {
+            editMode = true;
+        }
+    }
     let editingCastleKey = null;
     let editingHistoryKey = null;
     let editMarker = null; // 드래그 가능한 편집용 마커
@@ -3178,10 +3190,10 @@ function getCountryInfoById(id) {
           // 'admin' 또는 'superuser'일 때 편집모드 전환 버튼 노출, 일반 유저는 숨김
           const toggleEditModeBtn = document.getElementById('toggleEditModeBtn');
           if (currentUser.role === 'admin' || currentUser.role === 'superuser') {
-              toggleEditModeBtn.style.display = 'inline-block';
-              document.getElementById('edit-dropdown-container').style.display = 'inline-block';
-              editMode = false; // 기본은 일반모드
-              openHistoryFormBtn.style.display = 'none';
+            toggleEditModeBtn.style.display = 'inline-block';
+            document.getElementById('edit-dropdown-container').style.display = (editMode ? 'inline-block' : 'none');
+            openHistoryFormBtn.style.display = (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) ? 'inline-block' : 'none';
+            toggleEditModeBtn.textContent = editMode ? '일반모드 전환' : '편집모드 전환';
           } else {
               toggleEditModeBtn.style.display = 'none';
               editMode = false;
@@ -3197,29 +3209,30 @@ function getCountryInfoById(id) {
       // 🚩 [추가] 편집모드 전환 버튼 이벤트 (관리자/슈퍼유저만)
       const toggleEditModeBtn = document.getElementById('toggleEditModeBtn');
       if (toggleEditModeBtn) {
-          toggleEditModeBtn.onclick = function() {
-              editMode = !editMode;
-              // 편집모드 on/off에 따라 UI 토글
-              document.getElementById('edit-dropdown-container').style.display = (editMode ? 'inline-block' : 'none');
-              openHistoryFormBtn.style.display = (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) ? 'inline-block' : 'none';
-              toggleEditModeBtn.textContent = editMode ? '일반모드 전환' : '편집모드 전환';
-              // 지도 그리기툴 토글
-              if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) {
-                  if (typeof initializeDrawControl === 'function') {
-                      initializeDrawControl(); // add draw control
-                  }
-              } else {
-                  if (typeof drawControl !== 'undefined' && drawControl) {
-                      map.removeControl(drawControl); // remove draw control
-                  }
-              }
-              // 편집모드 토글 시 기록 패널도 갱신하여 편집 버튼 표시/숨김
-              if (typeof currentYear !== 'undefined') {
-                  updateHistoryPanel(currentYear);
-              }
-          };
-          // 최초 진입시 텍스트
-          toggleEditModeBtn.textContent = '편집모드 전환';
+        toggleEditModeBtn.onclick = function() {
+            editMode = !editMode;
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('editMode', editMode ? 'true' : 'false');
+            }
+            // 편집모드 on/off에 따라 UI 토글
+            document.getElementById('edit-dropdown-container').style.display = (editMode ? 'inline-block' : 'none');
+            openHistoryFormBtn.style.display = (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) ? 'inline-block' : 'none';
+            toggleEditModeBtn.textContent = editMode ? '일반모드 전환' : '편집모드 전환';
+            // 지도 그리기툴 토글
+            if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) {
+                if (typeof initializeDrawControl === 'function') {
+                    initializeDrawControl(); // add draw control
+                }
+            } else {
+                if (typeof drawControl !== 'undefined' && drawControl) {
+                    map.removeControl(drawControl); // remove draw control
+                }
+            }
+            // 편집모드 토글 시 기록 패널도 갱신하여 편집 버튼 표시/숨김
+            if (typeof currentYear !== 'undefined') {
+                updateHistoryPanel(currentYear);
+            }
+        };
       }
       if (currentUser?.role === 'admin') {
           const adminLink = document.getElementById('adminLink');
