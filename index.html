@@ -1269,6 +1269,7 @@ function enableFormDrag(formId) {
       <div id="top-right-auth">
         
           <span id="usernameDisplay" style="font-weight: bold;"></span>
+    <button id="toggleEditModeBtn" class="button-style" style="display:none; margin-left:8px;">편집모드 전환</button>
           
           <!-- 🚩 [이동] PC용 컨트롤 토글 버튼을 아이디 오른쪽으로 이동 -->
           <button id="pcTopPanelToggleBtn" class="button-style" title="컨트롤 패널 숨기기/보이기">⚙️</button>
@@ -3173,16 +3174,17 @@ function getCountryInfoById(id) {
       currentUser = parseJwt(token);
       if (currentUser) {
           document.getElementById('usernameDisplay').textContent = `${currentUser.username}님`;
-          document.getElementById('accountLink').style.display = 'inline-block'; // 🚩 [추가] 계정 관리 링크 표시
-
-          // 'admin' 또는 'superuser'일 때 편집 모드 바로 활성화
+          document.getElementById('accountLink').style.display = 'inline-block';
+          // 'admin' 또는 'superuser'일 때 편집모드 전환 버튼 노출, 일반 유저는 숨김
+          const toggleEditModeBtn = document.getElementById('toggleEditModeBtn');
           if (currentUser.role === 'admin' || currentUser.role === 'superuser') {
-              // 🚩 [수정] 개별 버튼 대신 드롭다운 컨테이너를 표시
+              toggleEditModeBtn.style.display = 'inline-block';
               document.getElementById('edit-dropdown-container').style.display = 'inline-block';
-              editMode = true;
-              openHistoryFormBtn.style.display = 'inline-block';
+              editMode = false; // 기본은 일반모드
+              openHistoryFormBtn.style.display = 'none';
           } else {
-              editMode = false; // 일반 사용자는 편집 모드 비활성화
+              toggleEditModeBtn.style.display = 'none';
+              editMode = false;
           }
       } else {
           const adminLink = document.getElementById('adminLink');
@@ -3191,6 +3193,34 @@ function getCountryInfoById(id) {
       }
 
       // 'admin'일 때만 회원 관리 링크 표시 (역할 체크 분리)
+
+      // 🚩 [추가] 편집모드 전환 버튼 이벤트 (관리자/슈퍼유저만)
+      const toggleEditModeBtn = document.getElementById('toggleEditModeBtn');
+      if (toggleEditModeBtn) {
+          toggleEditModeBtn.onclick = function() {
+              editMode = !editMode;
+              // 편집모드 on/off에 따라 UI 토글
+              document.getElementById('edit-dropdown-container').style.display = (editMode ? 'inline-block' : 'none');
+              openHistoryFormBtn.style.display = (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) ? 'inline-block' : 'none';
+              toggleEditModeBtn.textContent = editMode ? '일반모드 전환' : '편집모드 전환';
+              // 지도 그리기툴 토글
+              if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) {
+                  if (typeof initializeDrawControl === 'function') {
+                      initializeDrawControl(); // add draw control
+                  }
+              } else {
+                  if (typeof drawControl !== 'undefined' && drawControl) {
+                      map.removeControl(drawControl); // remove draw control
+                  }
+              }
+              // 편집모드 토글 시 기록 패널도 갱신하여 편집 버튼 표시/숨김
+              if (typeof currentYear !== 'undefined') {
+                  updateHistoryPanel(currentYear);
+              }
+          };
+          // 최초 진입시 텍스트
+          toggleEditModeBtn.textContent = '편집모드 전환';
+      }
       if (currentUser?.role === 'admin') {
           const adminLink = document.getElementById('adminLink');
           if (adminLink) adminLink.style.display = 'inline-block';
@@ -4538,6 +4568,12 @@ function getCountryInfoById(id) {
 
     // 지도 검색 기능 (이동만)
     searchBtn.addEventListener('click', async () => {
+    // 모바일에서 검색 시 상단 메뉴가 사라지지 않도록 항상 보이게
+    const controlsWrapper = document.getElementById('controls-wrapper');
+    if (controlsWrapper && window.innerWidth <= 967) {
+        controlsWrapper.classList.add('visible');
+        document.body.classList.add('controls-visible');
+    }
     const query = searchInput.value.trim().toLowerCase();
     if (!query) return;
 
@@ -5724,7 +5760,7 @@ kingSelect.addEventListener('change', () => {
         createSliderTicks(); // 🚩 [추가] 슬라이더 눈금 생성 함수 호출
 
         createDynastyTimeline(); // 🚩 [추가] 연대표 생성 함수 호출
-        initializeDrawControl(); // 그리기 컨트롤 초기화 함수 호출
+    // initializeDrawControl(); // 그리기 컨트롤은 편집모드에서만 활성화
 
         // 🚩 [추가] 모바일용 패널 토글 및 스와이프 기능 초기화
         // 🚩 [추가] 군대 폼의 국가 목록 드롭다운 채우기
