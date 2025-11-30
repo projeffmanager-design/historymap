@@ -2841,7 +2841,9 @@ function updateMap(year, month) {
                 if (!activeHistoryInfo || !activeHistoryInfo.record.country_id) return;
 
                 const { record: activeHistoryRecord } = activeHistoryInfo;
-                const countryId = activeHistoryRecord.country_id;
+                const countryId = activeHistoryRecord.country_id || castle.country_id || castle.countryId;
+
+                if (!countryId) return;
 
                 if (!newHeatmapData[countryId]) {
                     newHeatmapData[countryId] = [];
@@ -2927,10 +2929,12 @@ function updateMap(year, month) {
         
         castleLayerGroup.clearLayers();
         castles.forEach(castle => {
+            const baseCountryId = castle.country_id || castle.countryId || (Array.isArray(castle.history) && castle.history.length > 0 ? castle.history[0]?.country_id : null);
+
             // 🚩 [추가] 국가 필터링 로직
-            if (selectedCountryId !== 'all' && castle.country_id && castle.country_id !== selectedCountryId) {
+            if (selectedCountryId !== 'all' && baseCountryId && baseCountryId !== selectedCountryId) {
                 return; // 선택된 국가와 일치하지 않으면 이 마커를 건너뜁니다.
-            }            
+            }
             let popupHtml; 
             if (typeof castle.lat !== "number" || isNaN(castle.lat) || typeof castle.lng !== "number" || isNaN(castle.lng)) return;
             
@@ -2944,8 +2948,8 @@ function updateMap(year, month) {
 
         const { record: activeHistoryRecord, startYear: recordStartYear, startMonth: recordStartMonth, endYear: recordEndYear, endMonth: recordEndMonth } = activeHistoryInfo;
 
-        const castleName = activeHistoryRecord.name || castle.name;
-        const countryId = activeHistoryRecord.country_id;
+    const castleName = activeHistoryRecord.name || castle.name;
+    const countryId = activeHistoryRecord.country_id || castle.country_id || castle.countryId;
         const countryInfo = getCountryInfoById(countryId);
         const countryName = countryInfo ? countryInfo.name : '알 수 없음';
         const dotColor = countryInfo ? countryInfo.color : 'white';
