@@ -2473,6 +2473,25 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         return { year: year === 0 ? -1 : year, month };
     }
 
+    function normalizeHistoryNumber(value, fallback) {
+        if (value === undefined || value === null || value === '') return fallback;
+        const parsed = parseInt(value, 10);
+        return Number.isNaN(parsed) ? fallback : parsed;
+    }
+
+    function sortHistoryByStart(historyList) {
+        if (!Array.isArray(historyList)) return [];
+        return [...historyList].sort((a, b) => {
+            const aYear = normalizeHistoryNumber(a?.start_year, Number.MAX_SAFE_INTEGER);
+            const bYear = normalizeHistoryNumber(b?.start_year, Number.MAX_SAFE_INTEGER);
+            if (aYear !== bYear) return aYear - bYear;
+
+            const aMonth = normalizeHistoryNumber(a?.start_month, 1);
+            const bMonth = normalizeHistoryNumber(b?.start_month, 1);
+            return aMonth - bMonth;
+        });
+    }
+
     /**
      * 주어진 총 월수 시점에 해당하는 역사 기록을 반환합니다.
      * 배열의 뒤에 있는 레코드가 우선되도록 역순으로 탐색합니다.
@@ -2483,23 +2502,17 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     function getActiveHistoryInfo(historyList, currentTotalMonths) {
         if (!Array.isArray(historyList) || historyList.length === 0) return null;
 
-        const normalizeNumber = (value, fallback) => {
-            if (value === undefined || value === null || value === '') return fallback;
-            const parsed = parseInt(value, 10);
-            return Number.isNaN(parsed) ? fallback : parsed;
-        };
-
         for (let index = historyList.length - 1; index >= 0; index--) {
             const record = historyList[index];
             if (!record) continue;
 
-            const startYear = normalizeNumber(record.start_year, -4000);
-            const startMonth = normalizeNumber(record.start_month, 1);
+            const startYear = normalizeHistoryNumber(record.start_year, -4000);
+            const startMonth = normalizeHistoryNumber(record.start_month, 1);
             const startTotalMonths = yearMonthToTotalMonths(startYear, startMonth);
 
             const hasEndYear = !(record.end_year === undefined || record.end_year === null || record.end_year === '');
-            const endYear = hasEndYear ? normalizeNumber(record.end_year, null) : null;
-            const endMonth = hasEndYear ? normalizeNumber(record.end_month, 12) : 12;
+            const endYear = hasEndYear ? normalizeHistoryNumber(record.end_year, null) : null;
+            const endMonth = hasEndYear ? normalizeHistoryNumber(record.end_month, 12) : 12;
             const endTotalMonths = hasEndYear && endYear !== null
                 ? yearMonthToTotalMonths(endYear, endMonth)
                 : Infinity;
@@ -3038,7 +3051,7 @@ function updateMap(year, month) {
                     // ... 기존 전장 마커 렌더링 로직 유지 ...
                     const battleIcon = L.divIcon({
                         className: 'battle-marker',
-                            html: `<div style="line-height: 0.8;">⚔︎</div><div style="font-size: 12px; color: white; white-space: nowrap; margin-top: -5px;">${castleName}</div>`,
+                            html: `<div style="line-height: 0.8;">💥</div><div style="font-size: 12px; color: white; white-space: nowrap; margin-top: -5px;">${castleName}</div>`,
                             iconSize: [80, 40],
                             iconAnchor: [40, 30],
                             popupAnchor: [6, -25]
@@ -3635,7 +3648,7 @@ function getCountryInfoById(id) {
           console.log(`\n히스토리 목록:`);
           
           if (castle.history && castle.history.length > 0) {
-              castle.history.forEach((h, index) => {
+              sortHistoryByStart(castle.history).forEach((h, index) => {
                   console.log(`  [${index + 1}] ${h.start_year}년 ${h.start_month}월 ~ ${h.end_year ? h.end_year + '년 ' + (h.end_month || 12) + '월' : '현재'}`);
                   console.log(`       국가: ${h.country_id}`);
                   console.log(`       이름: ${h.name}`);
@@ -4372,18 +4385,18 @@ function getCountryInfoById(id) {
             // 성/왕성: 복잡한 역사 기록
             const historyListContainer = document.getElementById('castleHistoryList'); 
             historyListContainer.innerHTML = ''; // 초기화 
- 
-            // 🚩 [핵심 수정] 하위 호환성을 위해 castle.history가 비어있거나 없을 경우, 
-            // 최상위 필드(name, country_id 등)를 사용하여 기본 역사 기록을 생성합니다. 
-            const baseHistory = (castle.history && castle.history.length > 0) 
+
+            // 🚩 [핵심 수정] 하위 호환성을 위해 castle.history가 비어있거나 없을 경우,
+            // 최상위 필드(name, country_id 등)를 사용하여 기본 역사 기록을 생성합니다.
+            const baseHistory = (castle.history && castle.history.length > 0)
                 ? castle.history
                 : [{
-                    name: castle.name, country_id: castle.country_id, 
+                    name: castle.name, country_id: castle.country_id,
                     start_year: castle.built_year, start_month: castle.built_month, end_year: castle.destroyed_year, end_month: castle.destroyed_month, is_capital: castle.is_capital
                 }];
- 
-            baseHistory.forEach(h => { 
-                addCastleHistoryRow(h); 
+
+            sortHistoryByStart(baseHistory).forEach(h => {
+                addCastleHistoryRow(h);
             });
         } else {
             // 그 외 타입: 단순 기간 
