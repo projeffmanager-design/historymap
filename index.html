@@ -2712,6 +2712,13 @@ function getKingByYear(countryName, year, month) {
 // --- 4. 지도 렌더링 및 마커 생성 함수 ---
 
 function updateMap(year, month) {
+        // Leaflet.heat 초기화는 지도 load 이후에만 안전하게 진행 가능하므로, 아직 로드되지 않았다면 다시 호출을 예약합니다.
+        if (!map || !map._loaded) {
+            if (map && typeof map.once === 'function') {
+                map.once('load', () => updateMap(year, month));
+            }
+            return;
+        }
         // 🚩 [수정] 히트맵 레이어를 포함한 모든 레이어 초기화
         Object.values(heatmapLayers).forEach(layer => map.removeLayer(layer));
         heatmapLayers = {};
