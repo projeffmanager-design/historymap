@@ -2473,6 +2473,53 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         return { year: year === 0 ? -1 : year, month };
     }
 
+    /**
+     * 주어진 총 월수 시점에 해당하는 역사 기록을 반환합니다.
+     * 배열의 뒤에 있는 레코드가 우선되도록 역순으로 탐색합니다.
+     * @param {Array} historyList - 성/도시의 역사 기록 배열
+     * @param {number} currentTotalMonths - 비교할 총 월수 값
+     * @returns {{record: object, startYear: number, startMonth: number, endYear: number|null, endMonth: number, startTotalMonths: number, endTotalMonths: number}|null}
+     */
+    function getActiveHistoryInfo(historyList, currentTotalMonths) {
+        if (!Array.isArray(historyList) || historyList.length === 0) return null;
+
+        const normalizeNumber = (value, fallback) => {
+            if (value === undefined || value === null || value === '') return fallback;
+            const parsed = parseInt(value, 10);
+            return Number.isNaN(parsed) ? fallback : parsed;
+        };
+
+        for (let index = historyList.length - 1; index >= 0; index--) {
+            const record = historyList[index];
+            if (!record) continue;
+
+            const startYear = normalizeNumber(record.start_year, -4000);
+            const startMonth = normalizeNumber(record.start_month, 1);
+            const startTotalMonths = yearMonthToTotalMonths(startYear, startMonth);
+
+            const hasEndYear = !(record.end_year === undefined || record.end_year === null || record.end_year === '');
+            const endYear = hasEndYear ? normalizeNumber(record.end_year, null) : null;
+            const endMonth = hasEndYear ? normalizeNumber(record.end_month, 12) : 12;
+            const endTotalMonths = hasEndYear && endYear !== null
+                ? yearMonthToTotalMonths(endYear, endMonth)
+                : Infinity;
+
+            if (currentTotalMonths >= startTotalMonths && currentTotalMonths <= endTotalMonths) {
+                return {
+                    record,
+                    startYear,
+                    startMonth,
+                    endYear,
+                    endMonth,
+                    startTotalMonths,
+                    endTotalMonths
+                };
+            }
+        }
+
+        return null;
+    }
+
 
     /** 연도와 월을 받아 60갑자(간지)를 계산합니다. (기존 로직 유지) */
     function getGanji(year, month) {
@@ -2775,18 +2822,12 @@ function updateMap(year, month) {
                 if (typeof castle.lat !== "number" || typeof castle.lng !== "number") return;
 
                 // 🚩 [핵심 수정] 현재 시간에 맞는 역사 기록을 찾아서 그 country_id를 사용
-                const activeHistoryRecord = castle.history?.find(h => {
-                    const hStartYear = (h.start_year !== undefined && h.start_year !== null && h.start_year !== '') ? parseInt(h.start_year) : -4000;
-                    const hStartMonth = (h.start_month !== undefined && h.start_month !== null && h.start_month !== '') ? parseInt(h.start_month) : 1;
-                    const start = yearMonthToTotalMonths(hStartYear, hStartMonth);
-                    const hasEnd = (h.end_year !== undefined && h.end_year !== null && h.end_year !== '');
-                    const end = hasEnd ? yearMonthToTotalMonths(parseInt(h.end_year), (h.end_month !== undefined && h.end_month !== null && h.end_month !== '') ? parseInt(h.end_month) : 12) : Infinity;
-                    return currentTotalMonths >= start && currentTotalMonths <= end;
-                });
-                
+                const activeHistoryInfo = getActiveHistoryInfo(castle.history, currentTotalMonths);
+
                 // 🚩 [핵심 수정] 현재 시간에 맞는 역사 기록이 없으면 스킵
-                if (!activeHistoryRecord || !activeHistoryRecord.country_id) return;
-                
+                if (!activeHistoryInfo || !activeHistoryInfo.record.country_id) return;
+
+                const { record: activeHistoryRecord } = activeHistoryInfo;
                 const countryId = activeHistoryRecord.country_id;
 
                 if (!newHeatmapData[countryId]) {
@@ -2882,21 +2923,13 @@ function updateMap(year, month) {
             
         // 🚨 [수정 1] country, countryId 변수를 루프 시작 부분에서 선언하여 충돌 방지        
         const currentTotalMonths = yearMonthToTotalMonths(year, month);
-        const builtTotalMonths = yearMonthToTotalMonths(castle.built_year || castle.built || -4000, castle.built_month || 1);
-        const destroyedTotalMonths = yearMonthToTotalMonths(castle.destroyed || castle.destroyed_year || 9999, castle.destroyed_month || 12);        
         // 🚩 [핵심 수정] 현재 시간에 맞는 역사 기록 찾기
-        const activeHistoryRecord = castle.history?.find(h => {
-            // Be defensive: coerce values and provide safe defaults
-            const hStartYear = (h.start_year !== undefined && h.start_year !== null && h.start_year !== '') ? parseInt(h.start_year) : -4000;
-            const hStartMonth = (h.start_month !== undefined && h.start_month !== null && h.start_month !== '') ? parseInt(h.start_month) : 1;
-            const start = yearMonthToTotalMonths(hStartYear, hStartMonth);
-            const hasEnd = (h.end_year !== undefined && h.end_year !== null && h.end_year !== '');
-            const end = hasEnd ? yearMonthToTotalMonths(parseInt(h.end_year), (h.end_month !== undefined && h.end_month !== null && h.end_month !== '') ? parseInt(h.end_month) : 12) : Infinity;
-            return currentTotalMonths >= start && currentTotalMonths <= end;
-        });
+        const activeHistoryInfo = getActiveHistoryInfo(castle.history, currentTotalMonths);
 
         // 🚩 [수정] 유효한 역사 기록이 없으면 이 성을 렌더링하지 않음
-        if (!activeHistoryRecord) return;
+        if (!activeHistoryInfo) return;
+
+        const { record: activeHistoryRecord, startYear: recordStartYear, startMonth: recordStartMonth, endYear: recordEndYear, endMonth: recordEndMonth } = activeHistoryInfo;
 
         const castleName = activeHistoryRecord.name || castle.name;
         const countryId = activeHistoryRecord.country_id;
@@ -2905,10 +2938,8 @@ function updateMap(year, month) {
         const dotColor = countryInfo ? countryInfo.color : 'white';
 
         const isWithinDuration = true; // activeHistoryRecord가 있으면 항상 유효 기간 내에 있음
-        const castleBuiltYear = activeHistoryRecord.start_year;
-        const castleDestroyedYear = activeHistoryRecord.end_year || '현재';
-        const builtText = `${castleBuiltYear}년 ${activeHistoryRecord.start_month || 1}월`;
-        const destroyedText = castleDestroyedYear === '현재' ? '현재' : `${castleDestroyedYear}년 ${activeHistoryRecord.end_month || 12}월`;
+        const builtText = `${recordStartYear}년 ${recordStartMonth}월`;
+        const destroyedText = recordEndYear === null ? '현재' : `${recordEndYear}년 ${recordEndMonth}월`;
         
         const king = getKingByYear(countryName, year, month); // ⬅️ king 조회는 countryName 사용
 
@@ -3544,15 +3575,8 @@ function getCountryInfoById(id) {
           castles.forEach(castle => {
               if (!castle.name || castle.is_military_flag || castle.is_natural_feature || castle.is_label) return;
               
-              // 현재 시간에 맞는 역사 기록 찾기
-              const activeHistoryRecord = castle.history?.find(h => {
-                  const hStartYear = (h.start_year !== undefined && h.start_year !== null && h.start_year !== '') ? parseInt(h.start_year) : -4000;
-                  const hStartMonth = (h.start_month !== undefined && h.start_month !== null && h.start_month !== '') ? parseInt(h.start_month) : 1;
-                  const start = yearMonthToTotalMonths(hStartYear, hStartMonth);
-                  const hasEnd = (h.end_year !== undefined && h.end_year !== null && h.end_year !== '');
-                  const end = hasEnd ? yearMonthToTotalMonths(parseInt(h.end_year), (h.end_month !== undefined && h.end_month !== null && h.end_month !== '') ? parseInt(h.end_month) : 12) : Infinity;
-                  return currentTotalMonths >= start && currentTotalMonths <= end;
-              });
+              const activeHistoryInfo = getActiveHistoryInfo(castle.history, currentTotalMonths);
+              const activeHistoryRecord = activeHistoryInfo?.record;
               
               // 조건을 만족하지 않는 도시를 수집
               const issues = [];
