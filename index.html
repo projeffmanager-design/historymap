@@ -2240,6 +2240,48 @@ function enableFormDrag(formId) {
     let drawings = []; // 🚩 [추가] 그리기 데이터 저장소
     let markers = [];
     let heatmapLayers = {}; // 국가별 히트맵 레이어 저장 
+    let heatmapSourceDebug = {}; // 🚩 [추가] 강역 히트맵 원본 데이터를 추적하기 위한 디버그 맵
+    let phantomDebugLayerGroup = null; // 🚩 [추가] 유령 강역 하이라이트용 레이어 그룹
+
+    function getCastleDebugKey(castle) {
+        if (!castle) return 'unknown';
+        if (castle._id) return `id:${castle._id}`;
+        const latPart = typeof castle.lat === 'number' ? castle.lat.toFixed(4) : 'lat?';
+        const lngPart = typeof castle.lng === 'number' ? castle.lng.toFixed(4) : 'lng?';
+        return `${castle.name || 'unknown'}@${latPart},${lngPart}`;
+    }
+
+    function getCastleLayerType(castle) {
+        if (!castle) return 'city';
+        if (castle.is_label) return 'label';
+        if (castle.is_natural_feature) return 'natural';
+        if (castle.is_battle) return 'battle';
+        if (castle.is_military_flag) return 'military';
+        return 'city';
+    }
+
+    function computeCountryActiveState(countryInfo, currentMonths) {
+        if (!countryInfo) return false;
+        const startYear = countryInfo.start ?? -4000;
+        const startMonth = countryInfo.start_month ?? 1;
+        const endYear = (countryInfo.end === undefined || countryInfo.end === null) ? null : countryInfo.end;
+        const endMonth = (countryInfo.end_month === undefined || countryInfo.end_month === null) ? 12 : countryInfo.end_month;
+        const startTotal = yearMonthToTotalMonths(startYear, startMonth);
+        const endTotal = endYear === null ? Infinity : yearMonthToTotalMonths(endYear, endMonth);
+        return startTotal <= currentMonths && currentMonths <= endTotal;
+    }
+
+    function getPhantomReason(entry) {
+        if (!entry) return '정보 없음';
+        if (!entry.matchesSelectedCountry) return '국가 필터에서 제외됨';
+        if (!entry.layerVisible) return `레이어 "${entry.castleType}" 비활성화`; 
+        if ((entry.castleType === 'city' || entry.castleType === 'label') && !entry.countryActive) {
+            return '국가 존속 기간 밖 (표시 안 됨)';
+        }
+        if (entry.countryInfoMissing) return '국가 데이터 누락';
+        if (entry.castleType === 'military') return entry.hasPathData ? '군대 경로 범위 확인 필요' : '군대 레이어 표시 조건 확인';
+        return '추가 확인 필요';
+    }
 
     // UI 상태 관리 변수 (isLoggedIn 기반으로 초기화)
     let editMode = false;
@@ -2719,6 +2761,7 @@ function updateMap(year, month) {
             }
             return;
         }
+        heatmapSourceDebug = {};
         // 🚩 [수정] 히트맵 레이어를 포함한 모든 레이어 초기화
         Object.values(heatmapLayers).forEach(layer => map.removeLayer(layer));
         heatmapLayers = {};
@@ -2851,6 +2894,26 @@ function updateMap(year, month) {
                 const countryId = activeHistoryRecord.country_id || castle.country_id || castle.countryId;
 
                 if (!countryId) return;
+
+                const debugKey = getCastleDebugKey(castle);
+                const layerType = getCastleLayerType(castle);
+                const matchesSelectedCountry = selectedCountryId === 'all' || countryId === selectedCountryId;
+                const countryInfoForDebug = getCountryInfoById(countryId);
+                heatmapSourceDebug[debugKey] = {
+                    castleId: castle._id ?? null,
+                    name: activeHistoryRecord.name || castle.name || '(이름 없음)',
+                    castleType: layerType,
+                    countryId,
+                    countryName: countryInfoForDebug?.name || '알 수 없음',
+                    lat: castle.lat,
+                    lng: castle.lng,
+                    matchesSelectedCountry,
+                    layerVisible: layerVisibility[layerType] ?? true,
+                    countryActive: computeCountryActiveState(countryInfoForDebug, currentTotalMonths),
+                    countryInfoMissing: !countryInfoForDebug,
+                    hasPathData: Array.isArray(castle.path_data) && castle.path_data.length >= 2,
+                    contributesToHeatmap: true
+                };
 
                 if (!newHeatmapData[countryId]) {
                     newHeatmapData[countryId] = [];
@@ -3316,6 +3379,75 @@ function updateMap(year, month) {
 
     }
 
+    window.findPhantomTerritories = function(options = {}) {
+        const { highlight = false } = options;
+        const sources = Object.values(heatmapSourceDebug || {});
+        if (!sources.length) {
+            console.log('%c강역 히트맵에 기록된 데이터가 없습니다. (강역 레이어가 꺼져 있거나 데이터가 없는 상태)', 'color: #999');
+            return [];
+        }
+
+        const phantomEntries = sources.filter(entry => {
+            if (!entry.contributesToHeatmap) return false;
+            if (!entry.matchesSelectedCountry) return true;
+            if (!entry.layerVisible) return true;
+            if ((entry.castleType === 'city' || entry.castleType === 'label') && !entry.countryActive) return true;
+            if (entry.countryInfoMissing) return true;
+            return false;
+        });
+
+        if (!phantomEntries.length) {
+            console.log('%c강역만 표시되고 객체가 없는 항목이 없습니다.', 'color: #4caf50');
+        } else {
+            console.table(phantomEntries.map(entry => ({
+                이름: entry.name,
+                유형: entry.castleType,
+                국가: entry.countryName,
+                위도: entry.lat,
+                경도: entry.lng,
+                사유: getPhantomReason(entry)
+            })));
+        }
+
+        if (highlight && phantomEntries.length) {
+            if (!phantomDebugLayerGroup) {
+                phantomDebugLayerGroup = L.layerGroup().addTo(map);
+            }
+            phantomDebugLayerGroup.clearLayers();
+            phantomEntries.forEach(entry => {
+                const circle = L.circleMarker([entry.lat, entry.lng], {
+                    radius: 14,
+                    color: '#ff2fbf',
+                    weight: 2,
+                    fillColor: '#ff2fbf',
+                    fillOpacity: 0.45,
+                    pane: 'markerPane'
+                }).bindTooltip(`${entry.name} (${entry.countryName})\n${getPhantomReason(entry)}`, {
+                    direction: 'top',
+                    sticky: true
+                });
+                phantomDebugLayerGroup.addLayer(circle);
+            });
+
+            if (phantomEntries.length === 1) {
+                map.flyTo([phantomEntries[0].lat, phantomEntries[0].lng], Math.max(map.getZoom(), 7));
+            } else {
+                const bounds = L.latLngBounds(phantomEntries.map(e => [e.lat, e.lng]));
+                if (bounds.isValid()) {
+                    map.fitBounds(bounds.pad(0.35));
+                }
+            }
+        }
+
+        return phantomEntries;
+    };
+
+    window.clearPhantomHighlights = function() {
+        if (phantomDebugLayerGroup) {
+            phantomDebugLayerGroup.clearLayers();
+        }
+    };
+
 function getCountryInfoById(id) {
     // 🚩 [필수 확인] id가 ObjectId 객체일 수도, 문자열일 수도 있으므로, toString()으로 비교
     if (!id) return null;
@@ -3506,13 +3638,14 @@ function getCountryInfoById(id) {
       // 🚩 [수정] 불필요한 updateMap 호출을 제거하여 이벤트 충돌 및 멈춤 현상을 방지합니다.
       map.on('zoomend', function() {
           const currentZoom = map.getZoom();
+          const radius = 80 * Math.pow(2, currentZoom - 5); // 🚩 [수정] 반경을 80으로 상향 조정
+          const blur = 0; // 블러 효과 제거
           // 🚩 [핵심 수정] 줌 레벨이 변경될 때마다 모든 히트맵 레이어의 반경과 블러를 다시 설정합니다.
           for (const countryId in heatmapLayers) {
-              if (heatmapLayers.hasOwnProperty(countryId)) {
-                  const radius = 80 * Math.pow(2, currentZoom - 5); // 🚩 [수정] 반경을 80으로 상향 조정
-                  const blur = 0; // 블러 효과 제거
-                  heatmapLayers[countryId].setOptions({ radius: radius, blur: blur });
-              }
+              if (!Object.prototype.hasOwnProperty.call(heatmapLayers, countryId)) continue;
+              const layer = heatmapLayers[countryId];
+              if (!layer || !map.hasLayer(layer)) continue;
+              layer.setOptions({ radius, blur });
           }
           const { year, month } = getCurrentYearMonth(); // 🚩 [추가] 왕 목록도 함께 업데이트
           updateKingLabel(year, month); // 🚩 [추가] 왕 목록도 함께 업데이트
