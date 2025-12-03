@@ -3235,6 +3235,42 @@ function updateMap(year, month) {
         if (!layerVisibility.city) return;
         if (!isWithinDuration) return;
         
+        // 🚩 [신규] 전장 체크를 국가 체크보다 먼저 수행 (전장은 국가 정보 없이도 표시 가능)
+        if (activeHistoryRecord.is_battle) {
+            console.log('💥 전장 마커 렌더링 (국가 체크 전):', castleName, 'is_battle:', activeHistoryRecord.is_battle);
+            const battleIcon = L.divIcon({
+                className: 'battle-marker',
+                html: `<div style="line-height: 0.8;">💥</div><div style="font-size: 12px; color: white; white-space: nowrap; margin-top: -5px;">${castleName}</div>`,
+                iconSize: [80, 40],
+                iconAnchor: [40, 30],
+                popupAnchor: [6, -25]
+            });
+            marker = L.marker([castle.lat, castle.lng], { icon: battleIcon });
+            
+            const editorInfoHtml = castle.lastModifiedBy 
+                ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
+                : (castle.createdBy ? `<br><small>생성자: ${castle.createdBy}</small>` : '');
+            
+            popupHtml = `
+                <b>전장: ${castleName}</b><br>
+                기간: ${builtText} ~ ${destroyedText}<br>
+                설명: ${castle.desc ?? ''}
+                ${castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ""}
+                ${editorInfoHtml}
+            `;
+            
+            marker.bindPopup(popupHtml);
+            marker.on('mouseover', function (e) { this.openPopup(); });
+            marker.on('mouseout', function (e) { this.closePopup(); });
+            marker.on('click', (e) => { 
+                map.flyTo(e.latlng, 10);
+                if (editMode) openCastleForm(castle._id); 
+            });
+            markers.push(marker);
+            marker.addTo(castleLayerGroup);
+            return; // 전장이면 더 이상 처리하지 않음
+        }
+        
         const currentCountry = countryInfo; // ⬅️ 이미 위에서 정의한 countryInfo 사용
         if (!currentCountry) return;
         
@@ -3285,18 +3321,8 @@ function updateMap(year, month) {
               marker = L.marker([castle.lat, castle.lng], { icon: customIcon });
             }
 
-            // 🚩 [신규] 전장 체크박스가 설정된 경우 전장 마커로 렌더링
-            if (activeHistoryRecord.is_battle) {
-                console.log('💥 전장 마커 렌더링:', castleName, 'is_battle:', activeHistoryRecord.is_battle);
-                const battleIcon = L.divIcon({
-                    className: 'battle-marker',
-                    html: `<div style="line-height: 0.8;">💥</div><div style="font-size: 12px; color: white; white-space: nowrap; margin-top: -5px;">${castleName}</div>`,
-                    iconSize: [80, 40],
-                    iconAnchor: [40, 30],
-                    popupAnchor: [6, -25]
-                });
-                marker = L.marker([castle.lat, castle.lng], { icon: battleIcon });
-            } else if (activeHistoryRecord.is_capital) { // 🚩 [수정] activeHistoryRecord 사용
+            // 🚩 [제거] 전장 체크는 이미 위에서(국가 체크 전에) 처리되었으므로 여기서는 수도/일반 성만 처리
+            if (activeHistoryRecord.is_capital) { // 🚩 [수정] activeHistoryRecord 사용
               // ... 기존 왕성 마커 로직 유지 ...
               if (currentCountry.flag) {
             const capitalWithFlagIconHtml = `<div class="capital-marker" style="display: flex; flex-direction: column; align-items: center;">
