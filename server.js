@@ -95,8 +95,52 @@ const verifySuperuser = (req, res, next) => { // (전역으로 이동)
     });
 };
 
+const resolveTrackedPagePath = (req) => {
+    if (req.method !== 'GET') return null;
+    if (req.path === '/' || req.path === '') {
+        return '/index.html';
+    }
+    if (req.path.endsWith('.html')) {
+        return req.path;
+    }
+    return null;
+};
+
+const incrementPageView = async (pagePath) => {
+    try {
+        await connectToDatabase();
+        if (!collections.pageViews) return;
+
+        const now = new Date();
+        const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+        await collections.pageViews.updateOne(
+            { path: pagePath, date: dayStart },
+            {
+                $inc: { count: 1 },
+                $setOnInsert: {
+                    path: pagePath,
+                    date: dayStart,
+                    firstSeenAt: new Date()
+                }
+            },
+            { upsert: true }
+        );
+    } catch (error) {
+        console.error('페이지 뷰 기록 중 오류:', error);
+    }
+};
+
 app.use(cors()); // 모든 도메인에서 요청 허용 (개발용)
 app.use(express.json());
+app.use(async (req, res, next) => {
+    const trackedPath = resolveTrackedPagePath(req);
+    if (trackedPath) {
+        incrementPageView(trackedPath).finally(() => next());
+        return;
+    }
+    next();
+});
 // 💡 [수정] Express 앱에서 정적 파일을 제공하는 경로를 'public' 폴더에서 프로젝트 루트로 변경합니다.
 // 이제 index.html, admin.html 등을 루트 디렉토리에서 직접 서비스할 수 있습니다.
 app.use(express.static(__dirname));
@@ -776,6 +820,75 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             } catch (error) {
                 console.error("일일 접속자 수 통계 조회 중 오류:", error);
                 res.status(500).json({ message: "통계 조회 실패", error: error.message });
+            }
+        });
+
+        // 🚩 [추가] GET: 페이지 뷰 통계 (관리자 전용)
+        app.get('/api/stats/page-views', verifyAdminOnly, async (req, res) => {
+            try {
+                const daysParam = parseInt(req.query.days, 10);
+                const days = Number.isFinite(daysParam) ? Math.min(Math.max(daysParam, 1), 30) : 7;
+                const topParam = parseInt(req.query.top, 10);
+                const maxPages = Number.isFinite(topParam) ? Math.min(Math.max(topParam, 1), 10) : 5;
+
+                const now = new Date();
+                const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+                const startDateUtc = new Date(todayUtc);
+                startDateUtc.setUTCDate(startDateUtc.getUTCDate() - (days - 1));
+
+                const pageViewDocs = await collections.pageViews
+                    .find({ date: { $gte: startDateUtc } })
+                    .toArray();
+
+                const labels = Array.from({ length: days }, (_, index) => {
+                    const labelDate = new Date(startDateUtc);
+                    labelDate.setUTCDate(startDateUtc.getUTCDate() + index);
+                    return labelDate.toISOString().split('T')[0];
+                });
+
+                const datasetMap = new Map();
+                pageViewDocs.forEach(doc => {
+                    if (!doc || !doc.date || typeof doc.count !== 'number') return;
+                    const dateKey = doc.date.toISOString().split('T')[0];
+                    const labelIndex = labels.indexOf(dateKey);
+                    if (labelIndex === -1) return;
+
+                    const pathKey = doc.path || 'unknown';
+                    if (!datasetMap.has(pathKey)) {
+                        datasetMap.set(pathKey, Array(days).fill(0));
+                    }
+                    const counts = datasetMap.get(pathKey);
+                    counts[labelIndex] += doc.count;
+                });
+
+                const totals = Array.from(datasetMap.entries())
+                    .map(([pathKey, counts]) => ({
+                        path: pathKey,
+                        totalCount: counts.reduce((sum, value) => sum + value, 0)
+                    }))
+                    .sort((a, b) => b.totalCount - a.totalCount);
+
+                const selectedTotals = totals.slice(0, Math.min(maxPages, totals.length));
+                const datasets = selectedTotals.map(item => ({
+                    path: item.path,
+                    counts: datasetMap.get(item.path)
+                }));
+
+                if (totals.length > selectedTotals.length) {
+                    const otherCounts = Array(days).fill(0);
+                    totals.slice(selectedTotals.length).forEach(item => {
+                        const counts = datasetMap.get(item.path);
+                        counts.forEach((value, idx) => {
+                            otherCounts[idx] += value;
+                        });
+                    });
+                    datasets.push({ path: '기타', counts: otherCounts });
+                }
+
+                res.json({ labels, datasets, totals });
+            } catch (error) {
+                console.error("페이지 뷰 통계 조회 중 오류:", error);
+                res.status(500).json({ message: "페이지 뷰 통계 조회 실패", error: error.message });
             }
         });
 

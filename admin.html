@@ -205,6 +205,20 @@
             background-color: #3e4a56;
             padding: 20px; border-radius: 8px;
         }
+        #pageViewsChartContainer {
+            position: relative;
+            max-height: 350px;
+            margin-bottom: 20px;
+            background-color: #3e4a56;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        #pageViewsSummaryContainer {
+            background-color: #3e4a56;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
     </style>
     <!-- 🚩 [추가] 모바일 반응형 스타일 -->
     <style>
@@ -280,6 +294,27 @@
         <!-- 🚩 [추가] 일일 접속자 수 차트 컨테이너 -->
         <div id="dailyLoginsChartContainer">
             <canvas id="dailyLoginsChart"></canvas>
+        </div>
+
+        <h2>페이지 뷰 통계</h2>
+        <div id="pageViewsChartContainer">
+            <canvas id="pageViewsChart"></canvas>
+        </div>
+        <div id="pageViewsSummaryContainer">
+            <table>
+                <thead>
+                    <tr>
+                        <th>페이지</th>
+                        <th>최근 7일 합계</th>
+                    </tr>
+                </thead>
+                <tbody id="pageViewsSummary">
+                    <!-- 페이지 뷰 합계가 여기에 렌더링됩니다. -->
+                </tbody>
+            </table>
+            <p id="pageViewsSummaryNote" style="margin-top: 10px; font-size: 0.9em; color: #bdc3c7;">
+                최근 7일 동안 집계된 페이지 뷰 기준입니다.
+            </p>
         </div>
 
         <h2>사용자 목록</h2>
@@ -420,6 +455,49 @@
             window.location.href = 'login.html';
         }
 
+        const PAGE_NAME_MAP = {
+            '/index.html': '메인 지도',
+            '/login.html': '로그인',
+            '/register.html': '회원가입',
+            '/admin.html': '관리자',
+            '/account.html': '계정 관리'
+        };
+
+        const describePagePath = (rawPath) => {
+            if (!rawPath) {
+                return { label: '알 수 없음', slug: 'unknown' };
+            }
+            if (rawPath === '기타') {
+                return { label: '기타 페이지', slug: '기타' };
+            }
+            const normalized = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+            const slug = normalized.substring(1) || normalized;
+            const friendly = PAGE_NAME_MAP[normalized] || slug;
+            return { label: friendly, slug };
+        };
+
+        const hexToRgba = (hex, alpha) => {
+            if (!hex || typeof hex !== 'string' || !hex.startsWith('#')) {
+                return hex;
+            }
+            const trimmed = hex.replace('#', '');
+            if (trimmed.length !== 6) {
+                return hex;
+            }
+            const bigint = parseInt(trimmed, 16);
+            const r = (bigint >> 16) & 255;
+            const g = (bigint >> 8) & 255;
+            const b = bigint & 255;
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        };
+
+        const formatIsoDateForLabel = (isoDate) => {
+            if (!isoDate) return '';
+            const date = new Date(`${isoDate}T00:00:00Z`);
+            if (Number.isNaN(date.getTime())) return isoDate;
+            return `${date.getMonth() + 1}/${date.getDate()}`;
+        };
+
         let allUsers = []; // 🚩 [추가] 사용자 목록을 저장할 전역 변수
         // 🚩 [추가] 정렬 상태를 저장할 전역 변수
         let currentSort = {
@@ -508,6 +586,7 @@
 
         // 🚩 [추가] 사용자 등록 차트 렌더링 함수
         let registrationChartInstance = null;
+        let pageViewsChartInstance = null;
         function renderRegistrationChart(users) {
             if (!users || users.length === 0) return;
 
@@ -609,6 +688,110 @@
                         plugins: { legend: { labels: { color: '#ecf0f1' } } }
                     }
                 });
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function fetchAndRenderPageViewsStats(days = 7) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/stats/page-views?days=${days}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) throw new Error('페이지 뷰 통계를 불러오지 못했습니다.');
+
+                const stats = await response.json();
+                const labelsRaw = Array.isArray(stats.labels) ? stats.labels : [];
+                const labels = labelsRaw.map(formatIsoDateForLabel);
+                const datasetsInput = Array.isArray(stats.datasets) ? stats.datasets : [];
+                const chartColorPalette = ['#3498db', '#e74c3c', '#2ecc71', '#9b59b6', '#e67e22', '#f1c40f', '#1abc9c', '#34495e'];
+
+                const chartDatasets = datasetsInput.map((dataset, idx) => {
+                    const { label } = describePagePath(dataset.path);
+                    const baseColor = chartColorPalette[idx % chartColorPalette.length];
+                    const counts = Array.isArray(dataset.counts) ? dataset.counts : [];
+                    const normalizedCounts = labels.map((_, index) => counts[index] || 0);
+                    return {
+                        label,
+                        data: normalizedCounts,
+                        borderColor: baseColor,
+                        backgroundColor: hexToRgba(baseColor, 0.25),
+                        fill: false,
+                        tension: 0.2,
+                        borderWidth: 2,
+                        pointRadius: 3
+                    };
+                });
+
+                if (chartDatasets.length === 0 && labels.length > 0) {
+                    chartDatasets.push({
+                        label: '페이지 뷰',
+                        data: Array(labels.length).fill(0),
+                        borderColor: '#7f8c8d',
+                        backgroundColor: hexToRgba('#7f8c8d', 0.2),
+                        fill: false,
+                        tension: 0.2,
+                        borderDash: [6, 6],
+                        pointRadius: 0
+                    });
+                }
+
+                const ctx = document.getElementById('pageViewsChart').getContext('2d');
+                if (pageViewsChartInstance) {
+                    pageViewsChartInstance.destroy();
+                }
+                pageViewsChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: chartDatasets
+                    },
+                    options: {
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: true, ticks: { color: '#ecf0f1' } },
+                            x: { ticks: { color: '#ecf0f1' } }
+                        },
+                        plugins: {
+                            legend: { labels: { color: '#ecf0f1' } },
+                            tooltip: {
+                                callbacks: {
+                                    title: (items) => items.map(item => labelsRaw[item.dataIndex] || item.label)
+                                }
+                            }
+                        }
+                    }
+                });
+
+                const summaryBody = document.getElementById('pageViewsSummary');
+                summaryBody.innerHTML = '';
+                const totals = Array.isArray(stats.totals) ? stats.totals : [];
+                if (totals.length === 0) {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = '<td colspan="2">수집된 페이지 뷰 데이터가 없습니다.</td>';
+                    summaryBody.appendChild(tr);
+                } else {
+                    totals.slice(0, 10).forEach(item => {
+                        const { label, slug } = describePagePath(item.path);
+                        const displayName = item.path === '기타' ? label : (label !== slug ? `${label} (${slug})` : label);
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `<td>${displayName}</td><td>${(item.totalCount || 0).toLocaleString()}</td>`;
+                        summaryBody.appendChild(tr);
+                    });
+
+                    const otherDataset = datasetsInput.find(dataset => dataset.path === '기타');
+                    if (otherDataset) {
+                        const otherTotal = (otherDataset.counts || []).reduce((sum, value) => sum + value, 0);
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `<td>기타 페이지</td><td>${otherTotal.toLocaleString()}</td>`;
+                        summaryBody.appendChild(tr);
+                    }
+                }
+
+                const summaryNote = document.getElementById('pageViewsSummaryNote');
+                if (summaryNote) {
+                    summaryNote.textContent = `최근 ${days}일 동안 집계된 페이지 뷰 기준입니다.`;
+                }
             } catch (error) {
                 showToast(error.message, 'error');
             }

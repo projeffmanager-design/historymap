@@ -30,6 +30,7 @@ async function connectToDatabase() {
         collections.events = db.collection("events");
         collections.drawings = db.collection("drawings");
         collections.loginLogs = db.collection("login_logs"); // 🚩 [추가] 로그인 로그 컬렉션 초기화
+    collections.pageViews = db.collection("page_views"); // 🚩 [추가] 페이지 뷰 통계 컬렉션 초기화
 
         return { db, collections };
     } catch (err) {

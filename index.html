@@ -915,6 +915,9 @@ function enableFormDrag(formId) {
     .feature-sea { color: #3498db; background-color: transparent; } /* 바다/호수 */
     .feature-river { color: #1abc9c; background-color: transparent; } /* 강/내륙 */
     .feature-mudflat { color: #f1c40f; background-color: transparent; } /* 뻘/늪 */
+    .feature-hunting { color: #e67e22; background-color: transparent; } /* 사냥터 */
+    .feature-construction { color: #95a5a6; background-color: transparent; } /* 건설 */
+    .feature-other { color: #ecf0f1; background-color: transparent; } /* 기타 */
 
     /* 🚩 [추가] 레이어 토글 버튼 스타일 */
     #layer-toggles .layer-toggle-btn {
@@ -1880,6 +1883,8 @@ function enableFormDrag(formId) {
             <option value="buffalo">물소</option>
             <option value="mongky">원숭이</option>
             <option value="camel">낙타</option>
+                                    <option value="hunting">사냥터 🏹</option>
+            <option value="construction">건설 ⚒️</option>
         </select>
       </div>
      <div id="militaryFlagDetails" style="border-top: 0px solid #ccc; padding-top: 5px; margin-top: 10px;">
@@ -2708,7 +2713,10 @@ function getKingByYear(countryName, year, month) {
             'buffalo': { symbol: '🐃', className: 'feature-other' },
             'horse': { symbol: '🐎', className: 'feature-other' },
             'camel': { symbol: '🐫', className: 'feature-other' },
-            'mongky': { symbol: '🐒', className: 'feature-other' } 
+            'mongky': { symbol: '🐒', className: 'feature-other' },
+            'hunting': { symbol: '🏹', className: 'feature-hunting' },
+            'construction': { symbol: '⚒️', className: 'feature-construction' },
+            'other': { symbol: '❖', className: 'feature-other' }
         };
         return icons[type] || icons['other'];
     }
@@ -3085,11 +3093,16 @@ function updateMap(year, month) {
                 if (!isWithinDuration) return;
 
                 const featureType = castle.natural_feature_type || 'other';
-                const iconInfo = getNaturalFeatureIcon(featureType);
+                let iconInfo = getNaturalFeatureIcon(featureType);
+                if (!iconInfo) {
+                    iconInfo = getNaturalFeatureIcon('other');
+                }
+                const iconClass = iconInfo?.className || 'feature-other';
+                const iconSymbol = iconInfo?.symbol || '❖';
                 
                 const featureIcon = L.divIcon({
-                    className: `natural-feature-marker ${iconInfo.className}`,
-                        html: `<div>${iconInfo.symbol}</div><div class="feature-name">${castleName}</div>`,
+                    className: `natural-feature-marker ${iconClass}`,
+                        html: `<div>${iconSymbol}</div><div class="feature-name">${castleName}</div>`,
                         iconSize: [60, 40],
                         iconAnchor: [30, 40],
                         popupAnchor: [6, -30] // 🚩 [추가] 팝업 위치를 아이콘 상단으로 조정
@@ -4564,7 +4577,9 @@ function getCountryInfoById(id) {
                     castle.path_data.forEach(point => addPathPoint(point));
                 }
             } else if (currentType === 'natural') {
-                naturalFeatureType.value = castle.natural_feature_type || 'mountain';
+                const naturalTypeFromData = castle.natural_feature_type || 'mountain';
+                const hasOption = Array.from(naturalFeatureType.options).some(opt => opt.value === naturalTypeFromData);
+                naturalFeatureType.value = hasOption ? naturalTypeFromData : 'mountain';
             }
         }
         
