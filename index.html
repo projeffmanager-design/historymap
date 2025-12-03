@@ -1676,11 +1676,10 @@ function enableFormDrag(formId) {
 
             <!-- 🚩 [3줄] 레이어 토글 버튼 (right-controls 밖으로 이동) -->
             <div id="layer-toggles" class="marker-type-selector" style="flex-shrink: 0;">
-                <button type="button" class="layer-toggle-btn active" data-layer="city">성/도시</button> <!-- 🚩 [수정] 지명, 자연 토글 기본 비활성화 -->
-                <button type="button" class="layer-toggle-btn active" data-layer="label">지명</button> <!-- 🚩 [수정] 지명, 자연 토글 기본 비활성화 -->
-                <button type="button" class="layer-toggle-btn active" data-layer="battle">전장</button> <!-- 🚩 [수정] 지명, 자연 토글 기본 비활성화 -->
-                <button type="button" class="layer-toggle-btn active" data-layer="military">군대</button> <!-- 🚩 [수정] 지명, 자연 토글 기본 비활성화 -->
-                <button type="button" class="layer-toggle-btn active" data-layer="natural">자연</button> <!-- 🚩 [수정] 지명, 자연 토글 기본 비활성화 -->
+                <button type="button" class="layer-toggle-btn active" data-layer="city">성/도시</button>
+                <button type="button" class="layer-toggle-btn active" data-layer="label">지명</button>
+                <button type="button" class="layer-toggle-btn active" data-layer="military">군대</button>
+                <button type="button" class="layer-toggle-btn active" data-layer="natural">자연</button>
                 <button type="button" class="layer-toggle-btn active" data-layer="event">이벤트</button>
                 <button type="button" class="layer-toggle-btn" data-layer="territory">강역</button>
                 <button type="button" class="layer-toggle-btn active" data-layer="timeline">연대표</button>
@@ -1757,7 +1756,7 @@ function enableFormDrag(formId) {
   </div> <!-- mainContainer 종료 -->
 
     <div id="castleForm" style="display:none;">
-        <h3>새로운 오브젝트 추가/편집</h3> <form id="addCastleForm"><input type="hidden" id="castleKey"><div class="form-row"><label>마커 타입:</label><div id="markerTypeSelector" class="marker-type-selector"><button type="button" data-type="normal" class="active">성/도시</button><button type="button" data-type="battle">전장</button><button type="button" data-type="military">군대</button><button type="button" data-type="natural">자연</button><button type="button" data-type="label">지명</button></div></div><div class="form-row"><label for="castleName">이름:</label>
+        <h3>새로운 오브젝트 추가/편집</h3> <form id="addCastleForm"><input type="hidden" id="castleKey"><div class="form-row"><label>마커 타입:</label><div id="markerTypeSelector" class="marker-type-selector"><button type="button" data-type="normal" class="active">성/도시</button><button type="button" data-type="military">군대</button><button type="button" data-type="natural">자연</button><button type="button" data-type="label">지명</button></div></div><div class="form-row"><label for="castleName">이름:</label>
         <input type="text" id="castleName" style="width: 280px;" required> 
       </div>
       <div class="form-row" id="labelColorRow" style="display:none;">
@@ -2327,12 +2326,12 @@ function enableFormDrag(formId) {
         city: true,       // 성/도시
         label: true,      // 지명
         military: true,   // 군대
-        battle: true,     // 전장
         natural: true,    // 자연
         territory: false,
         event: true,      // 🚩 [추가] 이벤트 레이어 가시성
         timeline: true    // 🚩 [추가] 연대표 가시성
     };
+    // 🚩 [제거] battle 레이어는 이제 역사 레코드의 is_battle 플래그로 처리됨
 
     // --- 2. DOM 요소 맵핑 ---
     // 🚩 [핵심 수정] 모바일 뷰일 때 기본 줌 레벨을 다르게 설정합니다.
@@ -3134,53 +3133,10 @@ function updateMap(year, month) {
                  marker.addTo(castleLayerGroup);
                 return; // 🚩 [복원] 다른 마커 타입으로 넘어가지 않도록 return 추가
             }
-            // 🚩 2. 전장 마커 (기존 로직 유지)
-            if (castle.is_battle) {
-                if (!layerVisibility.battle) return;
-                if (isWithinDuration) { // 🚩 [수정] isWithinDuration 체크
-                    // ... 기존 전장 마커 렌더링 로직 유지 ...
-                    const battleIcon = L.divIcon({
-                        className: 'battle-marker',
-                            html: `<div style="line-height: 0.8;">💥</div><div style="font-size: 12px; color: white; white-space: nowrap; margin-top: -5px;">${castleName}</div>`,
-                            iconSize: [80, 40],
-                            iconAnchor: [40, 30],
-                            popupAnchor: [6, -25]
 
-                    });
-                    marker = L.marker([castle.lat, castle.lng], { icon: battleIcon });
-                    
-             //       const builtText = `${castleBuiltYear}년 ${castle.built_month || ''}월`;
-              //      const destroyedText = castle.destroyed || castle.destroyed_year ? `${castleDestroyedYear}년 ${castle.destroyed_month || ''}월` : '알 수 없음';
-                    const editorInfoHtml = castle.lastModifiedBy 
-                        ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
-                        : (castle.createdBy ? `<br><small>생성자: ${castle.createdBy}</small>` : '');
-                    
-                    // 🚩 [수정] 팝업 HTML에 사진 URL을 포함하도록 추가합니다.
-                    popupHtml = `
-                        <b>전장: ${castleName}</b><br>
-                        기간: ${builtText} ~ ${destroyedText}<br>
-                        설명: ${castle.desc ?? ''}
-                        ${castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ""}
-                        ${editorInfoHtml}
-                    `;
-                                        
-                    marker.bindPopup(popupHtml);
-                                    // 팝업 이벤트 추가
-                marker.on('mouseover', function (e) { this.openPopup(); });
-                marker.on('mouseout', function (e) { this.closePopup(); });
-                    marker.on('click', (e) => { 
-                        map.flyTo(e.latlng, 10); // 🚩 [수정] 클릭 시 줌인하며 이동
-                        if (editMode) openCastleForm(castle._id); 
-                    });
-                    markers.push(marker);
-                     marker.addTo(castleLayerGroup);
-                    return; // 🚩 [복원] 다른 마커 타입으로 넘어가지 않도록 return 추가
-                } else {
-                    return; 
-                }
-            } 
+            // 🚩 [제거] 독립된 전장 마커 타입은 이제 사용하지 않음 (역사 레코드의 is_battle 플래그 사용)
 
-            // 🚩 3. 군대 플래그 마커 (기존 로직 유지)
+            // 🚩 2. 군대 플래그 마커 (기존 로직 유지)
             if (castle.is_military_flag) {
                 if (!layerVisibility.military) return;
                 // ... 기존 군대 플래그 마커 렌더링 로직 유지 ...
@@ -3329,7 +3285,18 @@ function updateMap(year, month) {
               marker = L.marker([castle.lat, castle.lng], { icon: customIcon });
             }
 
-            if (activeHistoryRecord.is_capital) { // 🚩 [수정] activeHistoryRecord 사용
+            // 🚩 [신규] 전장 체크박스가 설정된 경우 전장 마커로 렌더링
+            if (activeHistoryRecord.is_battle) {
+                console.log('💥 전장 마커 렌더링:', castleName, 'is_battle:', activeHistoryRecord.is_battle);
+                const battleIcon = L.divIcon({
+                    className: 'battle-marker',
+                    html: `<div style="line-height: 0.8;">💥</div><div style="font-size: 12px; color: white; white-space: nowrap; margin-top: -5px;">${castleName}</div>`,
+                    iconSize: [80, 40],
+                    iconAnchor: [40, 30],
+                    popupAnchor: [6, -25]
+                });
+                marker = L.marker([castle.lat, castle.lng], { icon: battleIcon });
+            } else if (activeHistoryRecord.is_capital) { // 🚩 [수정] activeHistoryRecord 사용
               // ... 기존 왕성 마커 로직 유지 ...
               if (currentCountry.flag) {
             const capitalWithFlagIconHtml = `<div class="capital-marker" style="display: flex; flex-direction: column; align-items: center;">
@@ -4518,11 +4485,10 @@ function getCountryInfoById(id) {
             currentType = 'natural';
         } else if (castle.is_military_flag) {
             currentType = 'military';
-        } else if (castle.is_battle) { // 🚩 [수정] is_capital 체크 제거
-            currentType = 'battle';
         } else if (castle.is_label) {
             currentType = 'label';
         }
+        // 🚩 [제거] is_battle은 이제 독립적인 마커 타입이 아니므로 체크 제거
         document.getElementById('labelSize').value = castle.label_size || 'medium'; // 🚩 [추가] 글자 크기 로드
         setActiveMarkerType(currentType);
 
@@ -4532,7 +4498,7 @@ function getCountryInfoById(id) {
         }
 
         // 🚩 [수정] 타입에 따라 단일 기간 필드 채우기
-        if (['battle', 'natural', 'label'].includes(currentType)) {
+        if (['natural', 'label'].includes(currentType)) {
             document.getElementById('simpleStartYear').value = castle.built_year || '';
             document.getElementById('simpleStartMonth').value = castle.built_month || '';
             document.getElementById('simpleEndYear').value = castle.destroyed_year || '';
@@ -4632,10 +4598,10 @@ function getCountryInfoById(id) {
 
         // 🚩 [핵심 수정] 타입에 따라 UI 요소들의 가시성을 제어합니다.
         const isCastle = (type === 'normal'); // 🚩 [수정] 'capital' 타입 조건 제거
-        const isBattle = (type === 'battle');
         const isMilitary = (type === 'military');
         const isNatural = (type === 'natural');
         const isLabel = (type === 'label');
+        // 🚩 [제거] isBattle은 더 이상 독립 타입이 아님
 
         // 이름 필드: 군대 타입은 '장수 이름'을 사용하므로 숨김
         const castleNameInput = document.getElementById('castleName');
@@ -4664,8 +4630,8 @@ function getCountryInfoById(id) {
         document.getElementById('simpleEndMonth').style.display = (isNatural || isLabel) ? 'none' : 'inline-block';
 
         // 🚩 [수정] 설명 및 사진 필드 가시성 로직 복원
-        castleDescRow.style.display = (isCastle || isBattle || isMilitary || isLabel) ? 'flex' : 'none';
-        castlePhotoRow.style.display = (isCastle || isBattle || isLabel) ? 'flex' : 'none';
+        castleDescRow.style.display = (isCastle || isMilitary || isLabel) ? 'flex' : 'none';
+        castlePhotoRow.style.display = (isCastle || isLabel) ? 'flex' : 'none';
 
         // 군대 전용 필드
         militaryFlagDetails.style.display = isMilitary ? 'block' : 'none';
@@ -4735,6 +4701,7 @@ function getCountryInfoById(id) {
             <div class="history-field-container history-end-year"><label>종료연도</label><input type="number" class="history-end-year" placeholder="종료" value="${history.end_year ?? ''}"></div>
             <div class="history-field-container history-end-month"><label>월</label><input type="number" class="history-end-month" placeholder="월" min="1" max="12" value="${history.end_month ?? 12}"></div>
             <div class="history-field-container" style="align-self: flex-end;"><label style="margin-bottom: 8px;">수도</label><input type="checkbox" class="history-is-capital" ${history.is_capital ? 'checked' : ''}></div>
+            <div class="history-field-container" style="align-self: flex-end;"><label style="margin-bottom: 8px;">전장</label><input type="checkbox" class="history-is-battle" ${history.is_battle ? 'checked' : ''}></div>
             <button type="button" onclick="this.parentElement.remove()">X</button>
         `;
                 // 폼 제출 시 required 에러 방지: 빈 값이면 required 제거 또는 기본값 설정
@@ -4806,6 +4773,9 @@ function getCountryInfoById(id) {
               const rawEndYear = row.querySelector('input.history-end-year').value;
               const rawEndMonth = row.querySelector('input.history-end-month').value;
 
+              const isBattleChecked = row.querySelector('input.history-is-battle')?.checked || false;
+              console.log('🔍 전장 체크박스 상태:', isBattleChecked, 'for', nameVal);
+              
               return {
                   name: nameVal,
                   country_id: countryIdVal || '', // keep empty string if not found
@@ -4813,7 +4783,8 @@ function getCountryInfoById(id) {
                   start_month: rawStartMonth !== '' ? parseInt(rawStartMonth) : 1,
                   end_year: rawEndYear !== '' ? parseInt(rawEndYear) : null,
                   end_month: rawEndMonth !== '' ? parseInt(rawEndMonth) : 12,
-                  is_capital: row.querySelector('input.history-is-capital').checked
+                  is_capital: row.querySelector('input.history-is-capital').checked,
+                  is_battle: isBattleChecked
               };
           });
 
