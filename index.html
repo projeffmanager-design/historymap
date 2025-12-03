@@ -1678,6 +1678,7 @@ function enableFormDrag(formId) {
             <div id="layer-toggles" class="marker-type-selector" style="flex-shrink: 0;">
                 <button type="button" class="layer-toggle-btn active" data-layer="city">성/도시</button>
                 <button type="button" class="layer-toggle-btn active" data-layer="label">지명</button>
+                <button type="button" class="layer-toggle-btn active" data-layer="battle">전장</button>
                 <button type="button" class="layer-toggle-btn active" data-layer="military">군대</button>
                 <button type="button" class="layer-toggle-btn active" data-layer="natural">자연</button>
                 <button type="button" class="layer-toggle-btn active" data-layer="event">이벤트</button>
@@ -1756,7 +1757,7 @@ function enableFormDrag(formId) {
   </div> <!-- mainContainer 종료 -->
 
     <div id="castleForm" style="display:none;">
-        <h3>새로운 오브젝트 추가/편집</h3> <form id="addCastleForm"><input type="hidden" id="castleKey"><div class="form-row"><label>마커 타입:</label><div id="markerTypeSelector" class="marker-type-selector"><button type="button" data-type="normal" class="active">성/도시</button><button type="button" data-type="military">군대</button><button type="button" data-type="natural">자연</button><button type="button" data-type="label">지명</button></div></div><div class="form-row"><label for="castleName">이름:</label>
+        <h3>새로운 오브젝트 추가/편집</h3> <form id="addCastleForm"><input type="hidden" id="castleKey"><div class="form-row"><label>마커 타입:</label><div id="markerTypeSelector" class="marker-type-selector"><button type="button" data-type="normal" class="active">성/도시</button><button type="button" data-type="battle">전장</button><button type="button" data-type="military">군대</button><button type="button" data-type="natural">자연</button><button type="button" data-type="label">지명</button></div></div><div class="form-row"><label for="castleName">이름:</label>
         <input type="text" id="castleName" style="width: 280px;" required> 
       </div>
       <div class="form-row" id="labelColorRow" style="display:none;">
@@ -2326,12 +2327,13 @@ function enableFormDrag(formId) {
         city: true,       // 성/도시
         label: true,      // 지명
         military: true,   // 군대
+        battle: true,     // 전장 (독립 마커)
         natural: true,    // 자연
         territory: false,
         event: true,      // 🚩 [추가] 이벤트 레이어 가시성
         timeline: true    // 🚩 [추가] 연대표 가시성
     };
-    // 🚩 [제거] battle 레이어는 이제 역사 레코드의 is_battle 플래그로 처리됨
+    // 🚩 [수정] battle 레이어: 독립 전장 마커(is_battle=true) + 역사 레코드 전장(history[].is_battle=true) 둘 다 지원
 
     // --- 2. DOM 요소 맵핑 ---
     // 🚩 [핵심 수정] 모바일 뷰일 때 기본 줌 레벨을 다르게 설정합니다.
@@ -3231,13 +3233,11 @@ function updateMap(year, month) {
             }
 
 
-            // 4. 일반 성/도시 마커 (기존 로직 유지)
-        if (!layerVisibility.city) return;
-        if (!isWithinDuration) return;
-        
-        // 🚩 [신규] 전장 체크를 국가 체크보다 먼저 수행 (전장은 국가 정보 없이도 표시 가능)
-        if (activeHistoryRecord.is_battle) {
-            console.log('💥 전장 마커 렌더링 (국가 체크 전):', castleName, 'is_battle:', activeHistoryRecord.is_battle);
+            // 4. 전장 마커 (독립 타입 또는 역사 기록의 전장 체크박스)
+        // 🚩 전장은 두 가지 형태로 존재: 1) castle.is_battle=true (독립 마커), 2) activeHistoryRecord.is_battle=true (역사 기록의 체크박스)
+        const isBattleMarker = castle.is_battle || activeHistoryRecord?.is_battle;
+        if (isBattleMarker && layerVisibility.battle) {
+            console.log('💥 전장 마커 렌더링:', castleName, 'castle.is_battle:', castle.is_battle, 'history.is_battle:', activeHistoryRecord?.is_battle);
             const battleIcon = L.divIcon({
                 className: 'battle-marker',
                 html: `<div style="line-height: 0.8;">💥</div><div style="font-size: 12px; color: white; white-space: nowrap; margin-top: -5px;">${castleName}</div>`,
@@ -3270,6 +3270,10 @@ function updateMap(year, month) {
             marker.addTo(castleLayerGroup);
             return; // 전장이면 더 이상 처리하지 않음
         }
+        
+        // 5. 일반 성/도시 마커 (기존 로직 유지)
+        if (!layerVisibility.city) return;
+        if (!isWithinDuration) return;
         
         const currentCountry = countryInfo; // ⬅️ 이미 위에서 정의한 countryInfo 사용
         if (!currentCountry) return;
