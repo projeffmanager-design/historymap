@@ -40,9 +40,10 @@ if (!uri) {
         // 2. history 배열 생성 또는 업데이트
         let history = battle.history || [];
         
-        // 기존 history가 있으면 첫 번째 레코드에 is_battle 추가
+        // 기존 history가 있으면 전장 전용 레코드를 추가
         // 없으면 새로 생성
         if (history.length === 0) {
+          // history가 없는 경우: 새 전장 레코드 생성
           history.push({
             name: battle.name,
             country_id: battle.country_id || null,
@@ -54,8 +55,18 @@ if (!uri) {
             is_battle: true
           });
         } else {
-          // 첫 번째 history 레코드에 is_battle 플래그 추가
-          history[0].is_battle = true;
+          // history가 이미 있는 경우: 전장 전용 레코드를 새로 추가
+          // (기존 레코드는 성의 역사, 전장은 별도 레코드로)
+          history.push({
+            name: battle.name,
+            country_id: battle.country_id || null,
+            start_year: battle.built_year || battle.start_year || null,
+            start_month: battle.built_month || battle.start_month || 1,
+            end_year: battle.destroyed_year || battle.end_year || null,
+            end_month: battle.destroyed_month || battle.end_month || 12,
+            is_capital: false,
+            is_battle: true
+          });
         }
 
         // 3. 문서 업데이트: is_battle 제거, history 업데이트
