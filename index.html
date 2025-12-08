@@ -353,6 +353,37 @@ body.force-mobile #map-king-list {
     line-height: 1.3 !important;
 }
 
+/* 🚩 [추가] PC에서 역사기록 패널 접기/펼치기 기능 */
+#map-history-panel {
+    transition: width 0.3s ease, padding 0.3s ease !important;
+}
+
+#map-history-panel:not(.expanded) {
+    width: 50px !important;
+    padding: 8px 4px !important;
+    overflow: hidden !important;
+}
+
+#map-history-panel:not(.expanded) > div:first-child span,
+#map-history-panel:not(.expanded) > div:nth-child(2),
+#map-history-panel:not(.expanded) h3,
+#map-history-panel:not(.expanded) #map-history-records,
+#map-history-panel:not(.expanded) #map-prev-history-btn,
+#map-history-panel:not(.expanded) #map-next-history-btn,
+#map-history-panel:not(.expanded) #map-open-history-form-btn {
+    display: none !important;
+}
+
+#map-history-panel:not(.expanded) #map-history-toggle-btn {
+    margin: 0 !important;
+    padding: 4px !important;
+}
+
+#map-history-panel.expanded {
+    width: 320px !important;
+    padding: 12px !important;
+}
+
 /* 🚩 [추가] 모바일에서 역사기록 패널 자동 축소 */
 body.force-mobile #map-history-panel {
     width: 40px !important;
@@ -370,12 +401,20 @@ body.force-mobile #map-history-panel.expanded {
     overflow-y: auto !important;
 }
 
+body.force-mobile #map-history-panel > div:first-child span {
+    display: none !important;
+}
+
 body.force-mobile #map-history-panel h3,
 body.force-mobile #map-history-panel #map-history-records,
 body.force-mobile #map-history-panel #map-prev-history-btn,
 body.force-mobile #map-history-panel #map-next-history-btn,
 body.force-mobile #map-history-panel #map-open-history-form-btn {
     display: none !important;
+}
+
+body.force-mobile #map-history-panel.expanded > div:first-child span {
+    display: inline !important;
 }
 
 body.force-mobile #map-history-panel.expanded h3,
@@ -2432,14 +2471,19 @@ function enableFormDrag(formId) {
         
         <!-- 🚩 [수정] 역사 기록 투명 박스 (지도 오른쪽, 연대표 아래까지) -->
         <div id="map-history-panel" style="position: absolute; top: 180px; bottom: 50px; right: 10px; width: 320px; z-index: 998; background: rgba(30, 42, 56, 0.60); backdrop-filter: blur(5px); padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); overflow-y: auto; pointer-events: auto; transition: width 0.3s ease, padding 0.3s ease;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 8px;">
-                <h3 style="margin: 0; font-size: 14px; color: #f5e9d2; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span id="map-history-year-title"></span></h3>
-                <div style="display: flex; gap: 4px; flex-shrink: 0; margin-left: 8px;">
+            <!-- 🚩 [수정] 버튼 줄에 "역사 기록" 제목 추가 -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="font-size: 13px; font-weight: bold; color: #f5e9d2;">역사 기록</span>
+                <div style="display: flex; gap: 4px; flex-shrink: 0;">
                     <button id="map-open-history-form-btn" class="primary" title="역사 기록 추가" style="display: none; padding: 2px 8px; font-size: 11px; min-width: 40px;">추가</button>
                     <button id="map-prev-history-btn" title="이전 기록" style="padding: 2px 6px; font-size: 11px; width: 28px; min-width: 28px;">◀</button>
                     <button id="map-next-history-btn" title="다음 기록" style="padding: 2px 6px; font-size: 11px; width: 28px; min-width: 28px;">▶</button>
                     <button id="map-history-toggle-btn" title="패널 접기/펼치기" style="padding: 2px 6px; font-size: 11px; width: 28px; min-width: 28px;">◆</button>
                 </div>
+            </div>
+            <!-- 🚩 [추가] 연도별 제목을 별도 줄로 분리 -->
+            <div style="margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 8px;">
+                <h3 style="margin: 0; font-size: 13px; color: #f5e9d2; word-wrap: break-word; white-space: normal;"><span id="map-history-year-title"></span></h3>
             </div>
             <div id="map-history-records" style="font-size: 12px; line-height: 1.5; color: #ddd;">
                 <div id="map-all-records">
@@ -2510,6 +2554,7 @@ function enableFormDrag(formId) {
         <!-- 🚩 [수정] 이벤트 오버레이를 map div 안으로 이동 -->
         <div id="event-overlay">
             <img id="event-overlay-image" src="" style="display: none;">
+            <video id="event-overlay-video" controls style="display: none; max-width: 100%; max-height: 300px;"></video>
             <span id="event-overlay-text"></span>
         </div>
       </div> 
@@ -3209,6 +3254,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     // 🚩 [추가] 이벤트 오버레이 DOM 요소
     const eventOverlay = document.getElementById('event-overlay');
     const eventOverlayImage = document.getElementById('event-overlay-image');
+    const eventOverlayVideo = document.getElementById('event-overlay-video');
     const eventOverlayText = document.getElementById('event-overlay-text');
 
     // 🚩 [추가] 폼을 열고 화면 중앙에 위치시키는 함수
@@ -3518,10 +3564,45 @@ function getKingByYear(countryName, year, month) {
         if (currentEvent) {
             // 🚩 [핵심 수정] setTimeout을 사용한 깜빡임 효과를 제거하고, 직접 DOM을 조작하여 렌더링 충돌을 방지합니다.
             eventOverlayText.textContent = currentEvent.text;
+            
+            // 🚩 [추가] URL이 비디오인지 이미지인지 확인하여 적절하게 표시
             if (currentEvent.photo) {
-                eventOverlayImage.src = currentEvent.photo;
-                eventOverlayImage.style.display = 'block';
+                const url = currentEvent.photo.toLowerCase();
+                const isVideo = url.includes('youtube.com') || url.includes('youtu.be') || 
+                                url.endsWith('.mp4') || url.endsWith('.webm') || url.endsWith('.ogg');
+                
+                if (isVideo) {
+                    // YouTube URL인 경우 embed 형식으로 변환
+                    let videoSrc = currentEvent.photo;
+                    if (url.includes('youtube.com/watch?v=')) {
+                        const videoId = currentEvent.photo.split('v=')[1].split('&')[0];
+                        videoSrc = `https://www.youtube.com/embed/${videoId}`;
+                    } else if (url.includes('youtu.be/')) {
+                        const videoId = currentEvent.photo.split('youtu.be/')[1].split('?')[0];
+                        videoSrc = `https://www.youtube.com/embed/${videoId}`;
+                    }
+                    
+                    // YouTube인 경우 iframe 사용, 아니면 video 태그 사용
+                    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                        eventOverlayVideo.innerHTML = `<iframe width="100%" height="300" src="${videoSrc}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+                        eventOverlayVideo.style.display = 'block';
+                        eventOverlayImage.style.display = 'none';
+                    } else {
+                        eventOverlayVideo.innerHTML = '';
+                        eventOverlayVideo.src = currentEvent.photo;
+                        eventOverlayVideo.style.display = 'block';
+                        eventOverlayImage.style.display = 'none';
+                    }
+                } else {
+                    // 이미지인 경우
+                    eventOverlayVideo.innerHTML = '';
+                    eventOverlayVideo.style.display = 'none';
+                    eventOverlayImage.src = currentEvent.photo;
+                    eventOverlayImage.style.display = 'block';
+                }
             } else {
+                eventOverlayVideo.innerHTML = '';
+                eventOverlayVideo.style.display = 'none';
                 eventOverlayImage.style.display = 'none';
             }
             eventOverlay.classList.add('visible');
@@ -4434,9 +4515,23 @@ function getCountryInfoById(id) {
       
       // 🚩 [추가] 역사기록 패널 토글 기능
       if (mapHistoryToggleBtn) {
+          const mapHistoryPanel = document.getElementById('map-history-panel');
+          
+          // 🚩 [추가] 초기 상태 설정: PC는 펼쳐진 상태, 모바일은 접힌 상태
+          const isMobile = document.body.classList.contains('force-mobile');
+          if (!isMobile) {
+              // PC 화면: 기본적으로 펼쳐진 상태
+              mapHistoryPanel.classList.add('expanded');
+              mapHistoryToggleBtn.innerHTML = '◆';
+              mapHistoryToggleBtn.title = '패널 접기';
+          } else {
+              // 모바일: 기본적으로 접힌 상태
+              mapHistoryPanel.classList.remove('expanded');
+              mapHistoryToggleBtn.innerHTML = '◆';
+              mapHistoryToggleBtn.title = '패널 펼치기';
+          }
+          
           mapHistoryToggleBtn.addEventListener('click', () => {
-              const mapHistoryPanel = document.getElementById('map-history-panel');
-              
               // expanded 클래스 토글
               const isExpanded = mapHistoryPanel.classList.contains('expanded');
               
