@@ -4528,6 +4528,11 @@ function getCountryInfoById(id) {
               mapHistoryPanel.addEventListener('dblclick', (e) => {
                   e.stopPropagation();
               });
+              
+              // 🚩 [추가] 마우스 휠 스크롤 시 지도에 영향 없도록 이벤트 전파 차단
+              mapHistoryPanel.addEventListener('wheel', (e) => {
+                  e.stopPropagation();
+              }, { passive: true });
           }
           
           // 🚩 [추가] 초기 상태 설정: PC는 펼쳐진 상태, 모바일은 접힌 상태
@@ -5093,10 +5098,8 @@ function getCountryInfoById(id) {
         const sliderMax = parseInt(combinedSlider.max);
         const totalSliderMonths = sliderMax - sliderMin;
     
-        // 🚩 [수정] 모든 국가를 표시하되, 시작 시간 순으로 정렬
-        let allCountries = validCountries.sort((a, b) => a.start - b.start);
-
         // 🚩 [수정] 민족 필터링 로직 적용 (전역 변수 사용)
+        let allCountries = validCountries;
         if (selectedEthnicity && selectedEthnicity !== 'all') {
             allCountries = allCountries.filter(country =>
                 country.ethnicity === selectedEthnicity
@@ -5106,10 +5109,23 @@ function getCountryInfoById(id) {
 
     
         const processCountries = (countriesToProcess) => {
-            const lanes = [];
+            const koreanLanes = []; // 한국 민족용 레인
+            const otherLanes = [];  // 다른 민족용 레인
             let maxLaneIndex = 0;
-    
-            countriesToProcess.forEach(country => {
+            
+            // 한국 민족 리스트
+            const koreanEthnicities = ['한국', '고조선', '부여', '고구려', '백제', '신라', '가야', '발해', '고려', '조선'];
+            
+            // 🚩 [수정] 국가들을 한국 민족과 다른 민족으로 분리하고 시작 시간 순으로 정렬
+            const koreanCountries = countriesToProcess
+                .filter(c => koreanEthnicities.includes(c.ethnicity))
+                .sort((a, b) => a.start - b.start);
+            const otherCountries = countriesToProcess
+                .filter(c => !koreanEthnicities.includes(c.ethnicity))
+                .sort((a, b) => a.start - b.start);
+            
+            // 국가를 렌더링하는 함수
+            const renderCountry = (country, lanes, laneOffset = 0) => {
                 const startMonths = yearMonthToTotalMonths(country.start, country.start_month || 1);
                 const endYear = country.end === null || isNaN(country.end) ? totalMonthsToYearMonth(sliderMax).year : country.end;
                 const endMonths = yearMonthToTotalMonths(endYear, country.end_month || 12);
@@ -5118,13 +5134,16 @@ function getCountryInfoById(id) {
     
                 const leftPercent = ((startMonths - sliderMin) / totalSliderMonths) * 100;
                 const widthPercent = ((endMonths - startMonths) / totalSliderMonths) * 100;
-    
+                
                 // 모든 국가를 겹치지 않게 배치
                 let laneIndex = lanes.findIndex(laneEndTime => laneEndTime <= startMonths);
                 if (laneIndex === -1) {
                     laneIndex = lanes.length;
                 }
                 lanes[laneIndex] = endMonths;
+                
+                // offset 적용
+                const finalLaneIndex = laneIndex + laneOffset;
     
                 const bar = document.createElement('div');
                 bar.className = 'timeline-bar';
@@ -5132,7 +5151,7 @@ function getCountryInfoById(id) {
                 bar.classList.add(country.is_main_dynasty ? 'main-dynasty' : 'minor-dynasty');
                 bar.style.left = `${leftPercent}%`;
                 bar.style.width = `${widthPercent}%`;
-                bar.style.top = `${laneIndex * 10}px`; // 10px 간격으로 배치
+                bar.style.top = `${finalLaneIndex * 10}px`; // 10px 간격으로 배치
                 bar.style.backgroundColor = country.color || '#7f8c8d';
     
                 // 🚩 [수정] 국가명에 민족 정보 추가
@@ -5146,8 +5165,16 @@ function getCountryInfoById(id) {
                 bar.dataset.countryId = country._id; // 🚩 [추가] 수도 클로즈업을 위해 국가 ID 추가
     
                 timelineContent.appendChild(bar);
-                maxLaneIndex = Math.max(maxLaneIndex, laneIndex);
-            });
+                maxLaneIndex = Math.max(maxLaneIndex, finalLaneIndex);
+            };
+            
+            // 🚩 [수정] 한국 민족 국가들을 먼저 렌더링 (상단 배치)
+            koreanCountries.forEach(country => renderCountry(country, koreanLanes, 0));
+            
+            // 🚩 [수정] 다른 민족 국가들을 나중에 렌더링 (하단 배치)
+            const koreanLaneCount = koreanLanes.length;
+            otherCountries.forEach(country => renderCountry(country, otherLanes, koreanLaneCount));
+            
             return maxLaneIndex + 1;
         };
     
