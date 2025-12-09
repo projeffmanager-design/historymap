@@ -359,29 +359,47 @@ body.force-mobile #map-king-list {
 }
 
 #map-history-panel:not(.expanded) {
-    width: 50px !important;
-    padding: 8px 4px !important;
+    width: 32px !important;
+    padding: 4px 2px !important;
     overflow: hidden !important;
 }
 
-#map-history-panel:not(.expanded) > div:first-child span,
-#map-history-panel:not(.expanded) > div:nth-child(2),
-#map-history-panel:not(.expanded) h3,
-#map-history-panel:not(.expanded) #map-history-records,
+/* 감춘 상태에서 숨길 요소들 - ID와 자식 선택자로 정확히 지정 */
+#map-history-panel:not(.expanded) #map-history-resizer,
+#map-history-panel:not(.expanded) > div:nth-child(2) > span,
+#map-history-panel:not(.expanded) > div:nth-child(3),
+#map-history-panel:not(.expanded) > div:nth-child(4),
 #map-history-panel:not(.expanded) #map-prev-history-btn,
 #map-history-panel:not(.expanded) #map-next-history-btn,
 #map-history-panel:not(.expanded) #map-open-history-form-btn {
     display: none !important;
 }
 
+/* 토글 버튼만 유지 - 더 작게 */
 #map-history-panel:not(.expanded) #map-history-toggle-btn {
+    display: inline-block !important;
     margin: 0 !important;
-    padding: 4px !important;
+    padding: 4px 3px !important;
+    width: 24px !important;
+    min-width: 24px !important;
+    font-size: 10px !important;
+}
+
+/* 감춘 상태에서 버튼 컨테이너는 중앙 정렬 */
+#map-history-panel:not(.expanded) > div:nth-child(2) {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    margin: 0 !important;
 }
 
 #map-history-panel.expanded {
     width: 320px !important;
     padding: 12px !important;
+}
+
+#map-history-panel.expanded #map-history-resizer {
+    display: block !important;
 }
 
 /* 🚩 [추가] 모바일에서 역사기록 패널 자동 축소 */
@@ -2438,7 +2456,7 @@ function enableFormDrag(formId) {
         <!-- 🚩 [추가] 슬라이더와 연대표를 지도 내부에 배치 -->
         <div id="timeline-slider-wrapper" style="position: absolute; top: 60px; left: 10px; right: 10px; z-index: 999; pointer-events: none;">
             <input type="range" id="combinedSlider" min="-28008" max="24359" step="1" value="4800" style="width: 100%; pointer-events: auto; margin-bottom: 5px;">
-            <div id="timeline-container" style="position: relative; overflow-x: hidden; overflow-y: visible; pointer-events: auto; cursor: grab;">
+            <div id="timeline-container" style="position: relative; height: 100px; overflow-x: hidden; overflow-y: visible; pointer-events: auto; cursor: grab;">
                 <div id="timeline-fade-left" style="position: absolute; left: 0; top: 0; bottom: 0; width: 150px; z-index: 10; pointer-events: none;"></div>
                 <div id="timeline-content" style="position: relative; transition: transform 0.3s ease;"></div>
                 <div id="timeline-fade-right" style="position: absolute; right: 0; top: 0; bottom: 0; width: 150px; z-index: 10; pointer-events: none;"></div>
@@ -2470,7 +2488,9 @@ function enableFormDrag(formId) {
         </div>
         
         <!-- 🚩 [수정] 역사 기록 투명 박스 (지도 오른쪽, 연대표 아래까지) -->
-        <div id="map-history-panel" style="position: absolute; top: 180px; bottom: 50px; right: 10px; width: 320px; z-index: 998; background: rgba(30, 42, 56, 0.60); backdrop-filter: blur(5px); padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); overflow-y: auto; pointer-events: auto; transition: width 0.3s ease, padding 0.3s ease;">
+        <div id="map-history-panel" style="position: absolute; top: 180px; bottom: 50px; right: 10px; width: 320px; z-index: 1000; background: rgba(30, 42, 56, 0.60); backdrop-filter: blur(5px); padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); overflow-y: auto; pointer-events: auto;">
+            <!-- 🚩 [추가] 크기 조절 핸들 (왼쪽 가장자리) -->
+            <div id="map-history-resizer" style="position: absolute; left: 0; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 1001; background: rgba(255, 255, 255, 0.1);"></div>
             <!-- 🚩 [수정] 버튼 줄에 "역사 기록" 제목 추가 -->
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                 <span style="font-size: 13px; font-weight: bold; color: #f5e9d2;">역사 기록</span>
@@ -4513,20 +4533,30 @@ function getCountryInfoById(id) {
           mapOpenHistoryFormBtn.addEventListener('click', openHistoryForm);
       }
       
+      // 🚩 [추가] 역사기록 패널 관련 기능
+      const mapHistoryPanel = document.getElementById('map-history-panel');
+      const mapHistoryResizer = document.getElementById('map-history-resizer');
+      
+      // 패널의 원래 너비를 저장할 변수 (전역으로 선언하여 토글과 리사이저에서 공유)
+      let savedPanelWidth = 320; // 기본값
+      
       // 🚩 [추가] 역사기록 패널 토글 기능
       if (mapHistoryToggleBtn) {
-          const mapHistoryPanel = document.getElementById('map-history-panel');
-          
-          // 🚩 [추가] 역사기록 패널의 클릭 이벤트가 지도로 전파되는 것을 방지
+          // 🚩 [추가] 역사기록 패널의 클릭 이벤트가 지도로 전파되는 것을 방지 (리사이저 제외)
           if (mapHistoryPanel) {
-              mapHistoryPanel.addEventListener('mousedown', (e) => {
-                  e.stopPropagation();
-              });
+              // mousedown은 리사이저에서 처리하므로 여기서는 제외
+              // 대신 다른 요소들만 이벤트 차단
               mapHistoryPanel.addEventListener('click', (e) => {
-                  e.stopPropagation();
+                  // 리사이저가 아닌 경우에만 전파 차단
+                  if (e.target.id !== 'map-history-resizer') {
+                      e.stopPropagation();
+                  }
               });
               mapHistoryPanel.addEventListener('dblclick', (e) => {
-                  e.stopPropagation();
+                  // 리사이저가 아닌 경우에만 전파 차단
+                  if (e.target.id !== 'map-history-resizer') {
+                      e.stopPropagation();
+                  }
               });
               
               // 🚩 [추가] 마우스 휠 스크롤 시 지도에 영향 없도록 이벤트 전파 차단
@@ -4537,6 +4567,7 @@ function getCountryInfoById(id) {
           
           // 🚩 [추가] 초기 상태 설정: PC는 펼쳐진 상태, 모바일은 접힌 상태
           const isMobile = document.body.classList.contains('force-mobile');
+          
           if (!isMobile) {
               // PC 화면: 기본적으로 펼쳐진 상태
               mapHistoryPanel.classList.add('expanded');
@@ -4549,20 +4580,75 @@ function getCountryInfoById(id) {
               mapHistoryToggleBtn.title = '패널 펼치기';
           }
           
-          mapHistoryToggleBtn.addEventListener('click', () => {
+          mapHistoryToggleBtn.addEventListener('click', (e) => {
+              console.log('Toggle button clicked'); // 디버깅용
+              e.stopPropagation(); // 이벤트 전파 차단
+              
               // expanded 클래스 토글
               const isExpanded = mapHistoryPanel.classList.contains('expanded');
               
               if (isExpanded) {
-                  // 축소
+                  // 축소 - 현재 너비를 저장하고 최소 크기로
+                  savedPanelWidth = mapHistoryPanel.offsetWidth;
                   mapHistoryPanel.classList.remove('expanded');
+                  mapHistoryPanel.style.setProperty('width', '32px', 'important'); // 최소 크기
                   mapHistoryToggleBtn.innerHTML = '◆';
                   mapHistoryToggleBtn.title = '패널 펼치기';
               } else {
-                  // 펼치기
+                  // 펼치기 - 저장된 너비로 복원
                   mapHistoryPanel.classList.add('expanded');
+                  mapHistoryPanel.style.setProperty('width', `${savedPanelWidth}px`, 'important');
                   mapHistoryToggleBtn.innerHTML = '◆';
                   mapHistoryToggleBtn.title = '패널 접기';
+              }
+          });
+      }
+
+      // 🚩 [추가] 역사기록 패널 크기 조절 기능
+      if (mapHistoryPanel && mapHistoryResizer) {
+          let isResizing = false;
+          let startX = 0;
+          let startWidth = 0;
+          
+          // 리사이저에 직접 이벤트 리스너 추가
+          mapHistoryResizer.addEventListener('mousedown', (e) => {
+              console.log('Resizer mousedown'); // 디버깅용
+              isResizing = true;
+              startX = e.clientX;
+              startWidth = mapHistoryPanel.offsetWidth;
+              
+              // 드래그 중 텍스트 선택 방지
+              e.preventDefault();
+              e.stopPropagation(); // 지도로 이벤트 전파 차단
+              document.body.style.cursor = 'ew-resize';
+              document.body.style.userSelect = 'none';
+          }, true); // capture phase에서 이벤트 잡기
+          
+          document.addEventListener('mousemove', (e) => {
+              if (!isResizing) return;
+              
+              e.preventDefault();
+              
+              // 왼쪽으로 드래그하면 너비 증가, 오른쪽으로 드래그하면 너비 감소
+              const deltaX = startX - e.clientX;
+              const newWidth = Math.max(200, Math.min(800, startWidth + deltaX));
+              
+              // width 직접 설정 (CSS 클래스 오버라이드)
+              mapHistoryPanel.style.setProperty('width', `${newWidth}px`, 'important');
+          });
+          
+          document.addEventListener('mouseup', () => {
+              if (isResizing) {
+                  console.log('Resizing ended'); // 디버깅용
+                  isResizing = false;
+                  document.body.style.cursor = '';
+                  document.body.style.userSelect = '';
+                  
+                  // 리사이징이 끝났을 때 현재 너비를 저장 (감추기/펼치기 시 복원용)
+                  if (mapHistoryPanel.classList.contains('expanded')) {
+                      savedPanelWidth = mapHistoryPanel.offsetWidth;
+                      console.log('Saved panel width:', savedPanelWidth); // 디버깅용
+                  }
               }
           });
       }
@@ -5181,14 +5267,21 @@ function getCountryInfoById(id) {
         // 모든 국가를 함께 처리하여 겹치지 않게 배치
         const finalLaneCount = processCountries(allCountries);
     
-        // 컨테이너 높이 자동 조절
-        timelineContent.style.height = `${finalLaneCount * 10}px`;
+        // 컨테이너 높이 자동 조절 (최소 높이 확보하여 잘림 방지)
+        const calculatedHeight = finalLaneCount * 10 + 20; // lane 높이 + 여유 공간
+        const minHeight = Math.max(calculatedHeight, 80); // 최소 80px
+        timelineContent.style.height = `${minHeight}px`;
+        
+        // timeline-container 높이도 자동 조절
+        timelineContainer.style.height = `${minHeight}px`;
         
         // 🚩 [추가] 연도 tick 생성
         createSliderTicks();
         
-        // 🚩 [추가] 현재 시점을 중앙에 배치하는 함수
-        updateTimelineScroll();
+        // 🚩 [추가] 현재 시점을 중앙에 배치하는 함수 (약간 지연시켜 DOM 업데이트 후 실행)
+        setTimeout(() => {
+            updateTimelineScroll(true); // 초기 로드시 transition 없이 즉시 이동
+        }, 100);
     }
     
     // 🚩 [추가] 연대표 스크롤 업데이트 함수
@@ -5212,15 +5305,22 @@ function getCountryInfoById(id) {
         // 중앙 정렬을 위한 offset 계산
         const offset = (containerWidth / 2) - (contentWidth * currentPercent);
         
-        // transition 제어
+        // transition 제어 - 더 부드러운 애니메이션
         if (skipTransition) {
             timelineContent.style.transition = 'none';
         } else {
-            timelineContent.style.transition = 'transform 0.3s ease';
+            timelineContent.style.transition = 'transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
         }
         
         // transform으로 이동
         timelineContent.style.transform = `translateX(${offset}px)`;
+        
+        // skipTransition이었다면 다음 프레임에 transition 복원
+        if (skipTransition) {
+            requestAnimationFrame(() => {
+                timelineContent.style.transition = 'transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+            });
+        }
     }
     
     // 🚩 [추가] 연대표 드래그 기능 구현
@@ -5439,6 +5539,7 @@ function getCountryInfoById(id) {
         updateMap(year, month);
         updateUI(year, month);
         checkAndDisplayEvent(year, month);
+        updateTimelineScroll(); // 🚩 [추가] 연도 변경 시 연대표도 함께 이동
     }
 
     // 🚩 [수정] 월 입력 필드에서 화살표 키를 눌렀을 때 연도 변경 로직 충돌 해결
@@ -7820,10 +7921,20 @@ kingSelect.addEventListener('change', () => {
                     // 🚩 [핵심 수정] 연대표 가시성 상태에 따라 관련 UI 요소들을 모두 제어합니다.
                     if (slider) slider.style.display = layerVisibility.timeline ? 'block' : 'none';
                     if (timelineContainer) {
-                        // 연대표를 다시 그리거나, 숨길 때 높이와 마진을 조절하여 레이아웃 깨짐을 방지합니다.
-                        createDynastyTimeline(); // createDynastyTimeline은 이제 내부적으로 가시성을 확인합니다.
-                        timelineContainer.style.height = layerVisibility.timeline ? `${timelineContainer.children.length > 0 ? timelineContainer.scrollHeight : 0}px` : '0px';
-                        timelineContainer.style.marginTop = layerVisibility.timeline ? '-38px' : '0px';
+                        if (layerVisibility.timeline) {
+                            // 연대표를 다시 그릴 때 초기 상태와 동일하게 스크롤 위치도 업데이트
+                            createDynastyTimeline(); // createDynastyTimeline 내부에서 updateTimelineScroll() 호출됨
+                            // 높이를 자동으로 조절 (createDynastyTimeline에서 이미 설정되지만 명시적으로 재설정)
+                            const timelineContent = document.getElementById('timeline-content');
+                            if (timelineContent) {
+                                timelineContainer.style.height = timelineContent.style.height;
+                            }
+                        } else {
+                            // 연대표를 끌 때만 높이를 0으로
+                            timelineContainer.style.height = '0px';
+                        }
+                        // marginTop은 제거하여 연도 컨트롤바 아래에 위치하도록 함
+                        timelineContainer.style.marginTop = '0px';
                     }
                     // 🚩 [핵심 수정] 눈금 숨김 처리를 가장 마지막에 실행하여 다른 UI 변경으로 인한 간섭을 방지합니다.
                     if (sliderTicks) sliderTicks.style.display = layerVisibility.timeline ? 'flex' : 'none';
@@ -7845,6 +7956,9 @@ kingSelect.addEventListener('change', () => {
 
                 // 1. 시간 이동
                 updateTime(startYear, startMonth);
+
+                // 🚩 [추가] 연대표도 해당 시점으로 스크롤
+                updateTimelineScroll();
 
                 // 2. 🚩 [추가] 해당 국가의 수도를 찾아 클로즈업
                 if (countryId) {
