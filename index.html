@@ -970,7 +970,7 @@ body.force-mobile .marker-type-selector button {
     }
     /* 🚩 [수정] 왕성 및 일반성 이름표 배경 이미지 및 스타일 적용 */
     .capital-marker .city-name {
-        font-size: 10px;
+        font-size: 12px;
         color: #ffffff; /* 밝은 텍스트 */
         background-image: url('https://github.com/projeffmanager-design/img/blob/main/%E1%84%89%E1%85%A5%E1%86%AB.png?raw=true');
         background-size: 100% 100%;
@@ -981,7 +981,7 @@ body.force-mobile .marker-type-selector button {
         white-space: nowrap; /* 🚩 수정: 텍스트가 한 줄로 표시되도록 설정 */
         margin-top: -3px; /* 🚩 수정: 왕관과 텍스트 사이 간격을 더 좁힘 */
         text-align: center; /* 🚩 [추가] 이름표 내부 텍스트를 중앙 정렬합니다. */
-        text-shadow: 1px 1px 2px black; /* 🚩 추가: 텍스트 가독성을 위한 그림자 */
+        text-shadow: -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000, 1px 1px 2px #000, 0px 0px 3px #000; /* 🚩 강화: 텍스트 가독성을 위한 그림자 */
         transform: scale(var(--marker-scale, 1));
     }
 
@@ -2630,6 +2630,18 @@ function enableFormDrag(formId) {
     <label for="castlePhoto">사진 URL:</label>
         <input type="text" id="castlePhoto" placeholder="선택 사항">
       </div>
+      <!-- 🚩 [추가] 커스텀 아이콘 설정 섹션 -->
+      <div class="form-row">
+    <label for="customIcon">커스텀 아이콘 URL:</label>
+        <input type="text" id="customIcon" placeholder="이미지 URL (선택 사항)">
+      </div>
+      <div class="form-row">
+        <label>아이콘 크기:</label>
+        <div class="input-group">
+          <input type="number" id="iconWidth" placeholder="너비 (px)" min="10" max="200" style="width: 120px;">
+          <input type="number" id="iconHeight" placeholder="높이 (px)" min="10" max="200" style="width: 120px;">
+        </div>
+      </div>
       <!-- 🚩 [수정] '성' 타입 전용 역사 기록 관리 섹션 -->
       <div id="castleHistorySection" style="border: 1px solid #00aaff; padding: 10px; margin-top: 10px; border-radius: 4px;">
           <h4>📜 성/도시 역사 기록</h4>
@@ -3940,32 +3952,47 @@ function updateMap(year, month) {
                 if (!layerVisibility.label) return;
                 if (!isWithinDuration) return;                
 
-                // 🚩 [추가] 저장된 크기에 따라 폰트 크기 결정
-                let fontSize = '15px'; // 기본 '중'
-                switch (castle.label_size) {
-                    case 'large':
-                        fontSize = '26px';
-                        break;
-                    case 'small':
-                        fontSize = '10px';
-                        break;
+                // 🚩 [추가] 커스텀 아이콘이 있으면 사용
+                if (castle.custom_icon) {
+                    const iconWidth = castle.icon_width || 32;
+                    const iconHeight = castle.icon_height || 32;
+                    const customIconHtml = `<img src="${castle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+                    const labelIcon = L.divIcon({
+                        className: 'custom-icon-marker',
+                        html: customIconHtml,
+                        iconSize: [iconWidth, iconHeight],
+                        iconAnchor: [iconWidth / 2, iconHeight / 2],
+                        pane: 'labelPane'
+                    });
+                    marker = L.marker([castle.lat, castle.lng], { icon: labelIcon, pane: 'labelPane' });
+                } else {
+                    // 🚩 [추가] 저장된 크기에 따라 폰트 크기 결정
+                    let fontSize = '15px'; // 기본 '중'
+                    switch (castle.label_size) {
+                        case 'large':
+                            fontSize = '26px';
+                            break;
+                        case 'small':
+                            fontSize = '10px';
+                            break;
+                    }
+                    const labelIcon = L.divIcon({
+                        // 🚩 [수정] pane: 'labelPane'을 지정하여 항상 최상위에 보이도록 함
+                        className: 'label-text-marker', 
+                        html: `<div style="
+                            font-size: ${fontSize}; 
+                            font-weight: bold; 
+                            color: ${castle.label_color || '#FFFFFF'}; 
+                            text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 0px 2px #000;
+                            white-space: nowrap;
+                            text-align: center;
+                        ">${castleName}</div>`,
+                        iconSize: [150, 40],
+                        iconAnchor: [50, 15],
+                        pane: 'labelPane'
+                    });
+                    marker = L.marker([castle.lat, castle.lng], { icon: labelIcon, pane: 'labelPane' });
                 }
-                const labelIcon = L.divIcon({
-                    // 🚩 [수정] pane: 'labelPane'을 지정하여 항상 최상위에 보이도록 함
-                    className: 'label-text-marker', 
-                    html: `<div style="
-                        font-size: ${fontSize}; 
-                        font-weight: bold; 
-                        color: ${castle.label_color || '#FFFFFF'}; 
-                        text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 0px 2px #000;
-                        white-space: nowrap;
-                        text-align: center;
-                    ">${castleName}</div>`,
-                    iconSize: [150, 40],
-                    iconAnchor: [50, 15],
-                    pane: 'labelPane'
-                });
-                marker = L.marker([castle.lat, castle.lng], { icon: labelIcon, pane: 'labelPane' });
                 
                 const editorInfoHtml = castle.lastModifiedBy 
                     ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
@@ -3986,22 +4013,37 @@ function updateMap(year, month) {
                 if (!layerVisibility.natural) return;
                 if (!isWithinDuration) return;
 
-                const featureType = castle.natural_feature_type || 'other';
-                let iconInfo = getNaturalFeatureIcon(featureType);
-                if (!iconInfo) {
-                    iconInfo = getNaturalFeatureIcon('other');
+                // 🚩 [추가] 커스텀 아이콘이 있으면 사용
+                if (castle.custom_icon) {
+                    const iconWidth = castle.icon_width || 32;
+                    const iconHeight = castle.icon_height || 32;
+                    const customIconHtml = `<img src="${castle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+                    const featureIcon = L.divIcon({
+                        className: 'custom-icon-marker',
+                        html: customIconHtml,
+                        iconSize: [iconWidth, iconHeight],
+                        iconAnchor: [iconWidth / 2, iconHeight],
+                        popupAnchor: [0, -iconHeight]
+                    });
+                    marker = L.marker([castle.lat, castle.lng], { icon: featureIcon });
+                } else {
+                    const featureType = castle.natural_feature_type || 'other';
+                    let iconInfo = getNaturalFeatureIcon(featureType);
+                    if (!iconInfo) {
+                        iconInfo = getNaturalFeatureIcon('other');
+                    }
+                    const iconClass = iconInfo?.className || 'feature-other';
+                    const iconSymbol = iconInfo?.symbol || '❖';
+                    
+                    const featureIcon = L.divIcon({
+                        className: `natural-feature-marker ${iconClass}`,
+                            html: `<div>${iconSymbol}</div><div class="feature-name">${castleName}</div>`,
+                            iconSize: [60, 40],
+                            iconAnchor: [30, 40],
+                            popupAnchor: [6, -30] // 🚩 [추가] 팝업 위치를 아이콘 상단으로 조정
+                    });
+                    marker = L.marker([castle.lat, castle.lng], { icon: featureIcon });
                 }
-                const iconClass = iconInfo?.className || 'feature-other';
-                const iconSymbol = iconInfo?.symbol || '❖';
-                
-                const featureIcon = L.divIcon({
-                    className: `natural-feature-marker ${iconClass}`,
-                        html: `<div>${iconSymbol}</div><div class="feature-name">${castleName}</div>`,
-                        iconSize: [60, 40],
-                        iconAnchor: [30, 40],
-                        popupAnchor: [6, -30] // 🚩 [추가] 팝업 위치를 아이콘 상단으로 조정
-                });
-                marker = L.marker([castle.lat, castle.lng], { icon: featureIcon });
                 
                 const editorInfoHtml = castle.lastModifiedBy 
                     ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
@@ -4056,6 +4098,48 @@ function updateMap(year, month) {
                 // else: 경로 데이터가 없으면 정적 위치(castle.lat/lng) 사용
 
                 if (!shouldDisplay) return;
+
+                // 🚩 [추가] 커스텀 아이콘이 있으면 사용
+                if (castle.custom_icon) {
+                    const iconWidth = castle.icon_width || 32;
+                    const iconHeight = castle.icon_height || 32;
+                    const customIconHtml = `<img src="${castle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+                    const flagIcon = L.divIcon({
+                        className: 'custom-icon-marker',
+                        html: customIconHtml,
+                        iconSize: [iconWidth, iconHeight],
+                        iconAnchor: [iconWidth / 2, iconHeight],
+                        popupAnchor: [0, -iconHeight]
+                    });
+                    marker = L.marker([markerLat, markerLng], { icon: flagIcon });
+                    
+                    const flagHtml = countryInfo.flag ? `<img src="${countryInfo.flag}" class="country-flag-img" style="width: 20px; height: 13px; border: 1px solid #ccc; vertical-align: middle; margin-right: 5px;">` : '';
+                    const descriptionHtml = castle.desc ? `<br>설명: ${castle.desc}` : '';
+                    const metaInfo = [];
+                    if (castle.createdBy) metaInfo.push(`생성자: ${castle.createdBy}`);
+                    if (castle.lastModifiedBy) metaInfo.push(`마지막 수정: ${castle.lastModifiedBy}`);
+                    const editorInfoHtml = metaInfo.length ? `<br><small>${metaInfo.join('<br>')}</small>` : '';
+                    
+                    popupHtml = `
+                        ${flagHtml}<b>${countryName}</b>
+                        ${countryInfo.ethnicity ? `<br>민족: ${countryInfo.ethnicity}` : ''}<br>
+                        ${castle.general_name ? `장수: ${castle.general_name}<br>` : ''}
+                        ${castle.troop_count ? `병력: ${Number(castle.troop_count).toLocaleString()}<br>` : ''}
+                        ${castle.general_photo ? `<br><img src="${castle.general_photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}
+                        ${descriptionHtml}${editorInfoHtml}
+                    `;
+                    
+                    marker.bindPopup(popupHtml);
+                    marker.on('mouseover', function (e) { this.openPopup(); });
+                    marker.on('mouseout', function (e) { this.closePopup(); });
+                    marker.on('click', (e) => { 
+                        map.flyTo(e.latlng, 10);
+                        if (editMode) openCastleForm(castle._id); 
+                    });
+                    markers.push(marker);
+                    marker.addTo(castleLayerGroup);
+                    return;
+                }
 
                 const general = castle.general_name || '장수 미상';
                 const troops = castle.troop_count ? `${Number(castle.troop_count).toLocaleString()}` : '병력 미상';
@@ -4132,14 +4216,30 @@ function updateMap(year, month) {
         const isBattleMarker = castle.is_battle || activeHistoryRecord?.is_battle;
         if (isBattleMarker && layerVisibility.city) {
             console.log('💥 전장 마커 렌더링:', castleName, 'castle.is_battle:', castle.is_battle, 'history.is_battle:', activeHistoryRecord?.is_battle);
-            const battleIcon = L.divIcon({
-                className: 'battle-marker',
-                html: `<div style="line-height: 0.8;">💥</div><div class="battle-marker-text">${castleName}</div>`,
-                iconSize: [80, 40],
-                iconAnchor: [40, 30],
-                popupAnchor: [6, -25]
-            });
-            marker = L.marker([castle.lat, castle.lng], { icon: battleIcon });
+            
+            // 🚩 [추가] 커스텀 아이콘이 있으면 사용
+            if (castle.custom_icon) {
+                const iconWidth = castle.icon_width || 32;
+                const iconHeight = castle.icon_height || 32;
+                const customIconHtml = `<img src="${castle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+                const battleIcon = L.divIcon({
+                    className: 'custom-icon-marker',
+                    html: customIconHtml,
+                    iconSize: [iconWidth, iconHeight],
+                    iconAnchor: [iconWidth / 2, iconHeight],
+                    popupAnchor: [0, -iconHeight]
+                });
+                marker = L.marker([castle.lat, castle.lng], { icon: battleIcon });
+            } else {
+                const battleIcon = L.divIcon({
+                    className: 'battle-marker',
+                    html: `<div style="line-height: 0.8;">💥</div><div class="battle-marker-text">${castleName}</div>`,
+                    iconSize: [80, 40],
+                    iconAnchor: [40, 30],
+                    popupAnchor: [6, -25]
+                });
+                marker = L.marker([castle.lat, castle.lng], { icon: battleIcon });
+            }
             
             const editorInfoHtml = castle.lastModifiedBy 
                 ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
@@ -4202,13 +4302,26 @@ function updateMap(year, month) {
                 + editorInfoHtml;
 
 
-            if (currentCountry.flag && !activeHistoryRecord.is_capital) { // 🚩 [수정] activeHistoryRecord 사용
+            // 🚩 [추가] 커스텀 아이콘이 있으면 일반/수도 구분 없이 커스텀 아이콘 사용
+            if (castle.custom_icon) {
+                const iconWidth = castle.icon_width || 32;
+                const iconHeight = castle.icon_height || 32;
+                const customIconHtml = `<img src="${castle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+                const customIcon = L.divIcon({
+                    className: 'custom-icon-marker',
+                    html: customIconHtml,
+                    iconSize: [iconWidth, iconHeight],
+                    iconAnchor: [iconWidth / 2, iconHeight],
+                    popupAnchor: [0, -iconHeight]
+                });
+                marker = L.marker([castle.lat, castle.lng], { icon: customIcon, zIndexOffset: activeHistoryRecord.is_capital ? 1000 : 0 });
+            } else if (currentCountry.flag && !activeHistoryRecord.is_capital) { // 🚩 [수정] activeHistoryRecord 사용
               // ... 기존 깃발 + 이름 마커 로직 유지 ...
           // 🚩 [수정] 이름표 배경 이미지 적용
           const flagAndNameIconHtml = `
-            <div style="display: flex; align-items: center; gap: 5px;">
-              <img src="${currentCountry.flag}" class="country-flag-img" style="width: 30px; height: 20px; border: 1px solid #fff;">
-              <span class="city-name" style="color:${currentCountry.color || 'white'}; font-weight: bold; font-size: 10px; white-space: nowrap;">${castleName}</span>
+            <div style="display: flex; align-items: center; gap: 3px; transform: scale(var(--marker-scale, 1));">
+              <img src="${currentCountry.flag}" class="country-flag-img" style="width: 18px; height: 12px; border: 1px solid #fff;">
+              <span class="city-name" style="color:${currentCountry.color || 'white'}; font-weight: bold; font-size: 10px; white-space: nowrap; text-shadow: -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000, 1px 1px 2px #000, 0px 0px 3px #000, 0px 0px 5px #000;">${castleName}</span>
             </div>
               `;
               const customIcon = L.divIcon({
@@ -4217,10 +4330,7 @@ function updateMap(year, month) {
                   iconAnchor: [10, -5]
               });
               marker = L.marker([castle.lat, castle.lng], { icon: customIcon });
-            }
-
-            // 🚩 [제거] 전장 체크는 이미 위에서(국가 체크 전에) 처리되었으므로 여기서는 수도/일반 성만 처리
-            if (activeHistoryRecord.is_capital) { // 🚩 [수정] activeHistoryRecord 사용
+            } else if (activeHistoryRecord.is_capital) { // 🚩 [제거] 전장 체크는 이미 위에서(국가 체크 전에) 처리되었으므로 여기서는 수도/일반 성만 처리
               // ... 기존 왕성 마커 로직 유지 ...
               if (currentCountry.flag) {
             const capitalWithFlagIconHtml = `<div class="capital-marker" style="display: flex; flex-direction: column; align-items: center;">
@@ -4248,8 +4358,8 @@ function updateMap(year, month) {
               // ... 기존 일반 성/도시 마커 로직 유지 ...
           // 🚩 [핵심 수정] 일반성 마커를 원(dot)에서 역삼각형(▼)으로 변경합니다.
           const dotColor = currentCountry.color || 'white'; 
-              const markerHtml = `<div style="position: relative; display: flex; flex-direction: column; align-items: center;">
-                                    <div style="width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 10px solid ${dotColor}; filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.8));"></div><div class="city-marker-text" style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); color:${dotColor}; font-weight: bold; font-size: 10px; white-space: nowrap; text-shadow: -1px -1px 1px #000, 1px -1px 1px #000, -1px 1px 1px #000, 1px 1px 1px #000, 0px 0px 2px #000;">${castleName}</div>
+              const markerHtml = `<div style="position: relative; display: flex; flex-direction: column; align-items: center; transform: scale(var(--marker-scale, 1));">
+                                    <div style="width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 10px solid ${dotColor}; filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.8));"></div><div class="city-marker-text" style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); color:${dotColor}; font-weight: bold; font-size: 10px; white-space: nowrap; text-shadow: -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000, 1px 1px 2px #000, 0px 0px 3px #000, 0px 0px 5px #000;">${castleName}</div>
                                   </div>`;
               const customIcon = L.divIcon({
                 className: 'custom-city-marker',
@@ -4658,11 +4768,11 @@ function getCountryInfoById(id) {
           const zoom = map.getZoom();
           let scale = 1.0;
 
-          // 줌 레벨에 따라 scale 값 결정 (더 작게 조정)
-          if (zoom <= 4) scale = 0.25;
-          else if (zoom === 5) scale = 0.4;
-          else if (zoom === 6) scale = 0.6;
-          else if (zoom === 7) scale = 0.8;
+          // 줌 레벨에 따라 scale 값 결정 (100km 지점에서 폰트 2 정도 키움)
+          if (zoom <= 4) scale = 0.5;
+          else if (zoom === 5) scale = 0.7;
+          else if (zoom === 6) scale = 0.9;  // 100km 지점 - 폰트 크게
+          else if (zoom === 7) scale = 1.1;  // 100km 지점 - 폰트 크게
           else if (zoom === 8) scale = 1.0;
           else if (zoom >= 9) scale = 1.2;
 
@@ -5330,12 +5440,14 @@ function getCountryInfoById(id) {
         if (!timelineContainer || !timelineContent) return;
         
         let isDragging = false;
+        let hasDragged = false; // 🚩 [추가] 실제로 드래그가 발생했는지 추적
         let startX = 0;
         let startSliderValue = 0;
         
         // 마우스 이벤트
         timelineContainer.addEventListener('mousedown', (e) => {
             isDragging = true;
+            hasDragged = false; // 🚩 [추가] 초기화
             startX = e.clientX;
             startSliderValue = parseInt(combinedSlider.value);
             timelineContainer.style.cursor = 'grabbing';
@@ -5351,6 +5463,12 @@ function getCountryInfoById(id) {
             e.stopPropagation(); // 🚩 [수정] 지도로 이벤트 전파 방지
             
             const deltaX = e.clientX - startX;
+            
+            // 🚩 [추가] 5px 이상 이동하면 드래그로 간주
+            if (Math.abs(deltaX) > 5) {
+                hasDragged = true;
+            }
+            
             const containerWidth = timelineContainer.offsetWidth;
             const contentWidth = timelineContent.offsetWidth;
             
@@ -5375,12 +5493,23 @@ function getCountryInfoById(id) {
                 timelineContent.style.transition = 'transform 0.3s ease';
                 e.preventDefault();
                 e.stopPropagation(); // 🚩 [수정] 지도로 이벤트 전파 방지
+                
+                // 🚩 [추가] 드래그가 발생한 경우 잠시 후 hasDragged를 리셋
+                if (hasDragged) {
+                    setTimeout(() => {
+                        hasDragged = false;
+                    }, 100);
+                }
             }
         });
+        
+        // 🚩 [추가] hasDragged 상태를 외부에서 확인할 수 있도록 함수 반환
+        return () => hasDragged;
         
         // 터치 이벤트
         timelineContainer.addEventListener('touchstart', (e) => {
             isDragging = true;
+            hasDragged = false; // 🚩 [추가] 초기화
             startX = e.touches[0].clientX;
             startSliderValue = parseInt(combinedSlider.value);
             timelineContent.style.transition = 'none';
@@ -5395,6 +5524,12 @@ function getCountryInfoById(id) {
             e.stopPropagation(); // 🚩 [수정] 지도로 이벤트 전파 방지
             
             const deltaX = e.touches[0].clientX - startX;
+            
+            // 🚩 [추가] 5px 이상 이동하면 드래그로 간주
+            if (Math.abs(deltaX) > 5) {
+                hasDragged = true;
+            }
+            
             const containerWidth = timelineContainer.offsetWidth;
             const contentWidth = timelineContent.offsetWidth;
             
@@ -5417,6 +5552,13 @@ function getCountryInfoById(id) {
                 timelineContent.style.transition = 'transform 0.3s ease';
                 e.preventDefault();
                 e.stopPropagation(); // 🚩 [수정] 지도로 이벤트 전파 방지
+                
+                // 🚩 [추가] 드래그가 발생한 경우 잠시 후 hasDragged를 리셋
+                if (hasDragged) {
+                    setTimeout(() => {
+                        hasDragged = false;
+                    }, 100);
+                }
             }
         }, { passive: false });
     }
@@ -5807,6 +5949,11 @@ function getCountryInfoById(id) {
       addCastleForm.reset();
       document.getElementById('deleteCastle').style.display = 'none';
       
+      // 🚩 [추가] 커스텀 아이콘 필드 초기화
+      document.getElementById('customIcon').value = '';
+      document.getElementById('iconWidth').value = '';
+      document.getElementById('iconHeight').value = '';
+      
       document.getElementById('castleLat').value = e.latlng.lat.toFixed(6);
       document.getElementById('castleLng').value = e.latlng.lng.toFixed(6);
       
@@ -5899,6 +6046,10 @@ function getCountryInfoById(id) {
         document.getElementById('castleLng').value = castle.lng;
         document.getElementById('castleDesc').value = castle.desc ?? '';
         document.getElementById('castlePhoto').value = castle.photo ?? '';
+        // 🚩 [추가] 커스텀 아이콘 필드 로드
+        document.getElementById('customIcon').value = castle.custom_icon ?? '';
+        document.getElementById('iconWidth').value = castle.icon_width ?? '';
+        document.getElementById('iconHeight').value = castle.icon_height ?? '';
         // 🚩 [추가] 국가가 있을 경우, 기본 파괴 연도 설정을 위한 값 저장
         if (countryInfo) {
         }
@@ -6176,6 +6327,9 @@ function getCountryInfoById(id) {
         label_color: document.getElementById('labelColor').value,
         label_size: document.getElementById('labelSize').value,
         natural_feature_type: selectedType === 'natural' ? document.getElementById('naturalFeatureType').value : null,
+        custom_icon: document.getElementById('customIcon').value || null, // 🚩 [추가] 커스텀 아이콘
+        icon_width: document.getElementById('iconWidth').value ? parseInt(document.getElementById('iconWidth').value) : null, // 🚩 [추가] 아이콘 너비
+        icon_height: document.getElementById('iconHeight').value ? parseInt(document.getElementById('iconHeight').value) : null, // 🚩 [추가] 아이콘 높이
       };
 
       if (selectedType === 'normal') { // 🚩 [수정] 'capital' 타입 조건 제거
@@ -7718,7 +7872,7 @@ kingSelect.addEventListener('change', () => {
         initializeTopPanelToggle(); // 🚩 [추가] PC 버전 상단 패널 토글 초기화
 
         createDynastyTimeline(); // 🚩 [추가] 연대표 생성 함수 호출 (내부에서 tick도 생성)
-        initTimelineDrag(); // 🚩 [추가] 연대표 드래그 기능 초기화
+        const checkTimelineDragged = initTimelineDrag(); // 🚩 [수정] 드래그 상태 체크 함수를 저장
     // initializeDrawControl(); // 그리기 컨트롤은 편집모드에서만 활성화
 
         // 🚩 [추가] 모바일 감지 및 초기 설정
@@ -7949,6 +8103,11 @@ kingSelect.addEventListener('change', () => {
         const timelineContainer = document.getElementById('timeline-container');
         timelineContainer.addEventListener('click', (e) => {
             if (e.target.classList.contains('timeline-bar')) {
+                // 🚩 [추가] 드래그 중이었다면 클릭 이벤트 무시
+                if (typeof checkTimelineDragged === 'function' && checkTimelineDragged()) {
+                    return;
+                }
+                
                 const bar = e.target;
                 const startYear = parseInt(bar.dataset.startYear);
                 const startMonth = parseInt(bar.dataset.startMonth);
