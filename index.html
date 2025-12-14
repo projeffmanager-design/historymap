@@ -789,7 +789,7 @@ body.force-mobile .marker-type-selector button {
     #timeline-container {
         position: relative;
         width: 100%;
-        height: 80px; /* 🚩 [수정] tick 공간을 위해 높이 증가 */
+        height: 45px; /* 🚩 [수정] tick 공간을 위해 높이 증가 */
         overflow-x: hidden; /* 🚩 [수정] 가로 스크롤만 숨김 */
         overflow-y: visible; /* 🚩 [수정] 세로는 visible로 tick 표시 */
         box-sizing: border-box;
@@ -1982,7 +1982,7 @@ function enableFormDrag(formId) {
         }
         
         #timeline-container {
-            height: 50px !important;
+            height: 35px !important;
         }
         
         #timeline-fade-left,
@@ -2456,7 +2456,7 @@ function enableFormDrag(formId) {
         <!-- 🚩 [추가] 슬라이더와 연대표를 지도 내부에 배치 -->
         <div id="timeline-slider-wrapper" style="position: absolute; top: 60px; left: 10px; right: 10px; z-index: 999; pointer-events: none;">
             <input type="range" id="combinedSlider" min="-28008" max="24359" step="1" value="4800" style="width: 100%; pointer-events: auto; margin-bottom: 5px;">
-            <div id="timeline-container" style="position: relative; height: 100px; overflow-x: hidden; overflow-y: visible; pointer-events: auto; cursor: grab;">
+            <div id="timeline-container" style="position: relative; height: 45px; overflow-x: hidden; overflow-y: visible; pointer-events: auto; cursor: grab;">
                 <div id="timeline-fade-left" style="position: absolute; left: 0; top: 0; bottom: 0; width: 150px; z-index: 10; pointer-events: none;"></div>
                 <div id="timeline-content" style="position: relative; transition: transform 0.3s ease;"></div>
                 <div id="timeline-fade-right" style="position: absolute; right: 0; top: 0; bottom: 0; width: 150px; z-index: 10; pointer-events: none;"></div>
@@ -2480,7 +2480,7 @@ function enableFormDrag(formId) {
         </div>
         
         <!-- 🚩 [수정] 왕 목록 투명 박스 (지도 왼쪽 하단, 확대축소 버튼 위) -->
-        <div id="map-king-panel" style="position: absolute; bottom: 80px; left: 10px; width: 350px; max-height: 30vh; z-index: 998; background: rgba(30, 42, 56, 0.40); backdrop-filter: blur(5px); padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); overflow-y: auto; pointer-events: auto;">
+        <div id="map-king-panel" style="position: absolute; bottom: 80px; left: 10px; width: 370px; max-height: 30vh; z-index: 998; background: rgba(30, 42, 56, 0.40); backdrop-filter: blur(3px); padding: 12px; border-radius: 8px; box-shadow: 1 2px 8px rgba(0,0,0,0.3); overflow-y: auto; pointer-events: auto;">
             <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #f5e9d2; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 8px;">국가별 왕 목록</h3>
             <div id="map-king-list" style="font-size: 12px; line-height: 1.6; color: #ddd;">
                 해당 연도 왕 정보 없음
@@ -2585,7 +2585,7 @@ function enableFormDrag(formId) {
   </div> <!-- mainContainer 종료 -->
 
     <div id="castleForm" style="display:none;">
-        <h3>새로운 오브젝트 추가/편집</h3> <form id="addCastleForm"><input type="hidden" id="castleKey"><div class="form-row"><label>마커 타입:</label><div id="markerTypeSelector" class="marker-type-selector"><button type="button" data-type="normal" class="active">성/도시</button><button type="button" data-type="military">군대</button><button type="button" data-type="natural">자연</button><button type="button" data-type="label">지명</button></div></div><div class="form-row"><label for="castleName">이름:</label>
+        <h3>새로운 오브젝트 추가/편집</h3> <form id="addCastleForm"><input type="hidden" id="castleKey"><div class="form-row"><label>마커 타입:</label><div id="markerTypeSelector" class="marker-type-selector"><button type="button" data-type="normal" class="active">성/도시</button><button type="button" data-type="battle">전장</button><button type="button" data-type="military">군대</button><button type="button" data-type="natural">자연</button><button type="button" data-type="label">지명</button></div></div><div class="form-row"><label for="castleName">이름:</label>
         <input type="text" id="castleName" style="width: 280px;" required> 
       </div>
       <div class="form-row" id="labelColorRow" style="display:none;">
@@ -6056,14 +6056,15 @@ function getCountryInfoById(id) {
 
         // 🚩 [수정] 체크박스 대신 마커 타입 선택기 상태 업데이트
         let currentType = 'normal';
-        if (castle.is_natural_feature) {
+        if (castle.is_battle) {
+            currentType = 'battle';
+        } else if (castle.is_natural_feature) {
             currentType = 'natural';
         } else if (castle.is_military_flag) {
             currentType = 'military';
         } else if (castle.is_label) {
             currentType = 'label';
         }
-        // 🚩 [제거] is_battle은 이제 독립적인 마커 타입이 아니므로 체크 제거
         document.getElementById('labelSize').value = castle.label_size || 'medium'; // 🚩 [추가] 글자 크기 로드
         setActiveMarkerType(currentType);
 
@@ -6081,8 +6082,8 @@ function getCountryInfoById(id) {
         }
 
         // 🚩 [수정] 타입에 따라 역사 기록 또는 단일 기간 필드 채우기
-        if (currentType === 'normal') { // 🚩 [수정] 'capital' 타입 조건 제거
-            // 성/왕성: 복잡한 역사 기록
+        if (currentType === 'normal' || currentType === 'battle') { // 🚩 [수정] 전장 타입도 역사 기록 사용
+            // 성/왕성/전장: 복잡한 역사 기록
             const historyListContainer = document.getElementById('castleHistoryList'); 
             historyListContainer.innerHTML = ''; // 초기화 
 
@@ -6173,10 +6174,10 @@ function getCountryInfoById(id) {
 
         // 🚩 [핵심 수정] 타입에 따라 UI 요소들의 가시성을 제어합니다.
         const isCastle = (type === 'normal'); // 🚩 [수정] 'capital' 타입 조건 제거
+        const isBattle = (type === 'battle'); // 🚩 [추가] 전장 타입
         const isMilitary = (type === 'military');
         const isNatural = (type === 'natural');
         const isLabel = (type === 'label');
-        // 🚩 [제거] isBattle은 더 이상 독립 타입이 아님
 
         // 이름 필드: 군대 타입은 '장수 이름'을 사용하므로 숨김
         const castleNameInput = document.getElementById('castleName');
@@ -6189,24 +6190,24 @@ function getCountryInfoById(id) {
         }
 
         // 복잡한 역사 기록 섹션
-        castleHistorySection.style.display = isCastle ? 'block' : 'none';
+        castleHistorySection.style.display = (isCastle || isBattle) ? 'block' : 'none';
         
         // 🚩 [핵심 수정] 히스토리 섹션이 숨겨질 때 required 속성 제거
         const historyInputs = castleHistorySection.querySelectorAll('input[required]');
         historyInputs.forEach(input => {
-            if (!isCastle) {
+            if (!isCastle && !isBattle) {
                 input.removeAttribute('required');
             }
         });
 
         // 단순 기간 설정 섹션
-        simpleDateSection.style.display = isCastle ? 'none' : 'block';
+        simpleDateSection.style.display = (isCastle || isBattle) ? 'none' : 'block';
         document.getElementById('simpleStartMonth').style.display = (isNatural || isLabel) ? 'none' : 'inline-block';
         document.getElementById('simpleEndMonth').style.display = (isNatural || isLabel) ? 'none' : 'inline-block';
 
         // 🚩 [수정] 설명 및 사진 필드 가시성 로직 복원
-        castleDescRow.style.display = (isCastle || isMilitary || isLabel) ? 'flex' : 'none';
-        castlePhotoRow.style.display = (isCastle || isLabel) ? 'flex' : 'none';
+        castleDescRow.style.display = (isCastle || isMilitary || isLabel || isBattle) ? 'flex' : 'none';
+        castlePhotoRow.style.display = (isCastle || isLabel || isBattle) ? 'flex' : 'none';
 
         // 군대 전용 필드
         militaryFlagDetails.style.display = isMilitary ? 'block' : 'none';
@@ -6332,7 +6333,7 @@ function getCountryInfoById(id) {
         icon_height: document.getElementById('iconHeight').value ? parseInt(document.getElementById('iconHeight').value) : null, // 🚩 [추가] 아이콘 높이
       };
 
-      if (selectedType === 'normal') { // 🚩 [수정] 'capital' 타입 조건 제거
+      if (selectedType === 'normal' || selectedType === 'battle') { // 🚩 [수정] 전장 타입도 역사 기록 사용
           const historyRows = document.querySelectorAll('#castleHistoryList .history-record-row');
           const historyData = Array.from(historyRows).map(row => {
               const nameVal = row.querySelector('input.history-name').value;
@@ -6552,12 +6553,6 @@ function getCountryInfoById(id) {
 
         const originalCastleName = document.getElementById('castleName').value;
         
-        // 마지막 history record를 찾습니다.
-        const historyRows = document.querySelectorAll('#castleHistoryList .history-record-row');
-        const lastRow = historyRows[historyRows.length - 1];
-    const previousDestroyedYear = lastRow ? lastRow.querySelector('input.history-end-year').value : '';
-    const previousDestroyedMonth = lastRow ? lastRow.querySelector('input.history-end-month').value : '';
-
         // 복제 모드로 전환
         editingCastleKey = null; // 새 항목으로 저장하기 위해 키를 null로 설정
 
@@ -6567,17 +6562,8 @@ function getCountryInfoById(id) {
         document.getElementById('cloneCastle').style.display = 'none';
         document.querySelector('#addCastleForm button[type="submit"]').textContent = '추가';
 
-        // 새 역사 기록 추가
-        addCastleHistoryRow({
-            name: originalCastleName, // 이전 이름 유지
-            country_id: '', // 국가는 새로 선택
-            start_year: previousDestroyedYear,
-            start_month: previousDestroyedMonth,
-            end_year: '',
-            end_month: 12
-        });
-
-        alert(`'${originalCastleName}'의 복제가 준비되었습니다. 새로운 역사 기록을 확인하고 '추가' 버튼을 눌러주세요.`);
+        // 🚩 [수정] 역사 기록 행 추가 제거 - 기존 데이터만 유지
+        alert(`'${originalCastleName}'의 복제가 준비되었습니다. 기존 정보를 확인하고 '추가' 버튼을 눌러주세요.`);
     });
 
     /** 국가 목록을 성/위치 폼의 <select>에 업데이트 */
