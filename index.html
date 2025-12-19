@@ -1,11 +1,11 @@
 <style>
-    /* 🚩 그리기 폼 위치 강제 설정 - 좌측 하단 (최우선 순위) */
+    /* 🚩 그리기 폼 위치 강제 설정 - 우측 하단 (최우선 순위) */
     div#drawingForm[style],
     div#drawingForm {
         position: absolute !important;
         bottom: 10px !important;
-        left: 10px !important;
-        right: auto !important;
+        right: 10px !important;
+        left: auto !important;
         top: auto !important;
         transform: none !important;
         z-index: 1000 !important;
@@ -28,14 +28,9 @@
         justify-content: flex-start !important;
     }
 
-    /* 팝업이 항상 label marker 위에 오도록 z-index 강제 */
+    /* 팝업이 항상 연대표와 label marker 위에 오도록 z-index 강제 */
     .leaflet-popup-pane {
-        z-index: 1000 !important;
-            </div>
-
-            <!-- 🚩 [수정] 오른쪽 컨트롤 그룹 (필터 및 검색) -->
-            gap: 6px;
-        }
+        z-index: 10000 !important;
     }
 </style>
 <script>
@@ -1218,7 +1213,7 @@ body.force-mobile .marker-type-selector button {
                         padding: 3px 10px !important;
                     }
                 }
-
+            </style>
 </body>
 <script>
 // 🚩 폼 드래그: 터치 지원 추가 (모바일)
@@ -1276,8 +1271,9 @@ function enableFormDrag(formId) {
 
 // 여러 폼에 적용 (drawingForm은 제외 - 하단 고정)
 ['castleForm','historyForm','countryForm','kingForm','eventForm'].forEach(enableFormDrag);
+</script>
     <!-- 상단 메뉴는 항상 보이도록 JS 토글 로직 제거 -->
-    
+<style>    
     /* 사서 기록 칼럼 스타일 */
     .record-column { 
         border: 1px solid #ffffff00; border-radius: 4px; background: #3e526800; 
@@ -2204,11 +2200,15 @@ function enableFormDrag(formId) {
         color: #333; /* 어두운 글자색으로 가독성 확보 */
         border-radius: 5px;
         box-shadow: 0 3px 14px rgba(0,0,0,0.4);
+        z-index: 10000 !important;
     }
     .leaflet-popup-content {
         font-family: 'Noto Serif KR', serif; /* 팝업 폰트 변경 */
         margin: 13px 19px;
         line-height: 1.5;
+    }
+    .leaflet-popup {
+        z-index: 10000 !important;
     }
   </style>
 
@@ -2534,8 +2534,8 @@ function enableFormDrag(formId) {
             </div>
         </div>
         
-        <!-- 🚩 [추가] 그리기 툴바를 지도 좌측 하단에 가로로 배치 -->
-        <div id="drawingForm" style="display:none; position: absolute !important; bottom: 10px !important; left: 10px !important; right: auto !important; top: auto !important;">
+        <!-- 🚩 [추가] 그리기 툴바를 지도 우측 하단에 가로로 배치 -->
+        <div id="drawingForm" style="display:none; position: absolute !important; bottom: 10px !important; right: 10px !important; left: auto !important; top: auto !important;">
             <form id="editDrawingForm">
                 <input type="hidden" id="drawingMongoId">
                 <input type="hidden" id="drawingGeoJson">
@@ -2577,7 +2577,7 @@ function enableFormDrag(formId) {
   </div> <!-- mainContainer 종료 -->
 
     <div id="castleForm" style="display:none;">
-        <h3>새로운 오브젝트 추가/편집</h3> <form id="addCastleForm"><input type="hidden" id="castleKey"><div class="form-row"><label>마커 타입:</label><div id="markerTypeSelector" class="marker-type-selector"><button type="button" data-type="normal" class="active">성/도시</button><button type="button" data-type="battle">전장</button><button type="button" data-type="military">군대</button><button type="button" data-type="natural">자연</button><button type="button" data-type="label">지명</button></div></div><div class="form-row"><label for="castleName">이름:</label>
+        <h3>새로운 오브젝트 추가/편집</h3> <form id="addCastleForm"><input type="hidden" id="castleKey"><div class="form-row"><label>마커 타입:</label><div id="markerTypeSelector" class="marker-type-selector"><button type="button" data-type="normal" class="active">성/도시</button><button type="button" data-type="military">군대</button><button type="button" data-type="natural">자연</button><button type="button" data-type="label">지명</button></div></div><div class="form-row"><label for="castleName">이름:</label>
         <input type="text" id="castleName" style="width: 280px;" required> 
       </div>
       <div class="form-row" id="labelColorRow" style="display:none;">
@@ -4169,6 +4169,9 @@ function updateMap(year, month) {
         if (isBattleMarker && layerVisibility.city) {
             console.log('💥 전장 마커 렌더링:', castleName, 'castle.is_battle:', castle.is_battle, 'history.is_battle:', activeHistoryRecord?.is_battle);
             
+            // 전장도 국가 색깔 사용 (이미 위에서 countryInfo 가져옴)
+            const battleColor = countryInfo?.color || 'white';
+            
             // 🚩 [추가] 커스텀 아이콘이 있으면 사용
             if (castle.custom_icon) {
                 const iconWidth = castle.icon_width || 32;
@@ -4183,12 +4186,18 @@ function updateMap(year, month) {
                 });
                 marker = L.marker([castle.lat, castle.lng], { icon: battleIcon });
             } else {
+                // 깃발 성과 유사한 구조: 가로 배치 (아이콘 + 이름), 국가 색깔 사용, 폭발 아이콘은 더 크게
+                const battleMarkerHtml = `
+                <div style="display: flex; align-items: center; gap: 4px; transform: scale(var(--marker-scale, 1));">
+                  <div style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 28px; line-height: 1; filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.9));">💥</div>
+                  <span class="battle-name" style="color: ${battleColor}; font-weight: bold; font-size: 11px; white-space: nowrap; text-shadow: -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000, 1px 1px 2px #000, 0px 0px 3px #000, 0px 0px 5px #000;">${castleName}</span>
+                </div>
+                `;
+                
                 const battleIcon = L.divIcon({
-                    className: 'battle-marker',
-                    html: `<div style="line-height: 0.8;">💥</div><div class="battle-marker-text">${castleName}</div>`,
-                    iconSize: [80, 40],
-                    iconAnchor: [40, 30],
-                    popupAnchor: [6, -25]
+                    className: 'custom-battle-marker',
+                    html: battleMarkerHtml,
+                    iconAnchor: [14, -5] // 아이콘이 커진만큼 앵커도 조정
                 });
                 marker = L.marker([castle.lat, castle.lng], { icon: battleIcon });
             }
@@ -7387,11 +7396,11 @@ kingSelect.addEventListener('change', () => {
         const form = document.getElementById('drawingForm');
         form.style.display = 'block';
         
-        // 🚩 [추가] 위치 강제 설정 - 좌측 하단
+        // 🚩 [추가] 위치 강제 설정 - 우측 하단
         form.style.position = 'absolute';
         form.style.bottom = '10px';
-        form.style.left = '10px';
-        form.style.right = 'auto';
+        form.style.right = '10px';
+        form.style.left = 'auto';
         form.style.top = 'auto';
         form.style.transform = 'none';
         
@@ -7399,12 +7408,12 @@ kingSelect.addEventListener('change', () => {
         console.log('drawingForm 위치 설정:', {
             position: form.style.position,
             bottom: form.style.bottom,
-            left: form.style.left,
             right: form.style.right,
+            left: form.style.left,
             top: form.style.top,
             computed: window.getComputedStyle(form).position,
             computedBottom: window.getComputedStyle(form).bottom,
-            computedLeft: window.getComputedStyle(form).left
+            computedRight: window.getComputedStyle(form).right
         });
         
         document.getElementById('editDrawingForm').reset();
@@ -7819,13 +7828,13 @@ kingSelect.addEventListener('change', () => {
 
     // 🚩 [핵심 수정] 중복 선언된 DOMContentLoaded 리스너를 하나로 통합하고, 누락된 레이어 토글 이벤트 리스너를 추가합니다.
     document.addEventListener('DOMContentLoaded', async () => {
-        // 🚩 [추가] drawingForm 스타일 강제 적용 - 좌측 하단
+        // 🚩 [추가] drawingForm 스타일 강제 적용 - 우측 하단
         const drawingForm = document.getElementById('drawingForm');
         if (drawingForm) {
             drawingForm.style.position = 'absolute';
             drawingForm.style.bottom = '10px';
-            drawingForm.style.left = '10px';
-            drawingForm.style.right = 'auto';
+            drawingForm.style.right = '10px';
+            drawingForm.style.left = 'auto';
             drawingForm.style.top = 'auto';
             drawingForm.style.transform = 'none';
         }
