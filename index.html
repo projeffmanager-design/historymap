@@ -1123,6 +1123,13 @@ body.force-mobile .marker-type-selector button {
             max-height: 95vh;
         }
         
+        /* 🚩 [추가] 모든 폼 헤더를 드래그 가능하게 표시 */
+        #castleForm h3, #historyForm h3, #countryForm h3, #kingForm h3, #eventForm h3, 
+        #drawingForm h3, #editCitySelectionForm h3 {
+            cursor: move;
+            user-select: none;
+        }
+        
         /* drawingForm 스타일은 파일 상단에 통합됨 */
         
         #drawingForm .form-row {
@@ -2537,6 +2544,7 @@ function enableFormDrag(formId) {
         
         <!-- 🚩 [추가] 그리기 툴바를 지도 우측 하단에 가로로 배치 -->
         <div id="drawingForm" style="display:none; position: absolute !important; bottom: 10px !important; right: 10px !important; left: auto !important; top: auto !important;">
+            <h3 style="margin-top: 0;">그리기 편집</h3>
             <form id="editDrawingForm">
                 <input type="hidden" id="drawingMongoId">
                 <input type="hidden" id="drawingGeoJson">
@@ -3028,6 +3036,10 @@ function enableFormDrag(formId) {
         {   id: 'woojukdoBtn', 
             name: '우적도', 
             url: 'https://github.com/projeffmanager-design/img/blob/main/2%20%E1%84%8B%E1%85%AE%E1%84%8C%E1%85%A5%E1%86%A8%E1%84%83%E1%85%A9%20%E1%84%8E%E1%85%A2%E1%86%A8%E1%84%87%E1%85%A9%E1%84%80%E1%85%A9%20%E1%84%92%E1%85%A1%E1%86%AB%E1%84%80%E1%85%B3%E1%86%AF%E1%84%91%E1%85%A1%E1%86%AB.JPG?raw=true' 
+        },
+        {   id: 'surnameBtn', 
+            name: '성씨분포지도', 
+            url: 'https://m.21jingji.com/article/20190603/herald/c9f01b60b033a026a276deb3896ceb78.html' 
         }
     ];
 
@@ -4829,19 +4841,25 @@ function getCountryInfoById(id) {
           button.style.cssText = 'padding: 3px 6px; font-size: 10px; white-space: nowrap;';
           
           button.addEventListener('click', () => {
-              const newTab = window.open();
-              newTab.document.write(`
-                  <!DOCTYPE html>
-                  <html lang="ko"><head><meta charset="UTF-8"><title>${mapInfo.name}</title>
-                  <style>
-                      body { margin: 0; background-color: #111; text-align: center; }
-                      img { max-width: 100%; height: auto; cursor: zoom-in; transition: max-width 0.2s ease-in-out; }
-                      img.zoomed { max-width: none; cursor: zoom-out; }
-                  </style></head>
-                  <body><img src="${mapInfo.url}" alt="${mapInfo.name}" onclick="this.classList.toggle('zoomed')"></body>
-                  </html>
-              `);
-              newTab.document.close();
+              // 🚩 [수정] 성씨분포지도는 외부 링크로 직접 이동
+              if (mapInfo.id === 'surnameBtn') {
+                  window.open(mapInfo.url, '_blank');
+              } else {
+                  // 기존 이미지 오버레이 방식
+                  const newTab = window.open();
+                  newTab.document.write(`
+                      <!DOCTYPE html>
+                      <html lang="ko"><head><meta charset="UTF-8"><title>${mapInfo.name}</title>
+                      <style>
+                          body { margin: 0; background-color: #111; text-align: center; }
+                          img { max-width: 100%; height: auto; cursor: zoom-in; transition: max-width 0.2s ease-in-out; }
+                          img.zoomed { max-width: none; cursor: zoom-out; }
+                      </style></head>
+                      <body><img src="${mapInfo.url}" alt="${mapInfo.name}" onclick="this.classList.toggle('zoomed')"></body>
+                      </html>
+                  `);
+                  newTab.document.close();
+              }
           });
           mapButtonContainer.appendChild(button);
       });
