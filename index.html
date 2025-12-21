@@ -2931,6 +2931,10 @@ function enableFormDrag(formId) {
             <input type="text" id="kingName" required>
         </div>
         <div class="form-row">
+            <label for="kingSummary">한줄평:</label>
+            <input type="text" id="kingSummary" placeholder="왕에 대한 간단한 설명 (선택)">
+        </div>
+        <div class="form-row">
             <label for="kingStart">시작 연도:</label>
             <div class="input-group">
                 <input type="number" id="kingStart" required>
@@ -3408,6 +3412,11 @@ function getKingByYear(countryName, year, month) {
       countries.forEach(country => { // 🚩 [수정] 불필요한 괄호 제거
         const king = getKingByYear(country.name, year, month); // <-- THIS LINE WAS MISSING OR MISPLACED
        if (king) { // <-- Now the 'if' statement works because 'king' is defined
+            // 🚩 [디버그] 왕 데이터 확인
+            if (king.name === '태조' || king.name === '광개토왕') {
+                console.log('왕 데이터 확인:', king.name, 'summary:', king.summary);
+            }
+            
             const startMonth = king.start_month || 1;
             const endMonth = king.end_month || 12;
             const endYearText = king.end === null ? '현재' : `${king.end}년 ${endMonth}월`; 
@@ -3421,7 +3430,9 @@ function getKingByYear(countryName, year, month) {
                 iconHtml = `<span style="color:${countryColor}; style="width: 18px; height: 12px; border: 1px solid #ccc; margin-right: 5px; vertical-align: middle;"">▣</span>`;
             }
 
-            let kingHtml = `${iconHtml} <b><span class="country-name-link" style="cursor: pointer; text-decoration: underline;" onclick="zoomToCountryCapital('${country._id}')">${country.name}</span></b>: ${king.name} (${period})`;
+            // 🚩 한줄평을 HTML 속성에 안전하게 표시 (따옴표 이스케이프)
+            const kingSummary = (king.summary || '한줄평 없음').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            let kingHtml = `${iconHtml} <b><span class="country-name-link" style="cursor: pointer; text-decoration: underline;" onclick="zoomToCountryCapital('${country._id}')">${country.name}</span></b>: <span class="king-name" style="cursor: help;" title="${kingSummary}">${king.name}</span> (${period})`;
 
             html += `<div class="king-item">${kingHtml}</div>`;
         }
@@ -7123,6 +7134,7 @@ function getCountryInfoById(id) {
                           }).join('');
         if (resetForm) {
             document.getElementById('kingName').value = '';
+            document.getElementById('kingSummary').value = ''; // 🚩 한줄평 초기화
             document.getElementById('kingStart').value = '';
             document.getElementById('kingStartMonth').value = 1;
             document.getElementById('kingEnd').value = '';
@@ -7161,6 +7173,7 @@ kingSelect.addEventListener('change', () => {
         
         
         document.getElementById('kingName').value = king.name;
+        document.getElementById('kingSummary').value = king.summary || ''; // 🚩 한줄평 로드
         document.getElementById('kingStart').value = king.start;
         document.getElementById('kingStartMonth').value = king.start_month || 1;
         document.getElementById('kingEnd').value = king.end || '';
@@ -7186,11 +7199,15 @@ kingSelect.addEventListener('change', () => {
         const newKingData = {
             countryId: countryId, // 🚨 countryId를 전송
             name: document.getElementById('kingName').value,
+            summary: document.getElementById('kingSummary').value || '', // 🚩 한줄평 추가
             start: parseInt(document.getElementById('kingStart').value),
             start_month: parseInt(document.getElementById('kingStartMonth').value) || 1,
             end: parseInt(document.getElementById('kingEnd').value) || null,
             end_month: parseInt(document.getElementById('kingEndMonth').value) || 12,
         };
+
+        // 🚩 [디버그] 저장할 데이터 확인
+        console.log('저장할 왕 데이터:', newKingData);
 
         // 🚩 [수정] 업데이트 시에는 왕의 _id를 데이터에 포함시켜야 합니다.
         if (isUpdate) {
@@ -7346,6 +7363,7 @@ kingSelect.addEventListener('change', () => {
 
         
         document.getElementById('kingName').value = targetKing.name || '';
+        document.getElementById('kingSummary').value = targetKing.summary || ''; // 🚩 한줄평 로드
         document.getElementById('kingStart').value = targetKing.start || '';
         document.getElementById('kingStartMonth').value = targetKing.start_month || 1;
         document.getElementById('kingEnd').value = targetKing.end || '';
