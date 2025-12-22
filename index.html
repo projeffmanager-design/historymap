@@ -2450,7 +2450,7 @@ function enableFormDrag(formId) {
         
         <!-- 🚩 [추가] 슬라이더와 연대표를 지도 내부에 배치 -->
         <div id="timeline-slider-wrapper" style="position: absolute; top: 60px; left: 10px; right: 10px; z-index: 999; pointer-events: none;">
-            <input type="range" id="combinedSlider" min="-28008" max="24359" step="1" value="4800" style="width: 100%; pointer-events: auto; margin-bottom: 5px;">
+            <input type="range" id="combinedSlider" min="-60000" max="24359" step="1" value="4800" style="width: 100%; pointer-events: auto; margin-bottom: 5px;">
             <div id="timeline-container" style="position: relative; height: 45px; overflow-x: hidden; overflow-y: visible; pointer-events: auto; cursor: grab;">
                 <div id="timeline-fade-left" style="position: absolute; left: 0; top: 0; bottom: 0; width: 150px; z-index: 10; pointer-events: none;"></div>
                 <div id="timeline-content" style="position: relative; transition: transform 0.3s ease;"></div>
@@ -3084,7 +3084,7 @@ function enableFormDrag(formId) {
 
     function computeCountryActiveState(countryInfo, currentMonths) {
         if (!countryInfo) return false;
-        const startYear = countryInfo.start ?? -4000;
+        const startYear = countryInfo.start ?? -5000;
         const startMonth = countryInfo.start_month ?? 1;
         const endYear = (countryInfo.end === undefined || countryInfo.end === null) ? null : countryInfo.end;
         const endMonth = (countryInfo.end_month === undefined || countryInfo.end_month === null) ? 12 : countryInfo.end_month;
@@ -3340,7 +3340,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
             const record = historyList[index];
             if (!record) continue;
 
-            const startYear = normalizeHistoryNumber(record.start_year, -4000);
+            const startYear = normalizeHistoryNumber(record.start_year, -5000);
             const startMonth = normalizeHistoryNumber(record.start_month, 1);
             const startTotalMonths = yearMonthToTotalMonths(startYear, startMonth);
 
@@ -3743,8 +3743,24 @@ function updateMap(year, month) {
             
             // 🚩 [수정] mouseover 팝업을 제거하고, 클릭 시에만 팝업이 나타나도록 수정
             layer.on('click', (e) => { 
-                layer.openPopup(e.latlng); // 클릭한 위치에 팝업을 엽니다.
-                const bounds = layer.getBounds(); if (bounds.isValid()) { map.flyTo(bounds.getCenter(), 8); }
+                // 🚩 [수정] 마커인 경우 클릭한 위치에, 도형인 경우 중심에 팝업 표시
+                if (layer instanceof L.Marker) {
+                    layer.openPopup();
+                } else {
+                    layer.openPopup(e.latlng);
+                }
+                
+                // 🚩 [수정] 마커와 도형을 구분하여 이동 처리
+                if (layer instanceof L.Marker) {
+                    map.flyTo(layer.getLatLng(), 10);
+                } else {
+                    const bounds = layer.getBounds();
+                    if (bounds && bounds.isValid()) {
+                        map.flyTo(bounds.getCenter(), 8);
+                    }
+                }
+                
+                // 🚩 편집 모드일 때 폼 열기
                 if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) {
                     const geojsonToEdit = drawingData.geojson;
                     openDrawingForm(geojsonToEdit, drawingData);
@@ -4510,7 +4526,7 @@ function getCountryInfoById(id) {
               // history 배열이 있어도, 각 기록의 필수 필드가 비어있으면 최상위 필드로 채웁니다.
               // Use nullish checks and ensure numeric types for years/months
               processedHistory = castle.history.map(h => {
-                  const parsedStartYear = (h.start_year !== undefined && h.start_year !== null && h.start_year !== '') ? parseInt(h.start_year) : (castle.built_year !== undefined && castle.built_year !== null ? parseInt(castle.built_year) : -4000);
+                  const parsedStartYear = (h.start_year !== undefined && h.start_year !== null && h.start_year !== '') ? parseInt(h.start_year) : (castle.built_year !== undefined && castle.built_year !== null ? parseInt(castle.built_year) : -5000);
                   const parsedStartMonth = (h.start_month !== undefined && h.start_month !== null && h.start_month !== '') ? parseInt(h.start_month) : (castle.built_month !== undefined && castle.built_month !== null ? parseInt(castle.built_month) : 1);
                   const parsedEndYear = (h.end_year !== undefined && h.end_year !== null && h.end_year !== '') ? parseInt(h.end_year) : null;
                   const parsedEndMonth = (h.end_month !== undefined && h.end_month !== null && h.end_month !== '') ? parseInt(h.end_month) : (castle.destroyed_month !== undefined && castle.destroyed_month !== null ? parseInt(castle.destroyed_month) : 12);
@@ -4540,7 +4556,7 @@ function getCountryInfoById(id) {
               processedHistory = [{
                   name: castle.name || '',
                   country_id: castle.country_id || '',
-                  start_year: castle.built_year || -4000,
+                  start_year: castle.built_year || -5000,
                   start_month: castle.built_month || 1,
                   end_year: castle.destroyed_year,
                   end_month: castle.destroyed_month || 12,
@@ -5047,7 +5063,7 @@ function getCountryInfoById(id) {
               } else {
                   // 히스토리가 있지만 시간에 따라 표시가 되기도 안 되기도 함
                   const allTimeRangesValid = castle.history.every(h => {
-                      const startYear = (h.start_year !== undefined && h.start_year !== null && h.start_year !== '') ? parseInt(h.start_year) : -4000;
+                      const startYear = (h.start_year !== undefined && h.start_year !== null && h.start_year !== '') ? parseInt(h.start_year) : -5000;
                       const endYear = (h.end_year !== undefined && h.end_year !== null && h.end_year !== '') ? parseInt(h.end_year) : null;
                       return startYear !== undefined && startYear !== null;
                   });
@@ -6433,7 +6449,7 @@ function getCountryInfoById(id) {
               // Normalize the newly created castle's history so it matches the initialized format
               const normalizeHistoryEntry = (h, parent) => {
                   const resolvedCountryId = h.country_id || '';
-                  const parsedStartYear = (h.start_year !== undefined && h.start_year !== null && h.start_year !== '') ? parseInt(h.start_year) : (parent?.built_year !== undefined && parent?.built_year !== null ? parseInt(parent.built_year) : -4000);
+                  const parsedStartYear = (h.start_year !== undefined && h.start_year !== null && h.start_year !== '') ? parseInt(h.start_year) : (parent?.built_year !== undefined && parent?.built_year !== null ? parseInt(parent.built_year) : -5000);
                   const parsedStartMonth = (h.start_month !== undefined && h.start_month !== null && h.start_month !== '') ? parseInt(h.start_month) : (parent?.built_month !== undefined && parent?.built_month !== null ? parseInt(parent.built_month) : 1);
                   const parsedEndYear = (h.end_year !== undefined && h.end_year !== null && h.end_year !== '') ? parseInt(h.end_year) : null;
                   const parsedEndMonth = (h.end_month !== undefined && h.end_month !== null && h.end_month !== '') ? parseInt(h.end_month) : (parent?.destroyed_month !== undefined && parent?.destroyed_month !== null ? parseInt(parent.destroyed_month) : 12);
