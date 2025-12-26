@@ -2303,6 +2303,11 @@ function enableFormDrag(formId) {
         white-space: pre-wrap; /* 🚩 [추가] 줄바꿈과 공백 보존 */
         word-wrap: break-word; /* 🚩 [추가] 긴 단어 자동 줄바꿈 */
         text-align: left; /* 🚩 [추가] 좌측 정렬 */
+        max-height: 300px; /* 🚩 [추가] 최대 높이 설정 */
+        overflow-y: auto; /* 🚩 [추가] 세로 스크롤 */
+    }
+    .leaflet-popup-content-wrapper {
+        max-height: 350px; /* 🚩 [추가] 팝업 전체 최대 높이 */
     }
     .leaflet-popup {
         z-index: 10000 !important;
@@ -2849,13 +2854,11 @@ function enableFormDrag(formId) {
           .autocomplete-item:hover { background-color: #5d7185; }
           .history-field-container.history-name { flex: 1 1 100px; }
           .history-field-container.history-country { flex: 1 1 100px; }
-          .history-field-container.history-start-year { flex: 0 1 55px; } /* 🚩 [수정] 4digit 크기 */
-          .history-field-container.history-start-month { flex: 0 1 35px; } /* 🚩 [수정] 2digit 크기 */
-          .history-field-container.history-end-year { flex: 0 1 55px; } /* 🚩 [수정] 4digit 크기 */
-          .history-field-container.history-end-month { flex: 0 1 35px; } /* 🚩 [수정] 2digit 크기 */
+          .history-field-container.history-start-year { flex: 0 1 75px; } /* 🚩 [수정] 6digit 크기 (55px->75px) */
+          .history-field-container.history-start-month { flex: 0 1 55px; } /* 🚩 [수정] 4digit 크기 (35px->55px) */
+          .history-field-container.history-end-year { flex: 0 1 75px; } /* 🚩 [수정] 6digit 크기 (55px->75px) */
+          .history-field-container.history-end-month { flex: 0 1 55px; } /* 🚩 [수정] 4digit 크기 (35px->55px) */
           .history-record-row button { align-self: flex-end; flex-shrink: 0; width: 30px; padding: 5px; margin: 0; background-color: #e74c3c; }
-          .history-record-row button.duplicate-history-btn { background-color: #3498db; color: white; font-size: 16px; margin-right: 2px; width: 30px; padding: 5px; } /* 🚩 [수정] X 버튼과 동일 크기 */
-          .history-record-row button.duplicate-history-btn:hover { background-color: #2980b9; }
           .history-record-row input[type="checkbox"] { width: auto; margin: 0; }
       </style>
         <style>
@@ -3226,6 +3229,7 @@ function enableFormDrag(formId) {
     let historyYears = []; // 🚩 [추가] 역사 기록이 있는 연도 목록
     let drawings = []; // 🚩 [추가] 그리기 데이터 저장소
     let markers = [];
+    let currentOpenPopup = null; // 🚩 [추가] 현재 열린 팝업 추적
     let heatmapLayers = {}; // 국가별 히트맵 레이어 저장 
     let heatmapSourceDebug = {}; // 🚩 [추가] 강역 히트맵 원본 데이터를 추적하기 위한 디버그 맵
     let phantomDebugLayerGroup = null; // 🚩 [추가] 유령 강역 하이라이트용 레이어 그룹
@@ -4209,15 +4213,42 @@ function updateMap(year, month) {
                 popupHtml = `<b>지역명: ${castleName}</b><br>기간: ${builtText} ~ ${destroyedText}<br>설명: ${castle.desc ?? ''}${editorInfoHtml}`;
                 
               // 🚩 [추가] 지명에도 팝업 바인딩
-              marker.bindPopup(popupHtml);
+              marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
               
-              // 🚩 [추가] 마우스 오버 시 팝업 표시
+              let popupTimeout;
+              
+              // 마우스 오버 시 팝업 열기
               marker.on('mouseover', function(e) {
+                clearTimeout(popupTimeout);
+                // 이전 팝업 닫기
+                if (currentOpenPopup && currentOpenPopup !== this) {
+                  currentOpenPopup.closePopup();
+                }
                 this.openPopup();
+                currentOpenPopup = this;
               });
               
+              // 팝업이 열릴 때 이벤트 리스너 추가
+              marker.on('popupopen', function(e) {
+                const popup = e.popup;
+                if (popup && popup._container) {
+                  popup._container.addEventListener('mouseenter', function() {
+                    clearTimeout(popupTimeout);
+                  });
+                  popup._container.addEventListener('mouseleave', function() {
+                    marker.closePopup();
+                  });
+                }
+              });
+              
+              // 마우스 아웃 시 지연 후 팝업 닫기
               marker.on('mouseout', function(e) {
-                this.closePopup();
+                popupTimeout = setTimeout(() => {
+                  const popup = this.getPopup();
+                  if (!popup || !popup._container || !popup._container.matches(':hover')) {
+                    this.closePopup();
+                  }
+                }, 300);
               });
               
               marker.on('click', (e) => { 
@@ -4345,21 +4376,50 @@ function updateMap(year, month) {
                     if (castle.lastModifiedBy) metaInfo.push(`마지막 수정: ${castle.lastModifiedBy}`);
                     const editorInfoHtml = metaInfo.length ? `<br><small>${metaInfo.join('<br>')}</small>` : '';
                     
-                    popupHtml = `
-                        ${flagHtml}<b>${countryName}</b>
-                        ${countryInfo.ethnicity ? `<br>민족: ${countryInfo.ethnicity}` : ''}<br>
-                        ${castle.general_name ? `장수: ${castle.general_name}<br>` : ''}
-                        ${castle.troop_count ? `병력: ${Number(castle.troop_count).toLocaleString()}<br>` : ''}
-                        ${castle.general_photo ? `<br><img src="${castle.general_photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}
-                        ${descriptionHtml}${editorInfoHtml}
-                    `;
+                    popupHtml = `${flagHtml}<b>${countryName}</b>${countryInfo.ethnicity ? `<br>민족: ${countryInfo.ethnicity}` : ''}<br>${castle.general_name ? `장수: ${castle.general_name}<br>` : ''}${castle.troop_count ? `병력: ${Number(castle.troop_count).toLocaleString()}<br>` : ''}${castle.general_photo ? `<br><img src="${castle.general_photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}${descriptionHtml}${editorInfoHtml}`;
                     
-                    marker.bindPopup(popupHtml);
-                    marker.on('mouseover', function (e) { this.openPopup(); });
-                    marker.on('mouseout', function (e) { this.closePopup(); });
+                    marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
+                    
+                    let popupTimeout;
+                    
+                    marker.on('mouseover', function(e) {
+                        clearTimeout(popupTimeout);
+                        // 이전 팝업 닫기
+                        if (currentOpenPopup && currentOpenPopup !== this) {
+                            currentOpenPopup.closePopup();
+                        }
+                        this.openPopup();
+                        currentOpenPopup = this;
+                    });
+                    
+                    marker.on('popupopen', function(e) {
+                        const popup = e.popup;
+                        if (popup && popup._container) {
+                            popup._container.addEventListener('mouseenter', function() {
+                                clearTimeout(popupTimeout);
+                            });
+                            popup._container.addEventListener('mouseleave', function() {
+                                marker.closePopup();
+                            });
+                        }
+                    });
+                    
+                    marker.on('mouseout', function(e) {
+                        popupTimeout = setTimeout(() => {
+                            const popup = this.getPopup();
+                            if (!popup || !popup._container || !popup._container.matches(':hover')) {
+                                this.closePopup();
+                            }
+                        }, 300);
+                    });
+                    
                     marker.on('click', (e) => { 
                         map.flyTo(e.latlng, 10);
-                        if (editMode) openCastleForm(castle._id); 
+                        if (editMode) {
+                            openCastleForm(castle._id);
+                        } else {
+                            marker.openPopup();
+                        }
                     });
                     markers.push(marker);
                     marker.addTo(castleLayerGroup);
@@ -4412,22 +4472,50 @@ function updateMap(year, month) {
                 if (castle.lastModifiedBy) metaInfo.push(`마지막 수정: ${castle.lastModifiedBy}`);
                 const editorInfoHtml = metaInfo.length ? `<br><small>${metaInfo.join('<br>')}</small>` : '';
 
-                popupHtml = `
-                    ${flagHtml}<b>${countryName}</b>
-                    ${countryInfo.ethnicity ? `<br>민족: ${countryInfo.ethnicity}` : ''}<br>
-                    장수: ${general} <br> 
-                    병력: ${troops} <br> 
-                    ${generalPhotoUrl ? `<br><img src="${generalPhotoUrl}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}
-                    ${descriptionHtml}${editorInfoHtml}
-                `;
+                popupHtml = `${flagHtml}<b>${countryName}</b>${countryInfo.ethnicity ? `<br>민족: ${countryInfo.ethnicity}` : ''}<br>장수: ${general}<br>병력: ${troops}<br>${generalPhotoUrl ? `<br><img src="${generalPhotoUrl}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}${descriptionHtml}${editorInfoHtml}`;
                 
-                marker.bindPopup(popupHtml);
-                                // 팝업 이벤트 추가
-                marker.on('mouseover', function (e) { this.openPopup(); });
-                marker.on('mouseout', function (e) { this.closePopup(); });
+                marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
+                
+                let popupTimeout;
+                
+                marker.on('mouseover', function(e) {
+                    clearTimeout(popupTimeout);
+                    // 이전 팝업 닫기
+                    if (currentOpenPopup && currentOpenPopup !== this) {
+                        currentOpenPopup.closePopup();
+                    }
+                    this.openPopup();
+                    currentOpenPopup = this;
+                });
+                
+                marker.on('popupopen', function(e) {
+                    const popup = e.popup;
+                    if (popup && popup._container) {
+                        popup._container.addEventListener('mouseenter', function() {
+                            clearTimeout(popupTimeout);
+                        });
+                        popup._container.addEventListener('mouseleave', function() {
+                            marker.closePopup();
+                        });
+                    }
+                });
+                
+                marker.on('mouseout', function(e) {
+                    popupTimeout = setTimeout(() => {
+                        const popup = this.getPopup();
+                        if (!popup || !popup._container || !popup._container.matches(':hover')) {
+                            this.closePopup();
+                        }
+                    }, 300);
+                });
+                
                 marker.on('click', (e) => { 
                     map.flyTo(e.latlng, 10); // 🚩 [수정] 클릭 시 줌인하며 이동
-                    if (editMode) openCastleForm(castle._id); 
+                    if (editMode) {
+                        openCastleForm(castle._id);
+                    } else {
+                        marker.openPopup();
+                    }
                 });
                 markers.push(marker);
                  marker.addTo(castleLayerGroup);
@@ -4479,20 +4567,50 @@ function updateMap(year, month) {
                 ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
                 : (castle.createdBy ? `<br><small>생성자: ${castle.createdBy}</small>` : '');
             
-            popupHtml = `
-                <b>전장: ${castleName}</b><br>
-                기간: ${builtText} ~ ${destroyedText}<br>
-                설명: ${castle.desc ?? ''}
-                ${castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ""}
-                ${editorInfoHtml}
-            `;
+            popupHtml = `<b>전장: ${castleName}</b><br>기간: ${builtText} ~ ${destroyedText}<br>설명: ${castle.desc ?? ''}${castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ""}${editorInfoHtml}`;
             
-            marker.bindPopup(popupHtml);
-            marker.on('mouseover', function (e) { this.openPopup(); });
-            marker.on('mouseout', function (e) { this.closePopup(); });
+            marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
+            
+            let popupTimeout;
+            
+            marker.on('mouseover', function(e) {
+                clearTimeout(popupTimeout);
+                // 이전 팝업 닫기
+                if (currentOpenPopup && currentOpenPopup !== this) {
+                    currentOpenPopup.closePopup();
+                }
+                this.openPopup();
+                currentOpenPopup = this;
+            });
+            
+            marker.on('popupopen', function(e) {
+                const popup = e.popup;
+                if (popup && popup._container) {
+                    popup._container.addEventListener('mouseenter', function() {
+                        clearTimeout(popupTimeout);
+                    });
+                    popup._container.addEventListener('mouseleave', function() {
+                        marker.closePopup();
+                    });
+                }
+            });
+            
+            marker.on('mouseout', function(e) {
+                popupTimeout = setTimeout(() => {
+                    const popup = this.getPopup();
+                    if (!popup || !popup._container || !popup._container.matches(':hover')) {
+                        this.closePopup();
+                    }
+                }, 300);
+            });
+            
             marker.on('click', (e) => { 
                 map.flyTo(e.latlng, 10);
-                if (editMode) openCastleForm(castle._id); 
+                if (editMode) {
+                    openCastleForm(castle._id);
+                } else {
+                    marker.openPopup();
+                }
             });
             markers.push(marker);
             marker.addTo(castleLayerGroup);
@@ -4604,19 +4722,48 @@ function updateMap(year, month) {
             if (marker) {
               
               
-              marker.bindPopup(popupHtml);
-              // [추가] 마우스 오버 시 팝업 열기
-              marker.on('mouseover', function (e) {
+              marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
+              
+              let popupTimeout;
+              
+              marker.on('mouseover', function(e) {
+                clearTimeout(popupTimeout);
+                // 이전 팝업 닫기
+                if (currentOpenPopup && currentOpenPopup !== this) {
+                  currentOpenPopup.closePopup();
+                }
                 this.openPopup();
+                currentOpenPopup = this;
               });
-              // [추가] 마우스 아웃 시 팝업 닫기
-              marker.on('mouseout', function (e) {
-                this.closePopup();
+              
+              marker.on('popupopen', function(e) {
+                const popup = e.popup;
+                if (popup && popup._container) {
+                    popup._container.addEventListener('mouseenter', function() {
+                        clearTimeout(popupTimeout);
+                    });
+                    popup._container.addEventListener('mouseleave', function() {
+                        marker.closePopup();
+                    });
+                }
+              });
+              
+              marker.on('mouseout', function(e) {
+                popupTimeout = setTimeout(() => {
+                    const popup = this.getPopup();
+                    if (!popup || !popup._container || !popup._container.matches(':hover')) {
+                        this.closePopup();
+                    }
+                }, 300);
               });
               
               marker.on('click', (e) => { 
                 map.flyTo(e.latlng, 10); // 🚩 [수정] 클릭 시 줌인하며 이동
-                if (editMode) openCastleForm(castle._id); 
+                if (editMode) {
+                    openCastleForm(castle._id);
+                } else {
+                    marker.openPopup();
+                }
               });
               markers.push(marker);
               marker.addTo(castleLayerGroup);
@@ -6644,6 +6791,7 @@ function getCountryInfoById(id) {
             history.end_year = ''; // 빈 값으로 시작
             history.end_month = 12; // 🚩 [수정] 종료 월 기본값을 12월로 설정
             history.is_capital = false; // 기본적으로 수도 아님
+            history.is_battle = false; // 기본적으로 전장 아님
         }
 
         const container = document.getElementById('castleHistoryList');
@@ -6667,7 +6815,6 @@ function getCountryInfoById(id) {
             <div class="history-field-container history-end-month"><label>월</label><input type="number" class="history-end-month" placeholder="월" min="1" max="12" value="${history.end_month ?? 12}"></div>
             <div class="history-field-container" style="align-self: flex-end;"><label style="margin-bottom: 8px;">수도</label><input type="checkbox" class="history-is-capital" ${history.is_capital ? 'checked' : ''}></div>
             <div class="history-field-container" style="align-self: flex-end;"><label style="margin-bottom: 8px;">전장</label><input type="checkbox" class="history-is-battle" ${history.is_battle ? 'checked' : ''}></div>
-            <button type="button" class="duplicate-history-btn" title="복제">⎘</button>
             <button type="button" onclick="this.parentElement.remove()">X</button>
         `;
                 // 폼 제출 시 required 에러 방지: 빈 값이면 required 제거 또는 기본값 설정
@@ -6678,25 +6825,6 @@ function getCountryInfoById(id) {
                     }
                 }, 0);
                 container.appendChild(row);
-                
-                // 🚩 [추가] 복제 버튼 이벤트 리스너
-                const duplicateBtn = row.querySelector('.duplicate-history-btn');
-                duplicateBtn.addEventListener('click', () => {
-                    // 현재 행의 모든 값을 가져옴
-                    const currentData = {
-                        name: row.querySelector('.history-name').value,
-                        country_id: row.querySelector('.history-country-id').value,
-                        start_year: parseInt(row.querySelector('.history-start-year').value) || '',
-                        start_month: parseInt(row.querySelector('.history-start-month').value) || 1,
-                        end_year: row.querySelector('.history-end-year').value ? parseInt(row.querySelector('.history-end-year').value) : '',
-                        end_month: parseInt(row.querySelector('.history-end-month').value) || 12,
-                        is_capital: row.querySelector('.history-is-capital').checked,
-                        is_battle: row.querySelector('.history-is-battle').checked
-                    };
-                    
-                    // 복제된 행을 현재 행 바로 아래에 추가
-                    addCastleHistoryRow(currentData);
-                });
     }
     // 🚩 [추가] '역사 기록 추가' 버튼 이벤트 리스너
     document.getElementById('addCastleHistoryBtn').addEventListener('click', () => addCastleHistoryRow());
