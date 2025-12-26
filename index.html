@@ -2711,7 +2711,14 @@ function enableFormDrag(formId) {
                     <option value="wall">성곽</option>
                     <option value="arrow">화살표</option>
                     <option value="mountain">산맥</option>
+                    <option value="general">일반도형</option>
                 </select>
+                
+                <label for="drawingColor">색상:</label>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="color" id="drawingColor" value="#3388ff" style="width: 60px; height: 30px; border: 1px solid #5d7185; background: none; cursor: pointer;">
+                    <span id="drawingColorHex" style="font-size: 12px; color: #95a5a6;">#3388ff</span>
+                </div>
                 
                 <label for="drawingStartYear">시작:</label>
                 <input type="number" id="drawingStartYear" required>
@@ -2922,15 +2929,15 @@ function enableFormDrag(formId) {
     </form>
   </div>
 
-  <!-- 🚩 [추가] 도시/성 편집 선택 폼 -->
+  <!-- 🚩 [수정] 도시/성/지명 편집 선택 폼 -->
   <div id="editCitySelectionForm" style="display: none; position: absolute; top: 100px; left: calc(50% - 225px); background: #2c3e50; color: #ecf0f1; border: 1px solid #5d7185; padding: 20px; z-index: 1000; border-radius: 8px; width: 450px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); max-width: 90%; min-width: 350px;">
-      <h3>편집할 도시/성 선택</h3>
+      <h3>편집할 도시/성/지명 선택</h3>
       <!-- 🚩 [핵심 수정] 도시/성 선택 UI를 자동 완성 검색 방식으로 변경 -->
       <div class="form-row" style="margin-bottom: 15px;">
-          <label for="citySearchInputForEdit">도시/성:</label>
+          <label for="citySearchInputForEdit">도시/성/지명:</label>
           <div style="display: flex; flex-grow: 1; gap: 10px; position: relative;">
               <div style="position: relative; flex-grow: 1;">
-                  <input type="text" id="citySearchInputForEdit" placeholder="도시/성 이름으로 검색..." autocomplete="off">
+                  <input type="text" id="citySearchInputForEdit" placeholder="이름으로 검색..." autocomplete="off">
                   <div id="citySearchResults" style="position: absolute; top: 100%; left: 0; right: 0; background: #3e4a56; border: 1px solid #5d7185; z-index: 1001; max-height: 150px; overflow-y: auto; display: none;"></div>
               </div>
               <select id="citySelectForEdit" style="width: 180px; flex-shrink: 0;"></select>
@@ -3342,10 +3349,10 @@ function enableFormDrag(formId) {
     // 🚩 [추가] 지도 왼쪽 아래에 축척 컨트롤을 추가합니다.
     L.control.scale({ imperial: false }).addTo(map); // 미터법(metric)만 표시
 
-    // 🚩 [추가] 그리기 레이어를 위한 전용 Pane 생성
-    // zIndex를 높게 설정하여 다른 레이어(마커, 히트맵 등)보다 항상 위에 있도록 보장합니다.
+    // 🚩 [수정] 그리기 레이어를 위한 전용 Pane 생성
+    // zIndex를 낮게 설정하여 마커 등 다른 오브젝트 선택을 방해하지 않도록 합니다.
     map.createPane('drawingPane');
-    map.getPane('drawingPane').style.zIndex = 650;
+    map.getPane('drawingPane').style.zIndex = 450; // overlayPane(400)보다 약간 위, markerPane(600)보다 아래
 
     // 🚩 [추가] 지명(label)만을 위한 최상위 pane 생성
     if (!map.getPane('labelPane')) {
@@ -3817,6 +3824,9 @@ function updateMap(year, month) {
 
             // 🚩 [핵심 수정] 그리기 유형에 따라 다른 스타일 적용
             let layer;
+            // 🚩 [추가] 사용자 지정 색상 또는 기본 색상 사용
+            const customColor = drawing.color || '#3388ff';
+            
             switch (drawing.type) {
                 case 'wall': // 🚩 [수정] 성곽 스타일을 '凹' 텍스트를 이용한 텍스처로 변경
                     // 🚩 [수정] onEachFeature를 사용하여 이벤트 핸들러 중복 바인딩 방지
@@ -3852,6 +3862,52 @@ function updateMap(year, month) {
                         onEachFeature: (feature, layer) => bindDrawingEvents(layer, drawing)
                     });
                     break;
+                    
+                case 'general': // 🚩 [추가] 일반도형 - 사용자 지정 색상 사용
+                    // 🚩 [수정] Circle 타입은 특별 처리 (GeoJSON에서 radius 속성 사용)
+                    if (drawing.geojson.properties && drawing.geojson.properties.radius) {
+                        // Circle을 위한 특별 처리
+                        const coords = drawing.geojson.geometry.coordinates;
+                        layer = L.circle([coords[1], coords[0]], {
+                            radius: drawing.geojson.properties.radius,
+                            color: customColor,
+                            weight: 3,
+                            opacity: 0.8,
+                            fillColor: customColor,
+                            fillOpacity: 0.5,
+                            pane: 'drawingPane'
+                        });
+                        bindDrawingEvents(layer, drawing);
+                    } else {
+                        // 일반 GeoJSON (Polygon, LineString, Point 등)
+                        layer = L.geoJSON(drawing.geojson, {
+                            style: function(feature) {
+                                return {
+                                    color: customColor,
+                                    weight: 3,
+                                    opacity: 0.8,
+                                    fillColor: customColor,
+                                    fillOpacity: 0.5,
+                                    pane: 'drawingPane'
+                                };
+                            },
+                            // 🚩 [추가] Point 타입(마커)을 원으로 표시
+                            pointToLayer: function(feature, latlng) {
+                                return L.circleMarker(latlng, {
+                                    radius: 8,
+                                    color: customColor,
+                                    weight: 3,
+                                    opacity: 0.8,
+                                    fillColor: customColor,
+                                    fillOpacity: 0.5,
+                                    pane: 'drawingPane'
+                                });
+                            },
+                            onEachFeature: (feature, layer) => bindDrawingEvents(layer, drawing)
+                        });
+                    }
+                    break;
+                    
                 case 'arrow': 
                     // 🚩 [수정] 여러 선분(segment)에 아이콘이 중복되는 것을 방지하기 위해 L.polyline으로 변환
                     if (drawing.geojson.geometry.type === 'LineString') {
@@ -5306,15 +5362,17 @@ function getCountryInfoById(id) {
           return audit;
       };
     }
-        // 🚩 [추가] 도시/성 선택 드롭다운을 채우는 함수
+        // 🚩 [수정] 도시/성/지명 선택 드롭다운을 채우는 함수
     function populateCitySelectForEdit() {
         const select = citySelectForEdit;
-        select.innerHTML = '<option value="">-- 도시/성 선택 --</option>'; // 초기화
-        // 군대, 자연, 지명 타입이 아닌 성/도시만 목록에 추가
-        const filteredCastles = castles.filter(c => !c.is_military_flag && !c.is_natural_feature && !c.is_label)
+        select.innerHTML = '<option value="">-- 도시/성/지명 선택 --</option>'; // 초기화
+        // 🚩 [수정] 군대와 자연 타입만 제외하고, 지명도 포함
+        const filteredCastles = castles.filter(c => !c.is_military_flag && !c.is_natural_feature)
                                        .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
         filteredCastles.forEach(castle => {
-            select.innerHTML += `<option value="${castle._id}">${castle.name} (${getCountryInfoById(castle.country_id)?.name || '알 수 없음'})</option>`;
+            const typeLabel = castle.is_label ? '지명' : '성/도시';
+            const countryName = getCountryInfoById(castle.country_id)?.name || '알 수 없음';
+            select.innerHTML += `<option value="${castle._id}">${castle.name} [${typeLabel}] (${countryName})</option>`;
         });
     }
 
@@ -7719,6 +7777,7 @@ kingSelect.addEventListener('change', () => {
         const data = {
             name: document.getElementById('drawingName').value,
             type: document.getElementById('drawingType').value,
+            color: document.getElementById('drawingColor').value, // 🚩 [추가] 색상 필드
             start_year: parseInt(document.getElementById('drawingStartYear').value),
             end_year: document.getElementById('drawingEndYear').value ? parseInt(document.getElementById('drawingEndYear').value) : null,
             geojson: JSON.parse(document.getElementById('drawingGeoJson').value)
@@ -7744,6 +7803,11 @@ kingSelect.addEventListener('change', () => {
     });
 
     document.getElementById('cancelDrawingBtn').addEventListener('click', () => { document.getElementById('drawingForm').style.display = 'none'; });
+
+    // 🚩 [추가] 색상 선택기 이벤트 - 선택한 색상 hex 값 표시
+    document.getElementById('drawingColor').addEventListener('input', (e) => {
+        document.getElementById('drawingColorHex').textContent = e.target.value;
+    });
 
     // 🚩 [핵심 수정] 그리기 폼의 삭제 버튼 이벤트 핸들러
     document.getElementById('deleteDrawingBtn').addEventListener('click', async () => {
@@ -7800,12 +7864,16 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('drawingMongoId').value = drawingData._id;
             document.getElementById('drawingName').value = drawingData.name;
             document.getElementById('drawingType').value = drawingData.type;
+            document.getElementById('drawingColor').value = drawingData.color || '#3388ff'; // 🚩 [추가] 색상 로드
+            document.getElementById('drawingColorHex').textContent = drawingData.color || '#3388ff';
             document.getElementById('drawingStartYear').value = drawingData.start_year;
             document.getElementById('drawingEndYear').value = drawingData.end_year || '';
             document.getElementById('deleteDrawingBtn').style.display = 'inline-block';
             document.getElementById('saveDrawingBtn').textContent = '저장';
         } else { // 추가 모드
             document.getElementById('drawingMongoId').value = '';
+            document.getElementById('drawingColor').value = '#3388ff'; // 🚩 [추가] 기본 색상
+            document.getElementById('drawingColorHex').textContent = '#3388ff';
             document.getElementById('drawingStartYear').value = yearInput.value; // 현재 연도 기본값
             document.getElementById('deleteDrawingBtn').style.display = 'none';
             document.getElementById('saveDrawingBtn').textContent = '저장';
@@ -8175,6 +8243,13 @@ kingSelect.addEventListener('change', () => {
             map.on(L.Draw.Event.CREATED, function (e) {
                 const layer = e.layer;
                 const geojson = layer.toGeoJSON();
+                
+                // 🚩 [추가] Circle의 경우 radius 속성 보존
+                if (layer instanceof L.Circle) {
+                    geojson.properties = geojson.properties || {};
+                    geojson.properties.radius = layer.getRadius();
+                }
+                
                 openDrawingForm(geojson);
             });
             map.on('draw:drawstart', () => { isDrawing = true; });
@@ -8819,7 +8894,7 @@ kingSelect.addEventListener('change', () => {
             }
         });
 
-        // 🚩 [추가] 도시/성 편집 폼의 자동 완성 검색 기능
+        // 🚩 [수정] 도시/성/지명 편집 폼의 자동 완성 검색 기능
         const citySearchInputForEdit = document.getElementById('citySearchInputForEdit');
         const citySearchResults = document.getElementById('citySearchResults');
         const citySelectForEdit = document.getElementById('citySelectForEdit');
@@ -8832,18 +8907,18 @@ kingSelect.addEventListener('change', () => {
                 return;
             }
 
-            // 군대, 자연, 지명 타입이 아닌 성/도시만 필터링
+            // 🚩 [수정] 군대와 자연 타입만 제외하고, 지명도 포함
             const filteredCastles = castles.filter(c => 
                 !c.is_military_flag && 
                 !c.is_natural_feature && 
-                !c.is_label &&
                 c.name.toLowerCase().includes(searchTerm)
             );
 
             filteredCastles.forEach(castle => {
                 const div = document.createElement('div');
+                const typeLabel = castle.is_label ? '지명' : '성/도시';
                 const countryName = getCountryInfoById(castle.country_id)?.name || '알 수 없음';
-                div.textContent = `${castle.name} (${countryName})`;
+                div.textContent = `${castle.name} [${typeLabel}] (${countryName})`;
                 div.style.padding = '8px';
                 div.style.cursor = 'pointer';
                 div.onmouseover = () => div.style.backgroundColor = '#5d7185';
