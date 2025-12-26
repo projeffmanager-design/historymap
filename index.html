@@ -2300,6 +2300,9 @@ function enableFormDrag(formId) {
         font-family: 'Noto Serif KR', serif; /* 팝업 폰트 변경 */
         margin: 13px 19px;
         line-height: 1.5;
+        white-space: pre-wrap; /* 🚩 [추가] 줄바꿈과 공백 보존 */
+        word-wrap: break-word; /* 🚩 [추가] 긴 단어 자동 줄바꿈 */
+        text-align: left; /* 🚩 [추가] 좌측 정렬 */
     }
     .leaflet-popup {
         z-index: 10000 !important;
@@ -2846,11 +2849,13 @@ function enableFormDrag(formId) {
           .autocomplete-item:hover { background-color: #5d7185; }
           .history-field-container.history-name { flex: 1 1 100px; }
           .history-field-container.history-country { flex: 1 1 100px; }
-          .history-field-container.history-start-year { flex: 0 1 70px; }
-          .history-field-container.history-start-month { flex: 0 1 50px; }
-          .history-field-container.history-end-year { flex: 0 1 70px; }
-          .history-field-container.history-end-month { flex: 0 1 50px; }
+          .history-field-container.history-start-year { flex: 0 1 55px; } /* 🚩 [수정] 4digit 크기 */
+          .history-field-container.history-start-month { flex: 0 1 35px; } /* 🚩 [수정] 2digit 크기 */
+          .history-field-container.history-end-year { flex: 0 1 55px; } /* 🚩 [수정] 4digit 크기 */
+          .history-field-container.history-end-month { flex: 0 1 35px; } /* 🚩 [수정] 2digit 크기 */
           .history-record-row button { align-self: flex-end; flex-shrink: 0; width: 30px; padding: 5px; margin: 0; background-color: #e74c3c; }
+          .history-record-row button.duplicate-history-btn { background-color: #3498db; color: white; font-size: 16px; margin-right: 2px; width: 30px; padding: 5px; } /* 🚩 [수정] X 버튼과 동일 크기 */
+          .history-record-row button.duplicate-history-btn:hover { background-color: #2980b9; }
           .history-record-row input[type="checkbox"] { width: auto; margin: 0; }
       </style>
         <style>
@@ -4203,14 +4208,31 @@ function updateMap(year, month) {
                 
                 popupHtml = `<b>지역명: ${castleName}</b><br>기간: ${builtText} ~ ${destroyedText}<br>설명: ${castle.desc ?? ''}${editorInfoHtml}`;
                 
+              // 🚩 [추가] 지명에도 팝업 바인딩
+              marker.bindPopup(popupHtml);
+              
+              // 🚩 [추가] 마우스 오버 시 팝업 표시
+              marker.on('mouseover', function(e) {
+                this.openPopup();
+              });
+              
+              marker.on('mouseout', function(e) {
+                this.closePopup();
+              });
+              
               marker.on('click', (e) => { 
                 map.flyTo(e.latlng, 10); // 🚩 [수정] 클릭 시 줌인하며 이동
-                if (editMode) openCastleForm(castle._id); 
+                if (editMode) {
+                    openCastleForm(castle._id);
+                } else {
+                    // 🚩 [추가] 일반 모드에서는 팝업 표시
+                    marker.openPopup();
+                }
               });
               markers.push(marker);
                marker.addTo(castleLayerGroup);
               return; // 🚩 [복원] 다른 마커 타입으로 넘어가지 않도록 return 추가
-            } 
+            }
             // 🚩 1. 자연 지물 마커 (NEW)
             if (castle.is_natural_feature) { 
                 if (!layerVisibility.natural) return;
@@ -4504,10 +4526,7 @@ function updateMap(year, month) {
             ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
             : (castle.createdBy ? `<br><small>생성자: ${castle.createdBy}</small>` : '');
         
-        popupHtml = ` 
-                <b>${castleName}</b>
-                <br>${flagHtml} ${countryName}${countryEthnicity}<br>
-                존속: ${builtText} ~ ${destroyedText}` 
+        popupHtml = `<b>${castleName}</b><br>${flagHtml} ${countryName}${countryEthnicity}<br>존속: ${builtText} ~ ${destroyedText}` 
                 + (castle.desc ? `<br><span>${castle.desc}</span>` : "") 
                 + (castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : "") 
                 + kingHtml
@@ -6648,6 +6667,7 @@ function getCountryInfoById(id) {
             <div class="history-field-container history-end-month"><label>월</label><input type="number" class="history-end-month" placeholder="월" min="1" max="12" value="${history.end_month ?? 12}"></div>
             <div class="history-field-container" style="align-self: flex-end;"><label style="margin-bottom: 8px;">수도</label><input type="checkbox" class="history-is-capital" ${history.is_capital ? 'checked' : ''}></div>
             <div class="history-field-container" style="align-self: flex-end;"><label style="margin-bottom: 8px;">전장</label><input type="checkbox" class="history-is-battle" ${history.is_battle ? 'checked' : ''}></div>
+            <button type="button" class="duplicate-history-btn" title="복제">⎘</button>
             <button type="button" onclick="this.parentElement.remove()">X</button>
         `;
                 // 폼 제출 시 required 에러 방지: 빈 값이면 required 제거 또는 기본값 설정
@@ -6658,6 +6678,25 @@ function getCountryInfoById(id) {
                     }
                 }, 0);
                 container.appendChild(row);
+                
+                // 🚩 [추가] 복제 버튼 이벤트 리스너
+                const duplicateBtn = row.querySelector('.duplicate-history-btn');
+                duplicateBtn.addEventListener('click', () => {
+                    // 현재 행의 모든 값을 가져옴
+                    const currentData = {
+                        name: row.querySelector('.history-name').value,
+                        country_id: row.querySelector('.history-country-id').value,
+                        start_year: parseInt(row.querySelector('.history-start-year').value) || '',
+                        start_month: parseInt(row.querySelector('.history-start-month').value) || 1,
+                        end_year: row.querySelector('.history-end-year').value ? parseInt(row.querySelector('.history-end-year').value) : '',
+                        end_month: parseInt(row.querySelector('.history-end-month').value) || 12,
+                        is_capital: row.querySelector('.history-is-capital').checked,
+                        is_battle: row.querySelector('.history-is-battle').checked
+                    };
+                    
+                    // 복제된 행을 현재 행 바로 아래에 추가
+                    addCastleHistoryRow(currentData);
+                });
     }
     // 🚩 [추가] '역사 기록 추가' 버튼 이벤트 리스너
     document.getElementById('addCastleHistoryBtn').addEventListener('click', () => addCastleHistoryRow());
