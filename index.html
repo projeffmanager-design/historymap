@@ -3828,7 +3828,11 @@ function updateMap(year, month) {
                 return; // '자연' 레이어가 꺼져있으면 강을 그리지 않습니다.
             }
             if (drawing.type === 'mountain' && !layerVisibility.natural) {
-                return; // '자연' 레이어가 꺼져있으면 강을 그리지 않습니다.
+                return; // '자연' 레이어가 꺼져있으면 산맥을 그리지 않습니다.
+            }
+            // 🚩 [추가] '성곽'과 '화살표' 유형은 '지명' 레이어 토글에 따라 표시 여부를 결정합니다.
+            if ((drawing.type === 'wall' || drawing.type === 'arrow') && !layerVisibility.label) {
+                return; // '지명' 레이어가 꺼져있으면 성곽과 화살표를 그리지 않습니다.
             }
 
             // 🚩 [핵심 수정] 그리기 유형에 따라 다른 스타일 적용
@@ -4007,11 +4011,11 @@ function updateMap(year, month) {
 
                 if (!countryId) return;
                 
-                // 🚩 [추가] 민족 필터링 로직
+                // 🚩 [추가] 민족 필터링 로직 (부분 일치)
                 if (selectedEthnicity !== 'all') {
                     const countryInfo = getCountryInfoById(countryId);
-                    if (countryInfo && countryInfo.ethnicity !== selectedEthnicity) {
-                        return; // 선택된 민족과 일치하지 않으면 히트맵에서 제외
+                    if (countryInfo && (!countryInfo.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity))) {
+                        return; // 선택된 민족을 포함하지 않으면 히트맵에서 제외
                     }
                 }
 
@@ -4126,11 +4130,11 @@ function updateMap(year, month) {
                 return; // 선택된 국가와 일치하지 않으면 이 마커를 건너뜁니다.
             }
             
-            // 🚩 [추가] 민족 필터링 로직
+            // 🚩 [추가] 민족 필터링 로직 (부분 일치)
             if (selectedEthnicity !== 'all') {
                 const countryInfo = getCountryInfoById(baseCountryId);
-                if (countryInfo && countryInfo.ethnicity !== selectedEthnicity) {
-                    return; // 선택된 민족과 일치하지 않으면 이 마커를 건너뜁니다.
+                if (countryInfo && (!countryInfo.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity))) {
+                    return; // 선택된 민족을 포함하지 않으면 이 마커를 건너뜁니다.
                 }
             }
             
@@ -5707,9 +5711,9 @@ function getCountryInfoById(id) {
         // 🚩 [수정] 유효한 국가 필터링 (start가 있는 국가)
         let validCountries = countries.filter(c => c.start !== null);
         
-        // 🚩 [추가] 민족 필터 적용
+        // 🚩 [추가] 민족 필터 적용 (부분 일치)
         if (selectedEthnicity && selectedEthnicity !== 'all') {
-            validCountries = validCountries.filter(c => c.ethnicity === selectedEthnicity);
+            validCountries = validCountries.filter(c => c.ethnicity && c.ethnicity.includes(selectedEthnicity));
         }
         
         if (validCountries.length === 0) {
