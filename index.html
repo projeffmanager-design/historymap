@@ -4011,7 +4011,7 @@ function updateMap(year, month) {
 
                 if (!countryId) return;
                 
-                // 🚩 [추가] 민족 필터링 로직 (부분 일치)
+                // 🚩 [추가] 민족 필터링 로직 (부분 일치) - 현재 활성 히스토리의 국가 민족 체크
                 if (selectedEthnicity !== 'all') {
                     const countryInfo = getCountryInfoById(countryId);
                     if (countryInfo && (!countryInfo.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity))) {
@@ -4130,14 +4130,6 @@ function updateMap(year, month) {
                 return; // 선택된 국가와 일치하지 않으면 이 마커를 건너뜁니다.
             }
             
-            // 🚩 [추가] 민족 필터링 로직 (부분 일치)
-            if (selectedEthnicity !== 'all') {
-                const countryInfo = getCountryInfoById(baseCountryId);
-                if (countryInfo && (!countryInfo.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity))) {
-                    return; // 선택된 민족을 포함하지 않으면 이 마커를 건너뜁니다.
-                }
-            }
-            
             let popupHtml; 
             if (typeof castle.lat !== "number" || isNaN(castle.lat) || typeof castle.lng !== "number" || isNaN(castle.lng)) return;
             
@@ -4156,6 +4148,13 @@ function updateMap(year, month) {
         const countryInfo = getCountryInfoById(countryId);
         const countryName = countryInfo ? countryInfo.name : '알 수 없음';
         const dotColor = countryInfo ? countryInfo.color : 'white';
+
+        // 🚩 [추가] 민족 필터링 로직 (부분 일치) - 현재 활성화된 히스토리의 국가 민족만 체크
+        if (selectedEthnicity !== 'all') {
+            if (!countryInfo || !countryInfo.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity)) {
+                return; // 현재 시점의 국가가 선택된 민족을 포함하지 않으면 제외
+            }
+        }
 
         const isWithinDuration = true; // activeHistoryRecord가 있으면 항상 유효 기간 내에 있음
         const builtText = `${recordStartYear}년 ${recordStartMonth}월`;
