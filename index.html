@@ -2540,7 +2540,13 @@ function enableFormDrag(formId) {
                             <input type="checkbox" class="mobile-layer-checkbox" data-layer="city" checked style="margin-right: 6px;"> 성도시
                         </label>
                         <label style="display: flex; align-items: center; padding: 4px 0; cursor: pointer; font-size: 11px;">
-                            <input type="checkbox" class="mobile-layer-checkbox" data-layer="label" checked style="margin-right: 6px;"> 지명
+                            <input type="checkbox" class="mobile-layer-checkbox" data-layer="placeLabel" checked style="margin-right: 6px;"> 지명
+                        </label>
+                        <label style="display: flex; align-items: center; padding: 4px 0; cursor: pointer; font-size: 11px;">
+                            <input type="checkbox" class="mobile-layer-checkbox" data-layer="countryLabel" checked style="margin-right: 6px;"> 국가명
+                        </label>
+                        <label style="display: flex; align-items: center; padding: 4px 0; cursor: pointer; font-size: 11px;">
+                            <input type="checkbox" class="mobile-layer-checkbox" data-layer="ethnicLabel" style="margin-right: 6px;"> 민족
                         </label>
                         <label style="display: flex; align-items: center; padding: 4px 0; cursor: pointer; font-size: 11px;">
                             <input type="checkbox" class="mobile-layer-checkbox" data-layer="military" checked style="margin-right: 6px;"> 군대
@@ -2602,15 +2608,17 @@ function enableFormDrag(formId) {
             <!-- 🚩 [추가] 레이어 토글 버튼을 시간 컨트롤 옆에 배치 -->
             <div id="layer-toggles" style="display: flex; align-items: center; gap: 2px; margin-left: 8px; border-left: 1px solid rgba(255,255,255,0.2); padding-left: 8px;">
                 <button type="button" class="layer-toggle-btn active" data-layer="city" style="padding: 2px 4px; font-size: 10px;">성도시</button>
-                <button type="button" class="layer-toggle-btn active" data-layer="label" style="padding: 2px 4px; font-size: 10px;">지명</button>
+                <button type="button" class="layer-toggle-btn active" data-layer="placeLabel" style="padding: 2px 4px; font-size: 10px;">지명</button>
+                <button type="button" class="layer-toggle-btn active" data-layer="countryLabel" style="padding: 2px 4px; font-size: 10px;">국가명</button>
+                <button type="button" class="layer-toggle-btn" data-layer="ethnicLabel" style="padding: 2px 4px; font-size: 10px;">민족</button>
                 <button type="button" class="layer-toggle-btn active" data-layer="military" style="padding: 2px 4px; font-size: 10px;">군대</button>
                 <button type="button" class="layer-toggle-btn active" data-layer="natural" style="padding: 2px 4px; font-size: 10px;">자연</button>
                 <button type="button" class="layer-toggle-btn active" data-layer="event" style="padding: 2px 4px; font-size: 10px;">이벤트</button>
                 <button type="button" class="layer-toggle-btn" data-layer="territoryPolygon" style="padding: 2px 4px; font-size: 10px;">영토</button>
                 <button type="button" class="layer-toggle-btn" data-layer="rivers" style="padding: 2px 4px; font-size: 10px;">강</button>
                 <button type="button" class="layer-toggle-btn active" data-layer="timeline" style="padding: 2px 4px; font-size: 10px;">연대표</button>
-                <button type="button" class="layer-toggle-btn active" data-layer="kingPanel" style="padding: 2px 4px; font-size: 10px;">왕</button>
-                <button type="button" class="layer-toggle-btn active" data-layer="historyPanel" style="padding: 2px 4px; font-size: 10px;">역사</button>
+                <button type="button" class="layer-toggle-btn" data-layer="kingPanel" style="padding: 2px 4px; font-size: 10px;">왕</button>
+                <button type="button" class="layer-toggle-btn" data-layer="historyPanel" style="padding: 2px 4px; font-size: 10px;">역사</button>
             </div>
             
             <!-- 🚩 [추가] PC용 편집 버튼 (모바일에서 숨김) -->
@@ -2765,6 +2773,15 @@ function enableFormDrag(formId) {
       <div class="form-row" id="labelColorRow" style="display:none;">
     <label for="labelColor">글자 색상:</label>
         <input type="color" id="labelColor" value="#FFFFFF" style="height: 30px; padding: 2px;">
+      </div>
+      <!-- ✨ [신규] 지명 타입 선택 (지명/국가명/민족) -->
+      <div class="form-row" id="labelTypeRow" style="display:none;">
+    <label for="labelType">라벨 타입:</label>
+        <select id="labelType">
+            <option value="place">지명 (산, 강, 지형)</option>
+            <option value="country">국가명 (고구려, 조선 등)</option>
+            <option value="ethnic">민족 거주지 (한민족, 여진족 등)</option>
+        </select>
       </div>
       <!-- 🚩 [추가] 지명 글자 크기 선택 -->
       <div class="form-row" id="labelSizeRow" style="display:none;">
@@ -3259,7 +3276,13 @@ function enableFormDrag(formId) {
 
     function getCastleLayerType(castle) {
         if (!castle) return 'city';
-        if (castle.is_label) return 'label';
+        // ✨ [신규] label_type으로 세분화된 타입 지원
+        if (castle.is_label) {
+            const labelType = castle.label_type || 'place'; // 기본값 'place'
+            if (labelType === 'country') return 'countryLabel';
+            if (labelType === 'ethnic') return 'ethnicLabel';
+            return 'placeLabel'; // 'place' 또는 미지정
+        }
         if (castle.is_natural_feature) return 'natural';
         if (castle.is_battle) return 'battle';
         if (castle.is_military_flag) return 'military';
@@ -3307,7 +3330,9 @@ function enableFormDrag(formId) {
     // 🚩 [추가] 레이어 가시성 상태
     let layerVisibility = {
         city: true,       // 성/도시
-        label: true,      // 지명
+        placeLabel: true, // 🔄 [변경] 지명 (산, 강, 지형)
+        countryLabel: true, // ✨ [신규] 국가명 라벨
+        ethnicLabel: false, // ✨ [신규] 민족 거주지
         military: true,   // 군대
         battle: true,     // 전장 (독립 마커)
         natural: true,    // 자연
@@ -3315,8 +3340,11 @@ function enableFormDrag(formId) {
         rivers: false,    // 🌊 [추가] 강 레이어 가시성
         event: true,      // 🚩 [추가] 이벤트 레이어 가시성
         timeline: true,   // 🚩 [추가] 연대표 가시성
-        kingPanel: true,  // 🚩 [추가] 왕목록 패널 가시성
-        historyPanel: true // 🚩 [추가] 역사기록 패널 가시성
+        kingPanel: false,  // 🚩 [수정] 왕목록 패널 초기값 off
+        historyPanel: false, // 🚩 [수정] 역사기록 패널 초기값 off
+        // 🔄 [호환성] 기존 'label'은 placeLabel로 매핑
+        get label() { return this.placeLabel; },
+        set label(value) { this.placeLabel = value; }
     };
     // 🚩 [수정] battle 레이어: 독립 전장 마커(is_battle=true) + 역사 레코드 전장(history[].is_battle=true) 둘 다 지원
 
@@ -4289,10 +4317,21 @@ function updateMap(year, month, cacheOnly = false) {
         
         const king = getKingByYear(countryName, year, month); // ⬅️ king 조회는 countryName 사용
 
-            // 🚩 0. 지역명/텍스트 라벨 마커 (NEW)
+            // � [수정] 지역명/텍스트 라벨 마커 - label_type으로 세분화
             if (castle.is_label) {
-                if (!layerVisibility.label) return;
-                if (!isWithinDuration) return;                
+                const labelType = castle.label_type || 'place'; // 기본값: 지명
+                let shouldRender = false;
+                
+                // ✨ [신규] label_type에 따라 해당 레이어 체크
+                if (labelType === 'country') {
+                    shouldRender = layerVisibility.countryLabel;
+                } else if (labelType === 'ethnic') {
+                    shouldRender = layerVisibility.ethnicLabel;
+                } else { // 'place' 또는 미지정
+                    shouldRender = layerVisibility.placeLabel;
+                }
+                
+                if (!shouldRender || !isWithinDuration) return;                
 
                 // 🚩 [추가] 커스텀 아이콘이 있으면 사용
                 if (castle.custom_icon) {
@@ -5218,11 +5257,14 @@ function getCountryInfoById(id) {
               }
               const updatedCastle = await response.json();
               
-              const index = castles.findIndex(c => c.name === castleKey);
+              // 🔄 [수정] name 또는 _id로 찾기
+              const index = castles.findIndex(c => c.name === castleKey || c._id === castleKey);
               
               if (index !== -1 && updatedCastle) {
                   castles[index] = updatedCastle;
-                  console.log(`✅ 성/전장 DB 동기화 완료: ${castleKey}`);
+                  console.log(`✅ 성/전장 DB 동기화 완료: ${castleKey}`, updatedCastle);
+              } else {
+                  console.warn(`⚠️ 메모리에서 찾을 수 없음: ${castleKey}`);
               }
               
               const { year, month } = getCurrentYearMonth();
@@ -5259,11 +5301,14 @@ function getCountryInfoById(id) {
           // 서버에서 업데이트된 데이터를 다시 가져와서 동기화
           try {
               const updatedCountry = await fetchData(`countries/${encodeURIComponent(serverResponseData.name || originalName)}`);
-              const index = countries.findIndex(c => c.name === originalName);
+              // 🔄 [수정] name 또는 _id로 찾기
+              const index = countries.findIndex(c => c.name === originalName || c._id === originalName);
               
               if (index !== -1 && updatedCountry) {
                   countries[index] = updatedCountry;
-                  console.log(`✅ 국가 DB 동기화 완료: ${originalName} → ${updatedCountry.name}`);
+                  console.log(`✅ 국가 DB 동기화 완료: ${originalName} → ${updatedCountry.name}`, updatedCountry);
+              } else {
+                  console.warn(`⚠️ 메모리에서 찾을 수 없음: ${originalName}`);
               }
               
               const { year, month } = getCurrentYearMonth();
@@ -5281,12 +5326,15 @@ function getCountryInfoById(id) {
       };
       
       window.deleteCountryInMemory = (countryName) => {
-          const index = countries.findIndex(c => c.name === countryName);
+          // 🔄 [수정] name 또는 _id로 찾기
+          const index = countries.findIndex(c => c.name === countryName || c._id === countryName);
           if (index !== -1) {
               countries.splice(index, 1);
               console.log(`✅ 국가 메모리 삭제: ${countryName}`);
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
+          } else {
+              console.warn(`⚠️ 삭제할 국가를 찾을 수 없음: ${countryName}`);
           }
       };
       
@@ -5298,7 +5346,9 @@ function getCountryInfoById(id) {
               
               if (index !== -1 && updatedEvent) {
                   events[index] = updatedEvent;
-                  console.log(`✅ 이벤트 DB 동기화 완료: ${eventId}`);
+                  console.log(`✅ 이벤트 DB 동기화 완료: ${eventId}`, updatedEvent);
+              } else {
+                  console.warn(`⚠️ 메모리에서 찾을 수 없음: ${eventId}`);
               }
               
               const { year, month } = getCurrentYearMonth();
@@ -5322,6 +5372,8 @@ function getCountryInfoById(id) {
               console.log(`✅ 이벤트 메모리 삭제: ${eventId}`);
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
+          } else {
+              console.warn(`⚠️ 삭제할 이벤트를 찾을 수 없음: ${eventId}`);
           }
       };
       
@@ -5333,7 +5385,9 @@ function getCountryInfoById(id) {
               
               if (index !== -1 && updatedKing) {
                   kings[index] = updatedKing;
-                  console.log(`✅ 왕 DB 동기화 완료: ${kingId}`);
+                  console.log(`✅ 왕 DB 동기화 완료: ${kingId}`, updatedKing);
+              } else {
+                  console.warn(`⚠️ 메모리에서 찾을 수 없음: ${kingId}`);
               }
               
               const { year, month } = getCurrentYearMonth();
@@ -5357,6 +5411,8 @@ function getCountryInfoById(id) {
               console.log(`✅ 왕 메모리 삭제: ${kingId}`);
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
+          } else {
+              console.warn(`⚠️ 삭제할 왕을 찾을 수 없음: ${kingId}`);
           }
       };
       
@@ -5368,7 +5424,9 @@ function getCountryInfoById(id) {
               
               if (index !== -1 && updatedDrawing) {
                   drawings[index] = updatedDrawing;
-                  console.log(`✅ 그리기 DB 동기화 완료: ${drawingId}`);
+                  console.log(`✅ 그리기 DB 동기화 완료: ${drawingId}`, updatedDrawing);
+              } else {
+                  console.warn(`⚠️ 메모리에서 찾을 수 없음: ${drawingId}`);
               }
               
               const { year, month } = getCurrentYearMonth();
@@ -5392,6 +5450,8 @@ function getCountryInfoById(id) {
               console.log(`✅ 그리기 메모리 삭제: ${drawingId}`);
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
+          } else {
+              console.warn(`⚠️ 삭제할 그리기를 찾을 수 없음: ${drawingId}`);
           }
       };
       
@@ -7000,6 +7060,7 @@ function getCountryInfoById(id) {
         // 🚩 [추가] 자연 또는 지명 타입일 경우 국가 필드를 '자연지물'로 설정
         if (currentType === 'label') {
             document.getElementById('labelColor').value = castle.label_color || '#FFFFFF';
+            document.getElementById('labelType').value = castle.label_type || 'place'; // ✨ [신규] 라벨 타입 로드
         }
 
         // 🚩 [수정] 타입에 따라 단일 기간 필드 채우기
@@ -7151,6 +7212,7 @@ function getCountryInfoById(id) {
 
         // 지명 전용 필드
         document.getElementById('labelColorRow').style.display = isLabel ? 'flex' : 'none';
+        document.getElementById('labelTypeRow').style.display = isLabel ? 'flex' : 'none'; // ✨ [신규] 라벨 타입 선택
         document.getElementById('labelSizeRow').style.display = isLabel ? 'flex' : 'none';
     }
     
@@ -7255,6 +7317,7 @@ function getCountryInfoById(id) {
         is_military_flag: selectedType === 'military',
         is_natural_feature: selectedType === 'natural',
         is_label: selectedType === 'label',
+        label_type: selectedType === 'label' ? (document.getElementById('labelType')?.value || 'place') : null, // ✨ [신규] 라벨 세부 타입
         label_color: document.getElementById('labelColor').value,
         label_size: document.getElementById('labelSize').value,
         natural_feature_type: selectedType === 'natural' ? document.getElementById('naturalFeatureType').value : null,
@@ -7305,8 +7368,9 @@ function getCountryInfoById(id) {
           data.destroyed_year = historyData[0]?.end_year;
           data.destroyed_month = historyData[0]?.end_month;
       } else {
-          // 단순 기간 타입
+          // 단순 기간 타입 (지명, 자연, 군대)
           data.history = []; // 빈 배열로 설정
+          data.country_id = null; // 🚩 [수정] country_id를 null로 명시적으로 설정
           data.built_year = document.getElementById('simpleStartYear').value ? parseInt(document.getElementById('simpleStartYear').value) : null;
           data.built_month = document.getElementById('simpleStartMonth').value ? parseInt(document.getElementById('simpleStartMonth').value) : null;
           data.destroyed_year = document.getElementById('simpleEndYear').value ? parseInt(document.getElementById('simpleEndYear').value) : null;
@@ -7375,28 +7439,16 @@ function getCountryInfoById(id) {
           }
           
           // 🚩 [최적화] 전체 fetch 대신 메모리에서 증분 업데이트
+          const responseData = await response.json();
+          console.log('📥 서버 응답 데이터:', responseData);
+          
           if (isUpdate) {
-              // 수정의 경우: 서버에서 반환된 업데이트된 객체 사용
-              const responseData = await response.json();
-              console.log('📥 서버 응답 데이터:', responseData);
-              
+              // 수정의 경우: updateCastleInMemory 함수 사용
               if (responseData.castle) {
-                  // 서버가 반환한 업데이트된 문서로 메모리 업데이트
-                  const index = castles.findIndex(c => c._id === editingCastleKey || c.name === editingCastleKey);
-                  if (index !== -1) {
-                      castles[index] = responseData.castle;
-                      console.log(`✅ 성/전장 메모리 업데이트 완료: ${responseData.castle.name}`);
-                  }
-                  
-                  // 맵 즉시 갱신
-                  const { year, month } = getCurrentYearMonth();
-                  updateMap(year, month);
+                  await updateCastleInMemory(editingCastleKey, responseData.castle);
               }
           } else {
               // 추가의 경우: 서버가 반환한 삽입된 문서 사용
-              const responseData = await response.json();
-              console.log('📥 서버 응답 데이터 (추가):', responseData);
-              
               if (responseData.castle) {
                   // 서버가 반환한 전체 문서를 배열에 추가
                   castles.push(responseData.castle);

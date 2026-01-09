@@ -199,14 +199,17 @@ async function setupRoutesAndCollections() {
                 if (newCastle._id) delete newCastle._id; 
                 
                 // 🚨 [필수 수정]: 클라이언트가 countryId를 보내도록 가정
-                if (newCastle.country_id) {
+                if (newCastle.country_id !== undefined && newCastle.country_id !== null && newCastle.country_id !== '') {
                     const convertedId = toObjectId(newCastle.country_id);
                     if (convertedId) {
                         newCastle.country_id = convertedId;
                     } else {
-                        // 빈 문자열이나 잘못된 ID는 삭제
-                        delete newCastle.country_id;
+                        // 잘못된 ID는 null로 설정
+                        newCastle.country_id = null;
                     }
+                } else if (newCastle.country_id === '' || newCastle.country_id === null) {
+                    // 빈 문자열이나 null은 명시적으로 null로 설정
+                    newCastle.country_id = null;
                 }
                 // 기존 newCastle.country 필드가 있다면 삭제 (마이그레이션 구조 유지)
                 if (newCastle.country) delete newCastle.country;
@@ -244,14 +247,17 @@ async function setupRoutesAndCollections() {
                 if (updatedCastle._id) delete updatedCastle._id;
 
                 // 🚨 [필수 수정]: 클라이언트가 country_id를 보냈다면 ObjectId로 변환하여 업데이트
-                if (updatedCastle.country_id) {
+                if (updatedCastle.country_id !== undefined && updatedCastle.country_id !== null && updatedCastle.country_id !== '') {
                     const convertedId = toObjectId(updatedCastle.country_id);
                     if (convertedId) {
                         updatedCastle.country_id = convertedId;
                     } else {
-                        // 빈 문자열이나 잘못된 ID는 삭제
-                        delete updatedCastle.country_id;
+                        // 잘못된 ID는 null로 설정
+                        updatedCastle.country_id = null;
                     }
+                } else if (updatedCastle.country_id === '' || updatedCastle.country_id === null) {
+                    // 빈 문자열이나 null은 명시적으로 null로 설정 (삭제하지 않음)
+                    updatedCastle.country_id = null;
                 }
                 // country 필드가 넘어온다면 삭제 (ID 기반 구조 유지)
                 if (updatedCastle.country) delete updatedCastle.country;
