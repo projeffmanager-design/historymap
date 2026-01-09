@@ -2552,7 +2552,10 @@ function enableFormDrag(formId) {
                             <input type="checkbox" class="mobile-layer-checkbox" data-layer="event" checked style="margin-right: 6px;"> 이벤트
                         </label>
                         <label style="display: flex; align-items: center; padding: 4px 0; cursor: pointer; font-size: 11px;">
-                            <input type="checkbox" class="mobile-layer-checkbox" data-layer="territory" style="margin-right: 6px;"> 강역
+                            <input type="checkbox" class="mobile-layer-checkbox" data-layer="territoryPolygon" style="margin-right: 6px;"> 영토
+                        </label>
+                        <label style="display: flex; align-items: center; padding: 4px 0; cursor: pointer; font-size: 11px;">
+                            <input type="checkbox" class="mobile-layer-checkbox" data-layer="rivers" style="margin-right: 6px;"> 강
                         </label>
                         <label style="display: flex; align-items: center; padding: 4px 0; cursor: pointer; font-size: 11px;">
                             <input type="checkbox" class="mobile-layer-checkbox" data-layer="timeline" checked style="margin-right: 6px;"> 연대표
@@ -2603,7 +2606,8 @@ function enableFormDrag(formId) {
                 <button type="button" class="layer-toggle-btn active" data-layer="military" style="padding: 2px 4px; font-size: 10px;">군대</button>
                 <button type="button" class="layer-toggle-btn active" data-layer="natural" style="padding: 2px 4px; font-size: 10px;">자연</button>
                 <button type="button" class="layer-toggle-btn active" data-layer="event" style="padding: 2px 4px; font-size: 10px;">이벤트</button>
-                <button type="button" class="layer-toggle-btn" data-layer="territory" style="padding: 2px 4px; font-size: 10px;">강역</button>
+                <button type="button" class="layer-toggle-btn" data-layer="territoryPolygon" style="padding: 2px 4px; font-size: 10px;">영토</button>
+                <button type="button" class="layer-toggle-btn" data-layer="rivers" style="padding: 2px 4px; font-size: 10px;">강</button>
                 <button type="button" class="layer-toggle-btn active" data-layer="timeline" style="padding: 2px 4px; font-size: 10px;">연대표</button>
                 <button type="button" class="layer-toggle-btn active" data-layer="kingPanel" style="padding: 2px 4px; font-size: 10px;">왕</button>
                 <button type="button" class="layer-toggle-btn active" data-layer="historyPanel" style="padding: 2px 4px; font-size: 10px;">역사</button>
@@ -2617,6 +2621,7 @@ function enableFormDrag(formId) {
                     <button id="countryEditBtnDropdown" class="dropdown-item">국가 편집</button>
                     <button id="kingEditBtnDropdown" class="dropdown-item">왕 편집</button>
                     <button id="eventEditBtnDropdown" class="dropdown-item">이벤트 편집</button>
+                    <hr style="border: 0; border-top: 1px solid #5d7185; margin: 4px 0;">
                     <button id="exitEditBtnDropdown" class="dropdown-item danger">편집모드 종료</button>
                 </div>
             </div>
@@ -3179,10 +3184,29 @@ function enableFormDrag(formId) {
         }
     }
     // 🚩 [수정] localStorage 또는 sessionStorage에서 토큰을 가져옵니다.
-    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    let token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    
+    // "null" 문자열 체크 및 정리 (더 강력한 체크)
+    if (!token || token === 'null' || token === 'undefined' || token.trim() === '') {
+        console.warn('⚠️ 유효하지 않은 토큰 감지:', token);
+        localStorage.removeItem('token');
+        sessionStorage.removeItem('token');
+        token = null;
+    }
+    
+    // JWT 형식 검증 (xxx.yyy.zzz 형태여야 함)
+    if (token && token.split('.').length !== 3) {
+        console.warn('⚠️ 잘못된 JWT 형식:', token);
+        localStorage.removeItem('token');
+        sessionStorage.removeItem('token');
+        token = null;
+    }
+    
     if (!token) {
         alert('로그인이 필요합니다. 로그인 페이지로 이동합니다.');
         window.location.href = 'login.html';
+    } else {
+        console.log('✅ 유효한 토큰으로 로그인됨');
     }
 
 
@@ -3228,19 +3252,10 @@ function enableFormDrag(formId) {
     let historyEventTimes = []; // 🚩 [추가] 역사 기록의 연/월 목록
     let historyYears = []; // 🚩 [추가] 역사 기록이 있는 연도 목록
     let drawings = []; // 🚩 [추가] 그리기 데이터 저장소
+    let territories = []; // 🚩 [추가] 영토 폴리곤 데이터 저장소
+    let naturalFeatures = []; // 🌊 [추가] 자연 지형지물 (강, 산맥 등) 데이터 저장소
     let markers = [];
     let currentOpenPopup = null; // 🚩 [추가] 현재 열린 팝업 추적
-    let heatmapLayers = {}; // 국가별 히트맵 레이어 저장 
-    let heatmapSourceDebug = {}; // 🚩 [추가] 강역 히트맵 원본 데이터를 추적하기 위한 디버그 맵
-    let phantomDebugLayerGroup = null; // 🚩 [추가] 유령 강역 하이라이트용 레이어 그룹
-
-    function getCastleDebugKey(castle) {
-        if (!castle) return 'unknown';
-        if (castle._id) return `id:${castle._id}`;
-        const latPart = typeof castle.lat === 'number' ? castle.lat.toFixed(4) : 'lat?';
-        const lngPart = typeof castle.lng === 'number' ? castle.lng.toFixed(4) : 'lng?';
-        return `${castle.name || 'unknown'}@${latPart},${lngPart}`;
-    }
 
     function getCastleLayerType(castle) {
         if (!castle) return 'city';
@@ -3260,18 +3275,6 @@ function enableFormDrag(formId) {
         const startTotal = yearMonthToTotalMonths(startYear, startMonth);
         const endTotal = endYear === null ? Infinity : yearMonthToTotalMonths(endYear, endMonth);
         return startTotal <= currentMonths && currentMonths <= endTotal;
-    }
-
-    function getPhantomReason(entry) {
-        if (!entry) return '정보 없음';
-        if (!entry.matchesSelectedCountry) return '국가 필터에서 제외됨';
-        if (!entry.layerVisible) return `레이어 "${entry.castleType}" 비활성화`; 
-        if ((entry.castleType === 'city' || entry.castleType === 'label') && !entry.countryActive) {
-            return '국가 존속 기간 밖 (표시 안 됨)';
-        }
-        if (entry.countryInfoMissing) return '국가 데이터 누락';
-        if (entry.castleType === 'military') return entry.hasPathData ? '군대 경로 범위 확인 필요' : '군대 레이어 표시 조건 확인';
-        return '추가 확인 필요';
     }
 
     // UI 상태 관리 변수 (isLoggedIn 기반으로 초기화)
@@ -3308,7 +3311,8 @@ function enableFormDrag(formId) {
         military: true,   // 군대
         battle: true,     // 전장 (독립 마커)
         natural: true,    // 자연
-        territory: false,
+        territoryPolygon: false, // 🚩 [추가] 영토 (폴리곤 색칠)
+        rivers: false,    // 🌊 [추가] 강 레이어 가시성
         event: true,      // 🚩 [추가] 이벤트 레이어 가시성
         timeline: true,   // 🚩 [추가] 연대표 가시성
         kingPanel: true,  // 🚩 [추가] 왕목록 패널 가시성
@@ -3370,6 +3374,7 @@ function enableFormDrag(formId) {
     }
 
     let castleLayerGroup = L.layerGroup().addTo(map); 
+    let territoryLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 영토 폴리곤 레이어 그룹
     map.addLayer(drawnItems); // 🚩 [추가] 그린 도형을 담을 레이어 그룹 추가
     const combinedSlider = document.getElementById('combinedSlider'); // 🚩 [추가] 슬라이더 DOM 요소
     const eraLabel = document.getElementById('eraLabel'); // 🚩 [추가] B.C./A.D. 표시 라벨
@@ -3798,23 +3803,268 @@ function getKingByYear(countryName, year, month) {
         }
     }
 
+// --- 3.5 영토 폴리곤 자동 색상 계산 함수 ---
+
+    // 🚩 [추가] 폴리곤 내부에 점이 있는지 확인하는 함수 (Ray Casting 알고리즘)
+    function isPointInPolygon(point, polygon) {
+        const [lat, lng] = point;
+        let inside = false;
+        
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const [lat1, lng1] = polygon[i];
+            const [lat2, lng2] = polygon[j];
+            
+            const intersect = ((lng1 > lng) !== (lng2 > lng)) &&
+                (lat < (lat2 - lat1) * (lng - lng1) / (lng2 - lng1) + lat1);
+            if (intersect) inside = !inside;
+        }
+        
+        return inside;
+    }
+
+    // 🚩 [추가] GeoJSON 폴리곤 좌표를 [lat, lng] 배열로 변환
+    function extractPolygonCoords(geojson) {
+        if (geojson.type === 'Feature') {
+            geojson = geojson.geometry;
+        }
+        
+        if (geojson.type === 'Polygon') {
+            // Polygon의 첫 번째 링(외부 경계)만 사용
+            return geojson.coordinates[0].map(coord => [coord[1], coord[0]]);
+        } else if (geojson.type === 'MultiPolygon') {
+            // MultiPolygon의 첫 번째 폴리곤만 사용
+            return geojson.coordinates[0][0].map(coord => [coord[1], coord[0]]);
+        }
+        
+        return null;
+    }
+
+    // 🚩 [추가] 특정 영토 폴리곤의 지배 국가 계산 (최적화됨)
+    function calculateDominantCountry(territory, year, month) {
+        if (!territory.geojson || !territory.geojson.geometry) return null;
+        
+        const geometry = territory.geojson.geometry;
+        const currentTotalMonths = yearMonthToTotalMonths(year, month);
+        const countryCount = {};
+        
+        // Polygon 또는 MultiPolygon 처리 및 좌표 변환 (캐싱)
+        let polygonData = [];
+        if (geometry.type === 'Polygon') {
+            const coords = geometry.coordinates[0];
+            const converted = coords.map(coord => [coord[1], coord[0]]); // [lng,lat] -> [lat,lng]
+            const bounds = calculateBounds(converted);
+            polygonData = [{ coords: converted, bounds }];
+        } else if (geometry.type === 'MultiPolygon') {
+            polygonData = geometry.coordinates.map(poly => {
+                const coords = poly[0];
+                const converted = coords.map(coord => [coord[1], coord[0]]);
+                const bounds = calculateBounds(converted);
+                return { coords: converted, bounds };
+            });
+        } else {
+            return null;
+        }
+        
+        // 모든 성/도시 마커를 순회
+        castles.forEach(castle => {
+            if (typeof castle.lat !== "number" || typeof castle.lng !== "number") return;
+            
+            // 어느 폴리곤이든 내부에 있으면 카운트
+            let isInside = false;
+            for (const polygon of polygonData) {
+                // 1. Bounding Box 체크 (빠른 제외)
+                if (castle.lat < polygon.bounds.minLat || castle.lat > polygon.bounds.maxLat ||
+                    castle.lng < polygon.bounds.minLng || castle.lng > polygon.bounds.maxLng) {
+                    continue;
+                }
+                
+                // 2. 정확한 Point-in-Polygon 체크
+                if (isPointInPolygon([castle.lat, castle.lng], polygon.coords)) {
+                    isInside = true;
+                    break;
+                }
+            }
+            
+            if (!isInside) return;
+            
+            // 현재 시간에 활성화된 히스토리 레코드 찾기
+            const activeHistoryInfo = getActiveHistoryInfo(castle.history, currentTotalMonths);
+            if (!activeHistoryInfo) return;
+            
+            const countryId = activeHistoryInfo.record.country_id || castle.country_id;
+            if (!countryId) return;
+            
+            // 가중치 계산 (수도=3, 일반 도시=1)
+            const weight = castle.is_capital ? 3 : 1;
+            countryCount[countryId] = (countryCount[countryId] || 0) + weight;
+        });
+        
+        // 가장 많은 마커를 가진 국가 찾기
+        let dominantCountry = null;
+        let maxCount = 0;
+        
+        for (const [countryId, count] of Object.entries(countryCount)) {
+            if (count > maxCount) {
+                maxCount = count;
+                dominantCountry = countryId;
+            }
+        }
+        
+        return dominantCountry;
+    }
+
+    // 🚩 [추가] territory GeoJSON의 Bounding Box 계산 (캐싱)
+    function getTerritoryBounds(territory) {
+        if (territory._bounds) return territory._bounds;
+        if (!territory.geojson || !territory.geojson.geometry) return null;
+        
+        let minLat = Infinity, maxLat = -Infinity;
+        let minLng = Infinity, maxLng = -Infinity;
+        const geom = territory.geojson.geometry;
+        const collect = (coords) => {
+            coords.forEach(([lng, lat]) => {
+                if (lat < minLat) minLat = lat;
+                if (lat > maxLat) maxLat = lat;
+                if (lng < minLng) minLng = lng;
+                if (lng > maxLng) maxLng = lng;
+            });
+        };
+        if (geom.type === 'Polygon') {
+            collect(geom.coordinates[0]);
+        } else if (geom.type === 'MultiPolygon') {
+            geom.coordinates.forEach(poly => collect(poly[0]));
+        }
+        territory._bounds = { minLat, maxLat, minLng, maxLng };
+        return territory._bounds;
+    }
+    
+    // 🚩 [추가] Bounding Box 계산
+    function calculateBounds(coords) {
+        let minLat = Infinity, maxLat = -Infinity;
+        let minLng = Infinity, maxLng = -Infinity;
+        
+        for (const [lat, lng] of coords) {
+            if (lat < minLat) minLat = lat;
+            if (lat > maxLat) maxLat = lat;
+            if (lng < minLng) minLng = lng;
+            if (lng > maxLng) maxLng = lng;
+        }
+        
+        return { minLat, maxLat, minLng, maxLng };
+    }
+
 // --- 4. 지도 렌더링 및 마커 생성 함수 ---
 
-function updateMap(year, month) {
+function updateMap(year, month, cacheOnly = false) {
         // Leaflet.heat 초기화는 지도 load 이후에만 안전하게 진행 가능하므로, 아직 로드되지 않았다면 다시 호출을 예약합니다.
         if (!map || !map._loaded) {
             if (map && typeof map.once === 'function') {
-                map.once('load', () => updateMap(year, month));
+                map.once('load', () => updateMap(year, month, cacheOnly));
             }
             return;
         }
-        heatmapSourceDebug = {};
-        // 🚩 [수정] 히트맵 레이어를 포함한 모든 레이어 초기화
-        Object.values(heatmapLayers).forEach(layer => map.removeLayer(layer));
-        heatmapLayers = {};
 
         // 🚩 [수정] 그리기 레이어 초기화를 다른 레이어 초기화와 함께 처리
         if (drawnItems) drawnItems.clearLayers();
+        
+        // 🚩 [수정] 영토 레이어 완전 초기화 (중첩 방지) - 동기적으로 즉시 실행
+        if (territoryLayerGroup) {
+            territoryLayerGroup.clearLayers();
+            map.removeLayer(territoryLayerGroup);
+        }
+        // 새로운 레이어 그룹 생성
+        territoryLayerGroup = L.layerGroup().addTo(map);
+        
+        // 🚩 영토 폴리곤 자동 색상 채우기 (GeoJSON 행정구역 기반)
+        if (layerVisibility.territoryPolygon) {
+            const currentTerritoryLayer = territoryLayerGroup;
+            currentTerritoryLayer.clearLayers();
+            
+            const startTime = performance.now();
+            let renderedCount = 0;
+            const view = map.getBounds();
+            const viewBox = { minLat: view.getSouth(), maxLat: view.getNorth(), minLng: view.getWest(), maxLng: view.getEast() };
+            
+            territories.forEach(territory => {
+                // 뷰포트와 전혀 겹치지 않는 폴리곤은 스킵하여 성능 개선
+                const tBounds = getTerritoryBounds(territory);
+                if (tBounds && (tBounds.maxLat < viewBox.minLat || tBounds.minLat > viewBox.maxLat || tBounds.maxLng < viewBox.minLng || tBounds.minLng > viewBox.maxLng)) {
+                    return;
+                }
+
+                // 영토 폴리곤의 유효 기간 확인
+                const startYear = territory.start_year || -Infinity;
+                const endYear = territory.end_year || Infinity;
+                
+                if (!(year >= startYear && year <= endYear)) return;
+                
+                // 🚩 자동 계산: 폴리곤 내 성들의 국가를 세어 지배 국가 결정
+                // 가중치: 수도=3, 일반 도시=1
+                const dominantCountryId = calculateDominantCountry(territory, year, month);
+                if (!dominantCountryId) return;
+                
+                const countryInfo = getCountryInfoById(dominantCountryId);
+                if (!countryInfo) return;
+                
+                // 민족 필터링
+                if (selectedEthnicity !== 'all') {
+                    if (!countryInfo.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity)) {
+                        return;
+                    }
+                }
+                
+                // 폴리곤 렌더링 (국가 색상으로 자동 채우기)
+                const territoryLayer = L.geoJSON(territory.geojson, {
+                    style: {
+                        color: countryInfo.color || '#ffffff',
+                        weight: 2,
+                        opacity: 0.6,
+                        fillColor: countryInfo.color || '#ffffff',
+                        fillOpacity: 0.3
+                    }
+                });
+                
+                // 팝업 추가
+                const popupContent = `<b>${territory.name || '영토'}</b><br>지배국: ${countryInfo.name}<br>기간: ${startYear}년 ~ ${endYear === Infinity ? '현재' : endYear + '년'}`;
+                territoryLayer.bindPopup(popupContent);
+                
+                currentTerritoryLayer.addLayer(territoryLayer);
+                renderedCount++;
+            });
+            
+            const endTime = performance.now();
+            console.log(`✅ 영토 자동 색상 채우기 완료: ${renderedCount}개 (${(endTime - startTime).toFixed(0)}ms)`);
+        }
+
+        // 🌊 [추가] 자연 지형지물 (강) 렌더링
+        if (layerVisibility.rivers && naturalFeatures.length > 0) {
+            const riverStartTime = performance.now();
+            let riverRenderedCount = 0;
+            
+            naturalFeatures.forEach(feature => {
+                if (feature.type === 'river' && feature.geometry && feature.geometry.type === 'LineString') {
+                    // GeoJSON LineString을 Leaflet Polyline으로 변환
+                    const latLngs = feature.geometry.coordinates.map(coord => [coord[1], coord[0]]);
+                    
+                    const riverLine = L.polyline(latLngs, {
+                        color: '#3498db',      // 파란색
+                        weight: 2,
+                        opacity: 0.7,
+                        smoothFactor: 1
+                    });
+                    
+                    // 팝업 추가 (한국어/영어 이름)
+                    const popupContent = `<b>${feature.name}</b><br>${feature.name_en}`;
+                    riverLine.bindPopup(popupContent);
+                    
+                    territoryLayerGroup.addLayer(riverLine);
+                    riverRenderedCount++;
+                }
+            });
+            
+            const riverEndTime = performance.now();
+            console.log(`🌊 강 렌더링 완료: ${riverRenderedCount}개 (${(riverEndTime - riverStartTime).toFixed(0)}ms)`);
+        }
 
         // 🚩 [추가] 저장된 그리기 데이터 렌더링
         drawings.forEach(drawing => {
@@ -3823,10 +4073,11 @@ function updateMap(year, month) {
 
             if (!(year >= startYear && year <= endYear)) return; // 현재 시간대에 없으면 렌더링 안함
 
-            // 🚩 [핵심 수정] '강' 유형은 '자연' 레이어 토글에 따라 표시 여부를 결정합니다.
-            if (drawing.type === 'river' && !layerVisibility.natural) {
-                return; // '자연' 레이어가 꺼져있으면 강을 그리지 않습니다.
+            // 🌊 [수정] '강' 유형은 '강' 레이어 토글에 따라 표시 여부를 결정합니다.
+            if (drawing.type === 'river' && !layerVisibility.rivers) {
+                return; // '강' 레이어가 꺼져있으면 강을 그리지 않습니다.
             }
+            // 🚩 [수정] '산맥' 유형은 '자연' 레이어 토글에 따라 표시 여부를 결정합니다.
             if (drawing.type === 'mountain' && !layerVisibility.natural) {
                 return; // '자연' 레이어가 꺼져있으면 산맥을 그리지 않습니다.
             }
@@ -3992,130 +4243,6 @@ function updateMap(year, month) {
             });
         }
 
-        // 🚩 [추가] 강역 표시를 위한 국가별 포인트 데이터 수집
-        const currentTotalMonths = yearMonthToTotalMonths(year, month);
-        const newHeatmapData = {}; // { countryId: [[lat, lng, intensity], ...] }
-
-        if (layerVisibility.territory) {
-            castles.forEach(castle => {
-                if (typeof castle.lat !== "number" || typeof castle.lng !== "number") return;
-
-                // 🚩 [핵심 수정] 현재 시간에 맞는 역사 기록을 찾아서 그 country_id를 사용
-                const activeHistoryInfo = getActiveHistoryInfo(castle.history, currentTotalMonths);
-
-                // 🚩 [핵심 수정] 현재 시간에 맞는 역사 기록이 없으면 스킵
-                if (!activeHistoryInfo || !activeHistoryInfo.record.country_id) return;
-
-                const { record: activeHistoryRecord } = activeHistoryInfo;
-                const countryId = activeHistoryRecord.country_id || castle.country_id || castle.countryId;
-
-                if (!countryId) return;
-                
-                // 🚩 [추가] 민족 필터링 로직 (부분 일치) - 현재 활성 히스토리의 국가 민족 체크
-                if (selectedEthnicity !== 'all') {
-                    const countryInfo = getCountryInfoById(countryId);
-                    if (countryInfo && (!countryInfo.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity))) {
-                        return; // 선택된 민족을 포함하지 않으면 히트맵에서 제외
-                    }
-                }
-
-                const debugKey = getCastleDebugKey(castle);
-                const layerType = getCastleLayerType(castle);
-                const matchesSelectedCountry = selectedCountryId === 'all' || countryId === selectedCountryId;
-                const countryInfoForDebug = getCountryInfoById(countryId);
-                heatmapSourceDebug[debugKey] = {
-                    castleId: castle._id ?? null,
-                    name: activeHistoryRecord.name || castle.name || '(이름 없음)',
-                    castleType: layerType,
-                    countryId,
-                    countryName: countryInfoForDebug?.name || '알 수 없음',
-                    lat: castle.lat,
-                    lng: castle.lng,
-                    matchesSelectedCountry,
-                    layerVisible: layerVisibility[layerType] ?? true,
-                    countryActive: computeCountryActiveState(countryInfoForDebug, currentTotalMonths),
-                    countryInfoMissing: !countryInfoForDebug,
-                    hasPathData: Array.isArray(castle.path_data) && castle.path_data.length >= 2,
-                    contributesToHeatmap: true
-                };
-
-                if (!newHeatmapData[countryId]) {
-                    newHeatmapData[countryId] = [];
-                }
-
-                // 🚩 [수정] 국가 선택 여부에 따라 히트맵 강도(intensity)를 다르게 설정
-                let intensity = 1.2; // 🚩 [수정] 기본 강도 상향
-                if (selectedCountryId !== 'all') {
-                    if (countryId === selectedCountryId) {
-                        intensity = 2.0; // 🚩 [수정] 선택된 국가는 더 강하게 표시
-                    } else {
-                        intensity = 0.5; // 🚩 [수정] 나머지 국가는 약간 약하게 표시
-                    }
-                }
-                newHeatmapData[countryId].push([castle.lat, castle.lng, intensity]); 
-            });
-        }
-
-        // 🚩 [추가] 히트맵 레이어 업데이트 또는 생성
-        const activeCountryIds = new Set(Object.keys(newHeatmapData));
-        const existingCountryIds = new Set(Object.keys(heatmapLayers));
-
-        for (const countryId of activeCountryIds) {
-            const points = newHeatmapData[countryId];
-            const countryInfo = getCountryInfoById(countryId);
-
-            if (countryInfo && countryInfo.color && points.length > 0) {
-                if (heatmapLayers[countryId]) {
-                    heatmapLayers[countryId].setLatLngs(points);
-                } else {
-                    // 🚩 [핵심 수정] 줌 레벨에 따라 반경을 동적으로 계산합니다.
-                    // 줌 레벨 5를 기준으로 80px 반경을 설정하고, 줌 레벨이 1씩 변경될 때마다 반경을 2배씩 조절합니다.
-                    const currentZoom = map.getZoom(); // 🚩 [수정] 줌 레벨에 따른 반경 계산
-                    const radius = 50 * Math.pow(2, currentZoom - 5);
-                    const blur = 0; // 약간의 블러
-                    // gradient를 더 부드럽게, 진하지만 과하지 않게
-                    const gradient = {
-                        0.2: countryInfo.color || 'grey',
-                        0.5: countryInfo.color || 'grey',
-                        0.8: countryInfo.color || 'grey',
-                        1.0: countryInfo.color || 'grey'
-                    };
-                    const heatLayer = L.heatLayer(points, {
-                        radius: radius,
-                        blur: blur,
-                        max: 0.25, // 기존보다 약간 더 진하게
-                        minOpacity: 0.4, // 최소 불투명도
-                        gradient: gradient,
-                        opacity: 0.7 // 전체 불투명도는 0.7로 (과하지 않게)
-                    });
-                    heatmapLayers[countryId] = heatLayer;
-                }
-                // 레이어가 지도에 없으면 추가합니다.
-                if (!map.hasLayer(heatmapLayers[countryId])) {
-                    heatmapLayers[countryId].addTo(map);
-                }
-            } else if (heatmapLayers[countryId]) {
-                map.removeLayer(heatmapLayers[countryId]);
-                delete heatmapLayers[countryId];
-            }
-        }
-
-        for (const countryId of existingCountryIds) {
-            if (!activeCountryIds.has(countryId)) {
-                if (heatmapLayers[countryId]) {
-                    map.removeLayer(heatmapLayers[countryId]);
-                    delete heatmapLayers[countryId];
-                }
-            }
-        }
-
-        if (!layerVisibility.territory) {
-            for (const countryId in heatmapLayers) {
-                map.removeLayer(heatmapLayers[countryId]);
-            }
-            heatmapLayers = {};
-        }
-
         castleLayerGroup.clearLayers(); // 마커 레이어는 기존처럼 클리어 후 다시 추가
         markers = [];
         if (!Array.isArray(castles) || castles.length === 0) return;
@@ -4239,7 +4366,9 @@ function updateMap(year, month) {
                     clearTimeout(popupTimeout);
                   });
                   popup._container.addEventListener('mouseleave', function() {
-                    marker.closePopup();
+                    if (marker && marker.closePopup) {
+                      marker.closePopup();
+                    }
                   });
                 }
               });
@@ -4260,7 +4389,9 @@ function updateMap(year, month) {
                     openCastleForm(castle._id);
                 } else {
                     // 🚩 [추가] 일반 모드에서는 팝업 표시
-                    marker.openPopup();
+                    if (marker && marker._popup) {
+                        marker.openPopup();
+                    }
                 }
               });
               markers.push(marker);
@@ -4421,7 +4552,9 @@ function updateMap(year, month) {
                         if (editMode) {
                             openCastleForm(castle._id);
                         } else {
-                            marker.openPopup();
+                            if (marker && marker._popup) {
+                                marker.openPopup();
+                            }
                         }
                     });
                     markers.push(marker);
@@ -4517,7 +4650,9 @@ function updateMap(year, month) {
                     if (editMode) {
                         openCastleForm(castle._id);
                     } else {
-                        marker.openPopup();
+                        if (marker && marker._popup) {
+                            marker.openPopup();
+                        }
                     }
                 });
                 markers.push(marker);
@@ -4531,8 +4666,6 @@ function updateMap(year, month) {
         // 🚩 전장은 성/도시 레이어에 포함되어 표시됨 (별도 토글 없음)
         const isBattleMarker = castle.is_battle || activeHistoryRecord?.is_battle;
         if (isBattleMarker && layerVisibility.city) {
-            console.log('💥 전장 마커 렌더링:', castleName, 'castle.is_battle:', castle.is_battle, 'history.is_battle:', activeHistoryRecord?.is_battle);
-            
             // 전장도 국가 색깔 사용 (이미 위에서 countryInfo 가져옴)
             const battleColor = countryInfo?.color || 'white';
             
@@ -4612,7 +4745,9 @@ function updateMap(year, month) {
                 if (editMode) {
                     openCastleForm(castle._id);
                 } else {
-                    marker.openPopup();
+                    if (marker && marker._popup) {
+                        marker.openPopup();
+                    }
                 }
             });
             markers.push(marker);
@@ -4746,7 +4881,9 @@ function updateMap(year, month) {
                         clearTimeout(popupTimeout);
                     });
                     popup._container.addEventListener('mouseleave', function() {
-                        marker.closePopup();
+                        if (marker && marker.closePopup) {
+                            marker.closePopup();
+                        }
                     });
                 }
               });
@@ -4755,7 +4892,9 @@ function updateMap(year, month) {
                 popupTimeout = setTimeout(() => {
                     const popup = this.getPopup();
                     if (!popup || !popup._container || !popup._container.matches(':hover')) {
-                        this.closePopup();
+                        if (this && this.closePopup) {
+                            this.closePopup();
+                        }
                     }
                 }, 300);
               });
@@ -4765,7 +4904,9 @@ function updateMap(year, month) {
                 if (editMode) {
                     openCastleForm(castle._id);
                 } else {
-                    marker.openPopup();
+                    if (marker && marker._popup) {
+                        marker.openPopup();
+                    }
                 }
               });
               markers.push(marker);
@@ -4775,75 +4916,6 @@ function updateMap(year, month) {
         });
 
     }
-
-    window.findPhantomTerritories = function(options = {}) {
-        const { highlight = false } = options;
-        const sources = Object.values(heatmapSourceDebug || {});
-        if (!sources.length) {
-            console.log('%c강역 히트맵에 기록된 데이터가 없습니다. (강역 레이어가 꺼져 있거나 데이터가 없는 상태)', 'color: #999');
-            return [];
-        }
-
-        const phantomEntries = sources.filter(entry => {
-            if (!entry.contributesToHeatmap) return false;
-            if (!entry.matchesSelectedCountry) return true;
-            if (!entry.layerVisible) return true;
-            if ((entry.castleType === 'city' || entry.castleType === 'label') && !entry.countryActive) return true;
-            if (entry.countryInfoMissing) return true;
-            return false;
-        });
-
-        if (!phantomEntries.length) {
-            console.log('%c강역만 표시되고 객체가 없는 항목이 없습니다.', 'color: #4caf50');
-        } else {
-            console.table(phantomEntries.map(entry => ({
-                이름: entry.name,
-                유형: entry.castleType,
-                국가: entry.countryName,
-                위도: entry.lat,
-                경도: entry.lng,
-                사유: getPhantomReason(entry)
-            })));
-        }
-
-        if (highlight && phantomEntries.length) {
-            if (!phantomDebugLayerGroup) {
-                phantomDebugLayerGroup = L.layerGroup().addTo(map);
-            }
-            phantomDebugLayerGroup.clearLayers();
-            phantomEntries.forEach(entry => {
-                const circle = L.circleMarker([entry.lat, entry.lng], {
-                    radius: 14,
-                    color: '#ff2fbf',
-                    weight: 2,
-                    fillColor: '#ff2fbf',
-                    fillOpacity: 0.45,
-                    pane: 'markerPane'
-                }).bindTooltip(`${entry.name} (${entry.countryName})\n${getPhantomReason(entry)}`, {
-                    direction: 'top',
-                    sticky: true
-                });
-                phantomDebugLayerGroup.addLayer(circle);
-            });
-
-            if (phantomEntries.length === 1) {
-                map.flyTo([phantomEntries[0].lat, phantomEntries[0].lng], Math.max(map.getZoom(), 7));
-            } else {
-                const bounds = L.latLngBounds(phantomEntries.map(e => [e.lat, e.lng]));
-                if (bounds.isValid()) {
-                    map.fitBounds(bounds.pad(0.35));
-                }
-            }
-        }
-
-        return phantomEntries;
-    };
-
-    window.clearPhantomHighlights = function() {
-        if (phantomDebugLayerGroup) {
-            phantomDebugLayerGroup.clearLayers();
-        }
-    };
 
 function getCountryInfoById(id) {
     // 🚩 [필수 확인] id가 ObjectId 객체일 수도, 문자열일 수도 있으므로, toString()으로 비교
@@ -4870,8 +4942,15 @@ function getCountryInfoById(id) {
     function updateDrawings() {
         drawnItems.clearLayers();
     }
+    
+    // 🚩 [추가] 토큰 가져오기 헬퍼 함수
+    function getToken() {
+        return localStorage.getItem('token') || sessionStorage.getItem('token');
+    }
+    
     async function fetchData(endpoint) {
       try {
+        console.log(`📡 [Fetch] ${endpoint} 요청 시작...`);
         const response = await fetch(`${API_BASE_URL}/${endpoint}`, {
             headers: {
                 'Authorization': `Bearer ${token}`
@@ -4892,11 +4971,31 @@ function getCountryInfoById(id) {
         if (!response.ok) {
           throw new Error(`${endpoint} 데이터 로드 실패: ${response.status} ${response.statusText}`);
         }
-        return await response.json();
+        const data = await response.json();
+        console.log(`✅ [Fetch] ${endpoint} 완료 (${data.length || 0}개)`);
+        return data;
       } catch (error) {
-        console.error(error);
+        console.error(`❌ [Fetch] ${endpoint} 오류:`, error);
         return []; 
       }
+    }
+
+    // 🚩 [추가] 프로미스 타임아웃 헬퍼 (지정 ms 초과 시 reject)
+    function withTimeout(promise, ms, label = 'Promise') {
+        return new Promise((resolve, reject) => {
+            const id = setTimeout(() => {
+                reject(new Error(`${label} timed out after ${ms}ms`));
+            }, ms);
+            promise
+                .then((res) => {
+                    clearTimeout(id);
+                    resolve(res);
+                })
+                .catch((err) => {
+                    clearTimeout(id);
+                    reject(err);
+                });
+        });
     }
     
         // 🚩 [추가] 도시/성 선택 드롭다운을 채우는 함수
@@ -4912,20 +5011,25 @@ function getCountryInfoById(id) {
     }
 
     async function initialize() {
-      console.log("데이터 초기화 중...");
+      console.log("⏱️ 데이터 초기화 시작...");
+      const startTime = performance.now();
 
-      // 🚩 Promise.all을 사용하여 모든 데이터를 병렬로 로드하고, 모두 완료될 때까지 기다립니다.
-      const [castlesData, historyData, countriesData, eventsData, kingsDataResult, drawingsData] = await Promise.all([
-          fetchData('castle'),
-          fetchData('history'),
-          fetchData('countries'),
-          fetchData('events'),
-          fetchData('kings'),
-          fetchData('drawings')
-      ]);
+      // 🚩 병렬 요청 + 단계적 반영: 먼저 countries+castles 로드 → 1차 렌더 → 나머지 데이터 순차 반영
+      console.time("📡 API 데이터 로드");
+      const castlesPromise = fetchData('castle');
+      const countriesPromise = fetchData('countries');
+      const eventsPromise = fetchData('events');
+      const kingsPromise = fetchData('kings');
+      const drawingsPromise = fetchData('drawings');
+      const historyPromise = fetchData('history'); // 🚩 [추가] 역사 데이터도 초기 로드
+
+      // 1단계: 국가 + 성 먼저 받아서 바로 화면 표시
+    const [countriesData, castlesData] = await Promise.all([countriesPromise, castlesPromise]);
+      countries = countriesData;
 
       // 🚩 Promise.all로 받아온 데이터를 전역 변수에 할당합니다.
       // 🚩 [핵심 수정] 기존 성 객체에 history 배열이 없거나 비어있을 경우, 기본 history 기록을 생성하여 호환성을 유지합니다.
+      console.time("🏰 Castle 데이터 처리");
       castles = castlesData.map(castle => {
           let processedHistory;
           const hasHistory = castle.history && Array.isArray(castle.history) && castle.history.length > 0;
@@ -4982,18 +5086,315 @@ function getCountryInfoById(id) {
 
           return { ...castle, history: processedHistory };
       });
-      history = historyData;
-      countries = countriesData;
+      console.timeEnd("🏰 Castle 데이터 처리");
+      
+      // 🚩 territories는 lazy loading (토글 시 로드)
+      territories = []; // 초기에는 빈 배열
+      events = []; // 뒤에서 로드
+      drawings = []; // 뒤에서 로드
+      let kingsData = []; // 뒤에서 로드
+
+      // 1차 렌더: countries + castles 로드 후 즉시 지도 표시
+      console.log("🖼️ 1차 렌더: countries + castles 준비 완료");
+      populateCitySelectForEdit();
+      updateMap(parseInt(yearInput.value), parseInt(monthInput.value));
+
+      // 2단계: 나머지 데이터 순차 반영 (이벤트/왕/그리기/역사)
+      const [eventsData, kingsDataResult, drawingsData, historyData] = await Promise.all([
+          eventsPromise,
+          kingsPromise,
+          drawingsPromise,
+          historyPromise
+      ]);
+
       events = eventsData;
-      const kingsData = kingsDataResult; // kingsData는 아래에서 별도로 처리되므로 kingsDataResult로 받습니다.
       drawings = drawingsData;
+      kingsData = kingsDataResult || [];
+      history = historyData || []; // 🚩 [추가] 역사 데이터 초기 로드
+      
+      console.log(`📜 역사 데이터 로드 완료: ${history.length}개`);
 
-      // 🚩 [수정] 역사 기록과 이벤트를 합쳐서 시간 목록 생성
-      const historyTimes = historyData.map(h => yearMonthToTotalMonths(h.year, h.month || 1));
+      console.time("⏰ 시간 목록 생성");
+      // 🚩 [수정] history와 events를 합쳐서 시간 목록 생성
+      const historyTimes = history.map(h => yearMonthToTotalMonths(h.year, h.month || 1));
       const eventTimes = eventsData.map(e => yearMonthToTotalMonths(e.year, e.month || 1));
-      // Set을 사용하여 중복된 시간을 제거하고, 오름차순으로 정렬합니다.
       historyEventTimes = [...new Set([...historyTimes, ...eventTimes])].sort((a, b) => a - b);
+      console.timeEnd("⏰ 시간 목록 생성");
 
+      // 2단계 완료: 메인 데이터 로드 종료 (영토 제외)
+      console.timeEnd("📡 API 데이터 로드");
+
+      // 3단계: 영토와 자연 지형지물은 백그라운드에서 자동 로드 시작 (초기화 완료 후 비동기)
+      territories = [];
+      naturalFeatures = [];
+      console.log(`🗺️ 영토 데이터: 백그라운드 로딩 시작...`);
+      console.log(`🌊 자연 지형지물: 백그라운드 로딩 시작...`);
+      
+      // 🚩 [추가] 영토 버튼에 로딩 표시 (PC 버튼과 모바일 체크박스 모두)
+      const territoryBtns = document.querySelectorAll('[data-layer="territoryPolygon"]');
+      territoryBtns.forEach(btn => {
+          if (btn.tagName === 'BUTTON') {
+              btn.textContent = '영토 (로딩중...)';
+              btn.style.fontSize = '9px';
+          }
+      });
+      console.log(`🔍 영토 버튼 찾기: ${territoryBtns.length}개`);
+      
+      // 백그라운드에서 영토 데이터 자동 fetch (초기화 블로킹 없음)
+      (async () => {
+          try {
+              console.time("🗺️ 영토 백그라운드 로드");
+              
+              // 🚩 [수정] 전체 영토 로드 (뷰포트 제한 없음)
+              // 초기 로딩이므로 모든 영토 가져오기
+              const territoriesData = await fetchData(`territories`);
+              territories = territoriesData || [];
+              console.log(`✅ 영토 데이터 백그라운드 로드 완료: ${territories.length}개`);
+              
+              // 🚩 [추가] 영토 버튼 텍스트 복원
+              const territoryBtns = document.querySelectorAll('[data-layer="territoryPolygon"]');
+              territoryBtns.forEach(btn => {
+                  if (btn.tagName === 'BUTTON') {
+                      btn.textContent = '영토';
+                      btn.style.fontSize = '10px';
+                  }
+              });
+              
+              // 영토 레이어가 켜져 있으면 자동으로 렌더링
+              if (layerVisibility.territoryPolygon) {
+                  const { year, month } = getCurrentYearMonth();
+                  updateMap(year, month);
+              }
+          } catch (error) {
+              console.error('❌ 영토 백그라운드 로드 실패:', error);
+              territories = [];
+              
+              // 🚩 [추가] 영토 버튼 에러 표시
+              const territoryBtns = document.querySelectorAll('[data-layer="territoryPolygon"]');
+              territoryBtns.forEach(btn => {
+                  if (btn.tagName === 'BUTTON') {
+                      btn.textContent = '영토 (실패)';
+                      btn.style.fontSize = '9px';
+                  }
+              });
+          } finally {
+              console.timeEnd("🗺️ 영토 백그라운드 로드");
+          }
+      })();
+      
+      // 🌊 백그라운드에서 자연 지형지물 데이터 자동 fetch
+      (async () => {
+          try {
+              console.time("🌊 자연 지형지물 백그라운드 로드");
+              
+              // 모든 자연 지형지물 가져오기 (type 필터 없음)
+              const featuresData = await fetchData(`natural-features`);
+              naturalFeatures = featuresData || [];
+              console.log(`✅ 자연 지형지물 백그라운드 로드 완료: ${naturalFeatures.length}개`);
+              
+              // 강 레이어가 켜져 있으면 자동으로 렌더링
+              if (layerVisibility.rivers) {
+                  const { year, month } = getCurrentYearMonth();
+                  updateMap(year, month);
+              }
+          } catch (error) {
+              console.error('❌ 자연 지형지물 백그라운드 로드 실패:', error);
+              naturalFeatures = [];
+          } finally {
+              console.timeEnd("🌊 자연 지형지물 백그라운드 로드");
+          }
+      })();
+      
+      // 🚩 [최적화] 증분 업데이트 헬퍼 함수들 - 서버 응답 데이터로 정확히 동기화
+      window.updateCastleInMemory = async (castleKey, serverResponseData) => {
+          // 서버에서 업데이트된 전체 데이터를 다시 가져와서 정확히 동기화
+          try {
+              // ⚠️ /api/castle/:id는 단일 객체를 반환 (배열 아님)
+              const response = await fetch(`${API_BASE_URL}/castle/${castleKey}`, {
+                  headers: { 'Authorization': `Bearer ${getToken()}` }
+              });
+              if (!response.ok) {
+                  throw new Error(`Failed to fetch castle: ${response.status}`);
+              }
+              const updatedCastle = await response.json();
+              
+              const index = castles.findIndex(c => c.name === castleKey);
+              
+              if (index !== -1 && updatedCastle) {
+                  castles[index] = updatedCastle;
+                  console.log(`✅ 성/전장 DB 동기화 완료: ${castleKey}`);
+              }
+              
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } catch (error) {
+              console.error(`❌ 성/전장 동기화 실패: ${castleKey}`, error);
+          }
+      };
+      
+      window.addCastleInMemory = (newCastle) => {
+          // 서버 응답 데이터를 그대로 메모리에 추가
+          castles.push(newCastle);
+          console.log(`✅ 성/전장 메모리 추가: ${newCastle.name} (ID: ${newCastle._id})`);
+          populateCitySelectForEdit(); // 드롭다운 갱신
+          const { year, month } = getCurrentYearMonth();
+          updateMap(year, month);
+      };
+      
+      window.deleteCastleInMemory = (castleKey) => {
+          // name 또는 _id로 찾기
+          const index = castles.findIndex(c => c.name === castleKey || c._id === castleKey);
+          if (index !== -1) {
+              castles.splice(index, 1);
+              console.log(`✅ 성/전장 메모리 삭제: ${castleKey}`);
+              populateCitySelectForEdit(); // 드롭다운 갱신
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } else {
+              console.warn(`⚠️ 삭제할 성/전장을 찾을 수 없음: ${castleKey}`);
+          }
+      };
+      
+      window.updateCountryInMemory = async (originalName, serverResponseData) => {
+          // 서버에서 업데이트된 데이터를 다시 가져와서 동기화
+          try {
+              const updatedCountry = await fetchData(`countries/${encodeURIComponent(serverResponseData.name || originalName)}`);
+              const index = countries.findIndex(c => c.name === originalName);
+              
+              if (index !== -1 && updatedCountry) {
+                  countries[index] = updatedCountry;
+                  console.log(`✅ 국가 DB 동기화 완료: ${originalName} → ${updatedCountry.name}`);
+              }
+              
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } catch (error) {
+              console.error(`❌ 국가 동기화 실패: ${originalName}`, error);
+          }
+      };
+      
+      window.addCountryInMemory = (newCountry) => {
+          countries.push(newCountry);
+          console.log(`✅ 국가 메모리 추가: ${newCountry.name} (ID: ${newCountry._id})`);
+          const { year, month } = getCurrentYearMonth();
+          updateMap(year, month);
+      };
+      
+      window.deleteCountryInMemory = (countryName) => {
+          const index = countries.findIndex(c => c.name === countryName);
+          if (index !== -1) {
+              countries.splice(index, 1);
+              console.log(`✅ 국가 메모리 삭제: ${countryName}`);
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          }
+      };
+      
+      window.updateEventInMemory = async (eventId, serverResponseData) => {
+          // 서버에서 업데이트된 데이터를 다시 가져와서 동기화
+          try {
+              const updatedEvent = await fetchData(`events/${eventId}`);
+              const index = events.findIndex(e => e._id === eventId);
+              
+              if (index !== -1 && updatedEvent) {
+                  events[index] = updatedEvent;
+                  console.log(`✅ 이벤트 DB 동기화 완료: ${eventId}`);
+              }
+              
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } catch (error) {
+              console.error(`❌ 이벤트 동기화 실패: ${eventId}`, error);
+          }
+      };
+      
+      window.addEventInMemory = (newEvent) => {
+          events.push(newEvent);
+          console.log(`✅ 이벤트 메모리 추가: ${newEvent._id}`);
+          const { year, month } = getCurrentYearMonth();
+          updateMap(year, month);
+      };
+      
+      window.deleteEventInMemory = (eventId) => {
+          const index = events.findIndex(e => e._id === eventId);
+          if (index !== -1) {
+              events.splice(index, 1);
+              console.log(`✅ 이벤트 메모리 삭제: ${eventId}`);
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          }
+      };
+      
+      window.updateKingInMemory = async (kingId, serverResponseData) => {
+          // 서버에서 업데이트된 데이터를 다시 가져와서 동기화
+          try {
+              const updatedKing = await fetchData(`kings/${kingId}`);
+              const index = kings.findIndex(k => k._id === kingId);
+              
+              if (index !== -1 && updatedKing) {
+                  kings[index] = updatedKing;
+                  console.log(`✅ 왕 DB 동기화 완료: ${kingId}`);
+              }
+              
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } catch (error) {
+              console.error(`❌ 왕 동기화 실패: ${kingId}`, error);
+          }
+      };
+      
+      window.addKingInMemory = (newKing) => {
+          kings.push(newKing);
+          console.log(`✅ 왕 메모리 추가: ${newKing._id}`);
+          const { year, month } = getCurrentYearMonth();
+          updateMap(year, month);
+      };
+      
+      window.deleteKingInMemory = (kingId) => {
+          const index = kings.findIndex(k => k._id === kingId);
+          if (index !== -1) {
+              kings.splice(index, 1);
+              console.log(`✅ 왕 메모리 삭제: ${kingId}`);
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          }
+      };
+      
+      window.updateDrawingInMemory = async (drawingId, serverResponseData) => {
+          // 서버에서 업데이트된 데이터를 다시 가져와서 동기화
+          try {
+              const updatedDrawing = await fetchData(`drawings/${drawingId}`);
+              const index = drawings.findIndex(d => d._id === drawingId);
+              
+              if (index !== -1 && updatedDrawing) {
+                  drawings[index] = updatedDrawing;
+                  console.log(`✅ 그리기 DB 동기화 완료: ${drawingId}`);
+              }
+              
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } catch (error) {
+              console.error(`❌ 그리기 동기화 실패: ${drawingId}`, error);
+          }
+      };
+      
+      window.addDrawingInMemory = (newDrawing) => {
+          drawings.push(newDrawing);
+          console.log(`✅ 그리기 메모리 추가: ${newDrawing._id}`);
+          const { year, month } = getCurrentYearMonth();
+          updateMap(year, month);
+      };
+      
+      window.deleteDrawingInMemory = (drawingId) => {
+          const index = drawings.findIndex(d => d._id === drawingId);
+          if (index !== -1) {
+              drawings.splice(index, 1);
+              console.log(`✅ 그리기 메모리 삭제: ${drawingId}`);
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          }
+      };
+      
       // 🚩 [수정] 이전/다음 역사 이동 함수로 추출
       const gotoPrevHistory = () => {
           const year = parseInt(yearInput.value);
@@ -5084,22 +5485,12 @@ function getCountryInfoById(id) {
               }, { passive: true });
           }
           
-          // 🚩 [추가] 초기 상태 설정: PC는 펼쳐진 상태, 모바일은 접힌 상태
-          const isMobile = document.body.classList.contains('force-mobile');
+          // 🚩 [수정] 초기 상태 설정: PC/모바일 모두 닫힌 상태로 시작
+          mapHistoryPanel.classList.remove('expanded');
+          mapHistoryToggleBtn.innerHTML = '역사';
+          mapHistoryToggleBtn.title = '패널 펼치기';
           
-          if (!isMobile) {
-              // PC 화면: 기본적으로 펼쳐진 상태
-              mapHistoryPanel.classList.add('expanded');
-              mapHistoryToggleBtn.innerHTML = 'X';
-              mapHistoryToggleBtn.title = '패널 접기';
-          } else {
-              // 모바일: 기본적으로 접힌 상태
-              mapHistoryPanel.classList.remove('expanded');
-              mapHistoryToggleBtn.innerHTML = '역사';
-              mapHistoryToggleBtn.title = '패널 펼치기';
-          }
-          
-          mapHistoryToggleBtn.addEventListener('click', (e) => {
+          mapHistoryToggleBtn.addEventListener('click', async (e) => {
               console.log('Toggle button clicked'); // 디버깅용
               e.stopPropagation(); // 이벤트 전파 차단
               
@@ -5114,11 +5505,14 @@ function getCountryInfoById(id) {
                   mapHistoryToggleBtn.innerHTML = '역사';
                   mapHistoryToggleBtn.title = '패널 펼치기';
               } else {
-                  // 펼치기 - 저장된 너비로 복원
+                  // 패널 펼치기 (역사 데이터는 이미 로드됨)
                   mapHistoryPanel.classList.add('expanded');
                   mapHistoryPanel.style.setProperty('width', `${savedPanelWidth}px`, 'important');
                   mapHistoryToggleBtn.innerHTML = 'X';
                   mapHistoryToggleBtn.title = '패널 접기';
+                  
+                  // 현재 연도의 역사 기록 표시
+                  updateMap(parseInt(yearInput.value), parseInt(monthInput.value));
               }
           });
       }
@@ -5234,23 +5628,6 @@ function getCountryInfoById(id) {
       // 초기 로드 시 마커 크기 설정
       map.fire('zoomend');
 
-      // 🚩 [추가] 줌 레벨 변경 시 강역(히트맵)을 다시 그리도록 이벤트 리스너 추가
-      // 🚩 [수정] 불필요한 updateMap 호출을 제거하여 이벤트 충돌 및 멈춤 현상을 방지합니다.
-      map.on('zoomend', function() {
-          const currentZoom = map.getZoom();
-          const radius = 80 * Math.pow(2, currentZoom - 5); // 🚩 [수정] 반경을 80으로 상향 조정
-          const blur = 0; // 블러 효과 제거
-          // 🚩 [핵심 수정] 줌 레벨이 변경될 때마다 모든 히트맵 레이어의 반경과 블러를 다시 설정합니다.
-          for (const countryId in heatmapLayers) {
-              if (!Object.prototype.hasOwnProperty.call(heatmapLayers, countryId)) continue;
-              const layer = heatmapLayers[countryId];
-              if (!layer || !map.hasLayer(layer)) continue;
-              layer.setOptions({ radius, blur });
-          }
-          const { year, month } = getCurrentYearMonth(); // 🚩 [추가] 왕 목록도 함께 업데이트
-          updateKingLabel(year, month); // 🚩 [추가] 왕 목록도 함께 업데이트
-      });
-      
       // 🚩 [추가] 속도 슬라이더 값 변경 시 디스플레이 업데이트
       playbackSpeedSlider.oninput = () => {
           speedDisplay.textContent = `${playbackSpeedSlider.value}월/초`;
@@ -5329,7 +5706,9 @@ function getCountryInfoById(id) {
       const initialTotalMonths = parseInt(combinedSlider.value);
       const { year: initialYear, month: initialMonth } = totalMonthsToYearMonth(initialTotalMonths);
       updateTime(initialYear, initialMonth); // updateTime으로 초기화
-      console.log("초기화 완료.");
+      
+      const endTime = performance.now();
+      console.log(`✅ 초기화 완료! (총 ${(endTime - startTime).toFixed(0)}ms)`);
       
       // 🚩 [추가] 디버깅 함수: 표시되지 않는 도시 찾기
       window.findHiddenCastles = function(year = 2000, month = 1) {
@@ -5911,7 +6290,7 @@ function getCountryInfoById(id) {
             
             combinedSlider.value = Math.round(newValue);
             const { year, month } = totalMonthsToYearMonth(Math.round(newValue));
-            updateTime(year, month);
+            updateTime(year, month, true); // 🚩 연대표 드래그 중에는 캐시만 사용
             updateTimelineScroll(true); // transition 없이 업데이트
         });
         
@@ -5920,6 +6299,9 @@ function getCountryInfoById(id) {
                 isDragging = false;
                 timelineContainer.style.cursor = 'grab';
                 timelineContent.style.transition = 'transform 0.3s ease';
+                // 🚩 드래그 완료 후 정확한 렌더링
+                const { year, month } = getCurrentYearMonth();
+                updateTime(year, month, false);
                 e.preventDefault();
                 e.stopPropagation(); // 🚩 [수정] 지도로 이벤트 전파 방지
                 
@@ -5968,7 +6350,7 @@ function getCountryInfoById(id) {
             
             combinedSlider.value = Math.round(newValue);
             const { year, month } = totalMonthsToYearMonth(Math.round(newValue));
-            updateTime(year, month);
+            updateTime(year, month, true); // 🚩 터치 드래그 중에는 캐시만 사용
             updateTimelineScroll(true);
         }, { passive: false });
         
@@ -5976,6 +6358,9 @@ function getCountryInfoById(id) {
             if (isDragging) {
                 isDragging = false;
                 timelineContent.style.transition = 'transform 0.3s ease';
+                // 🚩 드래그 완료 후 정확한 렌더링
+                const { year, month } = getCurrentYearMonth();
+                updateTime(year, month, false);
                 e.preventDefault();
                 e.stopPropagation(); // 🚩 [수정] 지도로 이벤트 전파 방지
                 
@@ -6034,15 +6419,20 @@ function getCountryInfoById(id) {
     }
 
     // 🚩 [수정] 슬라이더 이벤트 리스너 분리 (성능 최적화)
+    // input: 드래그 중 - 캐시만 사용하여 빠른 반응
     combinedSlider.addEventListener('input', () => {
       const totalMonths = parseInt(combinedSlider.value);
       const { year, month } = totalMonthsToYearMonth(totalMonths);
-      updateTime(year, month);
+      updateTime(year, month, true); // 🚩 cacheOnly = true로 빠른 렌더링
       updateTimelineScroll(); // 🚩 [추가] 슬라이더 변경 시 연대표 스크롤 업데이트
     });
     
-    // 🚩 [제거] 'input' 이벤트에서 모든 업데이트를 처리하므로 'change' 이벤트 리스너는 제거합니다.
-    // combinedSlider.addEventListener('change', ...);
+    // change: 드래그 완료 후 - 캐시 + 실시간 계산 모두 사용
+    combinedSlider.addEventListener('change', () => {
+      const totalMonths = parseInt(combinedSlider.value);
+      const { year, month } = totalMonthsToYearMonth(totalMonths);
+      updateTime(year, month, false); // 🚩 cacheOnly = false로 전체 렌더링
+    });
 
     // 🚩 [추가] 사용자가 연도 입력창을 비우고 포커스를 잃었을 때의 처리
     yearInput.addEventListener('input', (e) => {
@@ -6208,7 +6598,7 @@ function getCountryInfoById(id) {
         nextYearBtn.addEventListener('touchcancel', stopYearChange);
     }
 
-    function updateTime(year, month) {
+    function updateTime(year, month, cacheOnly = false) {
         // 🚩 [수정] yearInput, monthInput 업데이트는 updateUI에서 처리
         const totalMonths = yearMonthToTotalMonths(year, month);
         const sliderMin = parseInt(combinedSlider.min);
@@ -6217,7 +6607,7 @@ function getCountryInfoById(id) {
             combinedSlider.value = totalMonths;
         } 
         
-        updateMap(year, month);
+        updateMap(year, month, cacheOnly); // 🚩 cacheOnly 매개변수 전달
         updateUI(year, month);
         checkAndDisplayEvent(year, month);
         updateTimelineScroll(); // 🚩 [추가] 연도 변경 시 연대표도 함께 이동
@@ -6953,6 +7343,10 @@ function getCountryInfoById(id) {
       if (data.is_military_flag && data.path_data.length < 2) {
           alert("경로 지점 2개 미만으로 저장됩니다. 지도에서 군대는 이동하지 않고 정적 위치에 표시됩니다.");
       }
+      
+      // 🚩 [디버그] 서버로 전송되는 데이터 확인
+      console.log('📤 서버 전송 데이터:', JSON.stringify(data, null, 2));
+      
       try {
           const response = await fetch(url, {
               method: method,
@@ -6980,64 +7374,41 @@ function getCountryInfoById(id) {
               editMarker = null;
           }
           
-          // 🚩 [핵심 수정] 전체 갱신 대신, 생성된 오브젝트만 지도에 추가합니다.
+          // 🚩 [최적화] 전체 fetch 대신 메모리에서 증분 업데이트
           if (isUpdate) {
-              // 수정의 경우, 데이터 정합성을 위해 전체 갱신
-              initialize();
-          } else {
-              // 추가의 경우, 전체 갱신 없이 새 데이터만 반영
-              const newCastle = await response.json();
-              data._id = newCastle.id; // 서버에서 받은 ID를 데이터에 추가
-
-              // Normalize the newly created castle's history so it matches the initialized format
-              const normalizeHistoryEntry = (h, parent) => {
-                  const resolvedCountryId = h.country_id || '';
-                  const parsedStartYear = (h.start_year !== undefined && h.start_year !== null && h.start_year !== '') ? parseInt(h.start_year) : (parent?.built_year !== undefined && parent?.built_year !== null ? parseInt(parent.built_year) : -5000);
-                  const parsedStartMonth = (h.start_month !== undefined && h.start_month !== null && h.start_month !== '') ? parseInt(h.start_month) : (parent?.built_month !== undefined && parent?.built_month !== null ? parseInt(parent.built_month) : 1);
-                  const parsedEndYear = (h.end_year !== undefined && h.end_year !== null && h.end_year !== '') ? parseInt(h.end_year) : null;
-                  const parsedEndMonth = (h.end_month !== undefined && h.end_month !== null && h.end_month !== '') ? parseInt(h.end_month) : (parent?.destroyed_month !== undefined && parent?.destroyed_month !== null ? parseInt(parent.destroyed_month) : 12);
-                  return {
-                      name: (h.name !== undefined && h.name !== null) ? h.name : (parent?.name || ''),
-                      country_id: resolvedCountryId || '',
-                      start_year: parsedStartYear,
-                      start_month: parsedStartMonth,
-                      end_year: parsedEndYear,
-                      end_month: parsedEndMonth,
-                      is_capital: !!h.is_capital
-                  };
-              };
-
-              let normalizedHistory = [];
-              if (Array.isArray(data.history) && data.history.length > 0) {
-                  normalizedHistory = data.history.map(h => normalizeHistoryEntry(h, data));
-              } else {
-                  normalizedHistory = [normalizeHistoryEntry({
-                      name: data.name,
-                      country_id: data.country_id,
-                      start_year: data.built_year,
-                      start_month: data.built_month,
-                      end_year: data.destroyed_year,
-                      end_month: data.destroyed_month,
-                      is_capital: data.is_capital
-                  }, data)];
-              }
-
-              data.history = normalizedHistory;
-              // Debug: log normalized history for newly created castle (visible in browser console)
-              try { console.info('DEBUG: normalizedHistory for new castle', data._id, data.history); } catch (e) {}
-
-              // Ensure top-level built/destroyed fallback values are numeric/null where applicable
-              data.built_year = data.history[0]?.start_year ?? data.built_year ?? null;
-              data.built_month = data.history[0]?.start_month ?? data.built_month ?? null;
-              data.destroyed_year = data.history[0]?.end_year ?? data.destroyed_year ?? null;
-              data.destroyed_month = data.history[0]?.end_month ?? data.destroyed_month ?? null;
-
-              console.info('DEBUG: pushing new castle to local cache', data._id, data);
-              castles.push(data); // 전역 데이터에 새 성 추가
+              // 수정의 경우: 서버에서 반환된 업데이트된 객체 사용
+              const responseData = await response.json();
+              console.log('📥 서버 응답 데이터:', responseData);
               
-              const { year, month } = getCurrentYearMonth();
-              updateMap(year, month); // 지도만 다시 그리기
-              populateCitySelectForEdit(); // 편집용 도시 선택 목록 갱신
+              if (responseData.castle) {
+                  // 서버가 반환한 업데이트된 문서로 메모리 업데이트
+                  const index = castles.findIndex(c => c._id === editingCastleKey || c.name === editingCastleKey);
+                  if (index !== -1) {
+                      castles[index] = responseData.castle;
+                      console.log(`✅ 성/전장 메모리 업데이트 완료: ${responseData.castle.name}`);
+                  }
+                  
+                  // 맵 즉시 갱신
+                  const { year, month } = getCurrentYearMonth();
+                  updateMap(year, month);
+              }
+          } else {
+              // 추가의 경우: 서버가 반환한 삽입된 문서 사용
+              const responseData = await response.json();
+              console.log('📥 서버 응답 데이터 (추가):', responseData);
+              
+              if (responseData.castle) {
+                  // 서버가 반환한 전체 문서를 배열에 추가
+                  castles.push(responseData.castle);
+                  console.log(`✅ 성/전장 메모리 추가 완료: ${responseData.castle.name} (ID: ${responseData.castle._id})`);
+                  
+                  // 드롭다운 갱신
+                  populateCitySelectForEdit();
+                  
+                  // 맵 즉시 갱신
+                  const { year, month } = getCurrentYearMonth();
+                  updateMap(year, month);
+              }
           }
       } catch (error) {
         console.error("Castle 저장 중 오류:", error);
@@ -7086,7 +7457,9 @@ function getCountryInfoById(id) {
                 editMarker = null;
             }
             document.getElementById('castleForm').style.display = 'none';
-            initialize();
+            
+            // 🚩 [최적화] 전체 fetch 대신 메모리에서 삭제
+            deleteCastleInMemory(editingCastleKey);
         } catch (error) {
             console.error("Castle 삭제 중 오류:", error);
             alert(`Castle 삭제 실패: ${error.message}`);
@@ -7480,10 +7853,15 @@ function getCountryInfoById(id) {
 
             alert(isUpdate ? "국가 정보가 성공적으로 수정되었습니다." : "새 국가가 성공적으로 추가되었습니다.");
 
-            // 1. 데이터베이스 갱신 (전체 데이터 다시 로드)
-            await initialize();
+            // 🚩 [최적화] 전체 fetch 대신 메모리에서 증분 업데이트
+            if (isUpdate) {
+                updateCountryInMemory(originalName, data);
+            } else {
+                const responseData = await response.json();
+                addCountryInMemory({ ...data, _id: responseData.id });
+            }
 
-            // 2. 폼 필드를 먼저 리셋합니다.
+            // 🚩 [수정] 폼 필드를 리셋합니다.
             document.getElementById('editCountryForm').reset();
             document.getElementById('countryOriginalName').value = '';
             document.getElementById('deleteCountryBtn').style.display = 'none';
@@ -7491,8 +7869,7 @@ function getCountryInfoById(id) {
             document.getElementById('countryColor').value = '#ffffff'; // 색상 기본값
             document.getElementById('countrySearchForEdit').value = ''; // 검색창 초기화
 
-            // 3. 🚩 [핵심 수정] 데이터가 새로고침된 후에, 수정했던 국가를 다시 선택해줍니다.
-            // 이렇게 하면 initialize()에 의해 드롭다운이 재생성된 후에도 선택이 유지됩니다.
+            // 🚩 [수정] 수정했던 국가를 다시 선택해줍니다.
             document.getElementById('countrySelectForEdit').value = newName;
 
         } catch (error) {
@@ -7513,7 +7890,9 @@ function getCountryInfoById(id) {
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
             document.getElementById('countryForm').style.display = 'none';
-            initialize();
+            
+            // 🚩 [최적화] 전체 fetch 대신 메모리에서 삭제
+            deleteCountryInMemory(originalName);
         } catch (error) {
             console.error("Country 삭제 중 오류:", error);
             alert(`Country 삭제 실패: ${error.message}`);
@@ -7584,8 +7963,16 @@ function getCountryInfoById(id) {
                 body: JSON.stringify(data) 
             });
             if (!response.ok) throw new Error('이벤트 저장 실패');
+            
             document.getElementById('eventForm').style.display = 'none';
-            initialize();
+            
+            // 🚩 [최적화] 전체 fetch 대신 메모리에서 증분 업데이트
+            if (eventId) {
+                updateEventInMemory(eventId, data);
+            } else {
+                const responseData = await response.json();
+                addEventInMemory({ ...data, _id: responseData.id });
+            }
         } catch (error) { alert(error.message); }
     });
 
@@ -7597,8 +7984,11 @@ function getCountryInfoById(id) {
                 method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } 
             });
             if (!response.ok) throw new Error('이벤트 삭제 실패');
+            
             document.getElementById('eventForm').style.display = 'none';
-            initialize();
+            
+            // 🚩 [최적화] 전체 fetch 대신 메모리에서 삭제
+            deleteEventInMemory(eventId);
         } catch (error) { alert(error.message); }
     });
 
@@ -7797,10 +8187,13 @@ kingSelect.addEventListener('change', () => {
                 throw new Error(`${response.status}: ${errorData.message || '알 수 없는 오류'}`);
             }
             
+            // 🚩 [최적화] 전체 fetch 대신 메모리에서 증분 업데이트
+            const responseData = await response.json();
+            
             if (!isUpdate) { // 추가(POST) 성공 시에만 연속 추가 모드 작동
                 
-                // 1. 데이터베이스 갱신 및 UI 업데이트
-                await initialize();
+                // 1. 메모리에 새 왕 추가
+                addKingInMemory({ ...newKingData, _id: responseData.id });
                 
                 // 2. 국가명과 국가 ID는 유지
                 document.getElementById('kingCountryId').value = countryId; 
@@ -7829,8 +8222,8 @@ kingSelect.addEventListener('change', () => {
             //    alert("왕 기록이 추가되었습니다. 같은 국가에 연속 추가할 수 있습니다.");
 
             } else { // 수정(PUT) 성공 시
-                // 1. 데이터베이스 갱신 (전체 데이터 다시 로드)
-                await initialize();
+                // 1. 메모리에서 왕 정보 업데이트
+                updateKingInMemory(kingMongoId, newKingData);
 
                 // 2. 국가 선택 유지
                 document.getElementById('kingCountryId').value = countryId;
@@ -7875,7 +8268,9 @@ kingSelect.addEventListener('change', () => {
             }
 
             document.getElementById('kingForm').style.display = 'none';
-            initialize(); 
+            
+            // 🚩 [최적화] 전체 fetch 대신 메모리에서 삭제
+            deleteKingInMemory(kingMongoId);
         } catch (error) {
             console.error("King 정보 삭제 중 오류:", error);
             alert(`King 정보 삭제 실패: ${error.message}`);
@@ -7967,8 +8362,16 @@ kingSelect.addEventListener('change', () => {
             if (handleApiError(response)) return;
             
             if (!response.ok) throw new Error('그리기 정보 저장 실패');
+            
             document.getElementById('drawingForm').style.display = 'none';
-            initialize();
+            
+            // 🚩 [최적화] 전체 fetch 대신 메모리에서 증분 업데이트
+            if (isUpdate) {
+                updateDrawingInMemory(drawingId, data);
+            } else {
+                const responseData = await response.json();
+                addDrawingInMemory({ ...data, _id: responseData.id });
+            }
         } catch (error) { alert(error.message); }
     });
 
@@ -7993,8 +8396,11 @@ kingSelect.addEventListener('change', () => {
             if (handleApiError(response)) return;
             
             if (!response.ok) throw new Error('삭제 실패');
+            
             document.getElementById('drawingForm').style.display = 'none';
-            initialize(); // 전체 데이터 다시 로드
+            
+            // 🚩 [최적화] 전체 fetch 대신 메모리에서 삭제
+            deleteDrawingInMemory(drawingId);
         } catch (error) {
             alert(error.message);
         }
@@ -8859,6 +9265,19 @@ kingSelect.addEventListener('change', () => {
                 button.classList.toggle('active');
                 layerVisibility[layerType] = button.classList.contains('active');
                 
+                // 🚩 [수정] 영토 레이어 토글 시 - 백그라운드 로드 완료 확인
+                if (layerType === 'territoryPolygon' && layerVisibility.territoryPolygon) {
+                    if (territories.length === 0) {
+                        console.log('⏳ 영토 데이터 로딩 중... (백그라운드)');
+                        // 백그라운드 로딩이 완료되면 자동으로 렌더링됨
+                    } else {
+                        // 이미 로드된 경우 즉시 렌더링
+                        const { year, month } = getCurrentYearMonth();
+                        updateMap(year, month);
+                    }
+                    return;
+                }
+                
                 // 🚩 [수정] 연대표 토글 시에는 전체 wrapper를 숨김
                 if (layerType === 'timeline') {
                     const timelineWrapper = document.getElementById('timeline-slider-wrapper');
@@ -9164,6 +9583,7 @@ kingSelect.addEventListener('change', () => {
         if (normalBtnPc) {
             normalBtnPc.addEventListener('click', () => switchTileLayer('일반', normalBtnPc));
         }
+
 
     });
   </script>

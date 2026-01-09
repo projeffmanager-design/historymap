@@ -6,6 +6,7 @@ const { ObjectId } = require('mongodb');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
+const compression = require('compression');
 const path = require('path');
 const { connectToDatabase, collections } = require('./db'); // 🚩 [추가] DB 연결 모듈
 
@@ -26,7 +27,20 @@ const toObjectId = (id) => {
     return null;
 }
 
-// 💡 [추가] 인증 미들웨어
+// � [신규 추가] CRUD 로깅 헬퍼 함수
+const logCRUD = (operation, collection, identifier, details = '') => {
+    const timestamp = new Date().toISOString();
+    const emoji = {
+        CREATE: '✅ [CREATE]',
+        READ: '📖 [READ]',
+        UPDATE: '✅ [UPDATE]',
+        DELETE: '✅ [DELETE]',
+        ERROR: '❌ [ERROR]'
+    };
+    console.log(`${emoji[operation] || operation} ${collection}: ${identifier} ${details}`.trim());
+};
+
+// �💡 [추가] 인증 미들웨어
 const verifyToken = (req, res, next) => { // (전역으로 이동)
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1]; // Bearer <token>
@@ -48,12 +62,21 @@ const verifyAdmin = (req, res, next) => { // (전역으로 이동)
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1];
 
+    console.log('🔍 [verifyAdmin] Authorization Header:', authHeader);
+    console.log('🔍 [verifyAdmin] Token:', token ? token.substring(0, 20) + '...' : 'null');
+
     if (!token) return res.status(401).json({ message: "인증 토큰이 없습니다." });
 
     jwt.verify(token, jwtSecret, (err, user) => {
-        if (err) return res.status(403).json({ message: "유효하지 않은 토큰입니다." });
+        if (err) {
+            console.log('❌ [verifyAdmin] JWT 검증 실패:', err.message);
+            return res.status(403).json({ message: "유효하지 않은 토큰입니다.", error: err.message });
+        }
+        
+        console.log('✅ [verifyAdmin] JWT 검증 성공 - User:', user.username, 'Role:', user.role);
         
         if (user.role !== 'admin' && user.role !== 'superuser') {
+            console.log('⛔ [verifyAdmin] 권한 부족 - Role:', user.role);
             return res.status(403).json({ message: "관리자 권한이 필요합니다." });
         }
         req.user = user;
@@ -133,6 +156,7 @@ const incrementPageView = async (pagePath) => {
 
 app.use(cors()); // 모든 도메인에서 요청 허용 (개발용)
 app.use(express.json());
+app.use(compression()); // 응답 압축으로 대용량 전송 최적화
 app.use(async (req, res, next) => {
     const trackedPath = resolveTrackedPagePath(req);
     if (trackedPath) {
@@ -175,14 +199,31 @@ async function setupRoutesAndCollections() {
                 if (newCastle._id) delete newCastle._id; 
                 
                 // 🚨 [필수 수정]: 클라이언트가 countryId를 보내도록 가정
-                newCastle.country_id = toObjectId(newCastle.country_id); 
+                if (newCastle.country_id) {
+                    const convertedId = toObjectId(newCastle.country_id);
+                    if (convertedId) {
+                        newCastle.country_id = convertedId;
+                    } else {
+                        // 빈 문자열이나 잘못된 ID는 삭제
+                        delete newCastle.country_id;
+                    }
+                }
                 // 기존 newCastle.country 필드가 있다면 삭제 (마이그레이션 구조 유지)
                 if (newCastle.country) delete newCastle.country;
 
                 const result = await collections.castle.insertOne(newCastle);
-                res.status(201).json({ message: "Castle 추가 성공", id: result.insertedId.toString() });
+                
+                // 🚩 [수정] 삽입된 전체 문서를 다시 조회해서 반환
+                const insertedDocument = await collections.castle.findOne({ _id: result.insertedId });
+                
+                logCRUD('CREATE', 'Castle', newCastle.name, `(ID: ${result.insertedId})`);
+                res.status(201).json({ 
+                    message: "Castle 추가 성공", 
+                    id: result.insertedId.toString(),
+                    castle: insertedDocument // 삽입된 전체 문서 반환
+                });
             } catch (error) {
-                console.error("Castle 추가 중 오류:", error);
+                logCRUD('ERROR', 'Castle', 'POST', error.message);
                 res.status(500).json({ message: "Castle 추가 실패", error: error.message });
             }
         });
@@ -196,11 +237,21 @@ async function setupRoutesAndCollections() {
                 if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
 
                 const updatedCastle = req.body;
-                if (updatedCastle._id) delete updatedCastle._id; 
+                
+                // 🚩 [디버그] 서버가 받은 데이터 확인
+                console.log('📥 서버 수신 데이터 (Castle PUT):', JSON.stringify(updatedCastle, null, 2));
+                
+                if (updatedCastle._id) delete updatedCastle._id;
 
                 // 🚨 [필수 수정]: 클라이언트가 country_id를 보냈다면 ObjectId로 변환하여 업데이트
                 if (updatedCastle.country_id) {
-                    updatedCastle.country_id = toObjectId(updatedCastle.country_id);
+                    const convertedId = toObjectId(updatedCastle.country_id);
+                    if (convertedId) {
+                        updatedCastle.country_id = convertedId;
+                    } else {
+                        // 빈 문자열이나 잘못된 ID는 삭제
+                        delete updatedCastle.country_id;
+                    }
                 }
                 // country 필드가 넘어온다면 삭제 (ID 기반 구조 유지)
                 if (updatedCastle.country) delete updatedCastle.country;
@@ -214,10 +265,49 @@ async function setupRoutesAndCollections() {
                     return res.status(404).json({ message: "성을 찾을 수 없습니다." });
                 }
 
-                res.json({ message: "Castle 정보 업데이트 성공" });
+                // 🚩 [디버그] 업데이트 결과 확인
+                console.log('✅ DB 업데이트 결과:', {
+                    matchedCount: result.matchedCount,
+                    modifiedCount: result.modifiedCount,
+                    acknowledged: result.acknowledged
+                });
+
+                // 🚩 [수정] 업데이트된 전체 객체를 다시 조회해서 반환
+                const updatedDocument = await collections.castle.findOne({ _id: _id });
+                
+                logCRUD('UPDATE', 'Castle', updatedCastle.name || id, `(ID: ${id})`);
+                res.json({ 
+                    message: "Castle 정보 업데이트 성공",
+                    castle: updatedDocument // 업데이트된 전체 문서 반환
+                });
             } catch (error) {
-                console.error("Castle 정보 업데이트 중 오류:", error);
+                logCRUD('ERROR', 'Castle', 'PUT', error.message);
                 res.status(500).json({ message: "Castle 정보 업데이트 실패", error: error.message });
+            }
+        });
+        
+        // 🚩 [신규 추가] GET: 개별 성 정보 조회
+        app.get('/api/castle/:id', verifyToken, async (req, res) => {
+            try {
+                const { id } = req.params;
+                // name 또는 _id로 검색
+                let castle;
+                const objectId = toObjectId(id);
+                
+                if (objectId) {
+                    castle = await collections.castle.findOne({ _id: objectId });
+                } else {
+                    castle = await collections.castle.findOne({ name: id });
+                }
+                
+                if (!castle) {
+                    return res.status(404).json({ message: "성을 찾을 수 없습니다." });
+                }
+                
+                res.json(castle);
+            } catch (error) {
+                console.error("Castle 조회 중 오류:", error);
+                res.status(500).json({ message: "Castle 조회 실패", error: error.message });
             }
         });
         
@@ -234,9 +324,10 @@ async function setupRoutesAndCollections() {
                     return res.status(404).json({ message: "성을 찾을 수 없습니다." });
                 }
 
+                logCRUD('DELETE', 'Castle', id);
                 res.json({ message: "Castle 정보 삭제 성공" });
             } catch (error) {
-                console.error("Castle 정보 삭제 중 오류:", error);
+                logCRUD('ERROR', 'Castle', 'DELETE', error.message);
                 res.status(500).json({ message: "Castle 정보 삭제 실패", error: error.message });
             }
         });
@@ -333,10 +424,28 @@ app.post('/api/countries', verifyAdmin, async (req, res) => {
         const result = await collections.countries.insertOne(newCountry);
         // 클라이언트에서 countryOriginalName 필드를 사용하여 신규 여부를 확인하므로, 
         // 응답 시 해당 필드를 함께 반환하는 것이 좋습니다.
+        logCRUD('CREATE', 'Country', newCountry.name, `(ID: ${result.insertedId})`);
         res.status(201).json({ message: "Country 추가 성공", id: result.insertedId.toString(), countryOriginalName: newCountry.name }); 
     } catch (error) {
-        console.error("Country 추가 중 오류:", error);
+        logCRUD('ERROR', 'Country', 'POST', error.message);
         res.status(500).json({ message: "Country 추가 실패", error: error.message });
+    }
+});
+
+// 🚩 [신규 추가] GET: 개별 국가 정보 조회
+app.get('/api/countries/:name', verifyToken, async (req, res) => {
+    try {
+        const { name } = req.params;
+        const country = await collections.countries.findOne({ name: decodeURIComponent(name) });
+        
+        if (!country) {
+            return res.status(404).json({ message: "국가를 찾을 수 없습니다." });
+        }
+        
+        res.json(country);
+    } catch (error) {
+        console.error("Country 조회 중 오류:", error);
+        res.status(500).json({ message: "Country 조회 실패", error: error.message });
     }
 });
 
@@ -362,9 +471,10 @@ app.put('/api/countries/:name', verifyAdmin, async (req, res) => {
             return res.status(404).json({ message: `국가 '${name}'을(를) 찾을 수 없습니다.` });
         }
 
+        logCRUD('UPDATE', 'Country', name, `→ ${updatedCountry.name || name}`);
         res.json({ message: "Country 정보 업데이트 성공" });
     } catch (error) {
-        console.error("Country 정보 업데이트 중 오류:", error);
+        logCRUD('ERROR', 'Country', 'PUT', error.message);
         res.status(500).json({ message: "Country 정보 업데이트 실패", error: error.message });
     }
 });
@@ -440,6 +550,30 @@ app.post('/api/kings', verifyAdmin, async (req, res) => {
         });
     }
 });
+
+// 🚩 [신규 추가] GET: 개별 왕 정보 조회
+app.get('/api/kings/:id', verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const objectId = toObjectId(id);
+        
+        if (!objectId) {
+            return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+        }
+        
+        const king = await collections.kings.findOne({ _id: objectId });
+        
+        if (!king) {
+            return res.status(404).json({ message: "왕 정보를 찾을 수 없습니다." });
+        }
+        
+        res.json(king);
+    } catch (error) {
+        console.error("King 조회 중 오류:", error);
+        res.status(500).json({ message: "King 조회 실패", error: error.message });
+    }
+});
+
         // PUT: 왕 정보 업데이트 (기존 로직 유지, ObjectId 사용)
 app.put('/api/kings/:id', verifyAdmin, async (req, res) => {
 // ... 기존 PUT 로직 유지 (kings 배열 내의 _id를 찾아 업데이트)
@@ -616,6 +750,29 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // 🚩 [신규 추가] GET: 개별 이벤트 정보 조회
+        app.get('/api/events/:id', verifyToken, async (req, res) => {
+            try {
+                const { id } = req.params;
+                const objectId = toObjectId(id);
+                
+                if (!objectId) {
+                    return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+                }
+                
+                const event = await collections.events.findOne({ _id: objectId });
+                
+                if (!event) {
+                    return res.status(404).json({ message: "이벤트를 찾을 수 없습니다." });
+                }
+                
+                res.json(event);
+            } catch (error) {
+                console.error("Event 조회 중 오류:", error);
+                res.status(500).json({ message: "Event 조회 실패", error: error.message });
+            }
+        });
+
         // PUT: 이벤트 정보 업데이트
         app.put('/api/events/:id', verifyAdmin, async (req, res) => {
             try {
@@ -678,6 +835,29 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // 🚩 [신규 추가] GET: 개별 그리기 정보 조회
+        app.get('/api/drawings/:id', verifyToken, async (req, res) => {
+            try {
+                const { id } = req.params;
+                const objectId = toObjectId(id);
+                
+                if (!objectId) {
+                    return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+                }
+                
+                const drawing = await collections.drawings.findOne({ _id: objectId });
+                
+                if (!drawing) {
+                    return res.status(404).json({ message: "그리기 정보를 찾을 수 없습니다." });
+                }
+                
+                res.json(drawing);
+            } catch (error) {
+                console.error("Drawing 조회 중 오류:", error);
+                res.status(500).json({ message: "Drawing 조회 실패", error: error.message });
+            }
+        });
+
         // PUT: 그리기 정보 업데이트
         app.put('/api/drawings/:id', verifyAdmin, async (req, res) => {
             try {
@@ -712,8 +892,425 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // � [추가] ----------------------------------------------------
+        // 🗺️ TERRITORIES API 엔드포인트 (행정구역 영토 폴리곤)
+        // ----------------------------------------------------
+
+        // GET: 영토 폴리곤 조회 (뷰포트 bounds 필터링 지원)
+        app.get('/api/territories', verifyToken, async (req, res) => {
+            try {
+                const { minLat, maxLat, minLng, maxLng } = req.query;
+                
+                let query = {};
+                
+                // 🚩 bounds 파라미터가 있으면 지리적 범위로 필터링
+                if (minLat && maxLat && minLng && maxLng) {
+                    const bounds = {
+                        minLat: parseFloat(minLat),
+                        maxLat: parseFloat(maxLat),
+                        minLng: parseFloat(minLng),
+                        maxLng: parseFloat(maxLng)
+                    };
+                    
+                    // GeoJSON의 첫 좌표를 기준으로 대략적 필터링 (완벽하진 않지만 충분히 빠름)
+                    // MongoDB의 $geoWithin은 2dsphere 인덱스가 필요하므로, 간단한 범위 체크 사용
+                    query = {
+                        $or: [
+                            // 폴리곤의 바운딩 박스가 없는 경우 포함 (레거시 데이터)
+                            { "bbox": { $exists: false } },
+                            // 바운딩 박스가 뷰포트와 겹치는 경우
+                            {
+                                $and: [
+                                    { "bbox.maxLat": { $gte: bounds.minLat } },
+                                    { "bbox.minLat": { $lte: bounds.maxLat } },
+                                    { "bbox.maxLng": { $gte: bounds.minLng } },
+                                    { "bbox.minLng": { $lte: bounds.maxLng } }
+                                ]
+                            }
+                        ]
+                    };
+                }
+                
+                const territories = await collections.territories.find(query).toArray();
+                console.log(`🗺️ Territories 조회: ${territories.length}개 (bounds: ${minLat ? 'O' : 'X'})`);
+                res.json(territories);
+            } catch (error) {
+                console.error("Territories 조회 중 오류:", error);
+                res.status(500).json({ message: "Territories 조회 실패", error: error.message });
+            }
+        });
+
+        // POST: 새 영토 폴리곤 추가 (배치 import 지원)
+        app.post('/api/territories', verifyAdmin, async (req, res) => {
+            try {
+                const newTerritories = Array.isArray(req.body) ? req.body : [req.body];
+                
+                // _id 필드 제거
+                newTerritories.forEach(territory => {
+                    if (territory._id) delete territory._id;
+                });
+                
+                const result = await collections.territories.insertMany(newTerritories);
+                res.status(201).json({ 
+                    message: "Territory 추가 성공", 
+                    count: result.insertedCount,
+                    ids: Object.values(result.insertedIds).map(id => id.toString())
+                });
+            } catch (error) {
+                console.error("Territory 추가 중 오류:", error);
+                res.status(500).json({ message: "Territory 추가 실패", error: error.message });
+            }
+        });
+
+        // PUT: 영토 폴리곤 업데이트
+        app.put('/api/territories/:id', verifyAdmin, async (req, res) => {
+            try {
+                const { id } = req.params;
+                const _id = toObjectId(id);
+                if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+
+                const updatedTerritory = req.body;
+                if (updatedTerritory._id) delete updatedTerritory._id;
+
+                const result = await collections.territories.updateOne({ _id: _id }, { $set: updatedTerritory });
+                if (result.matchedCount === 0) return res.status(404).json({ message: "영토 정보를 찾을 수 없습니다." });
+                res.json({ message: "Territory 정보 업데이트 성공" });
+            } catch (error) {
+                console.error("Territory 정보 업데이트 중 오류:", error);
+                res.status(500).json({ message: "Territory 정보 업데이트 실패", error: error.message });
+            }
+        });
+
+        // DELETE: 영토 폴리곤 삭제
+        app.delete('/api/territories/:id', verifyAdmin, async (req, res) => {
+            try {
+                const { id } = req.params;
+                const _id = toObjectId(id);
+                if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+                const result = await collections.territories.deleteOne({ _id: _id });
+                if (result.deletedCount === 0) return res.status(404).json({ message: "영토 정보를 찾을 수 없습니다." });
+                res.json({ message: "Territory 정보 삭제 성공" });
+            } catch (error) {
+                console.error("Territory 정보 삭제 중 오류:", error);
+                res.status(500).json({ message: "Territory 정보 삭제 실패", error: error.message });
+            }
+        });
+
+        // GET: 사전 계산된 영토 캐시 조회 (특정 연도/월) - 🚩 인증 불필요 (공개 읽기)
+        app.get('/api/territory-cache', async (req, res) => {
+            try {
+                const { year, month } = req.query;
+                console.log('🔍 [캐시 조회] year:', year, 'month:', month);
+                
+                if (!year) return res.status(400).json({ message: "year 파라미터가 필요합니다." });
+                
+                // 📝 수정: 연도별 캐시만 있으므로 month를 무시하고 year만으로 조회
+                const query = { year: parseInt(year) };
+                
+                console.log('🔍 [캐시 쿼리]', JSON.stringify(query));
+                const cached = await collections.territoryCache.find(query).toArray();
+                console.log('🔍 [캐시 조회 결과]', cached.length, '개 반환');
+                
+                res.json(cached);
+            } catch (error) {
+                console.error("Territory 캐시 조회 중 오류:", error);
+                res.status(500).json({ message: "Territory 캐시 조회 실패", error: error.message });
+            }
+        });
+
+        // DELETE: 영토 캐시 삭제 (특정 연도 또는 전체) - 관리자 전용
+        app.delete('/api/territory-cache', verifyAdmin, async (req, res) => {
+            try {
+                const { year, month } = req.query;
+                
+                let query = {};
+                if (year) {
+                    query.year = parseInt(year);
+                    if (month) query.month = parseInt(month);
+                }
+                
+                const result = await collections.territoryCache.deleteMany(query);
+                res.json({ 
+                    message: "캐시 삭제 성공", 
+                    deletedCount: result.deletedCount 
+                });
+            } catch (error) {
+                console.error("Territory 캐시 삭제 중 오류:", error);
+                res.status(500).json({ message: "Territory 캐시 삭제 실패", error: error.message });
+            }
+        });
+
+        // 🌊 GET: 자연 지형지물 (강, 산맥 등) 조회 - 🚩 인증 불필요 (공개 읽기)
+        app.get('/api/natural-features', async (req, res) => {
+            try {
+                const { type } = req.query; // type: 'river', 'mountain', etc.
+                const query = type ? { type } : {};
+                
+                const features = await collections.naturalFeatures.find(query).toArray();
+                console.log(`🌊 [자연 지형지물 조회] type: ${type || 'all'}, ${features.length}개 반환`);
+                
+                res.json(features);
+            } catch (error) {
+                console.error("자연 지형지물 조회 중 오류:", error);
+                res.status(500).json({ message: "자연 지형지물 조회 실패", error: error.message });
+            }
+        });
+
+        // POST: 영토 캐시 재계산 (관리자 전용 - 특정 연도 범위)
+        app.post('/api/territory-cache/recalculate', verifyAdmin, async (req, res) => {
+            try {
+                const { startYear, endYear, monthly } = req.body;
+                
+                if (!startYear || !endYear) {
+                    return res.status(400).json({ message: "startYear와 endYear가 필요합니다." });
+                }
+
+                // 비동기로 계산 시작 (응답은 즉시 반환)
+                res.json({ 
+                    message: "영토 캐시 계산이 시작되었습니다.",
+                    startYear,
+                    endYear,
+                    monthly: !!monthly,
+                    status: "processing"
+                });
+
+                // 백그라운드에서 계산 실행
+                setImmediate(async () => {
+                    try {
+                        // DB 연결 확인 및 collections 재확인
+                        await connectToDatabase();
+                        if (!collections || !collections.castles) {
+                            console.error('❌ collections가 초기화되지 않았습니다.');
+                            return;
+                        }
+
+                        console.log(`\n🚀 영토 캐시 재계산 시작: ${startYear}년 ~ ${endYear}년 (${monthly ? '월별' : '연도별'})`);
+                        
+                        const totalYears = endYear - startYear + 1;
+                        let completed = 0;
+
+                        for (let year = startYear; year <= endYear; year++) {
+                            if (monthly) {
+                                for (let month = 1; month <= 12; month++) {
+                                    await precalculateForPeriodInternal(collections, year, month);
+                                }
+                            } else {
+                                await precalculateForPeriodInternal(collections, year, null);
+                            }
+                            
+                            completed++;
+                            const progress = (completed / totalYears * 100).toFixed(1);
+                            console.log(`📊 진행률: ${completed}/${totalYears} (${progress}%)`);
+                        }
+
+                        console.log(`✅ 영토 캐시 재계산 완료!`);
+                    } catch (error) {
+                        console.error('❌ 영토 캐시 재계산 중 오류:', error);
+                    }
+                });
+
+            } catch (error) {
+                console.error("Territory 캐시 재계산 시작 중 오류:", error);
+                res.status(500).json({ message: "Territory 캐시 재계산 실패", error: error.message });
+            }
+        });
+
+        // 내부 함수: 특정 시기의 영토 계산
+        async function precalculateForPeriodInternal(collectionsRef, year, month = null) {
+            console.log(`\n📅 ${year}년 ${month ? month + '월' : ''} 계산 중...`);
+
+            // 해당 시기의 모든 성 데이터 가져오기
+            // castle 데이터는 built/destroyed 필드 사용
+            const query = month 
+                ? { 
+                    built: { $lte: year }, 
+                    destroyed: { $gte: year },
+                    built_month: { $lte: month }, 
+                    destroyed_month: { $gte: month } 
+                  }
+                : { 
+                    built: { $lte: year }, 
+                    destroyed: { $gte: year } 
+                  };
+            
+            const castles = await collectionsRef.castles.find(query).toArray();
+            const territories = await collectionsRef.territories.find({}).toArray();
+            
+            // 국가 정보 조회 (한 번만)
+            const countries = await collectionsRef.countries.find({}).toArray();
+            const countryMap = new Map(countries.map(c => [c._id.toString(), c]));
+
+            // 🔍 디버깅
+            console.log(`  🔍 성 개수: ${castles.length}, 영토 개수: ${territories.length}, 국가 개수: ${countries.length}`);
+            if (castles.length > 0) {
+                console.log(`  🔍 첫 번째 성 샘플:`, castles[0].name, `(${castles[0].built}~${castles[0].destroyed})`);
+            }
+
+            const bulkOps = [];
+            
+            let processedCount = 0;
+            let savedCount = 0;
+
+            for (const territory of territories) {
+                const dominantResult = calculateDominantCountryServer(territory, castles, countryMap);
+                
+                processedCount++;
+                
+                if (!dominantResult) {
+                    // 마커가 없는 영토는 캐시에서 삭제
+                    bulkOps.push({
+                        deleteMany: {
+                            filter: { 
+                                territoryId: territory._id, 
+                                year: year,
+                                ...(month !== null && { month: month })
+                            }
+                        }
+                    });
+                    continue;
+                }
+
+                // 캐시 저장 (upsert)
+                const cacheDoc = {
+                    territoryId: territory._id,
+                    territoryName: territory.name,
+                    year: year,
+                    ...(month !== null && { month: month }),
+                    dominantCountryId: dominantResult.countryId,
+                    countryName: dominantResult.countryName,
+                    countryColor: dominantResult.color,
+                    markerCount: dominantResult.count,
+                    calculatedAt: new Date()
+                };
+
+                bulkOps.push({
+                    updateOne: {
+                        filter: { 
+                            territoryId: territory._id, 
+                            year: year,
+                            ...(month !== null && { month: month })
+                        },
+                        update: { $set: cacheDoc },
+                        upsert: true
+                    }
+                });
+                
+                savedCount++;
+                
+                // 🔍 첫 번째 저장 항목 디버깅
+                if (savedCount === 1) {
+                    console.log(`  🔍 첫 저장: ${territory.name} → ${dominantResult.countryName} (${dominantResult.count}개)`);
+                }
+            }
+
+            // Bulk write 실행
+            if (bulkOps.length > 0) {
+                const result = await collectionsRef.territoryCache.bulkWrite(bulkOps);
+                console.log(`  ✅ ${result.upsertedCount + result.modifiedCount}개 저장, ${result.deletedCount}개 삭제 (처리: ${processedCount}, 저장 대상: ${savedCount})`);
+            } else {
+                console.log(`  ⚠️ 저장할 데이터 없음 (처리한 영토: ${processedCount})`);
+            }
+        }
+
+        // 내부 함수: 영토 내 지배 국가 계산
+        function calculateDominantCountryServer(territory, castles, countryMap) {
+            const geometry = territory.geojson.geometry;
+            if (!geometry || !geometry.coordinates) return null;
+
+            // 폴리곤 데이터 준비
+            let polygonData = [];
+            if (geometry.type === 'Polygon') {
+                const converted = geometry.coordinates[0].map(coord => [coord[1], coord[0]]);
+                const bounds = calculateBoundsServer(converted);
+                polygonData = [{ coords: converted, bounds }];
+            } else if (geometry.type === 'MultiPolygon') {
+                polygonData = geometry.coordinates.map(poly => {
+                    const converted = poly[0].map(coord => [coord[1], coord[0]]);
+                    const bounds = calculateBoundsServer(converted);
+                    return { coords: converted, bounds };
+                });
+            }
+
+            // 국가별 마커 카운트
+            const countryCounts = {};
+
+            castles.forEach(castle => {
+                let isInside = false;
+                
+                for (const polygon of polygonData) {
+                    if (castle.lat < polygon.bounds.minLat || 
+                        castle.lat > polygon.bounds.maxLat ||
+                        castle.lng < polygon.bounds.minLng || 
+                        castle.lng > polygon.bounds.maxLng) {
+                        continue;
+                    }
+
+                    if (isPointInPolygonServer([castle.lat, castle.lng], polygon.coords)) {
+                        isInside = true;
+                        break;
+                    }
+                }
+
+                if (isInside) {
+                    // 🔧 수정: country_id 사용 (언더스코어)
+                    const countryId = castle.country_id?.toString() || castle.countryId?.toString() || 'unknown';
+                    // 🔧 수정: is_capital 사용 (언더스코어)
+                    const weight = castle.is_capital ? 3 : 1;
+                    countryCounts[countryId] = (countryCounts[countryId] || 0) + weight;
+                }
+            });
+
+            // 최다 마커 국가 찾기
+            let maxCount = 0;
+            let dominantCountryId = null;
+
+            for (const [countryId, count] of Object.entries(countryCounts)) {
+                if (count > maxCount) {
+                    maxCount = count;
+                    dominantCountryId = countryId;
+                }
+            }
+
+            if (!dominantCountryId) return null;
+
+            // 🔧 수정: countryMap에서 국가 정보 조회
+            const country = countryMap.get(dominantCountryId);
+            
+            return {
+                countryId: toObjectId(dominantCountryId),
+                countryName: country?.name || 'Unknown',
+                color: country?.color || '#808080',
+                count: maxCount
+            };
+        }
+
+        function calculateBoundsServer(coords) {
+            let minLat = Infinity, maxLat = -Infinity;
+            let minLng = Infinity, maxLng = -Infinity;
+            for (const [lat, lng] of coords) {
+                if (lat < minLat) minLat = lat;
+                if (lat > maxLat) maxLat = lat;
+                if (lng < minLng) minLng = lng;
+                if (lng > maxLng) maxLng = lng;
+            }
+            return { minLat, maxLat, minLng, maxLng };
+        }
+
+        function isPointInPolygonServer(point, polygon) {
+            const [lat, lng] = point;
+            let inside = false;
+            for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+                const [latI, lngI] = polygon[i];
+                const [latJ, lngJ] = polygon[j];
+                const intersect = ((lngI > lng) !== (lngJ > lng)) &&
+                    (lat < (latJ - latI) * (lng - lngI) / (lngJ - lngI) + latI);
+                if (intersect) inside = !inside;
+            }
+            return inside;
+        }
+
         // 💡 [추가] ----------------------------------------------------
-        // � AUTH & USERS API 엔드포인트
+        // 🔐 AUTH & USERS API 엔드포인트
         // ----------------------------------------------------
 
         // POST: 사용자 등록 (관리자만 가능)
