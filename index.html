@@ -4669,6 +4669,131 @@ function updateMap(year, month, cacheOnly = false) {
             let popupHtml; 
             if (typeof castle.lat !== "number" || isNaN(castle.lat) || typeof castle.lng !== "number" || isNaN(castle.lng)) return;
             
+            // 🏷️ [최우선] 라벨은 history 배열이 없으므로 먼저 처리
+            if (castle.is_label) {
+                const labelType = castle.label_type || 'place';
+                let shouldRender = false;
+                
+                // label_type에 따라 해당 레이어 체크
+                if (labelType === 'country') {
+                    shouldRender = layerVisibility.countryLabel;
+                } else if (labelType === 'ethnic') {
+                    shouldRender = layerVisibility.ethnicLabel;
+                } else {
+                    shouldRender = layerVisibility.placeLabel;
+                }
+                
+                if (!shouldRender) return;
+                
+                // 라벨의 시간 범위 체크 (built_year/destroyed_year 사용)
+                const startYear = castle.start_year || castle.built_year || -Infinity;
+                const endYear = castle.end_year || castle.destroyed_year || Infinity;
+                const isWithinDuration = startYear <= year && endYear >= year;
+                
+                if (!isWithinDuration) return;
+                
+                const castleName = castle.name;
+                const builtText = castle.built_year ? `${castle.built_year}년` : '미상';
+                const destroyedText = castle.destroyed_year ? `${castle.destroyed_year}년` : '현재';
+                
+                // 커스텀 아이콘 또는 텍스트 라벨
+                if (castle.custom_icon) {
+                    const iconWidth = castle.icon_width || 32;
+                    const iconHeight = castle.icon_height || 32;
+                    const customIconHtml = `<img src="${castle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+                    const labelIcon = L.divIcon({
+                        className: 'custom-icon-marker',
+                        html: customIconHtml,
+                        iconSize: [iconWidth, iconHeight],
+                        iconAnchor: [iconWidth / 2, 0],
+                        pane: 'labelPane'
+                    });
+                    marker = L.marker([castle.lat, castle.lng], { icon: labelIcon, pane: 'labelPane' });
+                } else {
+                    const labelSize = castle.label_size || 'medium';
+                    let fontSize;
+                    switch (labelSize) {
+                        case 'small': fontSize = 14; break;
+                        case 'large': fontSize = 22; break;
+                        default: fontSize = 18;
+                    }
+                    
+                    const labelIcon = L.divIcon({
+                        className: 'label-text-marker',
+                        html: `<div style="
+                            font-size: ${fontSize}px;
+                            font-weight: bold;
+                            color: ${castle.label_color || '#FFFFFF'}; 
+                            text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 0px 2px #000;
+                            white-space: nowrap;
+                            text-align: center;
+                        ">${castleName}</div>`,
+                        iconSize: [150, 40],
+                        iconAnchor: [75, 0],
+                        pane: 'labelPane'
+                    });
+                    marker = L.marker([castle.lat, castle.lng], { icon: labelIcon, pane: 'labelPane' });
+                }
+                
+                const editorInfoHtml = castle.lastModifiedBy 
+                    ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
+                    : (castle.createdBy ? `<br><small>생성자: ${castle.createdBy}</small>` : '');
+                
+                popupHtml = `<b>지역명: ${castleName}</b><br>기간: ${builtText} ~ ${destroyedText}<br>설명: ${castle.desc ?? ''}${editorInfoHtml}`;
+                
+                marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
+                
+                let popupTimeout;
+                
+                marker.on('mouseover', function(e) {
+                    clearTimeout(popupTimeout);
+                    if (currentOpenPopup && currentOpenPopup !== this) {
+                        currentOpenPopup.closePopup();
+                    }
+                    this.openPopup();
+                    currentOpenPopup = this;
+                });
+                
+                marker.on('popupopen', function(e) {
+                    const popup = e.popup;
+                    if (popup && popup._container) {
+                        popup._container.addEventListener('mouseenter', function() {
+                            clearTimeout(popupTimeout);
+                        });
+                        popup._container.addEventListener('mouseleave', function() {
+                            if (marker && marker.closePopup) {
+                                marker.closePopup();
+                            }
+                        });
+                    }
+                });
+                
+                marker.on('mouseout', function(e) {
+                    popupTimeout = setTimeout(() => {
+                        const popup = this.getPopup();
+                        if (!popup || !popup._container || !popup._container.matches(':hover')) {
+                            this.closePopup();
+                        }
+                    }, 300);
+                });
+                
+                marker.on('click', (e) => { 
+                    map.flyTo(e.latlng, 10);
+                    if (editMode) {
+                        openCastleForm(castle._id);
+                    } else {
+                        if (marker && marker._popup) {
+                            marker.openPopup();
+                        }
+                    }
+                });
+                
+                marker._castleData = castle;
+                markers.push(marker);
+                marker.addTo(castleLayerGroup);
+                return; // 라벨 처리 완료, 다음 castle로
+            }
+            
         // 🚨 [수정 1] country, countryId 변수를 루프 시작 부분에서 선언하여 충돌 방지        
         const currentTotalMonths = yearMonthToTotalMonths(year, month);
         // 🚩 [핵심 수정] 현재 시간에 맞는 역사 기록 찾기
@@ -4698,126 +4823,6 @@ function updateMap(year, month, cacheOnly = false) {
         
         const king = getKingByYear(countryName, year, month); // ⬅️ king 조회는 countryName 사용
 
-            // � [수정] 지역명/텍스트 라벨 마커 - label_type으로 세분화
-            if (castle.is_label) {
-                const labelType = castle.label_type || 'place'; // 기본값: 지명
-                let shouldRender = false;
-                
-                // ✨ [신규] label_type에 따라 해당 레이어 체크
-                if (labelType === 'country') {
-                    shouldRender = layerVisibility.countryLabel;
-                } else if (labelType === 'ethnic') {
-                    shouldRender = layerVisibility.ethnicLabel;
-                } else { // 'place' 또는 미지정
-                    shouldRender = layerVisibility.placeLabel;
-                }
-                
-                if (!shouldRender || !isWithinDuration) return;                
-
-                // 🚩 [추가] 커스텀 아이콘이 있으면 사용
-                if (castle.custom_icon) {
-                    const iconWidth = castle.icon_width || 32;
-                    const iconHeight = castle.icon_height || 32;
-                    const customIconHtml = `<img src="${castle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
-                    const labelIcon = L.divIcon({
-                        className: 'custom-icon-marker',
-                        html: customIconHtml,
-                        iconSize: [iconWidth, iconHeight],
-                        iconAnchor: [iconWidth / 2, 0],  // 🚩 [수정] 핀 중앙 바로 하단으로 위치 조정
-                        pane: 'labelPane'
-                    });
-                    marker = L.marker([castle.lat, castle.lng], { icon: labelIcon, pane: 'labelPane' });
-                } else {
-                    // 🚩 [추가] 저장된 크기에 따라 폰트 크기 결정
-                    let fontSize = '15px'; // 기본 '중'
-                    switch (castle.label_size) {
-                        case 'large':
-                            fontSize = '26px';
-                            break;
-                        case 'small':
-                            fontSize = '10px';
-                            break;
-                    }
-                    const labelIcon = L.divIcon({
-                        // 🚩 [수정] pane: 'labelPane'을 지정하여 항상 최상위에 보이도록 함
-                        className: 'label-text-marker', 
-                        html: `<div style="
-                            font-size: ${fontSize}; 
-                            font-weight: bold; 
-                            color: ${castle.label_color || '#FFFFFF'}; 
-                            text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 0px 2px #000;
-                            white-space: nowrap;
-                            text-align: center;
-                        ">${castleName}</div>`,
-                        iconSize: [150, 40],
-                        iconAnchor: [75, 0],  // 🚩 [수정] 핀 중앙 바로 하단으로 위치 조정
-                        pane: 'labelPane'
-                    });
-                    marker = L.marker([castle.lat, castle.lng], { icon: labelIcon, pane: 'labelPane' });
-                }
-                
-                const editorInfoHtml = castle.lastModifiedBy 
-                    ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
-                    : (castle.createdBy ? `<br><small>생성자: ${castle.createdBy}</small>` : '');
-                
-                popupHtml = `<b>지역명: ${castleName}</b><br>기간: ${builtText} ~ ${destroyedText}<br>설명: ${castle.desc ?? ''}${editorInfoHtml}`;
-                
-              // 🚩 [추가] 지명에도 팝업 바인딩
-              marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
-              
-              let popupTimeout;
-              
-              // 마우스 오버 시 팝업 열기
-              marker.on('mouseover', function(e) {
-                clearTimeout(popupTimeout);
-                // 이전 팝업 닫기
-                if (currentOpenPopup && currentOpenPopup !== this) {
-                  currentOpenPopup.closePopup();
-                }
-                this.openPopup();
-                currentOpenPopup = this;
-              });
-              
-              // 팝업이 열릴 때 이벤트 리스너 추가
-              marker.on('popupopen', function(e) {
-                const popup = e.popup;
-                if (popup && popup._container) {
-                  popup._container.addEventListener('mouseenter', function() {
-                    clearTimeout(popupTimeout);
-                  });
-                  popup._container.addEventListener('mouseleave', function() {
-                    if (marker && marker.closePopup) {
-                      marker.closePopup();
-                    }
-                  });
-                }
-              });
-              
-              // 마우스 아웃 시 지연 후 팝업 닫기
-              marker.on('mouseout', function(e) {
-                popupTimeout = setTimeout(() => {
-                  const popup = this.getPopup();
-                  if (!popup || !popup._container || !popup._container.matches(':hover')) {
-                    this.closePopup();
-                  }
-                }, 300);
-              });
-              
-              marker.on('click', (e) => { 
-                map.flyTo(e.latlng, 10); // 🚩 [수정] 클릭 시 줌인하며 이동
-                if (editMode) {
-                    openCastleForm(castle._id);
-                } else {
-                    // 🚩 [추가] 일반 모드에서는 팝업 표시
-                    if (marker && marker._popup) {
-                        marker.openPopup();
-                    }
-                }
-              });
-              markers.push(marker);
-               marker.addTo(castleLayerGroup);
-              return; // 🚩 [복원] 다른 마커 타입으로 넘어가지 않도록 return 추가
-            }
             // 🚩 1. 자연 지물 마커 (NEW)
             if (castle.is_natural_feature) { 
                 if (!layerVisibility.natural) return;
@@ -5651,7 +5656,7 @@ function getCountryInfoById(id) {
       }
     }
 
-      // 🚩 [최적화] 영토 데이터 지연 로딩 함수 - 정적 파일에서 로드
+      // 🚩 [최적화] 영토 데이터 지연 로딩 함수 - 환경에 따라 자동 선택
       window.loadTerritoryTiles = async function() {
           if (territories.length > 0) {
               console.log('✅ 영토 데이터 이미 로드됨:', territories.length, '개');
@@ -5667,9 +5672,19 @@ function getCountryInfoById(id) {
               
               const bounds = map.getBounds();
               
-              // 🚀 [최적화] 정적 파일에서 로드 (MongoDB 대신)
-              console.log(`📡 [Fetch] 타일 인덱스 로딩...`);
-              const indexResponse = await fetch('/public/tiles/index.json');
+              // � [자동 감지] 정적 파일 존재 여부로 로딩 방식 결정
+              console.log(`📡 [Fetch] 타일 인덱스 로딩 시도...`);
+              let indexResponse;
+              try {
+                  indexResponse = await fetch('/tiles/index.json');
+                  if (!indexResponse.ok) throw new Error('정적 파일 없음');
+              } catch (fetchError) {
+                  console.warn('⚠️ 정적 타일 파일 없음. MongoDB에서 로드합니다.');
+                  await loadTerritoryFromMongoDB(bounds);
+                  return;
+              }
+              
+              // 🚀 [정적 파일] 로컬 환경에서 빠른 로딩
               const tileIndex = await indexResponse.json();
               
               // 현재 뷰포트와 겹치는 타일만 필터링
@@ -5693,7 +5708,7 @@ function getCountryInfoById(id) {
               
               // 타일 병렬 로드
               const tilePromises = visibleTiles.map(tile => 
-                  fetch(`/public/tiles/${tile.filename}`).then(r => r.json())
+                  fetch(`/tiles/${tile.filename}`).then(r => r.json())
               );
               
               const tiles = await Promise.all(tilePromises);
@@ -5746,6 +5761,48 @@ function getCountryInfoById(id) {
               });
           }
       };
+
+      // 🔄 [MongoDB 폴백] 정적 파일이 없을 때 MongoDB에서 로드
+      async function loadTerritoryFromMongoDB(bounds) {
+          const viewBox = {
+              minLat: bounds.getSouth(),
+              maxLat: bounds.getNorth(),
+              minLng: bounds.getWest(),
+              maxLng: bounds.getEast()
+          };
+          
+          console.log(`📡 [MongoDB] 영토 데이터 로딩...`);
+          const response = await fetch(`${API_BASE_URL}/territories?minLat=${viewBox.minLat}&maxLat=${viewBox.maxLat}&minLng=${viewBox.minLng}&maxLng=${viewBox.maxLng}`);
+          
+          if (!response.ok) {
+              throw new Error(`MongoDB 영토 로드 실패: ${response.status}`);
+          }
+          
+          const data = await response.json();
+          territories = data.map(t => ({
+              _id: t._id,
+              name: t.name,
+              name_ko: t.name_ko,
+              name_type: t.name_type,
+              type: t.geometry?.type || t.type,
+              coordinates: t.geometry?.coordinates || t.coordinates,
+              level: t.level,
+              start: t.start || t.start_year,
+              end: t.end || t.end_year
+          }));
+          
+          console.timeEnd("🗺️ 영토 타일 로드");
+          console.log(`✅ MongoDB에서 영토 로드 완료: ${territories.length}개`);
+          
+          const territoryBtns = document.querySelectorAll('[data-layer="territoryPolygon"]');
+          territoryBtns.forEach(btn => {
+              if (btn.tagName === 'BUTTON') btn.textContent = `영토 ${territories.length}개`;
+          });
+          
+          // 영토 렌더링
+          const { year, month } = getCurrentYearMonth();
+          updateMap(year, month);
+      }
       
       // 🚩 [최적화] 증분 업데이트 헬퍼 함수들 - 서버 응답 데이터로 정확히 동기화
       window.updateCastleInMemory = async (castleKey, serverResponseData) => {
