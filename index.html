@@ -5686,19 +5686,31 @@ function getCountryInfoById(id) {
               
               const bounds = map.getBounds();
               
-              // � [자동 감지] 정적 파일 존재 여부로 로딩 방식 결정
+              // 🔍 [최적화] 환경 감지: localhost는 바로 MongoDB, 프로덕션은 정적 파일 시도
+              const isLocalhost = window.location.hostname === 'localhost' || 
+                                 window.location.hostname === '127.0.0.1' ||
+                                 window.location.hostname === '';
+              
+              if (isLocalhost) {
+                  // 로컬 환경: 바로 MongoDB로 (404 에러 방지)
+                  console.log(`📡 [로컬] MongoDB에서 직접 로드`);
+                  await loadTerritoryFromMongoDB(bounds);
+                  return;
+              }
+              
+              // 프로덕션 환경: 정적 파일 시도 후 폴백
               console.log(`📡 [Fetch] 타일 인덱스 로딩 시도...`);
               let indexResponse;
               try {
                   indexResponse = await fetch('/tiles/index.json');
                   if (!indexResponse.ok) throw new Error('정적 파일 없음');
               } catch (fetchError) {
-                  console.warn('⚠️ 정적 타일 파일 없음. MongoDB에서 로드합니다.');
+                  console.warn('⚠️ 정적 타일 파일 없음. MongoDB로 폴백합니다.');
                   await loadTerritoryFromMongoDB(bounds);
                   return;
               }
               
-              // 🚀 [정적 파일] 로컬 환경에서 빠른 로딩
+              // 🚀 [정적 파일] 프로덕션 환경에서 빠른 로딩
               const tileIndex = await indexResponse.json();
               
               // 현재 뷰포트와 겹치는 타일만 필터링
