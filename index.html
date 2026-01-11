@@ -5686,98 +5686,11 @@ function getCountryInfoById(id) {
               
               const bounds = map.getBounds();
               
-              // 🔍 [최적화] 환경 감지: localhost는 바로 MongoDB, 프로덕션은 정적 파일 시도
-              const isLocalhost = window.location.hostname === 'localhost' || 
-                                 window.location.hostname === '127.0.0.1' ||
-                                 window.location.hostname === '';
-              
-              if (isLocalhost) {
-                  // 로컬 환경: 바로 MongoDB로 (404 에러 방지)
-                  console.log(`📡 [로컬] MongoDB에서 직접 로드`);
-                  await loadTerritoryFromMongoDB(bounds);
-                  return;
-              }
-              
-              // 프로덕션 환경: 정적 파일 시도 후 폴백
-              console.log(`📡 [Fetch] 타일 인덱스 로딩 시도...`);
-              let indexResponse;
-              try {
-                  indexResponse = await fetch('/tiles/index.json');
-                  if (!indexResponse.ok) throw new Error('정적 파일 없음');
-              } catch (fetchError) {
-                  console.warn('⚠️ 정적 타일 파일 없음. MongoDB로 폴백합니다.');
-                  await loadTerritoryFromMongoDB(bounds);
-                  return;
-              }
-              
-              // 🚀 [정적 파일] 프로덕션 환경에서 빠른 로딩
-              const tileIndex = await indexResponse.json();
-              
-              // 현재 뷰포트와 겹치는 타일만 필터링
-              const viewBox = {
-                  minLat: bounds.getSouth(),
-                  maxLat: bounds.getNorth(),
-                  minLng: bounds.getWest(),
-                  maxLng: bounds.getEast()
-              };
-              
-              const visibleTiles = tileIndex.filter(tile => {
-                  return !(
-                      tile.bounds.maxLat < viewBox.minLat ||
-                      tile.bounds.minLat > viewBox.maxLat ||
-                      tile.bounds.maxLng < viewBox.minLng ||
-                      tile.bounds.minLng > viewBox.maxLng
-                  );
-              });
-              
-              console.log(`📊 ${visibleTiles.length}/${tileIndex.length}개 타일 로드 필요`);
-              
-              // 타일 병렬 로드
-              const tilePromises = visibleTiles.map(tile => 
-                  fetch(`/tiles/${tile.filename}`).then(r => r.json())
-              );
-              
-              const tiles = await Promise.all(tilePromises);
-              
-              console.log(`✅ ${tiles.length}개 타일 로드 완료`);
-              
-              // 타일에서 영토 데이터 추출
-              territories = [];
-              const seenTerritories = new Set(); // 중복 방지
-              
-              for (const tile of tiles) {
-                  if (tile.data && tile.data.features) {
-                      for (const feature of tile.data.features) {
-                          // 중복 체크
-                          const territoryKey = feature.properties._id || feature.properties.name_type || feature.properties.name;
-                          if (seenTerritories.has(territoryKey)) continue;
-                          seenTerritories.add(territoryKey);
-                          
-                          territories.push({
-                              _id: feature.properties._id,
-                              name: feature.properties.name,
-                              name_ko: feature.properties.name_ko,
-                              name_type: feature.properties.name_type,
-                              type: feature.geometry.type,
-                              coordinates: feature.geometry.coordinates,
-                              level: feature.properties.level,
-                              start: feature.properties.start,
-                              end: feature.properties.end
-                          });
-                      }
-                  }
-              }
-              
-              console.timeEnd("🗺️ 영토 타일 로드");
-              console.log(`✅ 영토 데이터 로드 완료: ${territories.length}개`);
-              
-              territoryBtns.forEach(btn => {
-                  if (btn.tagName === 'BUTTON') btn.textContent = `영토 ${territories.length}개`;
-              });
-              
-              // 영토 렌더링
-              const { year, month } = getCurrentYearMonth();
-              updateMap(year, month);
+              // � [최적화] 항상 MongoDB 직접 사용 (정적 타일 미사용)
+              // 인덱스 최적화로 충분히 빠른 성능 보장 (2-5초)
+              console.log(`📡 [MongoDB] 영토 데이터 직접 로드`);
+              await loadTerritoryFromMongoDB(bounds);
+              return;
               
           } catch (error) {
               console.error('❌ 영토 타일 로드 실패:', error);
