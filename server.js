@@ -964,7 +964,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // 🗺️ [공개 API] Territories 조회 - 인증 불필요 (공개 데이터)
         app.get('/api/territories', async (req, res) => {
             try {
-                const { minLat, maxLat, minLng, maxLng } = req.query;
+                const { minLat, maxLat, minLng, maxLng, lightweight } = req.query;
                 
                 let query = {};
                 
@@ -977,13 +977,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         maxLng: parseFloat(maxLng)
                     };
                     
-                    // GeoJSON의 첫 좌표를 기준으로 대략적 필터링 (완벽하진 않지만 충분히 빠름)
-                    // MongoDB의 $geoWithin은 2dsphere 인덱스가 필요하므로, 간단한 범위 체크 사용
                     query = {
                         $or: [
-                            // 폴리곤의 바운딩 박스가 없는 경우 포함 (레거시 데이터)
                             { "bbox": { $exists: false } },
-                            // 바운딩 박스가 뷰포트와 겹치는 경우
                             {
                                 $and: [
                                     { "bbox.maxLat": { $gte: bounds.minLat } },
@@ -996,13 +992,39 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     };
                 }
                 
-                console.log(`🗺️ Territories 쿼리 시작... (bounds: ${minLat ? 'O' : 'X'})`);
+                console.log(`🗺️ Territories 쿼리 시작... (bounds: ${minLat ? 'O' : 'X'}, lightweight: ${lightweight || 'X'})`);
                 const startTime = Date.now();
                 
-                const territories = await collections.territories.find(query).toArray();
+                let territories;
+                
+                // � [최적화] lightweight 모드: geometry 제외, 메타데이터만 (빠름)
+                if (lightweight === 'true') {
+                    territories = await collections.territories.find(query).project({
+                        _id: 1,
+                        name: 1,
+                        name_ko: 1,
+                        name_en: 1,
+                        name_type: 1,
+                        bbox: 1,
+                        start: 1,
+                        start_year: 1,
+                        end: 1,
+                        end_year: 1,
+                        level: 1,
+                        type: 1
+                    }).toArray();
+                } else {
+                    // 전체 데이터 (geometry 포함)
+                    territories = await collections.territories.find(query).toArray();
+                }
                 
                 const elapsed = Date.now() - startTime;
-                console.log(`🗺️ Territories 조회 완료: ${territories.length}개 (${elapsed}ms, bounds: ${minLat ? 'O' : 'X'})`);
+                const sizeMB = (JSON.stringify(territories).length / 1024 / 1024).toFixed(2);
+                console.log(`🗺️ Territories 조회 완료: ${territories.length}개 (${elapsed}ms, ${sizeMB}MB, lightweight: ${lightweight || 'X'})`);
+                
+                if (elapsed > 5000) {
+                    console.warn(`⚠️  느린 쿼리 감지! ${elapsed}ms`);
+                }
                 
                 res.json(territories);
             } catch (error) {

@@ -5702,8 +5702,9 @@ function getCountryInfoById(id) {
       };
 
       // 🔄 [MongoDB 폴백] 정적 파일이 없을 때 MongoDB에서 로드
-      // 🚀 [최적화] 전체 territories를 한 번만 로드 (91개 - 매우 적음)
+      // 🚀 [최적화] Progressive Loading - 경량 데이터 먼저, 전체 데이터는 백그라운드
       let allTerritoriesLoaded = false;
+      let lightweightTerritoriesLoaded = false;
       
       async function loadTerritoryFromMongoDB(bounds) {
           // 이미 로드된 경우 스킵
@@ -5712,8 +5713,6 @@ function getCountryInfoById(id) {
               return;
           }
           
-          console.log(`📡 [MongoDB] 전체 영토 데이터 로딩... (한 번만 실행)`);
-          
           // 🔑 [추가] 토큰이 있으면 헤더에 포함 (선택적 인증)
           const headers = {};
           const token = getToken();
@@ -5721,7 +5720,32 @@ function getCountryInfoById(id) {
               headers['Authorization'] = `Bearer ${token}`;
           }
           
-          // ✨ bounds 파라미터 없이 전체 로드
+          // 🚀 [1단계] 경량 데이터 먼저 로드 (빠름 - 1초 이내)
+          if (!lightweightTerritoriesLoaded) {
+              console.log(`📡 [1/2] 경량 영토 데이터 로딩... (bbox만, 즉시 표시)`);
+              const lightStart = Date.now();
+              
+              try {
+                  const lightResponse = await fetch(
+                      `${API_BASE_URL}/territories?lightweight=true`,
+                      { headers }
+                  );
+                  
+                  if (lightResponse.ok) {
+                      const lightData = await lightResponse.json();
+                      const lightElapsed = ((Date.now() - lightStart) / 1000).toFixed(2);
+                      console.log(`✅ [1/2] 경량 로드: ${lightData.length}개 (${lightElapsed}초) - geometry 없이 bbox만`);
+                      lightweightTerritoriesLoaded = true;
+                  }
+              } catch (error) {
+                  console.warn('⚠️ 경량 로드 실패, 전체 로드로 진행:', error);
+              }
+          }
+          
+          // 🚀 [2단계] 전체 geometry 로드 (느림 - 150초)
+          console.log(`📡 [2/2] 전체 영토 데이터 로딩... (geometry 포함)`);
+          const fullStart = Date.now();
+          
           const response = await fetch(
               `${API_BASE_URL}/territories`,
               { headers }
@@ -5734,6 +5758,9 @@ function getCountryInfoById(id) {
           }
           
           const data = await response.json();
+          const fullElapsed = ((Date.now() - fullStart) / 1000).toFixed(2);
+          console.log(`✅ [2/2] 전체 로드 완료: ${data.length}개 (${fullElapsed}초)`);
+          
           territories = data.map(t => ({
               _id: t._id,
               name: t.name,
@@ -5749,7 +5776,7 @@ function getCountryInfoById(id) {
           allTerritoriesLoaded = true; // ✅ 플래그 설정
           
           console.timeEnd("🗺️ 영토 타일 로드");
-          console.log(`✅ MongoDB에서 전체 영토 로드 완료: ${territories.length}개`);
+          console.log(`🎉 전체 데이터 로드 완료! (총 ${fullElapsed}초)`);
           
           const territoryBtns = document.querySelectorAll('[data-layer="territoryPolygon"]');
           territoryBtns.forEach(btn => {
