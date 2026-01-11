@@ -961,7 +961,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // ----------------------------------------------------
 
         // GET: 영토 폴리곤 조회 (뷰포트 bounds 필터링 지원)
-        app.get('/api/territories', verifyToken, async (req, res) => {
+        // 🗺️ [공개 API] Territories 조회 - 인증 불필요 (공개 데이터)
+        app.get('/api/territories', async (req, res) => {
             try {
                 const { minLat, maxLat, minLng, maxLng } = req.query;
                 
