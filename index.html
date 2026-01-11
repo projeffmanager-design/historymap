@@ -5609,19 +5609,26 @@ function getCountryInfoById(id) {
                   const { year, month } = getCurrentYearMonth();
                   updateMap(year, month);
               }
-              console.log('🗺️ 영토 데이터 로딩...');
-              showLoadingStatus('시대별 영토 범위를 지리적으로 재계산하고 있습니다...', 70);
-
-              await window.loadTerritoryTiles();
-              showLoadingStatus('정복 가능성과 통치 범위를 분리하여 표시 중입니다...', 77);
-
-              console.log(`✅ 영토 데이터: ${territories.length}개`);
               
-              // 영토가 켜져 있으면 지도 업데이트
-              if (layerVisibility.territoryPolygon) {
-                  const { year, month } = getCurrentYearMonth();
-                  updateMap(year, month);
-              }
+              // 🚀 [최적화] 영토 데이터는 백그라운드에서 로딩 (await 제거)
+              console.log('🗺️ 영토 데이터 백그라운드 로딩 시작...');
+              showLoadingStatus('시대별 영토 범위를 백그라운드에서 로딩 중입니다...', 70);
+              
+              // await 없이 비동기로 실행 - 다른 데이터 로딩을 차단하지 않음
+              window.loadTerritoryTiles().then(() => {
+                  console.log(`✅ 영토 데이터 백그라운드 로딩 완료: ${territories.length}개`);
+                  // 영토가 켜져 있으면 지도 업데이트
+                  if (layerVisibility.territoryPolygon) {
+                      const { year, month } = getCurrentYearMonth();
+                      updateMap(year, month);
+                  }
+              }).catch(err => {
+                  console.error('❌ 영토 데이터 로딩 실패:', err);
+              });
+              
+              showLoadingStatus('정복 가능성과 통치 범위를 분리하여 표시 중입니다...', 77);
+              
+              // 영토 로딩을 기다리지 않고 바로 다음 단계로 진행
               console.log('👑 왕 데이터 로딩...');
               showLoadingStatus('재위 시기와 활동 범위를 공간적으로 검증 중입니다...', 82);
 
