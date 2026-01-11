@@ -183,7 +183,24 @@ async function setupRoutesAndCollections() {
         // GET: 모든 성 정보 반환
         app.get('/api/castle', verifyToken, async (req, res) => { // (collections.castle로 변경)
             try {
-                const castles = await collections.castle.find({}).toArray();
+                // 🚩 [추가] label_type 쿼리 파라미터로 필터링 지원
+                const { label_type } = req.query;
+                const query = {};
+                
+                if (label_type) {
+                    // label_type이 지정된 경우 해당 타입만 조회
+                    query.label_type = label_type;
+                    query.is_label = true; // 라벨 타입인 경우 is_label도 true여야 함
+                } else if (label_type === 'exclude_labels') {
+                    // 라벨을 제외한 모든 데이터 조회
+                    query.$or = [
+                        { is_label: false },
+                        { is_label: { $exists: false } }
+                    ];
+                }
+                
+                const castles = await collections.castle.find(query).toArray();
+                console.log(`📖 Castle 조회: ${castles.length}개 (필터: ${label_type || '전체'})`);
                 res.json(castles);
             } catch (error) {
                 console.error("Castle 조회 중 오류:", error);
@@ -898,6 +915,47 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // GET: Territory Tiles (Topojson compressed + tile-based) - Optimized
+        app.get('/api/territory-tiles', verifyToken, async (req, res) => {
+            try {
+                const { minLat, maxLat, minLng, maxLng } = req.query;
+                
+                let query = {};
+                
+                if (minLat && maxLat && minLng && maxLng) {
+                    const bounds = {
+                        minLat: parseFloat(minLat),
+                        maxLat: parseFloat(maxLat),
+                        minLng: parseFloat(minLng),
+                        maxLng: parseFloat(maxLng)
+                    };
+                    
+                    query = {
+                        $and: [
+                            { "bounds.maxLat": { $gte: bounds.minLat } },
+                            { "bounds.minLat": { $lte: bounds.maxLat } },
+                            { "bounds.maxLng": { $gte: bounds.minLng } },
+                            { "bounds.minLng": { $lte: bounds.maxLng } }
+                        ]
+                    };
+                }
+                
+                console.log(`🗺️ Territory Tiles query start... (bounds: ${minLat ? 'O' : 'X'})`);
+                const startTime = Date.now();
+                
+                const tiles = await collections.territory_tiles.find(query).toArray();
+                
+                const elapsed = Date.now() - startTime;
+                const totalSize = tiles.reduce((sum, t) => sum + (t.compressed_size || 0), 0);
+                console.log(`🗺️ Territory Tiles complete: ${tiles.length} tiles, ${(totalSize/1024).toFixed(2)}KB (${elapsed}ms)`);
+                
+                res.json(tiles);
+            } catch (error) {
+                console.error("Territory Tiles error:", error);
+                res.status(500).json({ message: "Territory Tiles failed", error: error.message });
+            }
+        });
+
         // � [추가] ----------------------------------------------------
         // 🗺️ TERRITORIES API 엔드포인트 (행정구역 영토 폴리곤)
         // ----------------------------------------------------
@@ -937,8 +995,14 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     };
                 }
                 
+                console.log(`🗺️ Territories 쿼리 시작... (bounds: ${minLat ? 'O' : 'X'})`);
+                const startTime = Date.now();
+                
                 const territories = await collections.territories.find(query).toArray();
-                console.log(`🗺️ Territories 조회: ${territories.length}개 (bounds: ${minLat ? 'O' : 'X'})`);
+                
+                const elapsed = Date.now() - startTime;
+                console.log(`🗺️ Territories 조회 완료: ${territories.length}개 (${elapsed}ms, bounds: ${minLat ? 'O' : 'X'})`);
+                
                 res.json(territories);
             } catch (error) {
                 console.error("Territories 조회 중 오류:", error);

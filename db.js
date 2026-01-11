@@ -31,6 +31,7 @@ async function connectToDatabase() {
         collections.events = db.collection("events");
         collections.drawings = db.collection("drawings");
         collections.territories = db.collection("territories"); // 🚩 [추가] 영토 폴리곤 컬렉션
+        collections.territory_tiles = db.collection("territory_tiles"); // 🚩 [추가] 영토 타일 컬렉션 (Topojson 압축)
         collections.territoryCache = db.collection("territory_cache"); // 🚩 [추가] 영토 캐시 컬렉션
         collections.naturalFeatures = db.collection("natural_features"); // 🚩 [추가] 자연 지형지물 컬렉션 (강, 산맥 등)
         collections.loginLogs = db.collection("login_logs"); // 🚩 [추가] 로그인 로그 컬렉션 초기화
