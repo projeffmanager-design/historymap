@@ -4358,7 +4358,12 @@ function updateMap(year, month, cacheOnly = false) {
         // 새로운 레이어 그룹 생성
         territoryLayerGroup = L.layerGroup().addTo(map);
         
-        // 🚩 영토 폴리곤 자동 색상 채우기 (GeoJSON 행정구역 기반)
+        // �️ [추가] 연도 변경 시 렌더링된 영토 추적 초기화
+        if (typeof clearRenderedTerritories === 'function') {
+            clearRenderedTerritories();
+        }
+        
+        // �🚩 영토 폴리곤 자동 색상 채우기 (GeoJSON 행정구역 기반)
         if (layerVisibility.territoryPolygon) {
             const startTime = performance.now();
             let renderedCount = 0;
@@ -4369,11 +4374,14 @@ function updateMap(year, month, cacheOnly = false) {
             const renderedTerritories = new Set();
             
             territories.forEach(territory => {
-                // 🚩 [추가] 중복 체크
-                const territoryKey = `${territory.name}_${territory.type}`;
-                if (renderedTerritories.has(territoryKey)) {
-                    return; // 이미 렌더링된 영토는 건너뛰기
+                // �️ [수정] 전역 추적과 로컬 중복 방지 모두 적용
+                const territoryKey = `${territory._id || territory.name}_${year}`;
+                const localKey = `${territory.name}_${territory.type}`;
+                
+                if (renderedTerritories.has(localKey)) {
+                    return; // 로컬 중복 방지
                 }
+                renderedTerritories.add(localKey);
                 
                 // 뷰포트와 전혀 겹치지 않는 폴리곤은 스킵하여 성능 개선
                 const tBounds = getTerritoryBounds(territory);
@@ -4438,7 +4446,13 @@ function updateMap(year, month, cacheOnly = false) {
                 territoryLayer.bindPopup(popupContent);
                 
                 territoryLayerGroup.addLayer(territoryLayer);
-                renderedTerritories.add(territoryKey); // 🚩 [추가] 렌더링된 영토 기록
+                renderedTerritories.add(localKey); // 로컬 중복 방지
+                
+                // �️ [추가] 전역 추적에도 기록 (증분 업데이트용)
+                if (typeof renderedTerritoryKeys !== 'undefined') {
+                    renderedTerritoryKeys.add(territoryKey);
+                }
+                
                 renderedCount++;
             });
             
@@ -6269,7 +6283,109 @@ function getCountryInfoById(id) {
       // 초기 로드 시 마커 크기 설정
       map.fire('zoomend');
 
-      // 🚩 [추가] 속도 슬라이더 값 변경 시 디스플레이 업데이트
+      // �️ [추가] 지도 이동/줌 시 영토 증분 업데이트
+      let updateTerritoryTimeout;
+      let renderedTerritoryKeys = new Set(); // 이미 렌더링된 영토 추적
+      
+      map.on('moveend', () => {
+          // 디바운스: 지도 이동이 끝난 후 500ms 대기
+          clearTimeout(updateTerritoryTimeout);
+          updateTerritoryTimeout = setTimeout(() => {
+              if (layerVisibility.territoryPolygon && territories.length > 0) {
+                  updateVisibleTerritories();
+              }
+          }, 500);
+      });
+      
+      // 🗺️ [추가] 보이는 영역의 영토만 증분 업데이트
+      function updateVisibleTerritories() {
+          const { year, month } = getCurrentYearMonth();
+          const view = map.getBounds();
+          const viewBox = { 
+              minLat: view.getSouth(), 
+              maxLat: view.getNorth(), 
+              minLng: view.getWest(), 
+              maxLng: view.getEast() 
+          };
+          
+          let addedCount = 0;
+          
+          territories.forEach(territory => {
+              const territoryKey = `${territory._id || territory.name}_${year}`;
+              
+              // ✅ 이미 렌더링된 영토는 스킵
+              if (renderedTerritoryKeys.has(territoryKey)) {
+                  return;
+              }
+              
+              // 뷰포트 밖의 영토는 스킵
+              const tBounds = getTerritoryBounds(territory);
+              if (tBounds && (tBounds.maxLat < viewBox.minLat || tBounds.minLat > viewBox.maxLat || 
+                              tBounds.maxLng < viewBox.minLng || tBounds.minLng > viewBox.maxLng)) {
+                  return;
+              }
+              
+              // 시간 범위 체크
+              const startYear = territory.start || territory.start_year || -5000;
+              const endYear = territory.end || territory.end_year || 3000;
+              if (!(year >= startYear && year <= endYear)) return;
+              
+              // 지배 국가 결정
+              const dominantCountryId = calculateDominantCountry(territory, year, month);
+              if (!dominantCountryId) return;
+              
+              const countryInfo = getCountryInfoById(dominantCountryId);
+              if (!countryInfo) return;
+              
+              // 민족 필터링
+              if (selectedEthnicity !== 'all') {
+                  if (!countryInfo.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity)) {
+                      return;
+                  }
+              }
+              
+              // 🎨 폴리곤 렌더링
+              const geojson = {
+                  type: 'Feature',
+                  geometry: {
+                      type: territory.type,
+                      coordinates: territory.coordinates
+                  },
+                  properties: {
+                      name: territory.name,
+                      country_id: dominantCountryId
+                  }
+              };
+              
+              const territoryLayer = L.geoJSON(geojson, {
+                  style: {
+                      color: countryInfo.color || '#ffffff',
+                      weight: 2,
+                      opacity: 0.6,
+                      fillColor: countryInfo.color || '#ffffff',
+                      fillOpacity: 0.3
+                  }
+              });
+              
+              const popupContent = `<b>${territory.name || '영토'}</b><br>지배국: ${countryInfo.name}<br>기간: ${startYear}년 ~ ${endYear === 3000 ? '현재' : endYear + '년'}`;
+              territoryLayer.bindPopup(popupContent);
+              
+              territoryLayerGroup.addLayer(territoryLayer);
+              renderedTerritoryKeys.add(territoryKey);
+              addedCount++;
+          });
+          
+          if (addedCount > 0) {
+              console.log(`🗺️ 영토 증분 업데이트: ${addedCount}개 추가됨`);
+          }
+      }
+      
+      // 🗺️ [추가] 연도 변경 시 렌더링된 영토 추적 초기화
+      window.clearRenderedTerritories = function() {
+          renderedTerritoryKeys.clear();
+      };
+
+      // �🚩 [추가] 속도 슬라이더 값 변경 시 디스플레이 업데이트
       playbackSpeedSlider.oninput = () => {
           speedDisplay.textContent = `${playbackSpeedSlider.value}월/초`;
           // 재생 중이라면 속도를 즉시 업데이트 (멈췄다가 다시 시작)
