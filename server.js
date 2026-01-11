@@ -1452,7 +1452,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const token = jwt.sign(
                     { userId: user._id, username: user.username, role: user.role },
                     jwtSecret,
-                    { expiresIn: '1d' } // 토큰 유효기간 1일
+                    { expiresIn: '365d' } // 토큰 유효기간 365일 (1년)
                 );
 
                 res.json({ message: "로그인 성공", token });
