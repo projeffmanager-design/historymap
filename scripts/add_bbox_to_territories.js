@@ -10,19 +10,19 @@ if (!mongoUri) {
 }
 
 // GeoJSON 폴리곤의 바운딩 박스 계산
-function calculateBoundingBox(geojson) {
-    if (!geojson || !geojson.geometry || !geojson.geometry.coordinates) {
+function calculateBoundingBox(geometry) {
+    if (!geometry || !geometry.coordinates) {
         return null;
     }
     
     let minLat = Infinity, maxLat = -Infinity;
     let minLng = Infinity, maxLng = -Infinity;
     
-    const coords = geojson.geometry.coordinates;
+    const coords = geometry.coordinates;
     
     // Polygon 타입: [[[lng, lat], ...]]
     // MultiPolygon 타입: [[[[lng, lat], ...]], ...]
-    const rings = geojson.geometry.type === 'MultiPolygon' ? coords.flat() : coords;
+    const rings = geometry.type === 'MultiPolygon' ? coords.flat() : coords;
     
     rings.forEach(ring => {
         ring.forEach(([lng, lat]) => {
@@ -61,7 +61,7 @@ async function addBboxToTerritories() {
                     continue;
                 }
                 
-                const bbox = calculateBoundingBox(territory.geojson);
+                const bbox = calculateBoundingBox(territory.geometry);
                 
                 if (!bbox) {
                     console.warn(`⚠️  bbox 계산 실패: ${territory.name || territory._id}`);

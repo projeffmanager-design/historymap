@@ -5702,15 +5702,17 @@ function getCountryInfoById(id) {
       };
 
       // 🔄 [MongoDB 폴백] 정적 파일이 없을 때 MongoDB에서 로드
+      // 🚀 [최적화] 전체 territories를 한 번만 로드 (91개 - 매우 적음)
+      let allTerritoriesLoaded = false;
+      
       async function loadTerritoryFromMongoDB(bounds) {
-          const viewBox = {
-              minLat: bounds.getSouth(),
-              maxLat: bounds.getNorth(),
-              minLng: bounds.getWest(),
-              maxLng: bounds.getEast()
-          };
+          // 이미 로드된 경우 스킵
+          if (allTerritoriesLoaded && territories.length > 0) {
+              console.log(`✅ 캐시된 영토 사용: ${territories.length}개`);
+              return;
+          }
           
-          console.log(`📡 [MongoDB] 영토 데이터 로딩...`);
+          console.log(`📡 [MongoDB] 전체 영토 데이터 로딩... (한 번만 실행)`);
           
           // 🔑 [추가] 토큰이 있으면 헤더에 포함 (선택적 인증)
           const headers = {};
@@ -5719,8 +5721,9 @@ function getCountryInfoById(id) {
               headers['Authorization'] = `Bearer ${token}`;
           }
           
+          // ✨ bounds 파라미터 없이 전체 로드
           const response = await fetch(
-              `${API_BASE_URL}/territories?minLat=${viewBox.minLat}&maxLat=${viewBox.maxLat}&minLng=${viewBox.minLng}&maxLng=${viewBox.maxLng}`,
+              `${API_BASE_URL}/territories`,
               { headers }
           );
           
@@ -5743,8 +5746,10 @@ function getCountryInfoById(id) {
               end: t.end || t.end_year
           }));
           
+          allTerritoriesLoaded = true; // ✅ 플래그 설정
+          
           console.timeEnd("🗺️ 영토 타일 로드");
-          console.log(`✅ MongoDB에서 영토 로드 완료: ${territories.length}개`);
+          console.log(`✅ MongoDB에서 전체 영토 로드 완료: ${territories.length}개`);
           
           const territoryBtns = document.querySelectorAll('[data-layer="territoryPolygon"]');
           territoryBtns.forEach(btn => {
