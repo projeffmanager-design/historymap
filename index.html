@@ -4024,6 +4024,318 @@ function getKingByYear(countryName, year, month) {
         return { minLat, maxLat, minLng, maxLng };
     }
 
+    // 🎨 [추가] 단일 라벨만 업데이트 (라벨 수정 시)
+    function updateSingleLabel(oldCastle, newCastle, year, month) {
+        if (!map || !map._loaded) return;
+        
+        console.log(`🏷️ 라벨 업데이트: ${oldCastle.name} → ${newCastle.name}`);
+        console.log(`  🔍 oldCastle._id: ${oldCastle._id}, name: ${oldCastle.name}`);
+        console.log(`  📊 전체 마커 수: ${markers.length}개`);
+        
+        // 기존 라벨 마커 제거
+        let removedCount = 0;
+        let checkedCount = 0;
+        const markersToRemove = [];
+        
+        // markers 배열에서 찾아서 제거
+        for (let i = markers.length - 1; i >= 0; i--) {
+            const marker = markers[i];
+            const castleData = marker._castleData || marker.options.castleData;
+            if (castleData) {
+                checkedCount++;
+                const idMatch = castleData._id && oldCastle._id && 
+                               (castleData._id === oldCastle._id || 
+                                castleData._id.toString() === oldCastle._id.toString());
+                const nameMatch = castleData.name === oldCastle.name;
+                
+                // 디버깅: _id가 일치하는 마커 정보 출력
+                if (idMatch) {
+                    console.log(`  🔎 마커[${i}]: ${castleData.name} (${castleData._id}), is_label: ${castleData.is_label}`);
+                }
+                
+                if (idMatch || nameMatch) {
+                    console.log(`  🎯 매칭된 마커 발견: ${castleData.name} (${castleData._id})`);
+                    if (castleLayerGroup && castleLayerGroup.hasLayer(marker)) {
+                        castleLayerGroup.removeLayer(marker);
+                    }
+                    markers.splice(i, 1);
+                    removedCount++;
+                }
+            }
+        }
+        console.log(`  � 라벨 마커 확인: ${checkedCount}개 중 ${removedCount}개 제거`);
+        
+        // 제거 실패 시 전체 맵 갱신
+        if (removedCount === 0) {
+            console.warn(`  ⚠️ 기존 마커를 찾지 못함. 전체 맵 갱신으로 대체`);
+            const { year, month } = getCurrentYearMonth();
+            updateMap(year, month);
+            return;
+        }
+        
+        // 새 라벨 추가 (시간 범위 및 가시성 체크)
+        const startYear = newCastle.start_year || newCastle.built_year || -Infinity;
+        const endYear = newCastle.end_year || newCastle.destroyed_year || Infinity;
+        const isWithinDuration = startYear <= year && endYear >= year;
+        
+        console.log(`  📅 시간 체크: ${startYear} <= ${year} <= ${endYear} = ${isWithinDuration}`);
+        
+        if (!isWithinDuration) {
+            console.log(`  ⏭️ 현재 시간대(${year})에 해당하지 않아 표시 안 함`);
+            return;
+        }
+        
+        // 라벨 타입별 가시성 체크
+        const labelType = newCastle.label_type || 'place';
+        let shouldRender = false;
+        if (labelType === 'country') {
+            shouldRender = layerVisibility.countryLabel;
+        } else if (labelType === 'ethnic') {
+            shouldRender = layerVisibility.ethnicLabel;
+        } else {
+            shouldRender = layerVisibility.placeLabel;
+        }
+        
+        console.log(`  👁️ 가시성 체크: labelType=${labelType}, shouldRender=${shouldRender}, countryLabel=${layerVisibility.countryLabel}, placeLabel=${layerVisibility.placeLabel}`);
+        
+        if (!shouldRender) {
+            console.log(`  ⏭️ ${labelType} 라벨 레이어가 꺼져있어 표시 안 함`);
+            return;
+        }
+        
+        const castleName = newCastle.name;
+        let marker;
+        
+        // 커스텀 아이콘이 있으면 사용
+        if (newCastle.custom_icon) {
+            const iconWidth = newCastle.icon_width || 32;
+            const iconHeight = newCastle.icon_height || 32;
+            const customIconHtml = `<img src="${newCastle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+            const labelIcon = L.divIcon({
+                className: 'custom-icon-marker',
+                html: customIconHtml,
+                iconSize: [iconWidth, iconHeight],
+                iconAnchor: [iconWidth / 2, 0],
+                pane: 'labelPane'
+            });
+            marker = L.marker([newCastle.lat, newCastle.lng], { icon: labelIcon, pane: 'labelPane' });
+        } else {
+            // 저장된 크기에 따라 폰트 크기 결정
+            let fontSize = '15px';
+            switch (newCastle.label_size) {
+                case 'large':
+                    fontSize = '26px';
+                    break;
+                case 'small':
+                    fontSize = '10px';
+                    break;
+            }
+            const labelIcon = L.divIcon({
+                className: 'label-text-marker', 
+                html: `<div style="
+                    font-size: ${fontSize}; 
+                    font-weight: bold; 
+                    color: ${newCastle.label_color || '#FFFFFF'}; 
+                    text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 0px 2px #000;
+                    white-space: nowrap;
+                    text-align: center;
+                ">${castleName}</div>`,
+                iconSize: [150, 40],
+                iconAnchor: [75, 0],
+                pane: 'labelPane'
+            });
+            marker = L.marker([newCastle.lat, newCastle.lng], { icon: labelIcon, pane: 'labelPane' });
+        }
+        
+        // 마커에 데이터 저장
+        marker._castleData = newCastle;
+        
+        // 클릭 이벤트
+        marker.on('click', () => {
+            openCastleForm(newCastle._id);
+        });
+        
+        // 레이어에 추가
+        markers.push(marker);
+        if (castleLayerGroup) {
+            marker.addTo(castleLayerGroup);
+        }
+        console.log(`  ✅ 새 라벨 추가 완료`);
+    }
+
+    // 🎨 [추가] 새로운 라벨 추가 (라벨 생성 시)
+    function addSingleLabel(newCastle, year, month) {
+        if (!map || !map._loaded) return;
+        
+        console.log(`🏷️ 새 라벨 생성: ${newCastle.name}`);
+        
+        // 라벨 타입별 가시성 체크
+        const labelType = newCastle.label_type || 'place';
+        let shouldRender = false;
+        if (labelType === 'country') {
+            shouldRender = layerVisibility.countryLabel;
+        } else if (labelType === 'ethnic') {
+            shouldRender = layerVisibility.ethnicLabel;
+        } else {
+            shouldRender = layerVisibility.placeLabel;
+        }
+        
+        if (!shouldRender) {
+            console.log(`  ⏭️ ${labelType} 라벨 레이어가 꺼져있어 표시 안 함`);
+            return;
+        }
+        
+        const castleName = newCastle.name;
+        let marker;
+        
+        // 커스텀 아이콘이 있으면 사용
+        if (newCastle.custom_icon) {
+            const iconWidth = newCastle.icon_width || 32;
+            const iconHeight = newCastle.icon_height || 32;
+            const customIconHtml = `<img src="${newCastle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+            const labelIcon = L.divIcon({
+                className: 'custom-icon-marker',
+                html: customIconHtml,
+                iconSize: [iconWidth, iconHeight],
+                iconAnchor: [iconWidth / 2, 0],
+                pane: 'labelPane'
+            });
+            marker = L.marker([newCastle.lat, newCastle.lng], { icon: labelIcon, pane: 'labelPane' });
+        } else {
+            // 저장된 크기에 따라 폰트 크기 결정
+            let fontSize = '15px';
+            switch (newCastle.label_size) {
+                case 'large':
+                    fontSize = '26px';
+                    break;
+                case 'small':
+                    fontSize = '10px';
+                    break;
+            }
+            const labelIcon = L.divIcon({
+                className: 'label-text-marker', 
+                html: `<div style="
+                    font-size: ${fontSize}; 
+                    font-weight: bold; 
+                    color: ${newCastle.label_color || '#FFFFFF'}; 
+                    text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 0px 2px #000;
+                    white-space: nowrap;
+                    text-align: center;
+                ">${castleName}</div>`,
+                iconSize: [150, 40],
+                iconAnchor: [75, 0],
+                pane: 'labelPane'
+            });
+            marker = L.marker([newCastle.lat, newCastle.lng], { icon: labelIcon, pane: 'labelPane' });
+        }
+        
+        // 마커에 데이터 저장
+        marker._castleData = newCastle;
+        
+        // 클릭 이벤트
+        marker.on('click', () => {
+            openCastleForm(newCastle._id);
+        });
+        
+        // 레이어에 추가
+        markers.push(marker);
+        if (castleLayerGroup) {
+            marker.addTo(castleLayerGroup);
+        }
+        console.log(`  ✅ 라벨 추가 완료`);
+    }
+
+    // 🎨 [추가] 특정 국가의 라벨만 다시 렌더링 (국가 정보 수정 시)
+    function updateCountryLabelsOnly(countryName, year, month) {
+        if (!map || !map._loaded) return;
+        
+        console.log(`🏷️ 국가 라벨 업데이트: ${countryName}`);
+        
+        // 해당 국가의 라벨만 찾아서 제거
+        const markersToRemove = [];
+        for (let i = markers.length - 1; i >= 0; i--) {
+            const marker = markers[i];
+            const castleData = marker._castleData || marker.options.castleData;
+            if (castleData && castleData.is_label && castleData.label_type === 'country' && castleData.country_id === countryName) {
+                if (castleLayerGroup && castleLayerGroup.hasLayer(marker)) {
+                    castleLayerGroup.removeLayer(marker);
+                }
+                markers.splice(i, 1);
+                markersToRemove.push(marker);
+            }
+        }
+        console.log(`  🗑️ 기존 라벨 제거: ${markersToRemove.length}개`);
+        
+        // 해당 국가의 라벨 다시 렌더링
+        let addedCount = 0;
+        castles.forEach(castle => {
+            if (castle.is_label && castle.label_type === 'country' && castle.country_id === countryName) {
+                // 시간 범위 체크
+                const isWithinDuration = castle.start_year <= year && castle.end_year >= year;
+                if (!isWithinDuration) return;
+                
+                // 라벨 가시성 체크
+                if (!layerVisibility.countryLabel) return;
+                
+                const castleName = castle.name;
+                let marker;
+                
+                // 커스텀 아이콘이 있으면 사용
+                if (castle.custom_icon) {
+                    const iconWidth = castle.icon_width || 32;
+                    const iconHeight = castle.icon_height || 32;
+                    const customIconHtml = `<img src="${castle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+                    const labelIcon = L.divIcon({
+                        className: 'custom-icon-marker',
+                        html: customIconHtml,
+                        iconSize: [iconWidth, iconHeight],
+                        iconAnchor: [iconWidth / 2, 0],
+                        pane: 'labelPane'
+                    });
+                    marker = L.marker([castle.lat, castle.lng], { icon: labelIcon, pane: 'labelPane' });
+                } else {
+                    // 저장된 크기에 따라 폰트 크기 결정
+                    let fontSize = '15px';
+                    switch (castle.label_size) {
+                        case 'large':
+                            fontSize = '26px';
+                            break;
+                        case 'small':
+                            fontSize = '10px';
+                            break;
+                    }
+                    const labelIcon = L.divIcon({
+                        className: 'label-text-marker', 
+                        html: `<div style="
+                            font-size: ${fontSize}; 
+                            font-weight: bold; 
+                            color: ${castle.label_color || '#FFFFFF'}; 
+                            text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 0px 2px #000;
+                            white-space: nowrap;
+                            text-align: center;
+                        ">${castleName}</div>`,
+                        iconSize: [150, 40],
+                        iconAnchor: [75, 0],
+                        pane: 'labelPane'
+                    });
+                    marker = L.marker([castle.lat, castle.lng], { icon: labelIcon, pane: 'labelPane' });
+                }
+                
+                // 마커에 데이터 저장
+                marker._castleData = castle;
+                
+                // 레이어에 추가
+                markers.push(marker);
+                if (castleLayerGroup) {
+                    marker.addTo(castleLayerGroup);
+                }
+                addedCount++;
+            }
+        });
+        
+        console.log(`  ✅ 새 라벨 추가: ${addedCount}개`);
+    }
+
 // --- 4. 지도 렌더링 및 마커 생성 함수 ---
 
 function updateMap(year, month, cacheOnly = false) {
@@ -4088,10 +4400,7 @@ function updateMap(year, month, cacheOnly = false) {
                     return;
                 }
                 
-                // 🚩 [디버그] 첫 5개 영토만 로그 출력
-                if (renderedCount < 5) {
-                    console.log(`🎨 ${territory.name}: ${countryInfo.name} (${countryInfo.color})`);
-                }
+                // 영토 색칠 로그 비활성화 (불필요)
                 
                 // 민족 필터링
                 if (selectedEthnicity !== 'all') {
@@ -4133,8 +4442,7 @@ function updateMap(year, month, cacheOnly = false) {
                 renderedCount++;
             });
             
-            const endTime = performance.now();
-            console.log(`✅ 영토 자동 색상 채우기 완료: ${renderedCount}개 (${(endTime - startTime).toFixed(0)}ms)`);
+            // 영토 색칠 로그 제거 (불필요)
         }
 
         // 🌊 [추가] 자연 지형지물 (강) 렌더링
@@ -5452,30 +5760,79 @@ function getCountryInfoById(id) {
               }
               const updatedCastle = await response.json();
               
+              console.log('📥 서버에서 받은 데이터:', updatedCastle);
+              
               // 🔄 [수정] name 또는 _id로 찾기
               const index = castles.findIndex(c => c.name === castleKey || c._id === castleKey);
               
               if (index !== -1 && updatedCastle) {
+                  const oldCastle = castles[index];
                   castles[index] = updatedCastle;
                   console.log(`✅ 성/전장 DB 동기화 완료: ${castleKey}`, updatedCastle);
+                  
+                  // 🎨 [최적화] 라벨인 경우 해당 항목만 다시 렌더링
+                  if (updatedCastle.is_label) {
+                      console.log('🏷️ 라벨 업데이트 시작...');
+                      const { year, month } = getCurrentYearMonth();
+                      try {
+                          updateSingleLabel(oldCastle, updatedCastle, year, month);
+                      } catch (labelError) {
+                          console.error('❌ 라벨 업데이트 실패, 전체 맵 갱신:', labelError);
+                          updateMap(year, month);
+                      }
+                  } else {
+                      // 일반 성/전장은 전체 맵 갱신
+                      const { year, month } = getCurrentYearMonth();
+                      updateMap(year, month);
+                  }
               } else {
-                  console.warn(`⚠️ 메모리에서 찾을 수 없음: ${castleKey}`);
+                  console.warn(`⚠️ 메모리에서 찾을 수 없음: ${castleKey}. 전체 맵 갱신`);
+                  const { year, month } = getCurrentYearMonth();
+                  updateMap(year, month);
               }
-              
-              const { year, month } = getCurrentYearMonth();
-              updateMap(year, month);
           } catch (error) {
               console.error(`❌ 성/전장 동기화 실패: ${castleKey}`, error);
+              // 실패 시에도 전체 맵 갱신 시도
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
           }
       };
       
       window.addCastleInMemory = (newCastle) => {
           // 서버 응답 데이터를 그대로 메모리에 추가
           castles.push(newCastle);
-          console.log(`✅ 성/전장 메모리 추가: ${newCastle.name} (ID: ${newCastle._id})`);
+          console.log(`✅ 성/전장 메모리 추가 완료: ${newCastle.name} (ID: ${newCastle._id})`);
+          console.log(`   🔍 is_label: ${newCastle.is_label}, label_type: ${newCastle.label_type}`);
           populateCitySelectForEdit(); // 드롭다운 갱신
+          
           const { year, month } = getCurrentYearMonth();
-          updateMap(year, month);
+          console.log(`   📅 현재 시간: ${year}년 ${month}월`);
+          
+          // 🎨 [최적화] 라벨인 경우 시간 체크 후 개별 추가
+          if (newCastle.is_label) {
+              const startYear = newCastle.start_year || newCastle.built_year || -Infinity;
+              const endYear = newCastle.end_year || newCastle.destroyed_year || Infinity;
+              const isWithinDuration = startYear <= year && endYear >= year;
+              
+              console.log(`   🏷️ 라벨 감지! 시간 체크: ${startYear} <= ${year} <= ${endYear} = ${isWithinDuration}`);
+              
+              if (isWithinDuration) {
+                  console.log(`🏷️ 라벨 추가: ${newCastle.name} (현재 ${year}년)`);
+                  try {
+                      addSingleLabel(newCastle, year, month);
+                  } catch (error) {
+                      console.error('❌ 라벨 추가 실패, 전체 맵 갱신:', error);
+                      updateMap(year, month);
+                  }
+              } else {
+                  console.log(`⏭️ 라벨 "${newCastle.name}"은 현재 시간대(${year}년)에 표시되지 않습니다.`);
+                  console.log(`   📅 표시 기간: ${startYear}년 ~ ${endYear === Infinity ? '현재' : endYear + '년'}`);
+                  alert(`라벨 "${newCastle.name}"이 추가되었지만, 현재 시간대(${year}년)에는 표시되지 않습니다.\n표시 기간: ${startYear}년 ~ ${endYear === Infinity ? '현재' : endYear + '년'}`);
+              }
+          } else {
+              // 일반 성/전장은 전체 맵 갱신
+              updateMap(year, month);
+          }
       };
       
       window.deleteCastleInMemory = (castleKey) => {
@@ -5502,12 +5859,13 @@ function getCountryInfoById(id) {
               if (index !== -1 && updatedCountry) {
                   countries[index] = updatedCountry;
                   console.log(`✅ 국가 DB 동기화 완료: ${originalName} → ${updatedCountry.name}`, updatedCountry);
+                  
+                  // 🎨 [최적화] 해당 국가의 라벨만 다시 렌더링 (전체 맵 갱신 대신)
+                  const { year, month } = getCurrentYearMonth();
+                  updateCountryLabelsOnly(updatedCountry.name, year, month);
               } else {
                   console.warn(`⚠️ 메모리에서 찾을 수 없음: ${originalName}`);
               }
-              
-              const { year, month } = getCurrentYearMonth();
-              updateMap(year, month);
           } catch (error) {
               console.error(`❌ 국가 동기화 실패: ${originalName}`, error);
           }
@@ -7603,18 +7961,9 @@ function getCountryInfoById(id) {
                   await updateCastleInMemory(editingCastleKey, responseData.castle);
               }
           } else {
-              // 추가의 경우: 서버가 반환한 삽입된 문서 사용
+              // 추가의 경우: addCastleInMemory 함수 사용
               if (responseData.castle) {
-                  // 서버가 반환한 전체 문서를 배열에 추가
-                  castles.push(responseData.castle);
-                  console.log(`✅ 성/전장 메모리 추가 완료: ${responseData.castle.name} (ID: ${responseData.castle._id})`);
-                  
-                  // 드롭다운 갱신
-                  populateCitySelectForEdit();
-                  
-                  // 맵 즉시 갱신
-                  const { year, month } = getCurrentYearMonth();
-                  updateMap(year, month);
+                  addCastleInMemory(responseData.castle);
               }
           }
       } catch (error) {
