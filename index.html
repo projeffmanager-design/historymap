@@ -5702,9 +5702,8 @@ function getCountryInfoById(id) {
       };
 
       // 🔄 [MongoDB 폴백] 정적 파일이 없을 때 MongoDB에서 로드
-      // 🚀 [최적화] Progressive Loading - 경량 데이터 먼저, 전체 데이터는 백그라운드
+      // 🚀 [최적화] 전체 territories를 한 번만 로드 (91개 - 매우 적음)
       let allTerritoriesLoaded = false;
-      let lightweightTerritoriesLoaded = false;
       
       async function loadTerritoryFromMongoDB(bounds) {
           // 이미 로드된 경우 스킵
@@ -5713,79 +5712,76 @@ function getCountryInfoById(id) {
               return;
           }
           
-          // 🔑 [추가] 토큰이 있으면 헤더에 포함 (선택적 인증)
+          console.log(`📡 [MongoDB] 전체 영토 데이터 로딩... (11MB, 약 2-3분 소요)`);
+          console.log(`⏳ 잠시만 기다려주세요... 대용량 폴리곤 데이터 전송 중`);
+          
+          // 🔑 토큰이 있으면 헤더에 포함 (선택적 인증)
           const headers = {};
           const token = getToken();
           if (token) {
               headers['Authorization'] = `Bearer ${token}`;
           }
           
-          // 🚀 [1단계] 경량 데이터 먼저 로드 (빠름 - 1초 이내)
-          if (!lightweightTerritoriesLoaded) {
-              console.log(`📡 [1/2] 경량 영토 데이터 로딩... (bbox만, 즉시 표시)`);
-              const lightStart = Date.now();
-              
-              try {
-                  const lightResponse = await fetch(
-                      `${API_BASE_URL}/territories?lightweight=true`,
-                      { headers }
-                  );
-                  
-                  if (lightResponse.ok) {
-                      const lightData = await lightResponse.json();
-                      const lightElapsed = ((Date.now() - lightStart) / 1000).toFixed(2);
-                      console.log(`✅ [1/2] 경량 로드: ${lightData.length}개 (${lightElapsed}초) - geometry 없이 bbox만`);
-                      lightweightTerritoriesLoaded = true;
-                  }
-              } catch (error) {
-                  console.warn('⚠️ 경량 로드 실패, 전체 로드로 진행:', error);
-              }
-          }
-          
-          // 🚀 [2단계] 전체 geometry 로드 (느림 - 150초)
-          console.log(`📡 [2/2] 전체 영토 데이터 로딩... (geometry 포함)`);
-          const fullStart = Date.now();
-          
-          const response = await fetch(
-              `${API_BASE_URL}/territories`,
-              { headers }
-          );
-          
-          if (!response.ok) {
-              const errorText = await response.text();
-              console.error(`❌ MongoDB 영토 로드 실패: ${response.status} ${response.statusText}`, errorText);
-              throw new Error(`MongoDB 영토 로드 실패: ${response.status}`);
-          }
-          
-          const data = await response.json();
-          const fullElapsed = ((Date.now() - fullStart) / 1000).toFixed(2);
-          console.log(`✅ [2/2] 전체 로드 완료: ${data.length}개 (${fullElapsed}초)`);
-          
-          territories = data.map(t => ({
-              _id: t._id,
-              name: t.name,
-              name_ko: t.name_ko,
-              name_type: t.name_type,
-              type: t.geometry?.type || t.type,
-              coordinates: t.geometry?.coordinates || t.coordinates,
-              level: t.level,
-              start: t.start || t.start_year,
-              end: t.end || t.end_year
-          }));
-          
-          allTerritoriesLoaded = true; // ✅ 플래그 설정
-          
-          console.timeEnd("🗺️ 영토 타일 로드");
-          console.log(`🎉 전체 데이터 로드 완료! (총 ${fullElapsed}초)`);
-          
+          // 진행률 표시
           const territoryBtns = document.querySelectorAll('[data-layer="territoryPolygon"]');
-          territoryBtns.forEach(btn => {
-              if (btn.tagName === 'BUTTON') btn.textContent = `영토 ${territories.length}개`;
-          });
+          let progressInterval = setInterval(() => {
+              const elapsed = Math.floor((Date.now() - startTime) / 1000);
+              territoryBtns.forEach(btn => {
+                  if (btn.tagName === 'BUTTON') {
+                      btn.textContent = `영토 로딩중... ${elapsed}초`;
+                  }
+              });
+          }, 1000);
           
-          // 영토 렌더링
-          const { year, month } = getCurrentYearMonth();
-          updateMap(year, month);
+          const startTime = Date.now();
+          
+          try {
+              const response = await fetch(
+                  `${API_BASE_URL}/territories`,
+                  { headers }
+              );
+              
+              if (!response.ok) {
+                  const errorText = await response.text();
+                  console.error(`❌ MongoDB 영토 로드 실패: ${response.status} ${response.statusText}`, errorText);
+                  throw new Error(`MongoDB 영토 로드 실패: ${response.status}`);
+              }
+              
+              const data = await response.json();
+              const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+              
+              territories = data.map(t => ({
+                  _id: t._id,
+                  name: t.name,
+                  name_ko: t.name_ko,
+                  name_type: t.name_type,
+                  type: t.geometry?.type || t.type,
+                  coordinates: t.geometry?.coordinates || t.coordinates,
+                  level: t.level,
+                  start: t.start || t.start_year,
+                  end: t.end || t.end_year
+              }));
+              
+              allTerritoriesLoaded = true;
+              clearInterval(progressInterval);
+              
+              console.timeEnd("🗺️ 영토 타일 로드");
+              console.log(`🎉 전체 데이터 로드 완료! (총 ${elapsed}초)`);
+              
+              territoryBtns.forEach(btn => {
+                  if (btn.tagName === 'BUTTON') btn.textContent = `영토 ${territories.length}개`;
+              });
+              
+              // 영토 렌더링
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } catch (error) {
+              console.error('❌ 영토 로드 실패:', error);
+              clearInterval(progressInterval);
+              territoryBtns.forEach(btn => {
+                  if (btn.tagName === 'BUTTON') btn.textContent = '영토 (로드 실패)';
+              });
+          }
       }
       
       // 🚩 [최적화] 증분 업데이트 헬퍼 함수들 - 서버 응답 데이터로 정확히 동기화
