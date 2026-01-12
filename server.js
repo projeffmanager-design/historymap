@@ -27,6 +27,36 @@ const toObjectId = (id) => {
     return null;
 }
 
+// 헬퍼 함수: Geometry로부터 bbox 계산
+const calculateBBoxFromGeometry = (geometry) => {
+    let minLon = Infinity, minLat = Infinity;
+    let maxLon = -Infinity, maxLat = -Infinity;
+    
+    const processCoordinates = (coords) => {
+        if (typeof coords[0] === 'number') {
+            // [lon, lat] 형식
+            minLon = Math.min(minLon, coords[0]);
+            maxLon = Math.max(maxLon, coords[0]);
+            minLat = Math.min(minLat, coords[1]);
+            maxLat = Math.max(maxLat, coords[1]);
+        } else {
+            // 중첩 배열
+            coords.forEach(processCoordinates);
+        }
+    };
+    
+    if (geometry.type === 'Polygon') {
+        processCoordinates(geometry.coordinates);
+    } else if (geometry.type === 'MultiPolygon') {
+        processCoordinates(geometry.coordinates);
+    } else if (geometry.type === 'Point') {
+        minLon = maxLon = geometry.coordinates[0];
+        minLat = maxLat = geometry.coordinates[1];
+    }
+    
+    return [minLon, minLat, maxLon, maxLat];
+}
+
 // � [신규 추가] CRUD 로깅 헬퍼 함수
 const logCRUD = (operation, collection, identifier, details = '') => {
     const timestamp = new Date().toISOString();
@@ -1033,21 +1063,68 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
-        // POST: 새 영토 폴리곤 추가 (배치 import 지원)
+        // POST: 새 영토 폴리곤 추가 (배치 import 지원) - 자동 검증 및 필드 추가
         app.post('/api/territories', verifyAdmin, async (req, res) => {
             try {
                 const newTerritories = Array.isArray(req.body) ? req.body : [req.body];
                 
-                // _id 필드 제거
-                newTerritories.forEach(territory => {
+                console.log(`📍 Territory 추가 요청: ${newTerritories.length}개`);
+                
+                // 각 영토 데이터 검증 및 보완
+                const processedTerritories = newTerritories.map((territory, index) => {
+                    // _id 필드 제거
                     if (territory._id) delete territory._id;
+                    
+                    // 1. 필수 필드 검증
+                    if (!territory.name) {
+                        throw new Error(`Territory ${index}: name 필드가 필요합니다`);
+                    }
+                    if (!territory.geometry || !territory.geometry.coordinates) {
+                        throw new Error(`Territory ${index} (${territory.name}): geometry.coordinates가 필요합니다`);
+                    }
+                    
+                    // 2. bbox 자동 계산 (없으면)
+                    if (!territory.bbox) {
+                        console.log(`  🔧 ${territory.name}: bbox 자동 계산 중...`);
+                        territory.bbox = calculateBBoxFromGeometry(territory.geometry);
+                    }
+                    
+                    // 3. 시간 필드 자동 설정 (없으면)
+                    if (territory.start_year === undefined) {
+                        territory.start_year = territory.start || -3000;
+                    }
+                    if (territory.end_year === undefined) {
+                        territory.end_year = territory.end || 3000;
+                    }
+                    if (territory.start === undefined) {
+                        territory.start = territory.start_year;
+                    }
+                    if (territory.end === undefined) {
+                        territory.end = territory.end_year;
+                    }
+                    
+                    // 4. 기본 타입 설정
+                    if (!territory.type) {
+                        territory.type = 'admin_area';
+                    }
+                    if (!territory.admin_level) {
+                        territory.admin_level = 2;
+                    }
+                    
+                    console.log(`  ✓ ${territory.name}: 검증 완료 (bbox: ${territory.bbox ? 'O' : 'X'}, time: ${territory.start_year}~${territory.end_year})`);
+                    
+                    return territory;
                 });
                 
-                const result = await collections.territories.insertMany(newTerritories);
+                const result = await collections.territories.insertMany(processedTerritories);
+                
+                console.log(`✅ Territory 추가 완료: ${result.insertedCount}개`);
+                
                 res.status(201).json({ 
                     message: "Territory 추가 성공", 
                     count: result.insertedCount,
-                    ids: Object.values(result.insertedIds).map(id => id.toString())
+                    ids: Object.values(result.insertedIds).map(id => id.toString()),
+                    insertedId: result.insertedIds[0] // 단일 추가 시 호환성
                 });
             } catch (error) {
                 console.error("Territory 추가 중 오류:", error);
