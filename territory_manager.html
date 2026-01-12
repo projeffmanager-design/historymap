@@ -333,12 +333,35 @@
     </div>
 
     <script>
-        const API_BASE = window.location.hostname === 'localhost' 
+        // 환경 감지 개선 (file:// 프로토콜 대응)
+        const isLocal = window.location.hostname === 'localhost' 
+                     || window.location.hostname === '127.0.0.1'
+                     || window.location.protocol === 'file:';
+        
+        const API_BASE = isLocal
             ? 'http://localhost:3000/api' 
             : 'https://historymap.vercel.app/api';
 
+        // 환경 정보 로깅
+        console.log('🌍 환경 감지:', {
+            hostname: window.location.hostname,
+            protocol: window.location.protocol,
+            isLocal: isLocal,
+            API_BASE: API_BASE
+        });
+
         // 페이지 로드 시 자동 토큰 감지
         window.addEventListener('DOMContentLoaded', () => {
+            // 환경 정보 표시
+            log(`🌍 환경: ${isLocal ? '로컬 개발' : '프로덕션'}`, 'info');
+            log(`📡 API: ${API_BASE}`, 'info');
+            
+            // 파일 시스템 경고
+            if (window.location.protocol === 'file:') {
+                log('⚠️  파일에서 직접 열렸습니다. 로컬 서버 사용을 권장합니다.', 'error');
+                log('💡 http://localhost:3000/territory_manager.html 로 접속하세요', 'info');
+            }
+            
             const token = localStorage.getItem('token') || sessionStorage.getItem('token');
             const tokenInput = document.getElementById('jwt_token');
             
