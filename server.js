@@ -185,7 +185,8 @@ const incrementPageView = async (pagePath) => {
 };
 
 app.use(cors()); // 모든 도메인에서 요청 허용 (개발용)
-app.use(express.json());
+app.use(express.json({ limit: '50mb' })); // 대용량 GeoJSON 지원 (기본 100kb → 50mb)
+app.use(express.urlencoded({ limit: '50mb', extended: true })); // URL 인코딩된 데이터도 대용량 지원
 app.use(compression()); // 응답 압축으로 대용량 전송 최적화
 app.use(async (req, res, next) => {
     const trackedPath = resolveTrackedPagePath(req);
