@@ -219,6 +219,18 @@
                 </ul>
             </div>
 
+            <!-- 0. 인증 -->
+            <div class="section">
+                <h2>🔐 인증</h2>
+                <div class="form-group">
+                    <label>JWT 토큰 (자동 감지됨)</label>
+                    <input type="password" id="jwt_token" placeholder="자동으로 로그인 세션에서 가져옵니다" readonly style="background: #e9ecef;">
+                    <small style="color: #6c757d; display: block; margin-top: 5px;">
+                        💡 이미 로그인한 경우 자동으로 감지됩니다. 수동 입력 시 readonly 해제 후 붙여넣기
+                    </small>
+                </div>
+            </div>
+
             <!-- 1. 기본 정보 입력 -->
             <div class="section">
                 <h2>기본 정보</h2>
@@ -324,6 +336,33 @@
         const API_BASE = window.location.hostname === 'localhost' 
             ? 'http://localhost:3000/api' 
             : 'https://historymap.vercel.app/api';
+
+        // 페이지 로드 시 자동 토큰 감지
+        window.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            const tokenInput = document.getElementById('jwt_token');
+            
+            if (token) {
+                tokenInput.value = token.substring(0, 20) + '...'; // 일부만 표시
+                tokenInput.dataset.fullToken = token; // 전체 토큰 저장
+                log('✓ JWT 토큰 자동 감지됨', 'success');
+            } else {
+                tokenInput.placeholder = '로그인이 필요합니다. index.html에서 먼저 로그인하세요.';
+                tokenInput.style.background = '#fff3cd';
+                log('⚠️  로그인 토큰이 없습니다', 'error');
+            }
+        });
+
+        // 토큰 수동 입력 활성화
+        document.addEventListener('DOMContentLoaded', () => {
+            const tokenInput = document.getElementById('jwt_token');
+            tokenInput.addEventListener('dblclick', () => {
+                tokenInput.removeAttribute('readonly');
+                tokenInput.style.background = 'white';
+                tokenInput.placeholder = '여기에 JWT 토큰을 붙여넣으세요';
+                log('수동 입력 모드 활성화', 'info');
+            });
+        });
 
         function log(message, type = 'info') {
             const logArea = document.getElementById('log');
@@ -507,7 +546,19 @@
             log('MongoDB에 저장 중...', 'info');
 
             try {
-                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                // 토큰 가져오기 (우선순위: dataset → localStorage → sessionStorage)
+                const tokenInput = document.getElementById('jwt_token');
+                let token = tokenInput.dataset.fullToken || tokenInput.value;
+                if (!token || token.includes('...')) {
+                    token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                }
+                
+                if (!token) {
+                    throw new Error('JWT 토큰이 없습니다. 먼저 로그인하세요.');
+                }
+                
+                log(`API 호출: POST ${API_BASE}/territories`, 'info');
+                
                 const response = await fetch(`${API_BASE}/territories`, {
                     method: 'POST',
                     headers: {
@@ -525,13 +576,28 @@
                     log(`  - ID: ${result._id || result.insertedId}`, 'info');
                     setProgress(100);
                     log('=== 처리 완료 ===', 'success');
+                    log('💡 index.html을 새로고침하여 지도에서 확인하세요', 'info');
                 } else {
-                    const error = await response.text();
-                    log(`저장 실패: ${error}`, 'error');
+                    const errorText = await response.text();
+                    let errorMsg = `HTTP ${response.status}: ${response.statusText}`;
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        errorMsg = errorJson.message || errorMsg;
+                    } catch (e) {
+                        if (errorText) errorMsg += ` - ${errorText}`;
+                    }
+                    log(`저장 실패: ${errorMsg}`, 'error');
                     setProgress(0);
                 }
             } catch (error) {
-                log(`저장 실패: ${error.message}`, 'error');
+                let errorMsg = error.message;
+                if (error.message === 'Failed to fetch') {
+                    errorMsg = '서버 연결 실패. 다음을 확인하세요:\n' +
+                              '  1. 서버가 실행 중인지 확인 (npm start)\n' +
+                              '  2. 로컬: http://localhost:3000 접속 가능 여부\n' +
+                              '  3. 프로덕션: Vercel 배포 상태 확인';
+                }
+                log(`저장 실패: ${errorMsg}`, 'error');
                 setProgress(0);
             }
         }
