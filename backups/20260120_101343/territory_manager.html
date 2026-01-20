@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>영토 관리 시스템</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        .header p {
+            opacity: 0.9;
+            font-size: 16px;
+        }
+        .content {
+            padding: 40px;
+        }
+        .section {
+            margin-bottom: 40px;
+            padding: 30px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            border-left: 5px solid #667eea;
+        }
+        .section h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+        }
+        .section h2::before {
+            content: '📍';
+            margin-right: 10px;
+            font-size: 28px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #555;
+            font-size: 14px;
+        }
+        input, textarea, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        textarea {
+            font-family: monospace;
+            min-height: 150px;
+            resize: vertical;
+        }
+        .button-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 25px;
+        }
+        button {
+            flex: 1;
+            padding: 15px 30px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #218838;
+            transform: translateY(-2px);
+        }
+        .log-area {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 10px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 5px 0;
+            border-bottom: 1px solid #333;
+        }
+        .log-success { color: #4ec9b0; }
+        .log-error { color: #f48771; }
+        .log-info { color: #569cd6; }
+        .log-warning { color: #dcdcaa; }
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .info-box h3 {
+            color: #1976d2;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        .info-box ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        .info-box li {
+            padding: 5px 0;
+            color: #555;
+        }
+        .info-box li::before {
+            content: '✓ ';
+            color: #4caf50;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 15px;
+            display: none;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 768px) {
+            .grid { grid-template-columns: 1fr; }
+            .button-group { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🗺️ 영토 관리 시스템</h1>
+            <p>GeoJSON/OSM 링크를 입력하면 자동으로 변환하여 MongoDB에 저장합니다</p>
+        </div>
+
+        <div class="content">
+            <!-- 정보 섹션 -->
+            <div class="info-box">
+                <h3>🎯 자동 처리 항목</h3>
+                <ul>
+                    <li>GeoJSON 검증 및 변환</li>
+                    <li>Bounding Box (bbox) 자동 계산</li>
+                    <li>시간 범위 (start_year, end_year) 자동 설정</li>
+                    <li>MongoDB 인덱스 자동 적용</li>
+                    <li>중복 확인 및 업데이트</li>
+                </ul>
+            </div>
+
+            <!-- 0. 인증 -->
+            <div class="section">
+                <h2>🔐 인증</h2>
+                <div class="form-group">
+                    <label>JWT 토큰 (자동 감지됨)</label>
+                    <input type="password" id="jwt_token" placeholder="자동으로 로그인 세션에서 가져옵니다" readonly style="background: #e9ecef;">
+                    <small style="color: #6c757d; display: block; margin-top: 5px;">
+                        💡 이미 로그인한 경우 자동으로 감지됩니다. 수동 입력 시 readonly 해제 후 붙여넣기
+                    </small>
+                </div>
+            </div>
+
+            <!-- 1. 기본 정보 입력 -->
+            <div class="section">
+                <h2>기본 정보</h2>
+                <div class="grid">
+                    <div class="form-group">
+                        <label>영문 이름 *</label>
+                        <input type="text" id="name" placeholder="예: Laos" required>
+                    </div>
+                    <div class="form-group">
+                        <label>한글 이름 *</label>
+                        <input type="text" id="name_ko" placeholder="예: 라오스" required>
+                    </div>
+                </div>
+                <div class="grid">
+                    <div class="form-group">
+                        <label>코드</label>
+                        <input type="text" id="code" placeholder="예: LA (선택사항)">
+                    </div>
+                    <div class="form-group">
+                        <label>타입</label>
+                        <select id="type">
+                            <option value="country">국가 (Country)</option>
+                            <option value="admin_area">행정구역 (Admin Area)</option>
+                            <option value="historical">역사적 영토</option>
+                            <option value="cultural">문화권</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid">
+                    <div class="form-group">
+                        <label>시작 연도</label>
+                        <input type="number" id="start_year" value="-3000" placeholder="-3000">
+                    </div>
+                    <div class="form-group">
+                        <label>종료 연도</label>
+                        <input type="number" id="end_year" value="3000" placeholder="3000">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. GeoJSON 입력 -->
+            <div class="section">
+                <h2>지리 데이터</h2>
+                <div class="form-group">
+                    <label>입력 방식 선택</label>
+                    <select id="input_method" onchange="toggleInputMethod()">
+                        <option value="geojson">GeoJSON 직접 입력</option>
+                        <option value="osm">OSM Relation ID</option>
+                        <option value="url">GeoJSON URL</option>
+                    </select>
+                </div>
+
+                <div id="geojson_input" class="form-group">
+                    <label>GeoJSON 데이터 *</label>
+                    <textarea id="geojson" placeholder='{"type":"Feature","geometry":{"type":"Polygon","coordinates":[...]}}'></textarea>
+                </div>
+
+                <div id="osm_input" class="form-group" style="display:none;">
+                    <label>OSM Relation ID *</label>
+                    <input type="text" id="osm_id" placeholder="예: 49903 (Laos)">
+                    <button class="btn-secondary" onclick="fetchFromOSM()" style="margin-top: 10px;">
+                        🌍 OSM에서 가져오기
+                    </button>
+                </div>
+
+                <div id="url_input" class="form-group" style="display:none;">
+                    <label>GeoJSON URL *</label>
+                    <input type="text" id="geojson_url" placeholder="https://example.com/data.geojson">
+                    <button class="btn-secondary" onclick="fetchFromURL()" style="margin-top: 10px;">
+                        📥 URL에서 가져오기
+                    </button>
+                </div>
+            </div>
+
+            <!-- 3. 실행 버튼 -->
+            <div class="section">
+                <h2>실행</h2>
+                <div class="button-group">
+                    <button class="btn-primary" onclick="processAndSave()">
+                        ✅ 처리 및 저장
+                    </button>
+                    <button class="btn-secondary" onclick="validateOnly()">
+                        🔍 검증만 하기
+                    </button>
+                    <button class="btn-success" onclick="exportJSON()">
+                        📤 JSON 내보내기
+                    </button>
+                </div>
+                <div class="progress-bar" id="progress">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+            </div>
+
+            <!-- 4. 로그 -->
+            <div class="section">
+                <h2>처리 로그</h2>
+                <div class="log-area" id="log"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 환경 감지 개선 (file:// 프로토콜 대응)
+        const isLocal = window.location.hostname === 'localhost' 
+                     || window.location.hostname === '127.0.0.1'
+                     || window.location.protocol === 'file:';
+        
+        const API_BASE = isLocal
+            ? 'http://localhost:3000/api' 
+            : 'https://historymap.vercel.app/api';
+
+        // 환경 정보 로깅
+        console.log('🌍 환경 감지:', {
+            hostname: window.location.hostname,
+            protocol: window.location.protocol,
+            isLocal: isLocal,
+            API_BASE: API_BASE
+        });
+
+        // 페이지 로드 시 자동 토큰 감지
+        window.addEventListener('DOMContentLoaded', () => {
+            // 환경 정보 표시
+            log(`🌍 환경: ${isLocal ? '로컬 개발' : '프로덕션'}`, 'info');
+            log(`📡 API: ${API_BASE}`, 'info');
+            
+            // 파일 시스템 경고
+            if (window.location.protocol === 'file:') {
+                log('⚠️  파일에서 직접 열렸습니다. 로컬 서버 사용을 권장합니다.', 'error');
+                log('💡 http://localhost:3000/territory_manager.html 로 접속하세요', 'info');
+            }
+            
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            const tokenInput = document.getElementById('jwt_token');
+            
+            if (token) {
+                tokenInput.value = token.substring(0, 20) + '...'; // 일부만 표시
+                tokenInput.dataset.fullToken = token; // 전체 토큰 저장
+                log('✓ JWT 토큰 자동 감지됨', 'success');
+            } else {
+                tokenInput.placeholder = '로그인이 필요합니다. index.html에서 먼저 로그인하세요.';
+                tokenInput.style.background = '#fff3cd';
+                log('⚠️  로그인 토큰이 없습니다', 'error');
+            }
+        });
+
+        // 토큰 수동 입력 활성화
+        document.addEventListener('DOMContentLoaded', () => {
+            const tokenInput = document.getElementById('jwt_token');
+            tokenInput.addEventListener('dblclick', () => {
+                tokenInput.removeAttribute('readonly');
+                tokenInput.style.background = 'white';
+                tokenInput.placeholder = '여기에 JWT 토큰을 붙여넣으세요';
+                log('수동 입력 모드 활성화', 'info');
+            });
+        });
+
+        function log(message, type = 'info') {
+            const logArea = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            const timestamp = new Date().toLocaleTimeString('ko-KR');
+            entry.textContent = `[${timestamp}] ${message}`;
+            logArea.appendChild(entry);
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+
+        function toggleInputMethod() {
+            const method = document.getElementById('input_method').value;
+            document.getElementById('geojson_input').style.display = method === 'geojson' ? 'block' : 'none';
+            document.getElementById('osm_input').style.display = method === 'osm' ? 'block' : 'none';
+            document.getElementById('url_input').style.display = method === 'url' ? 'block' : 'none';
+        }
+
+        async function fetchFromOSM() {
+            const osmId = document.getElementById('osm_id').value.trim();
+            if (!osmId) {
+                log('OSM Relation ID를 입력해주세요', 'error');
+                return;
+            }
+
+            log('OSM에서 데이터 가져오는 중...', 'info');
+            setProgress(30);
+
+            try {
+                const url = `https://nominatim.openstreetmap.org/lookup?osm_ids=R${osmId}&format=geojson&polygon_geojson=1`;
+                const response = await fetch(url, {
+                    headers: { 'User-Agent': 'HistoryMap/1.0' }
+                });
+                const data = await response.json();
+
+                if (data.features && data.features.length > 0) {
+                    const geojson = JSON.stringify(data.features[0], null, 2);
+                    document.getElementById('geojson').value = geojson;
+                    log('✓ OSM 데이터 로드 완료', 'success');
+                    setProgress(100);
+                } else {
+                    log('OSM에서 데이터를 찾을 수 없습니다', 'error');
+                    setProgress(0);
+                }
+            } catch (error) {
+                log(`OSM 로드 실패: ${error.message}`, 'error');
+                setProgress(0);
+            }
+        }
+
+        async function fetchFromURL() {
+            const url = document.getElementById('geojson_url').value.trim();
+            if (!url) {
+                log('URL을 입력해주세요', 'error');
+                return;
+            }
+
+            log('URL에서 데이터 가져오는 중...', 'info');
+            setProgress(30);
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                const geojson = JSON.stringify(data, null, 2);
+                document.getElementById('geojson').value = geojson;
+                log('✓ URL 데이터 로드 완료', 'success');
+                setProgress(100);
+            } catch (error) {
+                log(`URL 로드 실패: ${error.message}`, 'error');
+                setProgress(0);
+            }
+        }
+
+        function calculateBBox(geometry) {
+            if (!geometry || !geometry.coordinates) return null;
+
+            let minLat = Infinity, maxLat = -Infinity;
+            let minLng = Infinity, maxLng = -Infinity;
+
+            const processCoords = (coords) => {
+                if (typeof coords[0] === 'number') {
+                    // [lng, lat] 형식
+                    const [lng, lat] = coords;
+                    if (lat < minLat) minLat = lat;
+                    if (lat > maxLat) maxLat = lat;
+                    if (lng < minLng) minLng = lng;
+                    if (lng > maxLng) maxLng = lng;
+                } else {
+                    // 중첩 배열
+                    coords.forEach(processCoords);
+                }
+            };
+
+            processCoords(geometry.coordinates);
+
+            return { minLat, maxLat, minLng, maxLng };
+        }
+
+        function validateOnly() {
+            log('=== 검증 시작 ===', 'info');
+            const data = collectFormData();
+            if (!data) return;
+
+            log('✓ 기본 정보 검증 완료', 'success');
+            log(`  - 이름: ${data.name} (${data.name_ko})`, 'info');
+            log(`  - 타입: ${data.type}`, 'info');
+            log(`  - 시간 범위: ${data.start_year} ~ ${data.end_year}`, 'info');
+            log(`✓ GeoJSON 검증 완료`, 'success');
+            log(`  - Type: ${data.geometry.type}`, 'info');
+            log(`  - BBox: [${data.bbox.minLat.toFixed(2)}, ${data.bbox.minLng.toFixed(2)}] → [${data.bbox.maxLat.toFixed(2)}, ${data.bbox.maxLng.toFixed(2)}]`, 'info');
+            log('=== 검증 완료 ===', 'success');
+        }
+
+        function collectFormData() {
+            const name = document.getElementById('name').value.trim();
+            const name_ko = document.getElementById('name_ko').value.trim();
+            const geojsonText = document.getElementById('geojson').value.trim();
+
+            if (!name || !name_ko || !geojsonText) {
+                log('필수 항목을 모두 입력해주세요', 'error');
+                return null;
+            }
+
+            let geojsonData;
+            try {
+                geojsonData = JSON.parse(geojsonText);
+            } catch (e) {
+                log('GeoJSON 파싱 실패: 올바른 JSON 형식이 아닙니다', 'error');
+                return null;
+            }
+
+            const geometry = geojsonData.geometry || geojsonData;
+            if (!geometry.coordinates) {
+                log('GeoJSON에 coordinates가 없습니다', 'error');
+                return null;
+            }
+
+            const bbox = calculateBBox(geometry);
+            if (!bbox) {
+                log('BBox 계산 실패', 'error');
+                return null;
+            }
+
+            return {
+                name,
+                name_en: name,
+                name_ko,
+                code: document.getElementById('code').value.trim(),
+                type: document.getElementById('type').value,
+                admin_level: 2,
+                country: name,
+                geometry,
+                bbox,
+                start_year: parseInt(document.getElementById('start_year').value) || -3000,
+                end_year: parseInt(document.getElementById('end_year').value) || 3000,
+                properties: {
+                    source: 'TerritoryManager',
+                    import_date: new Date().toISOString()
+                }
+            };
+        }
+
+        async function processAndSave() {
+            log('=== 처리 시작 ===', 'info');
+            setProgress(10);
+
+            const data = collectFormData();
+            if (!data) {
+                setProgress(0);
+                return;
+            }
+
+            setProgress(30);
+            log('✓ 데이터 검증 완료', 'success');
+
+            // start, end 필드도 추가 (프론트엔드 호환성)
+            data.start = data.start_year;
+            data.end = data.end_year;
+
+            setProgress(50);
+            log('MongoDB에 저장 중...', 'info');
+
+            try {
+                // 토큰 가져오기 (우선순위: dataset → localStorage → sessionStorage)
+                const tokenInput = document.getElementById('jwt_token');
+                let token = tokenInput.dataset.fullToken || tokenInput.value;
+                if (!token || token.includes('...')) {
+                    token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                }
+                
+                if (!token) {
+                    throw new Error('JWT 토큰이 없습니다. 먼저 로그인하세요.');
+                }
+                
+                log(`API 호출: POST ${API_BASE}/territories`, 'info');
+                
+                const response = await fetch(`${API_BASE}/territories`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                setProgress(80);
+
+                if (response.ok) {
+                    const result = await response.json();
+                    log('✓ MongoDB 저장 완료', 'success');
+                    log(`  - ID: ${result._id || result.insertedId}`, 'info');
+                    setProgress(100);
+                    log('=== 처리 완료 ===', 'success');
+                    log('💡 index.html을 새로고침하여 지도에서 확인하세요', 'info');
+                } else {
+                    const errorText = await response.text();
+                    let errorMsg = `HTTP ${response.status}: ${response.statusText}`;
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        errorMsg = errorJson.message || errorMsg;
+                    } catch (e) {
+                        if (errorText) errorMsg += ` - ${errorText}`;
+                    }
+                    log(`저장 실패: ${errorMsg}`, 'error');
+                    setProgress(0);
+                }
+            } catch (error) {
+                let errorMsg = error.message;
+                if (error.message === 'Failed to fetch') {
+                    errorMsg = '서버 연결 실패. 다음을 확인하세요:\n' +
+                              '  1. 서버가 실행 중인지 확인 (npm start)\n' +
+                              '  2. 로컬: http://localhost:3000 접속 가능 여부\n' +
+                              '  3. 프로덕션: Vercel 배포 상태 확인';
+                }
+                log(`저장 실패: ${errorMsg}`, 'error');
+                setProgress(0);
+            }
+        }
+
+        function exportJSON() {
+            const data = collectFormData();
+            if (!data) return;
+
+            const json = JSON.stringify(data, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${data.name}_territory.json`;
+            a.click();
+            log(`✓ JSON 파일 내보내기: ${data.name}_territory.json`, 'success');
+        }
+
+        function setProgress(percent) {
+            const progressBar = document.getElementById('progress');
+            const progressFill = document.getElementById('progress-fill');
+            progressBar.style.display = percent > 0 ? 'block' : 'none';
+            progressFill.style.width = `${percent}%`;
+        }
+
+        // 초기화
+        log('영토 관리 시스템 준비 완료', 'success');
+    </script>
+</body>
+</html>
