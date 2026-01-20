@@ -6001,13 +6001,39 @@ function getCountryInfoById(id) {
           // 서버에서 업데이트된 데이터를 다시 가져와서 동기화
           try {
               const updatedKing = await fetchData(`kings/${kingId}`);
-              const index = kings.findIndex(k => k._id === kingId);
+              let found = false;
               
-              if (index !== -1 && updatedKing) {
-                  kings[index] = updatedKing;
-                  console.log(`✅ 왕 DB 동기화 완료: ${kingId}`, updatedKing);
-              } else {
-                  console.warn(`⚠️ 메모리에서 찾을 수 없음: ${kingId}`);
+              // kings 객체의 모든 국가 배열을 순회하며 해당 왕을 찾음
+              for (const cId in kings) {
+                  const list = kings[cId];
+                  const idx = list.findIndex(k => k._id === kingId || k._id.toString() === kingId);
+                  if (idx !== -1) {
+                      // 국가가 변경되었는지 확인
+                      const newCId = updatedKing.country_id || updatedKing.countryId;
+                      if (newCId && newCId !== cId) {
+                          // 기존 국가에서 제거
+                          list.splice(idx, 1);
+                          // 새 국가에 추가
+                          if (!kings[newCId]) kings[newCId] = [];
+                          kings[newCId].push(updatedKing);
+                      } else {
+                          // 같은 국가 내 업데이트
+                          list[idx] = updatedKing;
+                      }
+                      found = true;
+                      console.log(`✅ 왕 DB 동기화 완료: ${kingId}`);
+                      break;
+                  }
+              }
+              
+              if (!found && updatedKing) {
+                  // 메모리에 없으면 새로 추가 (국가 ID가 있는 경우)
+                  const cId = updatedKing.country_id || updatedKing.countryId;
+                  if (cId) {
+                      if (!kings[cId]) kings[cId] = [];
+                      kings[cId].push(updatedKing);
+                      console.log(`✅ 왕 메모리 신규 추가 (동기화): ${kingId}`);
+                  }
               }
               
               const { year, month } = getCurrentYearMonth();
@@ -6018,17 +6044,32 @@ function getCountryInfoById(id) {
       };
       
       window.addKingInMemory = (newKing) => {
-          kings.push(newKing);
-          console.log(`✅ 왕 메모리 추가: ${newKing._id}`);
+          const cId = newKing.countryId || newKing.country_id;
+          if (cId) {
+              if (!kings[cId]) kings[cId] = [];
+              kings[cId].push(newKing);
+              console.log(`✅ 왕 메모리 추가: ${newKing._id} (국가: ${cId})`);
+          } else {
+              console.error("❌ 왕 메모리 추가 실패: 국가 ID 없음", newKing);
+          }
           const { year, month } = getCurrentYearMonth();
           updateMap(year, month);
       };
       
       window.deleteKingInMemory = (kingId) => {
-          const index = kings.findIndex(k => k._id === kingId);
-          if (index !== -1) {
-              kings.splice(index, 1);
-              console.log(`✅ 왕 메모리 삭제: ${kingId}`);
+          let found = false;
+          for (const cId in kings) {
+              const list = kings[cId];
+              const idx = list.findIndex(k => k._id === kingId || k._id.toString() === kingId);
+              if (idx !== -1) {
+                  list.splice(idx, 1);
+                  found = true;
+                  console.log(`✅ 왕 메모리 삭제: ${kingId}`);
+                  break;
+              }
+          }
+          
+          if (found) {
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
           } else {
