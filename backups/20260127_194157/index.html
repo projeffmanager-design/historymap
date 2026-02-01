@@ -1044,9 +1044,7 @@ body.force-mobile .marker-type-selector button {
     }
     
     /* 일반 성/도시 마커 텍스트 스타일 */
-    .city-marker-text {
-        /* 인라인 스타일로 이미 정의되어 있지만, 필요시 여기서 추가 조정 가능 */
-    }
+    /* 인라인 스타일로 이미 정의되어 있지만, 필요시 여기서 추가 조정 가능 */
     
 /* ------------------- 왕성 마커 CSS 추가 ------------------- */
     .capital-marker {
@@ -2256,7 +2254,7 @@ function enableFormDrag(formId) {
                 position: absolute;
                 right: 0;
                 top: 100%;
-                background-color: #2c3e50;
+                background-color: #ecf0f1;
                 border: 1px solid #5d7185;
                 border-radius: 4px;
                 z-index: 1010;
@@ -2512,6 +2510,7 @@ function enableFormDrag(formId) {
           <a id="accountLink" href="account.html" class="button-style" style="display: none;">계정 관리</a>
           <a id="adminLink" href="admin.html" class="button-style" style="display: none;">회원 관리</a>
           <a id="territoryManagerLink" href="territory_manager.html" class="button-style" style="display: none;">영토 관리</a>
+          <button id="rankingBtn" class="button-style" style="background-color: #8e44ad; border-color: #9b59b6;">사관(史館)랭킹</button>
           <button id="logoutBtnHeader" class="danger">로그아웃</button>
       </div>
   </div>
@@ -2622,6 +2621,7 @@ function enableFormDrag(formId) {
                 <button type="button" class="layer-toggle-btn active" data-layer="timeline" style="padding: 2px 4px; font-size: 10px;">연대표</button>
                 <button type="button" class="layer-toggle-btn" data-layer="kingPanel" style="padding: 2px 4px; font-size: 10px;">왕</button>
                 <button type="button" class="layer-toggle-btn" data-layer="historyPanel" style="padding: 2px 4px; font-size: 10px;">역사</button>
+                <button type="button" class="layer-toggle-btn active" data-layer="userContributions" style="padding: 2px 4px; font-size: 10px; color: #e67e22;">사관(史館)</button>
             </div>
             
             <!-- 🚩 [추가] PC용 편집 버튼 (모바일에서 숨김) -->
@@ -2659,6 +2659,9 @@ function enableFormDrag(formId) {
                 <div id="timeline-center-indicator" style="position: absolute; left: 50%; top: 0; bottom: 0; width: 3px; background: rgba(255, 200, 0, 0.8); transform: translateX(-50%); z-index: 11; pointer-events: none; box-shadow: 0 0 10px rgba(255, 200, 0, 0.6);"></div>
             </div>
         </div>
+        
+        <!-- 🚩 [추가] 사관 랭킹 표시 (좌측 중앙) -->
+        <div id="rankingDisplay" style="position: absolute; top: 50%; left: 10px; transform: translateY(-50%); z-index: 1000; color: white; font-size: 12px; text-shadow: 1px 1px 2px rgba(0,0,0,0.8); line-height: 1.4;"></div>
         
         <!-- 🎯 [추가] 로딩 상태 패널 (화면 왼쪽 중앙) -->
         <div id="loading-status-panel" style="position: absolute; left: 20px; top: 50%; transform: translateY(-50%); z-index: 9999; background: rgba(20, 30, 40, 0.95); backdrop-filter: blur(10px); padding: 20px 24px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); border: 2px solid rgba(255, 200, 0, 0.3); min-width: 350px; max-width: 450px; display: none; pointer-events: none;">
@@ -2785,7 +2788,315 @@ function enableFormDrag(formId) {
             <span id="event-overlay-text"></span>
         </div>
       </div> 
-    </div>
+
+      <!-- 🚩 [추가] 역사 복원 기여 폼 -->
+      <div id="contributionForm" style="display:none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #2c3e50; color: #ecf0f1; border: 1px solid #e67e22; padding: 20px; z-index: 2000; border-radius: 8px; width: 400px; box-shadow: 0 5px 15px rgba(0,0,0,0.7);">
+          <h3 style="color: #e67e22; margin-top: 0;">역사 연구 </h3>
+          <p style="font-size: 12px; color: #bdc3c7; margin-bottom: 15px;">
+              사료나 고지도를 근거로 잃어버린 지명을 찾아주세요.<br>
+              타당성이 입증되면 귀하의 이름으로 지도에 영구 등록됩니다.
+          </p>
+          <form id="addContributionForm">
+              <input type="hidden" id="contribLat">
+              <input type="hidden" id="contribLng">
+              <div class="form-row">
+                  <label>지명:</label>
+                  <input type="text" id="contribName" required placeholder="예: 대동시, 평양성">
+              </div>
+              <div class="form-row">
+                  <label>증거 유형:</label>
+                  <select id="contribCategory">
+                      <option value="literature">문헌 증거 (사서 기록)</option>
+                      <option value="geography">지형/기후 증거</option>
+                      <option value="oldmap">고지도 증거</option>
+                      <option value="other">기타 추론</option>
+                  </select>
+              </div>
+              <div class="form-row">
+                  <label>설명/근거:</label>
+                  <textarea id="contribDesc" rows="4" required placeholder="이곳이 해당 지명이라고 생각하는 근거를 적어주세요."></textarea>
+              </div>
+              <div class="form-row">
+                  <label>참고 URL:</label>
+                  <input type="text" id="contribEvidence" placeholder="이미지나 관련 링크 (선택)">
+              </div>
+              <div class="form-actions" style="text-align: right; margin-top: 10px;">
+                  <button type="button" id="cancelContribBtn">취소</button>
+                  <button type="submit" class="primary" style="background-color: #e67e22; border-color: #d35400;">제출하기</button>
+              </div>
+          </form>
+      </div>
+
+      <!-- 🚩 [추가] 사관 직급 시스템 안내 모달 -->
+      <div id="rankInfoModal" style="display:none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #2c3e50; color: #ecf0f1; border: 2px solid #f1c40f; padding: 20px; z-index: 2002; border-radius: 12px; width: 700px; max-height: 80vh; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
+          <h3 style="color: #f1c40f; text-align: center; margin-top: 0;">📜 고려만리지도 사관(史館) 직급 체계 안내</h3>
+          <div style="margin-bottom: 15px; text-align: center; font-size: 14px; color: #bdc3c7; font-style: italic;">
+              "사관의 붓 끝에서 대륙의 강역이 되살아납니다."
+          </div>
+          <div style="font-size: 13px; line-height: 1.6;">
+              <p>고려만리지도는 『고려사』, 『고려도경』 및 고지도와 천문 기록을 바탕으로 왜곡된 역사를 바로잡는 사관들의 집단지성 연구소입니다. 여러분의 모든 연구 성과는 엄격한 고증을 거쳐 품계로 환산됩니다.</p>
+
+              <h4 style="color: #f1c40f;">🏛️ 사관의 품계와 진급</h4>
+              <h5>1. 재상급 (경쟁 임명 - 단 1명씩)</h5>
+              <p>학문적 성취가 가장 높은 4인은 고려 조정의 최고 지도부가 됩니다.</p>
+              <ul>
+                  <li><strong>정1품 문하시중 (5,000P+ | 1위)</strong>: 대륙 고려 복원 사업 총괄. 역사 복원 정책 최종 결정권.</li>
+                  <li><strong>종1품 감수국사 (4,300P+ | 2위)</strong>: 사초(史草) 최종 수호자. 전체 데이터 수정 및 아카이빙 관리권.</li>
+                  <li><strong>정2품 수국사 (3,700P+ | 3위)</strong>: 보고서 최종 승인권. 승인된 연구는 지도 위 '공식 강역'으로 확정.</li>
+                  <li><strong>종2품 동수국사 (3,100P+ | 4위)</strong>: 권역별(산동, 강남, 대동 등) 연구 책임 및 2차 검증 총괄.</li>
+              </ul>
+
+              <h5>2. 중견 및 고위 학관 (자동 진급)</h5>
+              <p>실무 연구와 고증을 주도하는 전문 학자 층입니다.</p>
+              <ul>
+                  <li><strong>정3품 상서 ~ 종3품 한림학사</strong>: 국가 공인 고증 위원. 주요 논쟁 지역의 학술 심의 담당.</li>
+                  <li><strong>정4품 사천감 ~ 종4품 수찬관</strong>: 보고서 1차 검토권. 천문 현상과 지명 좌표의 일치성 검증.</li>
+                  <li><strong>정5품 낭중 ~ 종6품 직사관</strong>: 중견 연구원. 대륙 지표와 사서 기록의 대조 연구 수행.</li>
+              </ul>
+
+              <h5>3. 하급 사관 및 수습 (활동 기반)</h5>
+              <p>기초 사료를 발굴하고 기록의 초안을 작성하는 단계입니다.</p>
+              <ul>
+                  <li><strong>정7품 태학박사 ~ 종9품 검열</strong>: 지역별 사료 수집 및 현장 지형 연구 보고서 작성.</li>
+                  <li><strong>별외 참봉</strong>: 이제 막 연구에 합류한 수습 사관.</li>
+              </ul>
+
+              <h4 style="color: #f1c40f;">📜 연구 점수(P) 산정 기준</h4>
+              <ul>
+                  <li><strong>역사연구 보고서 제출</strong>: 3P (사료, 지도, 천문 기록 등 기초 연구 상주)</li>
+                  <li><strong>보고서 최종 승인</strong>: 10P (수국사 이상의 검증을 통해 역사적 사실로 확정 시)</li>
+                  <li><strong>동료 사관의 지지</strong>: 1P (연구 내용에 대한 학술적 추천 및 공감, 일일 최대 10회)</li>
+                  <li><strong>보고서 검토 (수찬관 이상)</strong>: 5P (하급자 보고서 검토 및 승인 권고)</li>
+                  <li><strong>베스트 고증 선정 (한림학사 이상)</strong>: 50P (주간 베스트 고증으로 선정 시)</li>
+              </ul>
+
+              <h4 style="color: #f1c40f;">🛡️ 사관의 자부심</h4>
+              <ul>
+                  <li><strong>역사의 실체 복원</strong>: 여러분의 보고서 한 장이 한반도에 갇혔던 고려를 광활한 대륙의 주인으로 되돌립니다.</li>
+                  <li><strong>독자적 사관 정립</strong>: 왜곡된 식민 사관을 배격하고, 천문과 지리라는 과학적 근거로 역사를 다시 씁니다.</li>
+                  <li><strong>불멸의 이름</strong>: 최고위 사관의 연구 업적은 복원된 <strong>'대륙 고려 전도'</strong>의 명예의 전당에 영구히 헌액됩니다.</li>
+              </ul>
+
+              <p style="font-style: italic; text-align: center; margin: 20px 0;">"기록되지 않은 역사는 사라지지만, 사관이 증명한 강역은 영원합니다." 지금 바로 대륙의 지명과 천문의 궤적을 담은 첫 번째 연구 보고서를 제출하십시오.</p>
+
+              <h4 style="color: #f1c40f;">🎖️ 사관의 공적을 쌓는 법 (Ways to Contribute)</h4>
+              <p>단순한 데이터 입력이 아닌, 사료를 입증하고 논리를 세우는 과정이 모두 공적(Point)이 됩니다.</p>
+
+              <h5>1. 역사연구 보고서 상주 (사료 제출) - 3P</h5>
+              <ul>
+                  <li><strong>지명 고증</strong>: 고지도와 현재의 대륙 지형을 대조하여 고려의 성곽, 강, 산의 위치를 보고합니다.</li>
+                  <li><strong>천문 기록 대조</strong>: 『고려사』 천문지에 기록된 일식, 오성취루 현상이 실제 대륙 특정 좌표에서 관측됨을 과학적으로 증명합니다.</li>
+                  <li><strong>문물 입증</strong>: 사서 속의 원숭이, 낙타, 금, 비단 등 대륙적 산물에 대한 기록을 근거로 강역의 범위를 논증합니다.</li>
+              </ul>
+
+              <h5>2. 연구 보고서 최종 승인 (고증 성공) - 10P</h5>
+              <ul>
+                  <li><strong>재상의 재가</strong>: 제출한 보고서가 수국사(정2품) 이상의 정밀 검증을 거쳐 '역사적 사실'로 인정받으면 큰 공적을 얻습니다.</li>
+                  <li><strong>강역 확정</strong>: 승인된 보고서 속의 지명은 '고려만리지도'의 공식 지명으로 확정되어 모든 사용자에게 공개됩니다.</li>
+              </ul>
+
+              <h5>3. 동료 사관의 학술 지지 (추천) - 1P</h5>
+              <ul>
+                  <li><strong>학술적 공감</strong>: 다른 사관들이 여러분의 고증 논리에 찬동하여 '지지(추천)'를 보낼 때마다 공적이 쌓입니다.</li>
+                  <li><strong>일일 제한</strong>: 한 사관당 일일 최대 10회의 추천만 가능합니다.</li>
+              </ul>
+
+              <h5>4. 보고서 검토 (수찬관 이상) - 5P</h5>
+              <ul>
+                  <li><strong>학술적 문지기</strong>: 수찬관(종4품) 이상의 사관이 하급자의 보고서를 검토하고 승인 권고를 내립니다.</li>
+                  <li><strong>상생 시스템</strong>: 검토자가 승인 권고한 보고서가 최종 승인되면 검토자에게도 5점을 부여합니다.</li>
+                  <li><strong>코칭 역할</strong>: 단순 감시가 아닌 더 정교한 보고서 작성을 위한 지도 역할을 수행합니다.</li>
+              </ul>
+
+              <h5>5. 베스트 고증 선정 (한림학사 이상) - 50P</h5>
+              <ul>
+                  <li><strong>주간 베스트</strong>: 한림학사(종3품) 이상의 심사를 통해 선정되는 최고의 고증입니다.</li>
+                  <li><strong>프로젝트성 공적</strong>: 외교 고증이나 학술 심의 등 대규모 연구에 대한 보상입니다.</li>
+              </ul>
+              </ul>
+
+              <h4 style="color: #f1c40f;">🏛️ 고려 사관 직급 체계 (The Hierarchy)</h4>
+              <h5>[재상단: 경쟁 임명제]</h5>
+              <p>최고의 고증 실력을 갖춘 단 4인에게만 허락되는 지고한 직위입니다.</p>
+              <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin: 10px 0;">
+                  <thead>
+                      <tr style="background: #34495e;">
+                          <th style="border: 1px solid #5d7185; padding: 5px;">품계</th>
+                          <th style="border: 1px solid #5d7185; padding: 5px;">직급명</th>
+                          <th style="border: 1px solid #5d7185; padding: 5px;">임명 조건</th>
+                          <th style="border: 1px solid #5d7185; padding: 5px;">주요 권한</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+                      <tr>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">정1품</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">문하시중</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">최고 점수 (1위)</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">복원 정책 최종 결정 및 서문 작성 권한</td>
+                      </tr>
+                      <tr>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">종1품</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">감수국사</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">2위</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">사초(데이터) 최종 관리 및 아카이빙 권한</td>
+                      </tr>
+                      <tr>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">정2품</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">수국사</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">3위</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">연구 보고서 최종 승인권 (지도 반영)</td>
+                      </tr>
+                      <tr>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">종2품</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">동수국사</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">4위</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">권역별(산동, 남경 등) 학술 심의 총괄</td>
+                      </tr>
+                  </tbody>
+              </table>
+
+              <h5>[학관단: 자동 진급제]</h5>
+              <p>일정 공적을 쌓으면 그 전문성을 인정받아 자동으로 품계가 올라갑니다.</p>
+              <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin: 10px 0;">
+                  <thead>
+                      <tr style="background: #34495e;">
+                          <th style="border: 1px solid #5d7185; padding: 5px;">구분</th>
+                          <th style="border: 1px solid #5d7185; padding: 5px;">품계</th>
+                          <th style="border: 1px solid #5d7185; padding: 5px;">직급명</th>
+                          <th style="border: 1px solid #5d7185; padding: 5px;">누적 공적</th>
+                          <th style="border: 1px solid #5d7185; padding: 5px;">역할</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+                      <tr>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">고위</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">정3품</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">상서</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">2,600</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">고위 학술 심의 참여</td>
+                      </tr>
+                      <tr>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">고위</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">종3품</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">한림학사</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">2,100</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">국가 공인 문장가 및 외교 고증</td>
+                      </tr>
+                      <tr>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">중견</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">정4품</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">사천감</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">1,700</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">천문-지리 데이터 일치 검증</td>
+                      </tr>
+                      <tr>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">중견</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">종4품</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">수찬관</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">1,400</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">보고서 1차 검토 권한</td>
+                      </tr>
+                      <tr>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">중견</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">정5품</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">낭중</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">1,100</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">실무 고증 책임자</td>
+                      </tr>
+                      <tr>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">중견</td>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">종5품</td>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">기거주</td>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">1,600</td>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">정밀 기록자</td>
+                        </tr>
+                                <tr>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">중견</td>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">정6품</td>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">좌·우사간</td>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">1,250</td>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">기록 비판 및 수정</td>
+                        </tr>
+                      <tr>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">중견</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">종6품</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">직사관</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">450</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">전문 사관 (본격 연구 시작)</td>
+                      </tr>
+                      <tr>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">하급</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">정7품</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">태학박사</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">300</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">학술적 근거 정립 및 가이드</td>
+                      </tr>
+                                 <tr>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">하급</td>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">종7품</td>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">사천승</td>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">200</td>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">실무 데이터 대조</td>
+                        </tr>
+                      <tr>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">하급</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">정8품</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">지제고</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">120</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">보고서 문문화 및 정리 숙련</td>
+                      </tr>
+                               <tr>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">하급</td>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">종8품</td>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">기주관</td>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">60</td>
+                        <td style="border: 1px solid #5d7185; padding: 5px;">성실한 수집가</td>
+                        </tr>
+                      <tr>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">하급</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">정9품</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">학유</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">30</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">기초 고증 학습 및 사료 수집</td>
+                      </tr>
+                      <tr>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">하급</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">종9품</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">검열</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">10</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">첫 공적 달성 (정식 사관 임명)</td>
+                      </tr>
+                      <tr>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">입문</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">별외</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">참봉</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">0</td>
+                          <td style="border: 1px solid #5d7185; padding: 5px;">수습 사관 (연구 시작)</td>
+                      </tr>
+                  </tbody>
+              </table>
+
+              <h4 style="color: #f1c40f;">💡 사관을 위한 도움말</h4>
+              <p>공적은 매일 정산됩니다: 특히 재상급 관직은 실시간 점수 경쟁에 따라 매일 아침 조정될 수 있으니, 문하시중의 자리를 지키기 위해 끊임없이 대륙의 사료를 탐구하십시오.</p>
+              <p>허위 보고 주의: 근거 없는 정보를 반복적으로 제출할 경우, <strong>좌·우사간(정6품)</strong>의 비판을 받아 공적이 삭감될 수 있습니다.</p>
+
+              <h4 style="color: #f1c40f;">🎯 문하시중(5,000점)까지의 성장 여정</h4>
+              <ul>
+                  <li><strong>입문~중견 구간 (0~1,400점)</strong>: 주로 사료 제출(3점)과 학습에 집중하는 성실함의 구간입니다. 기초 고증 능력을 키우는 단계입니다.</li>
+                  <li><strong>중견~고위 구간 (1,400~2,600점)</strong>: 수찬관(종4품)이 된 시점부터 검토 점수(5점)가 추가되어 점수 획득 속도가 1.5배 빨라집니다. 학술적 문지기 역할을 수행합니다.</li>
+                  <li><strong>고위~최종 구간 (2,600~5,000점)</strong>: 상서, 한림학사로서 외교 고증이나 학술 심의 등 프로젝트성 공적(50점)을 통해 수백 점 단위의 점수를 얻을 기회를 가집니다.</li>
+              </ul>
+
+              <h4 style="color: #f1c40f;">🔄 검토 권한의 전략적 활용</h4>
+              <p>수찬관(종4품)부터는 직접 사료를 찾는 것보다 하급 사관들의 기초 데이터를 다듬어 승인 가능한 수준으로 끌어올리는 것이 더 효율적입니다. 검토 행위 자체에 5점의 보상이 주어지며, 승인 권고가 최종 승인되면 추가 점수를 얻을 수 있습니다.</p>
+
+              <div style="text-align: center; margin-top: 20px;">
+                  <button type="button" id="closeRankInfoBtn" style="background: #8e44ad; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">닫기</button>
+              </div>
+          </div>
+      </div>
+
+      </div>
     <!-- 🚩 [추가] 오른쪽 패널 크기 조절을 위한 리사이저 핸들 -->
     <div id="resizer"></div>
 
@@ -2794,6 +3105,9 @@ function enableFormDrag(formId) {
     <div id="castleForm" style="display:none;">
         <h3>새로운 오브젝트 추가/편집</h3> <form id="addCastleForm"><input type="hidden" id="castleKey"><div class="form-row"><label>마커 타입:</label><div id="markerTypeSelector" class="marker-type-selector"><button type="button" data-type="normal" class="active">성/도시</button><button type="button" data-type="military">군대</button><button type="button" data-type="natural">자연</button><button type="button" data-type="label">지명</button></div></div><div class="form-row"><label for="castleName">이름:</label>
         <input type="text" id="castleName" style="width: 280px;" required> 
+        <!-- 🚩 [추가] 기여 변환 시 원본 기여자 정보 저장용 히든 필드 -->
+        <input type="hidden" id="originContributionId">
+        <input type="hidden" id="originContributor">
       </div>
       <div class="form-row" id="labelColorRow" style="display:none;">
     <label for="labelColor">글자 색상:</label>
@@ -2976,6 +3290,8 @@ function enableFormDrag(formId) {
       <br>
       <div class="form-actions" style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
         <!-- 🚩 [수정] 버튼 순서 변경 및 스타일 클래스 적용 -->
+        <!-- 🚩 [추가] 기여로 되돌리기 버튼 -->
+        <button type="button" id="revertContributionBtn" class="danger" style="display:none; background-color: #e67e22; border-color: #d35400;">기여로 되돌리기</button>
         <button type="button" id="cloneCastle" class="primary" style="display:none;">복제</button> <!-- 🚩 [수정] 복제 버튼 스타일 클래스 적용 -->
         <button type="button" id="deleteCastle" class="danger" style="display:none;">삭제</button>
         <button type="button" id="cancelCastle">취소</button>
@@ -3296,6 +3612,7 @@ function enableFormDrag(formId) {
     let drawings = []; // 🚩 [추가] 그리기 데이터 저장소
     let territories = []; // 🚩 [추가] 영토 폴리곤 데이터 저장소
     let naturalFeatures = []; // 🌊 [추가] 자연 지형지물 (강, 산맥 등) 데이터 저장소
+    let contributions = []; // 🚩 [추가] 유저 기여 데이터
     let markers = [];
     let currentOpenPopup = null; // 🚩 [추가] 현재 열린 팝업 추적
 
@@ -3334,6 +3651,8 @@ function enableFormDrag(formId) {
     let editMarker = null; // 드래그 가능한 편집용 마커
     let mouseOutTimer = null; // 팝업 닫기 지연 타이머
     let eventDisplayTimeout = null; // 이벤트 오버레이 사라짐 타이머
+    let contributionMode = false; // 🚩 [추가] 기여 모드 상태
+    let contributionMarker = null; // 기여 위치 표시 마커
     let lastCheckedEventTime = { year: null, month: null }; // 🚩 [수정] 마지막으로 이벤트를 확인한 연/월을 추적
     let activePopupMarker = null; // 현재 팝업이 열린 마커를 추적
     
@@ -3367,6 +3686,7 @@ function enableFormDrag(formId) {
         timeline: true,   // 🚩 [추가] 연대표 가시성
         kingPanel: false,  // 🚩 [수정] 왕목록 패널 초기값 off
         historyPanel: false, // 🚩 [수정] 역사기록 패널 초기값 on (되돌림)
+        userContributions: true, // 🚩 [추가] 유저 기여 레이어
         // 🔄 [호환성] 기존 'label'은 placeLabel로 매핑
         get label() { return this.placeLabel; },
         set label(value) { this.placeLabel = value; }
@@ -3428,6 +3748,7 @@ function enableFormDrag(formId) {
 
     let castleLayerGroup = L.layerGroup().addTo(map); 
     let territoryLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 영토 폴리곤 레이어 그룹
+    let contributionLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 기여 레이어 그룹
     map.addLayer(drawnItems); // 🚩 [추가] 그린 도형을 담을 레이어 그룹 추가
     const combinedSlider = document.getElementById('combinedSlider'); // 🚩 [추가] 슬라이더 DOM 요소
     const eraLabel = document.getElementById('eraLabel'); // 🚩 [추가] B.C./A.D. 표시 라벨
@@ -4356,6 +4677,10 @@ function updateMap(year, month, cacheOnly = false) {
             territoryLayerGroup.clearLayers();
             map.removeLayer(territoryLayerGroup);
         }
+        if (contributionLayerGroup) {
+            contributionLayerGroup.clearLayers();
+            map.removeLayer(territoryLayerGroup);
+        }
         // 새로운 레이어 그룹 생성
         territoryLayerGroup = L.layerGroup().addTo(map);
         
@@ -4489,6 +4814,122 @@ function updateMap(year, month, cacheOnly = false) {
             const riverEndTime = performance.now();
           //  console.log(`🌊 강 렌더링 완료: ${riverRenderedCount}개 (${(riverEndTime - riverStartTime).toFixed(0)}ms)`);
         }
+
+        // 🚩 [추가] 유저 기여(복원) 렌더링
+        if (layerVisibility.userContributions) {
+            // 기여 레이어 그룹이 없으면 생성
+            if (!contributionLayerGroup) contributionLayerGroup = L.layerGroup().addTo(map);
+            if (!map.hasLayer(contributionLayerGroup)) contributionLayerGroup.addTo(map);
+            
+            contributionLayerGroup.clearLayers();
+
+            contributions.forEach(contrib => {
+                // 🚩 [수정] '유저복원' 레이어에는 '대기 중(pending)'인 기여만 표시 (승인된 것은 정식 오브젝트가 됨)
+                if (contrib.status !== 'pending') return;
+
+                // 자신의 기여인지 확인
+                const isMyContribution = currentUser && contrib.userId === currentUser.id;
+                
+                const iconHtml = `<div style="font-size: 20px; text-shadow: 2px 2px 2px #000; ${isMyContribution ? 'color: #3498db; text-shadow: 0 0 10px rgba(52, 152, 219, 0.8), 2px 2px 2px #000;' : ''};">${isMyContribution ? '👤' : '🚩'}</div>`;
+                const contribIcon = L.divIcon({
+                    className: 'custom-div-icon',
+                    html: iconHtml,
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 24]
+                });
+
+                const marker = L.marker([contrib.lat, contrib.lng], { icon: contribIcon });
+                
+                // 작위 계산 (간단 버전)
+                // 실제로는 유저 정보를 가져와야 하지만 여기선 임시로 표시
+                
+                let adminControls = '';
+                
+                // 권한에 따른 버튼 표시
+                if (currentUser) {
+                    const userPosition = currentUser.position;
+                    const reviewerPositions = ['수찬관', '사천감', '한림학사', '상서', '수국사', '동수국사', '감수국사', '문하시중'];
+                    const approverPositions = ['동수국사', '감수국사', '문하시중'];
+                    
+                    // 검토 버튼 (수찬관 이상) - pending 상태이고 검토자가 아직 할당되지 않은 경우
+                    if (reviewerPositions.includes(userPosition) && contrib.status === 'pending' && !contrib.reviewerId) {
+                        adminControls += `<button onclick="showReviewModal('${contrib._id}')" class="button-style" style="padding: 2px 6px; font-size: 11px; margin-left: 5px; background-color: #f39c12;">🔍 검토</button>`;
+                    }
+                    
+                    // 승인 버튼 (동수국사 이상) - 검토 완료된 상태
+                    if (approverPositions.includes(userPosition) && contrib.status === 'approved') {
+                        adminControls += `<button onclick="approveContribution('${contrib._id}', 'approved')" class="button-style primary" style="padding: 2px 6px; font-size: 11px; margin-left: 5px;">최종 승인</button>`;
+                    }
+                    
+                    // 관리자 버튼 (모든 권한)
+                    if (currentUser.role === 'admin' || currentUser.role === 'superuser') {
+                        adminControls += `<button onclick="convertContribution('${contrib._id}')" class="button-style primary" style="padding: 2px 6px; font-size: 11px; margin-left: 5px;">승인 및 변환</button>`;
+                    }
+                }
+
+                // 🚩 [수정] 팝업 콘텐츠 레이아웃 개선
+                const categoryText = {
+                    'literature': '문헌 증거',
+                    'geography': '지형/기후 증거',
+                    'oldmap': '고지도 증거',
+                    'other': '기타 추론'
+                }[contrib.category] || '기타';
+
+                const popupContent = `<div style="min-width: 200px; line-height: 1.4; font-size: 13px; white-space: normal;">
+                        <h4 style="margin: 0 0 6px 0; color: #e67e22; border-bottom: 1px solid rgba(0,0,0,0.2); padding-bottom: 4px;">🚩 ${contrib.name}${currentUser && contrib.userId === currentUser.id ? ' 👤' : ''}</h4>
+                        <p style="margin: 0 0 8px 0; font-size: 12px; white-space: pre-wrap; word-wrap: break-word; max-height: 150px; overflow-y: auto;">${contrib.description}</p>
+                        <div style="font-size: 11px; color: #000000; display: flex; flex-direction: column; gap: 3px; border-top: 1px solid rgba(0,0,0,0.2); padding-top: 6px;">
+                            <div style="display: flex; justify-content: space-between;"><span>복원자:</span> <b>${contrib.username}${currentUser && contrib.userId === currentUser.id ? ' (나)' : ''}</b></div>
+                            <div style="display: flex; justify-content: space-between;"><span>증거 유형:</span> <span>${categoryText}</span></div>
+                            <div style="display: flex; justify-content: space-between;"><span>추천수:</span> <span id="vote-count-${contrib._id}">${contrib.votes || 0}</span></div>
+                        </div>
+                        <div style="margin-top: 8px; text-align: right; display: flex; justify-content: flex-end; gap: 5px;">
+                            <button onclick="voteContribution('${contrib._id}')" class="button-style" style="padding: 2px 6px; font-size: 11px;">👍 추천</button>
+                            ${adminControls}
+                        </div>
+                    </div>`;
+                
+                marker.bindPopup(popupContent, { autoClose: false, closeOnClick: false });
+
+                // 🚩 [추가] 마우스 오버 팝업 기능 추가
+                let popupTimeout;
+                marker.on('mouseover', function (e) {
+                    clearTimeout(popupTimeout);
+                    if (currentOpenPopup && currentOpenPopup !== this) currentOpenPopup.closePopup();
+                    this.openPopup();
+                    currentOpenPopup = this;
+                });
+                marker.on('popupopen', function (e) {
+                    const popup = e.popup;
+                    if (popup && popup._container) {
+                        popup._container.addEventListener('mouseenter', () => clearTimeout(popupTimeout));
+                        popup._container.addEventListener('mouseleave', () => this.closePopup());
+                        
+                        // 팝업이 열릴 때 추천 버튼 상태 업데이트
+                        const voteBtn = popup._container.querySelector(`button[onclick="voteContribution('${contrib._id}')"]`);
+                        if (voteBtn && currentUser) {
+                            const hasVoted = contrib.votedBy && contrib.votedBy.includes(currentUser.username);
+                            voteBtn.textContent = hasVoted ? '👎 취소' : '👍 추천';
+                            voteBtn.style.backgroundColor = hasVoted ? '#e74c3c' : '#3498db';
+                        }
+                    }
+                });
+                marker.on('mouseout', function (e) {
+                    popupTimeout = setTimeout(() => {
+                        const popup = this.getPopup();
+                        if (!popup || !popup._container || !popup._container.matches(':hover')) this.closePopup();
+                    }, 300);
+                });
+
+                contributionLayerGroup.addLayer(marker);
+            });
+        } else {
+            if (contributionLayerGroup) {
+                contributionLayerGroup.clearLayers();
+                map.removeLayer(contributionLayerGroup);
+            }
+        }
+
 
         // 🚩 [추가] 저장된 그리기 데이터 렌더링
         drawings.forEach(drawing => {
@@ -5655,6 +6096,11 @@ function getCountryInfoById(id) {
               const featuresData = await fetchData('natural-features');
               naturalFeatures = featuresData || [];
               console.log(`✅ 자연 지형지물: ${naturalFeatures.length}개`);
+
+              // 🚩 [추가] 기여 데이터 로드
+              console.log('🚩 유저 기여 데이터 로딩...');
+              contributions = await fetchData('contributions');
+              console.log(`✅ 유저 기여: ${contributions.length}개`);
               
               // 강 레이어가 켜져 있으면 자동으로 렌더링
               if (layerVisibility.rivers) {
@@ -6001,13 +6447,39 @@ function getCountryInfoById(id) {
           // 서버에서 업데이트된 데이터를 다시 가져와서 동기화
           try {
               const updatedKing = await fetchData(`kings/${kingId}`);
-              const index = kings.findIndex(k => k._id === kingId);
+              let found = false;
               
-              if (index !== -1 && updatedKing) {
-                  kings[index] = updatedKing;
-                  console.log(`✅ 왕 DB 동기화 완료: ${kingId}`, updatedKing);
-              } else {
-                  console.warn(`⚠️ 메모리에서 찾을 수 없음: ${kingId}`);
+              // kings 객체의 모든 국가 배열을 순회하며 해당 왕을 찾음
+              for (const cId in kings) {
+                  const list = kings[cId];
+                  const idx = list.findIndex(k => k._id === kingId || k._id.toString() === kingId);
+                  if (idx !== -1) {
+                      // 국가가 변경되었는지 확인
+                      const newCId = updatedKing.country_id || updatedKing.countryId;
+                      if (newCId && newCId !== cId) {
+                          // 기존 국가에서 제거
+                          list.splice(idx, 1);
+                          // 새 국가에 추가
+                          if (!kings[newCId]) kings[newCId] = [];
+                          kings[newCId].push(updatedKing);
+                      } else {
+                          // 같은 국가 내 업데이트
+                          list[idx] = updatedKing;
+                      }
+                      found = true;
+                      console.log(`✅ 왕 DB 동기화 완료: ${kingId}`);
+                      break;
+                  }
+              }
+              
+              if (!found && updatedKing) {
+                  // 메모리에 없으면 새로 추가 (국가 ID가 있는 경우)
+                  const cId = updatedKing.country_id || updatedKing.countryId;
+                  if (cId) {
+                      if (!kings[cId]) kings[cId] = [];
+                      kings[cId].push(updatedKing);
+                      console.log(`✅ 왕 메모리 신규 추가 (동기화): ${kingId}`);
+                  }
               }
               
               const { year, month } = getCurrentYearMonth();
@@ -6018,17 +6490,32 @@ function getCountryInfoById(id) {
       };
       
       window.addKingInMemory = (newKing) => {
-          kings.push(newKing);
-          console.log(`✅ 왕 메모리 추가: ${newKing._id}`);
+          const cId = newKing.countryId || newKing.country_id;
+          if (cId) {
+              if (!kings[cId]) kings[cId] = [];
+              kings[cId].push(newKing);
+              console.log(`✅ 왕 메모리 추가: ${newKing._id} (국가: ${cId})`);
+          } else {
+              console.error("❌ 왕 메모리 추가 실패: 국가 ID 없음", newKing);
+          }
           const { year, month } = getCurrentYearMonth();
           updateMap(year, month);
       };
       
       window.deleteKingInMemory = (kingId) => {
-          const index = kings.findIndex(k => k._id === kingId);
-          if (index !== -1) {
-              kings.splice(index, 1);
-              console.log(`✅ 왕 메모리 삭제: ${kingId}`);
+          let found = false;
+          for (const cId in kings) {
+              const list = kings[cId];
+              const idx = list.findIndex(k => k._id === kingId || k._id.toString() === kingId);
+              if (idx !== -1) {
+                  list.splice(idx, 1);
+                  found = true;
+                  console.log(`✅ 왕 메모리 삭제: ${kingId}`);
+                  break;
+              }
+          }
+          
+          if (found) {
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
           } else {
@@ -7469,7 +7956,7 @@ function getCountryInfoById(id) {
               : (record.createdBy ? `생성자: ${record.createdBy}` : '');
           
           return editorInfo 
-              ? `<small style="float: right; color: #555; font-size: 10px;">${editorInfo}</small>` 
+              ? `<small style="float: right; color: #ecf0f1; font-size: 10px;">${editorInfo}</small>` 
               : '';
       };
 
@@ -7574,9 +8061,24 @@ function getCountryInfoById(id) {
     
     // 지도 클릭 시 성 추가 폼 열기 (편집 모드에서만)
     map.on('click', (e) => {
-      // 🚩 [수정] 편집 모드가 아닐 때는 아무 동작도 하지 않음
+      // 🚩 [추가] 기여 모드일 때 폼 열기 (일반 유저도 가능하지만 게스트는 제외)
+      if (contributionMode && !currentUser?.isGuest) {
+          const latlng = e.latlng;
+          document.getElementById('contribLat').value = latlng.lat;
+          document.getElementById('contribLng').value = latlng.lng;
+          
+          if (contributionMarker) map.removeLayer(contributionMarker);
+          contributionMarker = L.marker(latlng).addTo(map);
+          
+          const form = document.getElementById('contributionForm');
+          form.style.display = 'block';
+          openForm('contributionForm'); // 중앙 정렬
+          return;
+      }
+
+      // 🚩 [수정] 편집 모드가 아닐 때는 아무 동작도 하지 않음 (관리자 전용)
       if (!editMode || !(currentUser?.role === 'superuser' || currentUser?.role === 'admin')) return;
-      
+
       // 🚩 [수정] 그리는 중일 때는 폼을 열지 않고 종료
       if (isDrawing) return;
 
@@ -7679,6 +8181,28 @@ function getCountryInfoById(id) {
       if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) {
         popupContent.appendChild(addCastleButton);
       }
+      
+      // 🚩 [추가] 일반 유저용 '역사 연구 사료 제출 꽂기' 버튼 (게스트 제외)
+      if (currentUser && !currentUser.isGuest) {
+          const addContributionButton = document.createElement('button');
+          addContributionButton.innerText = '역사 연구 사료 제출';
+          addContributionButton.className = 'primary';
+          addContributionButton.style.marginTop = '5px';
+          addContributionButton.onclick = () => {
+              map.closePopup();
+              // 기여 폼 열기
+              document.getElementById('contribLat').value = latlng.lat;
+              document.getElementById('contribLng').value = latlng.lng;
+              
+              if (contributionMarker) map.removeLayer(contributionMarker);
+              contributionMarker = L.marker(latlng).addTo(map);
+              
+              const form = document.getElementById('contributionForm');
+              form.style.display = 'block';
+              openForm('contributionForm'); // 중앙 정렬
+          };
+          popupContent.appendChild(addContributionButton);
+      }
 
       L.popup()
         .setLatLng(latlng)
@@ -7710,6 +8234,10 @@ function getCountryInfoById(id) {
         document.getElementById('cloneCastle').style.display = 'inline-block'; // 🚩 [추가] 편집 시 복제 버튼 표시
         document.getElementById('deleteCastle').style.display = 'inline-block';
         
+        // 🚩 [추가] 기여 변환 관련 필드 초기화
+        document.getElementById('originContributionId').value = '';
+        document.getElementById('originContributor').value = '';
+
         // 🚩 [수정] 상단 대표 이름 필드만 채웁니다.
         document.getElementById('castleName').value = castle.name; // 메인 이름
         
@@ -7722,6 +8250,17 @@ function getCountryInfoById(id) {
         document.getElementById('iconWidth').value = castle.icon_width ?? '';
         document.getElementById('iconHeight').value = castle.icon_height ?? '';
         // 🚩 [추가] 국가가 있을 경우, 기본 파괴 연도 설정을 위한 값 저장
+        
+        // 🚩 [추가] 기여로 되돌리기 버튼 표시 여부 결정
+        const revertBtn = document.getElementById('revertContributionBtn');
+        document.getElementById('originContributionId').value = castle.originContributionId || '';
+        if (castle.originContributionId && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) {
+            revertBtn.style.display = 'inline-block';
+            revertBtn.onclick = () => revertContribution(castle._id, castle.originContributionId);
+        } else {
+            revertBtn.style.display = 'none';
+        }
+
         if (countryInfo) {
         }
 
@@ -7966,6 +8505,76 @@ function getCountryInfoById(id) {
     // 🚩 [추가] '역사 기록 추가' 버튼 이벤트 리스너
     document.getElementById('addCastleHistoryBtn').addEventListener('click', () => addCastleHistoryRow());
 
+    // 🚩 [추가] 기여를 정식 오브젝트로 변환하는 함수 (관리자용)
+    window.convertContribution = (contribId) => {
+        const contrib = contributions.find(c => c._id === contribId);
+        if (!contrib) return alert("기여 정보를 찾을 수 없습니다.");
+
+        // 성 편집 폼 열기 (새 오브젝트 모드)
+        editingCastleKey = null;
+        closeAllFormsExcept('castleForm');
+        openForm('castleForm');
+        addCastleForm.reset();
+        
+        // 기여 데이터로 폼 채우기
+        document.getElementById('castleName').value = contrib.name;
+        document.getElementById('castleLat').value = contrib.lat;
+        document.getElementById('castleLng').value = contrib.lng;
+        document.getElementById('castleDesc').value = contrib.description + (contrib.evidence ? `\n\n[증거/참고] ${contrib.evidence}` : "");
+        
+        // 🚩 [핵심] 원본 기여자 정보 설정
+        document.getElementById('originContributionId').value = contrib._id;
+        document.getElementById('originContributor').value = contrib.username;
+        
+        // 마커 타입 설정 (기본값: 성/도시)
+        setActiveMarkerType('normal');
+        
+        // 임시 마커 표시
+        if (editMarker) map.removeLayer(editMarker);
+        editMarker = L.marker([contrib.lat, contrib.lng], { draggable: true }).addTo(map);
+        map.setView([contrib.lat, contrib.lng], 10);
+    };
+
+    // 🚩 [추가] 승인된 오브젝트를 다시 기여(대기 상태)로 되돌리는 함수
+    window.revertContribution = async (castleId, contribId) => {
+        if (!confirm('이 오브젝트를 삭제하고 다시 유저 기여(대기 상태)로 되돌리시겠습니까?')) return;
+        
+        try {
+            // 1. 기여 상태를 pending으로 변경
+            const statusResponse = await fetch(`${API_BASE_URL}/contributions/${contribId}/status`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ status: 'pending' })
+            });
+            
+            if (!statusResponse.ok) throw new Error('기여 상태 변경 실패');
+
+            // 2. 성 오브젝트 삭제
+            const deleteResponse = await fetch(`${API_BASE_URL}/castle/${castleId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (!deleteResponse.ok) throw new Error('오브젝트 삭제 실패');
+
+            // 3. 메모리 및 UI 업데이트
+            deleteCastleInMemory(castleId);
+            document.getElementById('castleForm').style.display = 'none';
+            if (editMarker) { map.removeLayer(editMarker); editMarker = null; }
+
+            // 4. 기여 데이터 최신화 (pending 상태인 기여를 다시 불러옴)
+            contributions = await fetchData('contributions');
+            
+            // 5. 맵 갱신 (기여 핀 다시 표시)
+            const { year, month } = getCurrentYearMonth();
+            updateMap(year, month);
+            
+            alert('성공적으로 되돌렸습니다.');
+        } catch (error) {
+            console.error(error);
+            alert(`되돌리기 실패: ${error.message}`);
+        }
+    };
 
     // 성 폼 제출 (저장/업데이트)
     addCastleForm.addEventListener('submit', async (e) => {
@@ -8006,6 +8615,7 @@ function getCountryInfoById(id) {
         custom_icon: document.getElementById('customIcon').value || null, // 🚩 [추가] 커스텀 아이콘
         icon_width: document.getElementById('iconWidth').value ? parseInt(document.getElementById('iconWidth').value) : null, // 🚩 [추가] 아이콘 너비
         icon_height: document.getElementById('iconHeight').value ? parseInt(document.getElementById('iconHeight').value) : null, // 🚩 [추가] 아이콘 높이
+        originContributionId: document.getElementById('originContributionId').value || null // 🚩 [추가] 원본 기여 ID 저장
       };
 
       if (selectedType === 'normal' || selectedType === 'battle') { // 🚩 [수정] 전장 타입도 역사 기록 사용
@@ -8063,7 +8673,9 @@ function getCountryInfoById(id) {
       if (isUpdate) {
         data.lastModifiedBy = currentUser.username;
       } else {
-        data.createdBy = currentUser.username;
+        // 🚩 [수정] 기여 변환인 경우 원본 기여자를 생성자로 설정
+        const originContributor = document.getElementById('originContributor').value;
+        data.createdBy = originContributor || currentUser.username;
       }
 
       if (data.is_military_flag) {
@@ -8111,6 +8723,24 @@ function getCountryInfoById(id) {
               throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
           }
 
+          // 🚩 [추가] 기여 변환이었다면, 해당 기여 상태를 'approved'로 변경
+          const originContributionId = document.getElementById('originContributionId').value;
+          if (originContributionId) {
+              try {
+                  await fetch(`${API_BASE_URL}/contributions/${originContributionId}/status`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                      body: JSON.stringify({ status: 'approved' })
+                  });
+                  // 메모리에서 해당 기여 제거 (더 이상 pending이 아니므로)
+                  const contribIndex = contributions.findIndex(c => c._id === originContributionId);
+                  if (contribIndex !== -1) contributions.splice(contribIndex, 1);
+                  console.log('✅ 기여 승인 처리 완료');
+              } catch (err) {
+                  console.error('기여 상태 업데이트 실패:', err);
+              }
+          }
+
           document.getElementById('castleForm').style.display = 'none';
           if (editMarker && map.hasLayer(editMarker) && editMarker.getPopup()) {
               editMarker.closePopup();
@@ -8135,6 +8765,10 @@ function getCountryInfoById(id) {
                   addCastleInMemory(responseData.castle);
               }
           }
+          
+          // 맵 업데이트 (기여 핀 제거 및 새 오브젝트 표시)
+          const { year, month } = getCurrentYearMonth();
+          updateMap(year, month);
       } catch (error) {
         console.error("Castle 저장 중 오류:", error);
         alert(`Castle 저장 실패: ${error.message}`);
@@ -10001,6 +10635,11 @@ kingSelect.addEventListener('change', () => {
                 button.classList.toggle('active');
                 layerVisibility[layerType] = button.classList.contains('active');
                 
+                // 🚩 [추가] 기여 레이어 토글 시 contributionMode 토글 (게스트는 이미 버튼이 숨겨짐)
+                if (layerType === 'userContributions') {
+                    contributionMode = !contributionMode;
+                }
+                
                 // 🚩 [수정] 영토 레이어 토글 시 - 백그라운드 로드 완료 확인
                 if (layerType === 'territoryPolygon' && layerVisibility.territoryPolygon) {
                     if (territories.length === 0) {
@@ -10185,8 +10824,19 @@ kingSelect.addEventListener('change', () => {
         const adminLink = document.getElementById('adminLink');
         const territoryManagerLink = document.getElementById('territoryManagerLink');
         if (currentUser) {
-            document.getElementById('usernameDisplay').textContent = `${currentUser.username}님`;
-            document.getElementById('accountLink').style.display = 'inline-block';
+            document.getElementById('usernameDisplay').textContent = `${currentUser.position || ''} ${currentUser.username}님`;
+            // 🚩 [수정] 게스트 여부에 따라 계정 관리 버튼 표시/숨김
+            if (currentUser.isGuest) {
+                document.getElementById('accountLink').style.setProperty('display', 'none', 'important');
+                // 🚩 [추가] 게스트는 기여 기능 숨김
+                const userContributionsBtn = document.querySelector('button[data-layer="userContributions"]');
+                if (userContributionsBtn) userContributionsBtn.style.display = 'none';
+            } else {
+                document.getElementById('accountLink').style.display = 'inline-block';
+                // 🚩 [추가] 일반 유저는 기여 기능 표시
+                const userContributionsBtn = document.querySelector('button[data-layer="userContributions"]');
+                if (userContributionsBtn) userContributionsBtn.style.display = 'inline-block';
+            }
             const isPrivileged = currentUser.role === 'admin' || currentUser.role === 'superuser';
             if (adminLink) {
                 adminLink.style.display = currentUser.role === 'admin' ? 'inline-block' : 'none';
@@ -10325,13 +10975,1157 @@ kingSelect.addEventListener('change', () => {
             normalBtnPc.addEventListener('click', () => switchTileLayer('일반', normalBtnPc));
         }
 
+        // 🚩 [수정] 한림학사 랭킹 버튼 이벤트 핸들러
+        const rankingBtn = document.getElementById('rankingBtn');
+        const contributionForm = document.getElementById('contributionForm');
+        const cancelContribBtn = document.getElementById('cancelContribBtn');
+        const addContributionForm = document.getElementById('addContributionForm');
+        const rankingModal = document.getElementById('rankingModal');
+        const closeRankingBtn = document.getElementById('closeRankingBtn');
+        const rankInfoBtn = document.getElementById('rankInfoBtn');
+        const rankInfoModal = document.getElementById('rankInfoModal');
+        const closeRankInfoBtn = document.getElementById('closeRankInfoBtn');
+
+        // 탭 관련 요소들
+        const rankingTabBtn = document.getElementById('rankingTabBtn');
+        const contributionsTabBtn = document.getElementById('contributionsTabBtn');
+        const rankingTab = document.getElementById('rankingTab');
+        const contributionsTab = document.getElementById('contributionsTab');
+        const contributionFilter = document.getElementById('contributionFilter');
+
+        // 탭 전환 함수
+        function switchTab(activeTab, activeBtn, inactiveTab, inactiveBtn) {
+            activeTab.style.display = 'block';
+            inactiveTab.style.display = 'none';
+            activeBtn.style.background = '#3498db';
+            activeBtn.style.color = 'white';
+            inactiveBtn.style.background = '#5d7185';
+            inactiveBtn.style.color = '#ecf0f1';
+        }
+
+        if (rankingBtn) {
+            rankingBtn.addEventListener('click', async () => {
+                if (rankingModal) {
+                    rankingModal.style.display = 'block';
+                    // modal 초기 위치 재설정
+                    const modalContent = document.getElementById('rankingModalContent');
+                    modalContent.style.left = '50%';
+                    modalContent.style.top = '50%';
+                    modalContent.style.transform = 'translate(-50%, -50%)';
+                    // 기본적으로 랭킹 탭 활성화
+                    switchTab(rankingTab, rankingTabBtn, contributionsTab, contributionsTabBtn);
+                    await displayRanking();
+                    // 드래그 및 리사이즈 기능 초기화
+                    initializeModalDragAndResize();
+                    
+                    // 포커스 관리: 모달이 열릴 때 포커스를 모달로 이동
+                    setTimeout(() => {
+                        modalContent.focus();
+                    }, 100);
+                }
+            });
+        }
+        // 탭 버튼 이벤트 리스너
+        if (rankingTabBtn) {
+            rankingTabBtn.addEventListener('click', async () => {
+                switchTab(rankingTab, rankingTabBtn, contributionsTab, contributionsTabBtn);
+                await displayRanking();
+            });
+        }
+
+        if (contributionsTabBtn) {
+            contributionsTabBtn.addEventListener('click', async () => {
+                switchTab(contributionsTab, contributionsTabBtn, rankingTab, rankingTabBtn);
+                await displayContributions();
+            });
+        }
+
+        // 사료 필터 이벤트 리스너
+        if (contributionFilter) {
+            contributionFilter.addEventListener('change', async () => {
+                await displayContributions();
+            });
+        }
+
+        if (closeRankingBtn) {
+            closeRankingBtn.addEventListener('click', () => {
+                if (rankingModal) {
+                    rankingModal.style.display = 'none';
+                    // 포커스 복원
+                    setTimeout(() => {
+                        document.body.focus();
+                    }, 100);
+                }
+            });
+        }
+
+        if (rankInfoBtn) {
+            rankInfoBtn.addEventListener('click', () => {
+                if (rankInfoModal) rankInfoModal.style.display = 'block';
+            });
+        }
+
+        if (closeRankInfoBtn) {
+            closeRankInfoBtn.addEventListener('click', () => {
+                if (rankInfoModal) rankInfoModal.style.display = 'none';
+            });
+        }
+
+        // 사료 상세 모달 이벤트 리스너
+        const contributionDetailModal = document.getElementById('contributionDetailModal');
+        const closeContributionDetailBtn = document.getElementById('closeContributionDetailBtn');
+
+        if (closeContributionDetailBtn) {
+            closeContributionDetailBtn.addEventListener('click', () => {
+                if (contributionDetailModal) {
+                    contributionDetailModal.style.display = 'none';
+                    // 포커스 복원
+                    setTimeout(() => {
+                        document.body.focus();
+                    }, 100);
+                }
+            });
+        }
+
+        // 모달 외부 클릭으로 닫기
+        if (contributionDetailModal) {
+            contributionDetailModal.addEventListener('click', (e) => {
+                if (e.target === contributionDetailModal) {
+                    contributionDetailModal.style.display = 'none';
+                    // 포커스 복원
+                    setTimeout(() => {
+                        document.body.focus();
+                    }, 100);
+                }
+            });
+        }
+
+        // 모달 드래그 및 리사이즈 기능 초기화
+        function initializeModalDragAndResize() {
+            const modal = document.getElementById('rankingModalContent');
+            const header = document.getElementById('rankingModalHeader');
+            let isDragging = false;
+            let dragStartX = 0;
+            let dragStartY = 0;
+            let modalStartX = 0;
+            let modalStartY = 0;
+
+            // 드래그 기능
+            header.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                dragStartX = e.clientX;
+                dragStartY = e.clientY;
+                const rect = modal.getBoundingClientRect();
+                modalStartX = rect.left;
+                modalStartY = rect.top;
+                modal.style.cursor = 'grabbing';
+                e.preventDefault();
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    const deltaX = e.clientX - dragStartX;
+                    const deltaY = e.clientY - dragStartY;
+                    const newLeft = modalStartX + deltaX;
+                    const newTop = modalStartY + deltaY;
+                    
+                    // 화면 경계 체크
+                    const maxLeft = window.innerWidth - modal.offsetWidth;
+                    const maxTop = window.innerHeight - modal.offsetHeight;
+                    
+                    modal.style.left = Math.max(0, Math.min(newLeft, maxLeft)) + 'px';
+                    modal.style.top = Math.max(0, Math.min(newTop, maxTop)) + 'px';
+                    modal.style.transform = 'none';
+                }
+            });
+
+            document.addEventListener('mouseup', () => {
+                isDragging = false;
+                modal.style.cursor = 'move';
+            });
+
+            // ESC 키로 모달 닫기
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && rankingModal.style.display === 'block') {
+                    rankingModal.style.display = 'none';
+                }
+            });
+        }
+        window.addEventListener('click', (e) => {
+            if (e.target === contributionDetailModal) {
+                contributionDetailModal.style.display = 'none';
+            }
+        });
+
+        if (cancelContribBtn) {
+            cancelContribBtn.addEventListener('click', () => {
+                if (contributionForm) contributionForm.style.display = 'none';
+                if (contributionMarker) map.removeLayer(contributionMarker);
+            });
+        }
+
+        if (addContributionForm) {
+            addContributionForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const data = {
+                    name: document.getElementById('contribName').value,
+                    lat: parseFloat(document.getElementById('contribLat').value),
+                    lng: parseFloat(document.getElementById('contribLng').value),
+                    category: document.getElementById('contribCategory').value,
+                    description: document.getElementById('contribDesc').value,
+                    evidence: document.getElementById('contribEvidence').value
+                };
+
+                try {
+                    const response = await fetch(`${API_BASE_URL}/contributions`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify(data)
+                    });
+                    
+                    const responseData = await response.json(); // 🚩 [추가] 응답 데이터 파싱
+
+                    if (response.ok) {
+                        alert('제출되었습니다! 검토 후 반영됩니다.');
+                        contributionForm.style.display = 'none';
+                        addContributionForm.reset();
+                        if (contributionMarker) map.removeLayer(contributionMarker);
+                        // 모드 종료
+                        
+                        // 🚩 [수정] 서버에서 받은 실제 ID가 포함된 객체 사용
+                        if (responseData.contribution) {
+                            contributions.push(responseData.contribution);
+                        } else {
+                            // Fallback (혹시 서버가 구버전일 경우)
+                            const tempContrib = { ...data, _id: 'temp_' + Date.now(), username: currentUser.username, status: 'pending', votes: 0 };
+                            contributions.push(tempContrib);
+                        }
+                        
+                        // 유저복원 레이어가 켜져있으면 맵 업데이트
+                        if (layerVisibility.userContributions) {
+                            const { year, month } = getCurrentYearMonth();
+                            updateMap(year, month);
+                        }
+                    } else {
+                        alert(responseData.message || '제출 실패');
+                    }
+                } catch (error) {
+                    console.error(error);
+                    alert('오류 발생');
+                }
+            });
+        }
+
+        // 🚩 [추가] 투표 함수 (전역)
+        window.voteContribution = async (id) => {
+            try {
+                console.log('voteContribution called with id:', id);
+                const response = await fetch(`${API_BASE_URL}/contributions/${id}/vote`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const data = await response.json();
+                console.log('vote response data:', data);
+
+                if (response.ok) {
+                    // 🚩 [수정] 서버에서 받은 최신 추천 수로 UI 업데이트
+                    const countSpan = document.getElementById(`vote-count-${id}`);
+                    console.log('countSpan found:', countSpan, 'data.votes:', data.votes);
+                    if (countSpan && data.votes !== undefined) {
+                        countSpan.textContent = data.votes;
+                        console.log('Updated countSpan to:', data.votes);
+                    }
+                    
+                    // 팝업 버튼도 업데이트 (지도 팝업)
+                    const popupVoteBtn = document.querySelector(`.leaflet-popup button[onclick="voteContribution('${id}')"]`);
+                    console.log('popupVoteBtn found:', popupVoteBtn);
+                    if (popupVoteBtn) {
+                        if (data.action === 'vote') {
+                            popupVoteBtn.textContent = '👎 추천 취소';
+                            popupVoteBtn.style.backgroundColor = '#e74c3c';
+                        } else if (data.action === 'cancel') {
+                            popupVoteBtn.textContent = '👍 추천하기';
+                            popupVoteBtn.style.backgroundColor = '#3498db';
+                        }
+                    }
+                    
+                    // 모달 버튼도 업데이트 (contribution 상세 정보 팝업)
+                    const modalVoteBtn = document.querySelector(`#contributionDetailModal button[onclick="voteContribution('${id}')"]`);
+                    console.log('modalVoteBtn found:', modalVoteBtn);
+                    if (modalVoteBtn) {
+                        if (data.action === 'vote') {
+                            modalVoteBtn.textContent = '👎 추천 취소';
+                            modalVoteBtn.style.backgroundColor = '#e74c3c';
+                        } else if (data.action === 'cancel') {
+                            modalVoteBtn.textContent = '👍 추천하기';
+                            modalVoteBtn.style.backgroundColor = '#3498db';
+                        }
+                    }
+                    
+                    // 모달의 추천자 목록도 업데이트
+                    const votersList = document.querySelector('#contributionDetailModal .voters-list');
+                    if (votersList) {
+                        // 서버에서 최신 데이터를 가져와서 업데이트 (간단하게 전체 목록 새로고침)
+                        fetch(`${API_BASE_URL}/contributions?status=pending`)
+                            .then(response => response.json())
+                            .then(contributions => {
+                                const contribution = contributions.find(c => c._id === id);
+                                if (contribution && contribution.votedBy) {
+                                    votersList.innerHTML = contribution.votedBy.length > 0 ? 
+                                        contribution.votedBy.map(voter => `<div style="margin-bottom: 5px;">• ${voter}</div>`).join('') : 
+                                        '<div style="color: #bdc3c7; font-style: italic;">아직 추천자가 없습니다.</div>';
+                                }
+                            })
+                            .catch(error => console.error('Failed to update voters list:', error));
+                    }
+                    
+                    alert(data.message);
+                } else {
+                    alert(data.message || '추천 실패');
+                }
+            } catch (error) {
+                console.error('voteContribution error:', error);
+                alert('오류 발생');
+            }
+        };
+
+        // 🚩 [추가] 승인 함수
+        window.approveContribution = async (id, status) => {
+            if (!confirm(`정말로 이 사료를 ${status === 'approved' ? '검토 완료' : '검토 거부'}하시겠습니까?`)) return;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/contributions/${id}/status`, {
+                    method: 'PUT',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}` 
+                    },
+                    body: JSON.stringify({ status })
+                });
+                
+                const data = await response.json();
+                if (response.ok) {
+                    alert(data.message);
+                    // 모달 닫기 및 목록 새로고침
+                    document.getElementById('contributionDetailModal').style.display = 'none';
+                    loadContributions();
+                    
+                    // 승인/거부된 contribution의 상세 정보 업데이트를 위해 캐시 클리어
+                    if (typeof contributions !== 'undefined' && Array.isArray(contributions)) {
+                        // contributions 배열에서 해당 항목 업데이트
+                        const index = contributions.findIndex(c => c._id === id);
+                        if (index !== -1) {
+                            // 해당 contribution의 상태를 업데이트
+                            contributions[index].status = status;
+                            contributions[index].reviewedAt = new Date().toISOString();
+                            contributions[index].approverUsername = parseJwt(token).username;
+                        }
+                    }
+                } else {
+                    alert(data.message || '승인 실패');
+                }
+            } catch (error) {
+                alert('오류 발생');
+            }
+        };
+
+        // 🚩 [추가] 검토 함수
+        window.reviewContribution = async (id, status) => {
+            const comment = document.getElementById('reviewComment')?.value || '';
+            if (!confirm(`정말로 이 사료를 ${status === 'approved' ? '검토 완료' : '검토 거부'}하시겠습니까?`)) return;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/contributions/${id}/review`, {
+                    method: 'PUT',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}` 
+                    },
+                    body: JSON.stringify({ status, comment })
+                });
+                
+                const data = await response.json();
+                if (response.ok) {
+                    alert(data.message);
+                    // 모달 닫기 및 페이지 새로고침
+                    document.getElementById('contributionDetailModal').style.display = 'none';
+                    location.reload();
+                } else {
+                    alert(data.message || '검토 실패');
+                }
+            } catch (error) {
+                alert('오류 발생');
+            }
+        };
+        function showContributionDetail(contribution) {
+            const modal = document.getElementById('contributionDetailModal');
+            const content = document.getElementById('contributionDetailContent');
+            const currentUser = parseJwt(token);
+
+            const statusColor = contribution.status === 'approved' ? '#27ae60' : 
+                               contribution.status === 'rejected' ? '#e74c3c' : '#f39c12';
+            const statusText = contribution.status === 'approved' ? '승인됨' : 
+                              contribution.status === 'rejected' ? '거부됨' : '승인 대기중';
+            const statusIcon = contribution.status === 'approved' ? '✅' : 
+                              contribution.status === 'rejected' ? '❌' : '⏳';
+
+            const isMyContribution = currentUser && contribution.userId.toString() === currentUser.userId;
+
+            content.innerHTML = `
+                <div style="background-color: ${isMyContribution ? '#1a252f' : '#2c3e50'}; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid ${isMyContribution ? '#3498db' : '#5d7185'};">
+                    <h3 style="margin: 0 0 10px 0; color: #ffffff;">${contribution.name || contribution.title || '제목 없음'} ${isMyContribution ? '�� (내 사료)' : ''}</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <span style="color: #bdc3c7; font-size: 0.9em;">제출자: ${contribution.username || '알 수 없음'}</span>
+                        <span style="color: ${statusColor}; font-weight: bold;">${statusIcon} ${statusText}</span>
+                    </div>
+                    <div style="color: #bdc3c7; font-size: 0.9em;">제출일: ${new Date(contribution.createdAt).toLocaleString()}</div>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <h4 style="color: #f1c40f; margin-bottom: 10px;">📝 사료 내용</h4>
+                    <div style="background-color: #34495e; padding: 15px; border-radius: 5px; line-height: 1.6; color: #ffffff;">
+                        ${contribution.description || '내용이 없습니다.'}
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                    <div>
+                        <h4 style="color: #f1c40f; margin-bottom: 10px;">📊 통계 정보</h4>
+                        <div style="background-color: #34495e; padding: 15px; border-radius: 5px; color: #ffffff;">
+                            <div style="margin-bottom: 8px;"><strong>추천 수:</strong> ${contribution.votes || 0}</div>
+                            <div style="margin-bottom: 8px;"><strong>카테고리:</strong> ${contribution.category || '미분류'}</div>
+                            <div style="margin-bottom: 8px;"><strong>좌표:</strong> ${contribution.lat ? contribution.lat.toFixed(4) : 'N/A'}, ${contribution.lng ? contribution.lng.toFixed(4) : 'N/A'}</div>
+                            <div><strong>장소명:</strong> ${contribution.name || 'N/A'}</div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h4 style="color: #f1c40f; margin-bottom: 10px;">� 추천자 목록</h4>
+                        <div style="background-color: #34495e; padding: 15px; border-radius: 5px; color: #ffffff; max-height: 150px; overflow-y: auto;" class="voters-list">
+                            ${contribution.votedBy && contribution.votedBy.length > 0 ? 
+                                contribution.votedBy.map(voterId => `<div style="margin-bottom: 5px;">• ${voterId}</div>`).join('') : 
+                                '<div style="color: #bdc3c7; font-style: italic;">아직 추천자가 없습니다.</div>'}
+                        </div>
+                    </div>
+
+                    <div>
+                        <h4 style="color: #f1c40f; margin-bottom: 10px;">👨‍⚖️ 검토 정보</h4>
+                        <div style="background-color: #34495e; padding: 15px; border-radius: 5px; color: #ffffff;">
+                            <div style="margin-bottom: 8px;"><strong>검토자:</strong> ${contribution.reviewerUsername && contribution.reviewedAt ? contribution.reviewerUsername : '배정되지 않음'}</div>
+                            <div style="margin-bottom: 8px;"><strong>검토 완료:</strong> ${contribution.reviewedAt ? new Date(contribution.reviewedAt).toLocaleString() : '미완료'}</div>
+                            <div><strong>최종 승인자:</strong> ${contribution.approverUsername || 'N/A'}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="text-align: center;">
+                    ${contribution.status === 'pending' && currentUser && contribution.userId !== currentUser.userId ? 
+                        `<button onclick="voteContribution('${contribution._id}')" style="padding: 10px 20px; background-color: ${contribution.votedBy && contribution.votedBy.includes(currentUser.username) ? '#e74c3c' : '#3498db'}; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">${contribution.votedBy && contribution.votedBy.includes(currentUser.username) ? '👎 추천 취소' : '👍 추천하기'}</button>` : 
+                        ''}
+                    
+                    ${contribution.status === 'pending' && currentUser && contribution.reviewerId && contribution.reviewerId.toString() === currentUser.userId && contribution.userId.toString() !== currentUser.userId ? 
+                        `<button onclick="reviewContribution('${contribution._id}', 'approved')" style="padding: 10px 20px; background-color: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-left: 10px;">✅ 검토 승인</button>
+                         <button onclick="reviewContribution('${contribution._id}', 'rejected')" style="padding: 10px 20px; background-color: #e74c3c; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-left: 10px;">❌ 검토 거부</button>` : 
+                        ''}
+                    
+                    ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'superuser') ? 
+                        `<button onclick="approveContribution('${contribution._id}', 'approved')" style="padding: 10px 20px; background-color: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-left: 10px;">✅ 검토 완료</button>
+                         <button onclick="approveContribution('${contribution._id}', 'rejected')" style="padding: 10px 20px; background-color: #e74c3c; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-left: 10px;">❌ 검토 거부</button>` : 
+                        ''}
+                </div>
+            `;
+
+            modal.style.display = 'block';
+            
+            // 포커스 관리: 모달이 열릴 때 포커스를 모달로 이동
+            setTimeout(() => {
+                if (modal) {
+                    modal.focus();
+                    // ESC 키로 모달 닫기
+                    const handleEscape = (e) => {
+                        if (e.key === 'Escape') {
+                            modal.style.display = 'none';
+                            document.removeEventListener('keydown', handleEscape);
+                        }
+                    };
+                    document.addEventListener('keydown', handleEscape);
+                }
+            }, 100);
+        }
+
+        // 🚩 [추가] 검토 모달 표시 함수
+        window.showReviewModal = async (contributionId) => {
+            try {
+                // contribution 데이터 가져오기
+                const response = await fetch(`${API_BASE_URL}/contributions?status=pending`);
+                const contributions = await response.json();
+                const contribution = contributions.find(c => c._id === contributionId);
+                
+                if (!contribution) {
+                    alert('기여를 찾을 수 없습니다.');
+                    return;
+                }
+
+                const modal = document.getElementById('contributionDetailModal');
+                const content = document.getElementById('contributionDetailContent');
+                const currentUser = parseJwt(token);
+
+                const statusColor = '#f39c12'; // 검토 중
+                const statusText = '검토 대기중';
+                const statusIcon = '🔍';
+
+                const isMyContribution = currentUser && contribution.userId.toString() === currentUser.userId;
+
+                content.innerHTML = `
+                    <div style="background-color: ${isMyContribution ? '#1a252f' : '#2c3e50'}; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #f39c12;">
+                        <h3 style="margin: 0 0 10px 0; color: #ffffff;">🔍 검토 중: ${contribution.name || contribution.title || '제목 없음'} ${isMyContribution ? '👤 (내 사료)' : ''}</h3>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <span style="color: #bdc3c7; font-size: 0.9em;">제출자: ${contribution.username || '알 수 없음'}</span>
+                            <span style="color: ${statusColor}; font-weight: bold;">${statusIcon} ${statusText}</span>
+                        </div>
+                        <div style="color: #bdc3c7; font-size: 0.9em;">제출일: ${new Date(contribution.createdAt).toLocaleString()}</div>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="color: #f1c40f; margin-bottom: 10px;">📝 사료 내용</h4>
+                        <div style="background-color: #34495e; padding: 15px; border-radius: 5px; line-height: 1.6; color: #ffffff;">
+                            ${contribution.description || '내용이 없습니다.'}
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="color: #f1c40f; margin-bottom: 10px;">📊 검토 정보</h4>
+                        <div style="background-color: #34495e; padding: 15px; border-radius: 5px; color: #ffffff;">
+                            <div style="margin-bottom: 8px;"><strong>추천 수:</strong> ${contribution.votes || 0}</div>
+                            <div style="margin-bottom: 8px;"><strong>카테고리:</strong> ${contribution.category || '미분류'}</div>
+                            <div style="margin-bottom: 8px;"><strong>좌표:</strong> ${contribution.lat}, ${contribution.lng}</div>
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="color: #f1c40f; margin-bottom: 10px;">💬 검토 의견 (선택사항)</h4>
+                        <textarea id="reviewComment" placeholder="검토 의견을 입력하세요..." style="width: 100%; height: 80px; padding: 10px; border: 1px solid #34495e; border-radius: 5px; background-color: #2c3e50; color: #ffffff; resize: vertical;"></textarea>
+                    </div>
+
+                    <div style="text-align: center;">
+                        <button onclick="reviewContribution('${contribution._id}', 'approved')" style="padding: 12px 25px; background-color: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-right: 10px;">✅ 검토 완료</button>
+                        <button onclick="reviewContribution('${contribution._id}', 'rejected')" style="padding: 12px 25px; background-color: #e74c3c; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-right: 10px;">❌ 검토 거부</button>
+                        <button onclick="document.getElementById('contributionDetailModal').style.display='none'" style="padding: 12px 25px; background-color: #95a5a6; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">취소</button>
+                    </div>
+                `;
+
+                modal.style.display = 'block';
+            } catch (error) {
+                console.error('검토 모달 표시 오류:', error);
+                alert('검토 모달을 표시할 수 없습니다.');
+            }
+        }
+
+        async function displayRanking() {
+            try {
+                const response = await fetch('/api/rankings');
+                const users = await response.json();
+                const tableBody = document.getElementById('rankingList');
+                tableBody.innerHTML = ''; // Clear previous data
+
+                if (users.length === 0) {
+                    const row = document.createElement('tr');
+                    const cell = document.createElement('td');
+                    cell.colSpan = 7;
+                    cell.textContent = '랭킹 정보가 없습니다.';
+                    cell.style.textAlign = 'center';
+                    row.appendChild(cell);
+                    tableBody.appendChild(row);
+                    return;
+                }
+
+                users.forEach((user, index) => {
+                    const row = document.createElement('tr');
+                    const rank = index + 1;
+                    
+                    // 1위(문하시중)에게 특별한 황금색 스타일 적용
+                    if (rank === 1) {
+                        row.style.background = 'linear-gradient(135deg, rgba(243, 156, 18, 0.2), rgba(230, 126, 34, 0.2))';
+                        row.style.border = '2px solid #f39c12';
+                        row.style.boxShadow = '0 0 8px rgba(243, 156, 18, 0.3)';
+                        row.innerHTML = `
+                            <td style="text-align: left; padding: 5px; font-weight: bold; color: #f39c12;">${rank} 👑</td>
+                            <td style="text-align: left; font-weight: bold;">${user.username}</td>
+                            <td style="text-align: left; font-weight: bold; color: #f39c12;">${user.position || '백성'}</td>
+                            <td style="text-align: right; font-weight: bold;">${user.totalCount || 0}</td>
+                            <td style="text-align: right; font-weight: bold;">${user.totalVotes || 0}</td>
+                            <td style="text-align: right; font-weight: bold;">${user.approvedCount || 0}</td>
+                            <td style="text-align: right; font-weight: bold; color: #f39c12;">${user.score || 0}</td>
+                        `;
+                    } else {
+                        row.innerHTML = `
+                            <td style="text-align: left; padding: 5px;">${rank}</td>
+                            <td style="text-align: left;">${user.username}</td>
+                            <td style="text-align: left;">${user.position || '백성'}</td>
+                            <td style="text-align: right;"><span style="cursor: pointer; color: #3498db; text-decoration: underline;" onclick="showUserContributions('${user.username}')">${user.totalCount || 0}</span></td>
+                            <td style="text-align: right;">${user.totalVotes || 0}</td>
+                            <td style="text-align: right;">${user.approvedCount || 0}</td>
+                            <td style="text-align: right;">${user.score || 0}</td>
+                        `;
+                    }
+                    tableBody.appendChild(row);
+                });
+            } catch (error) {
+                console.error('Error fetching ranking data:', error);
+                const tableBody = document.getElementById('rankingList');
+                tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center;">랭킹을 불러오는데 실패했습니다.</td></tr>';
+            }
+        }
+
+        // 🚩 [추가] 특정 사용자의 사료 표시 함수
+        window.showUserContributions = async (username) => {
+            try {
+                const response = await fetch('/api/contributions');
+                const contributions = await response.json();
+                const userContributions = contributions.filter(c => c.username === username);
+                const currentUser = parseJwt(token);
+
+                // 사료 탭으로 전환
+                switchTab(contributionsTab, contributionsTabBtn, rankingTab, rankingTabBtn);
+                
+                // 필터를 "전체 사료"로 설정
+                document.getElementById('contributionFilter').value = 'all';
+
+                const container = document.getElementById('contributionsList');
+                container.innerHTML = `<div style="text-align: center; padding: 20px; background-color: #2c3e50; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #3498db;">
+                    <h3 style="margin: 0; color: #ecf0f1;">👤 ${username}님의 사료 목록</h3>
+                    <p style="margin: 5px 0 0 0; color: #bdc3c7;">총 ${userContributions.length}개의 사료</p>
+                </div>`;
+
+                if (userContributions.length === 0) {
+                    container.innerHTML += '<div style="text-align: center; padding: 40px; color: #bdc3c7;">표시할 사료가 없습니다.</div>';
+                    return;
+                }
+
+                userContributions.forEach(contribution => {
+                    const item = document.createElement('div');
+                    item.style.border = '1px solid #5d7185';
+                    item.style.borderRadius = '8px';
+                    item.style.padding = '15px';
+                    item.style.marginBottom = '10px';
+                    item.style.backgroundColor = '#34495e';
+                    item.style.cursor = 'pointer';
+                    item.style.transition = 'all 0.2s ease';
+
+                    // 현재 사용자의 사료인지 확인
+                    const isMyContribution = currentUser && contribution.userId === currentUser.id;
+                    if (isMyContribution) {
+                        item.style.borderLeft = '4px solid #3498db';
+                        item.style.backgroundColor = '#1a252f';
+                    }
+
+                    const statusColor = contribution.status === 'approved' ? '#27ae60' : 
+                                       contribution.status === 'rejected' ? '#e74c3c' : '#f39c12';
+                    const statusText = contribution.status === 'approved' ? '승인됨' : 
+                                      contribution.status === 'rejected' ? '거부됨' : '대기중';
+                    const statusIcon = contribution.status === 'approved' ? '✅' : 
+                                      contribution.status === 'rejected' ? '❌' : '⏳';
+
+                    item.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                            <div style="font-weight: bold; color: #ffffff;">${contribution.name || contribution.title || '제목 없음'} ${isMyContribution ? '👤' : ''}</div>
+                            <div style="color: ${statusColor}; font-weight: bold; font-size: 0.9em;">${statusIcon} ${statusText}</div>
+                        </div>
+                        <div style="color: #bdc3c7; margin-bottom: 10px; font-size: 0.9em;">제출자: ${contribution.username || '알 수 없음'} | ${new Date(contribution.createdAt).toLocaleDateString()}</div>
+                        <div style="color: #ffffff; line-height: 1.4; margin-bottom: 10px;">${contribution.description || '내용 없음'}</div>
+                        <div style="margin-top: 10px; font-size: 0.9em; color: #bdc3c7;">
+                            추천: ${contribution.votes || 0} | 카테고리: ${contribution.category || '미분류'}
+                        </div>
+                    `;
+
+                    // 호버 효과
+                    item.onmouseover = () => {
+                        item.style.transform = 'translateY(-2px)';
+                        item.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
+                    };
+                    item.onmouseout = () => {
+                        item.style.transform = 'translateY(0)';
+                        item.style.boxShadow = 'none';
+                    };
+
+                    // 클릭 이벤트로 상세 모달 열기
+                    item.onclick = () => showContributionDetail(contribution);
+
+                    // 투표 버튼 추가 (승인 대기중이고 자신의 사료가 아닌 경우만)
+                    if (contribution.status === 'pending' && currentUser && contribution.userId !== currentUser.id) {
+                        const voteBtn = document.createElement('button');
+                        voteBtn.textContent = '추천하기';
+                        voteBtn.style.marginTop = '10px';
+                        voteBtn.style.padding = '5px 10px';
+                        voteBtn.style.backgroundColor = '#3498db';
+                        voteBtn.style.color = 'white';
+                        voteBtn.style.border = 'none';
+                        voteBtn.style.borderRadius = '4px';
+                        voteBtn.style.cursor = 'pointer';
+                        voteBtn.onclick = (e) => {
+                            e.stopPropagation(); // 클릭 이벤트 전파 방지
+                            voteContribution(contribution._id);
+                        };
+                        item.appendChild(voteBtn);
+                    }
+
+                    container.appendChild(item);
+                });
+            } catch (error) {
+                console.error('Error fetching user contributions:', error);
+                alert('사용자의 사료를 불러오는데 실패했습니다.');
+            }
+        }
+        async function displayContributions() {
+            try {
+                const response = await fetch('/api/contributions');
+                const contributions = await response.json();
+                const container = document.getElementById('contributionsList');
+                const filter = document.getElementById('contributionFilter').value;
+                const currentUser = parseJwt(token);
+
+                // 디버깅 정보 추가
+                console.log('=== 사료 표시 디버깅 ===');
+                console.log('토큰 존재:', !!token);
+                console.log('현재 사용자:', currentUser);
+                console.log('필터 값:', filter);
+                console.log('총 사료 수:', contributions.length);
+
+                if (currentUser) {
+                    console.log('사용자 ID:', currentUser.id);
+                    console.log('사용자 _id:', currentUser._id);
+                    console.log('사용자 sub:', currentUser.sub);
+                    console.log('사용자 userId:', currentUser.userId);
+                    console.log('사용자 이름:', currentUser.username);
+                    
+                    // 다양한 ID 필드로 시도
+                    const possibleIds = [currentUser.id, currentUser._id, currentUser.sub, currentUser.userId].filter(id => id);
+                    console.log('가능한 ID들:', possibleIds);
+                    
+                    const userContributions = contributions.filter(c => {
+                        const match = possibleIds.some(id => c.userId === id || c.userId === id?.toString());
+                        console.log('사료 비교:', c.userId, 'vs 가능한 ID들:', possibleIds, '일치:', match, '제목:', c.name || c.title);
+                        return match;
+                    });
+                    console.log('사용자의 사료 수:', userContributions.length);
+                }
+
+                container.innerHTML = ''; // Clear previous data
+
+                let filteredContributions = contributions;
+                if (filter === 'mine' && currentUser) {
+                    // 다양한 ID 필드로 시도
+                    const possibleIds = [currentUser.id, currentUser._id, currentUser.sub, currentUser.userId].filter(id => id);
+                    filteredContributions = contributions.filter(c => 
+                        possibleIds.some(id => c.userId === id || c.userId === id?.toString())
+                    );
+                    console.log('필터링 후 사료 수:', filteredContributions.length);
+                }
+
+                if (filteredContributions.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; padding: 20px; color: #bdc3c7;">표시할 사료가 없습니다.</div>';
+                    return;
+                }
+
+                filteredContributions.forEach(contribution => {
+                    const item = document.createElement('div');
+                    item.style.border = '1px solid #5d7185';
+                    item.style.borderRadius = '8px';
+                    item.style.padding = '15px';
+                    item.style.marginBottom = '10px';
+                    item.style.backgroundColor = '#2c3e50';
+                    item.style.cursor = 'pointer';
+                    item.style.transition = 'all 0.2s ease';
+
+                    // 자신의 사료는 특별한 스타일 적용
+                    const possibleIds = currentUser ? [currentUser.id, currentUser._id, currentUser.sub, currentUser.userId].filter(id => id) : [];
+                    const isMyContribution = currentUser && possibleIds.some(id => contribution.userId === id || contribution.userId === id?.toString());
+                    if (isMyContribution) {
+                        item.style.borderLeft = '4px solid #3498db';
+                        item.style.backgroundColor = '#1a252f';
+                    }
+
+                    const statusColor = contribution.status === 'approved' ? '#27ae60' : 
+                                       contribution.status === 'rejected' ? '#e74c3c' : '#f39c12';
+                    const statusText = contribution.status === 'approved' ? '승인됨' : 
+                                      contribution.status === 'rejected' ? '거부됨' : '대기중';
+                    const statusIcon = contribution.status === 'approved' ? '✅' : 
+                                      contribution.status === 'rejected' ? '❌' : '⏳';
+
+                    item.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                            <div style="font-weight: bold; color: #ffffff;">${contribution.name || contribution.title || '제목 없음'} ${isMyContribution ? '👤' : ''}</div>
+                            <div style="color: ${statusColor}; font-weight: bold; font-size: 0.9em;">${statusIcon} ${statusText}</div>
+                        </div>
+                        <div style="color: #bdc3c7; margin-bottom: 10px; font-size: 0.9em;">제출자: ${contribution.username || '알 수 없음'} | ${new Date(contribution.createdAt).toLocaleDateString()}</div>
+                        <div style="color: #ffffff; line-height: 1.4; margin-bottom: 10px;">${contribution.description || '내용 없음'}</div>
+                        <div style="margin-top: 10px; font-size: 0.9em; color: #95a5a6;">
+                            추천: ${contribution.votes || 0} | 카테고리: ${contribution.category || '미분류'}
+                        </div>
+                    `;
+
+                    // 호버 효과
+                    item.onmouseover = () => {
+                        item.style.transform = 'translateY(-2px)';
+                        item.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
+                    };
+                    item.onmouseout = () => {
+                        item.style.transform = 'translateY(0)';
+                        item.style.boxShadow = 'none';
+                    };
+
+                    // 클릭 이벤트로 상세 모달 열기
+                    item.onclick = () => showContributionDetail(contribution);
+
+                    // 투표 버튼 추가 (승인 대기중이고 자신의 사료가 아닌 경우만)
+                    if (contribution.status === 'pending' && currentUser && contribution.userId !== currentUser.id) {
+                        const voteBtn = document.createElement('button');
+                        voteBtn.textContent = '추천하기';
+                        voteBtn.style.marginTop = '10px';
+                        voteBtn.style.padding = '5px 10px';
+                        voteBtn.style.backgroundColor = '#3498db';
+                        voteBtn.style.color = 'white';
+                        voteBtn.style.border = 'none';
+                        voteBtn.style.borderRadius = '4px';
+                        voteBtn.style.cursor = 'pointer';
+                        voteBtn.onclick = (e) => {
+                            e.stopPropagation(); // 클릭 이벤트 전파 방지
+                            voteContribution(contribution._id);
+                        };
+                        item.appendChild(voteBtn);
+                    }
+
+                    container.appendChild(item);
+                });
+            } catch (error) {
+                console.error('Error fetching contributions:', error);
+                const container = document.getElementById('contributionsList');
+                container.innerHTML = '<div style="text-align: center; padding: 20px; color: #e74c3c;">사료를 불러오는데 실패했습니다.</div>';
+            }
+        }
+
+        // 🚩 [추가] 초기 랭킹 표시
+        displayRanking();
+
+        // 🚩 [추가] 랭킹 표시 클릭 시 모달 열기
+        const rankingDisplay = document.getElementById('rankingDisplay');
+        if (rankingDisplay) {
+            rankingDisplay.style.cursor = 'pointer';
+            rankingDisplay.addEventListener('click', () => {
+                const rankingModal = document.getElementById('rankingModal');
+                if (rankingModal) {
+                    rankingModal.style.display = 'block';
+                    // 랭킹 데이터 다시 로드
+                    displayRanking();
+                    
+                    // 포커스 관리: 모달이 열릴 때 포커스를 모달로 이동
+                    setTimeout(() => {
+                        const modalContent = document.getElementById('rankingModalContent');
+                        if (modalContent) modalContent.focus();
+                    }, 100);
+                }
+            });
+        }
+
+        // 🚩 [추가] 5분마다 랭킹 업데이트
+        setInterval(displayRanking, 5 * 60 * 1000);
 
     });
   </script>
 
-</body>
-</html>
-  </script>
+  <!-- 🚩 [추가] 랭킹 모달 -->
+  <div id="rankingModal" class="modal" style="display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
+    <div id="rankingModalContent" class="modal-content" style="background: #2c3e50; color: #ecf0f1; border: 2px solid #f1c40f; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 20px; width: 90%; max-width: 1000px; min-height: 600px; height: 70vh; overflow-y: auto; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.8); resize: vertical; cursor: move;">
+      <div id="rankingModalHeader" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; cursor: move;">
+        <h2 style="margin: 0; color: #f1c40f;">📜 사관(史官) 랭킹 및 사료</h2>
+        <div style="display: flex; gap: 10px;">
+          <button type="button" id="rankInfoBtn" style="background: #8e44ad; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">직급 안내</button>
+          <button id="closeRankingBtn" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #ecf0f1;">&times;</button>
+        </div>
+      </div>
+      
+      <!-- 탭 메뉴 -->
+      <div style="display: flex; border-bottom: 1px solid #5d7185; margin-bottom: 20px;">
+        <button id="rankingTabBtn" style="padding: 10px 20px; border: none; background: #3498db; color: white; cursor: pointer; border-radius: 4px 4px 0 0;">🏆 랭킹</button>
+        <button id="contributionsTabBtn" style="padding: 10px 20px; border: none; background: #5d7185; color: #ecf0f1; cursor: pointer; border-radius: 4px 4px 0 0;">📚 사료</button>
+      </div>
+      
+      <!-- 랭킹 탭 내용 -->
+      <div id="rankingTab" style="display: block;">
+        <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px;">
+          <thead>
+            <tr style="border-bottom: 1px solid #5d7185;">
+              <th style="text-align: left; padding: 5px; color: #ecf0f1;">순위</th>
+              <th style="text-align: left; padding: 5px; color: #ecf0f1;">사관명</th>
+              <th style="text-align: left; padding: 5px; color: #ecf0f1;">직급</th>
+              <th style="text-align: right; padding: 5px; color: #ecf0f1;">사료제출(3점)</th>
+              <th style="text-align: right; padding: 5px; color: #ecf0f1;">추천 수(1점)</th>
+              <th style="text-align: right; padding: 5px; color: #ecf0f1;">승인 건수(5점)</th>
+              <th style="text-align: right; padding: 5px; color: #ecf0f1;">공적</th>
+            </tr>
+          </thead>
+          <tbody id="rankingList">
+            <!-- 랭킹 데이터가 여기에 동적으로 추가됩니다 -->
+          </tbody>
+        </table>
+      </div>
+      
+      <!-- 사료 탭 내용 -->
+      <div id="contributionsTab" style="display: none;">
+        <div style="margin-bottom: 15px;">
+          <label style="margin-right: 10px; color: #ecf0f1;">필터:</label>
+          <select id="contributionFilter" style="padding: 5px; border: 1px solid #5d7185; border-radius: 4px; background: #34495e; color: #ecf0f1;">
+            <option value="mine">내 사료만</option>
+            <option value="all">전체 사료</option>
+          </select>
+        </div>
+        <div id="contributionsList" style="max-height: 400px; overflow-y: auto;">
+          <!-- 사료 데이터가 여기에 동적으로 추가됩니다 -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🚩 [추가] 사료 상세 모달 -->
+  <div id="contributionDetailModal" class="modal" style="display: none; position: fixed; z-index: 10001; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6);">
+    <div class="modal-content" style="background-color: #2c3e50; color: #ecf0f1; margin: 5% auto; padding: 20px; border: 2px solid #f1c40f; width: 90%; max-width: 700px; max-height: 80vh; overflow-y: auto; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2 style="margin: 0; color: #f1c40f;">📚 사료 상세 정보</h2>
+        <button id="closeContributionDetailBtn" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #ecf0f1;">&times;</button>
+      </div>
+      <div id="contributionDetailContent">
+        <!-- 상세 내용이 여기에 동적으로 추가됩니다 -->
+      </div>
+    </div>
+  </div>
+  <div id="rankInfoModal" class="modal" style="display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
+    <div class="modal-content" style="background-color: #2c3e50; color: #ecf0f1; margin: 5% auto; padding: 20px; border: 2px solid #f1c40f; width: 90%; max-width: 900px; max-height: 80vh; overflow-y: auto; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2 style="margin: 0; color: #f1c40f;">📜 고려만리지도 사관(史館) 직급 시스템 안내</h2>
+        <button id="closeRankInfoBtn" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #ecf0f1;">&times;</button>
+      </div>
+
+      <div style="line-height: 1.6;">
+        <blockquote style="font-style: italic; font-size: 1.1em; color: #7f8c8d; border-left: 4px solid #3498db; padding-left: 15px; margin: 20px 0;">
+          "사관의 붓 끝에서 대륙의 강역이 되살아납니다."
+        </blockquote>
+
+        <p style="text-align: justify; margin-bottom: 25px;">
+          고려만리지도는 『고려사』, 『고려도경』 및 천문 기록을 바탕으로 왜곡된 역사를 바로잡는 집단지성 연구소입니다. 사관이 되어 대륙 고려의 실체를 입증하고 명예로운 품계를 획득하십시오.
+        </p>
+
+        <h3 style="color: #34495e; margin-top: 30px; border-bottom: 2px solid #3498db; padding-bottom: 8px;">🎖️ 사관의 공적(P)을 쌓는 법</h3>
+        <p style="margin-bottom: 15px;">단순한 데이터 입력이 아닌, 사료를 입증하고 논리를 세우는 과정이 모두 공적이 됩니다.</p>
+
+        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
+          <p style="margin: 5px 0; font-weight: bold;">역사연구 보고서 상주 (1P):</p>
+          <ul style="margin: 10px 0; padding-left: 20px;">
+            <li><strong>지명 고증:</strong> 고지도와 대륙 지형을 대조하여 성곽, 강, 산의 위치 보고.</li>
+            <li><strong>천문 대조:</strong> 사서의 천문 기록이 대륙 특정 좌표에서 관측됨을 증명.</li>
+            <li><strong>문물 입증:</strong> 원숭이, 낙타, 금 등 대륙적 산물 기록을 근거로 강역 논증.</li>
+          </ul>
+
+          <p style="margin: 5px 0; font-weight: bold;">보고서 최종 승인 (5P):</p>
+          <ul style="margin: 10px 0; padding-left: 20px;">
+            <li>제출한 보고서가 수국사(정2품) 이상의 검증을 거쳐 '공식 강역'으로 확정될 시 획득.</li>
+          </ul>
+
+          <p style="margin: 5px 0; font-weight: bold;">학술적 지지 획득 (1P):</p>
+          <ul style="margin: 10px 0; padding-left: 20px;">
+            <li>다른 사관들로부터 연구 내용에 대해 '추천'을 받을 때마다 누적.</li>
+          </ul>
+        </div>
+
+        <h3 style="color: #34495e; margin-top: 30px; border-bottom: 2px solid #e74c3c; padding-bottom: 8px;">🏛️ 고려 사관 직급 체계 (The Hierarchy)</h3>
+
+        <h4 style="color: #c0392b; margin-top: 25px;">[재상단 : 경쟁 임명제]</h4>
+        <p style="font-size: 0.9em; color: #7f8c8d; margin-bottom: 15px;">최고의 고증 실력을 갖춘 단 4인에게만 허락되는 지고한 직위입니다.</p>
+
+        <table style="width: 100%; border-collapse: collapse; margin: 15px 0; border: 2px solid #f39c12;">
+          <thead>
+            <tr style="background-color: #f39c12; color: white;">
+              <th style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold;">품계</th>
+              <th style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold;">직급명</th>
+              <th style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold;">임명 조건</th>
+              <th style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold;">주요 권한</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="background-color: #fff8e1;">
+              <td style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold; color: #d68910;">정1품</td>
+              <td style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold;">문하시중</td>
+              <td style="border: 1px solid #ddd; padding: 12px; text-align: center;">점수 1위</td>
+              <td style="border: 1px solid #ddd; padding: 12px; text-align: left;">복원 정책 최종 결정 및 지도 서문 집필</td>
+            </tr>
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold; color: #d68910;">종1품</td>
+              <td style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold;">감수국사</td>
+              <td style="border: 1px solid #ddd; padding: 12px; text-align: center;">점수 2위</td>
+              <td style="border: 1px solid #ddd; padding: 12px; text-align: left;">사초(데이터) 최종 관리 및 아카이빙</td>
+            </tr>
+            <tr style="background-color: #fff8e1;">
+              <td style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold; color: #d68910;">정2품</td>
+              <td style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold;">수국사</td>
+              <td style="border: 1px solid #ddd; padding: 12px; text-align: center;">점수 3위</td>
+              <td style="border: 1px solid #ddd; padding: 12px; text-align: left;">연구 보고서 최종 승인 (지도 반영)</td>
+            </tr>
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold; color: #d68910;">종2품</td>
+              <td style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold;">동수국사</td>
+              <td style="border: 1px solid #ddd; padding: 12px; text-align: center;">점수 4위</td>
+              <td style="border: 1px solid #ddd; padding: 12px; text-align: left;">권역별(산동, 남경 등) 학술 심의 총괄</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h4 style="color: #27ae60; margin-top: 25px;">[학관단 : 자동 진급제]</h4>
+        <p style="font-size: 0.9em; color: #7f8c8d; margin-bottom: 15px;">일정 공적을 쌓으면 그 전문성을 인정받아 품계가 자동으로 상승합니다.</p>
+
+        <table style="width: 100%; border-collapse: collapse; margin: 15px 0; border: 2px solid #27ae60;">
+          <thead>
+            <tr style="background-color: #27ae60; color: white;">
+              <th style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">구분</th>
+              <th style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">품계</th>
+              <th style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">직급명</th>
+              <th style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">누적 공적</th>
+              <th style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">주요 역할</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="background-color: #e8f5e8;">
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #27ae60;">고위</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">정3품</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">상서</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">2,600</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">고위 학술 심의 참여</td>
+            </tr>
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #27ae60;">고위</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">종3품</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">한림학사</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">2,100</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">국가 공인 문장가 및 외교 고증</td>
+            </tr>
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #3498db;">중견</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">정4품</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">사천감</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">1,700</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">천문-지리 데이터 일치 검증</td>
+            </tr>
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #3498db;">중견</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">종4품</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">수찬관</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">1,400</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">보고서 1차 검토 권한</td>
+            </tr>
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #3498db;">중견</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">정5품</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">낭중</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">1,100</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">실무 고증 책임자</td>
+            </tr>
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #3498db;">중견</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">종5품</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">기거주</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">1,600</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">정밀 기록자</td>
+            </tr>
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #9b59b6;">하급</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">정6품</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">좌·우사간</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">1,250</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">기록 비판 및 수정</td>
+            </tr>
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #9b59b6;">하급</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">종6품</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">직사관</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">450</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">전문 사관 (본격 연구 시작)</td>
+            </tr>
+            <tr style="background-color: #e8f5e8;">
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #9b59b6;">하급</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">정7품</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">태학박사</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">300</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">학술적 근거 정립 및 가이드</td>
+            </tr>
+              <tr>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #9b59b6;">하급</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">종7품</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">사천승</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">200</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">실무 데이터 대조</td>
+            </tr>
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #9b59b6;">하급</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">정8품</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">지제고</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">120</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">숙련된 기록자</td>
+            </tr>
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #9b59b6;">하급</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">종8품</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">기주관</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">60</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">성실한 수집가</td>
+            </tr>
+            <tr style="background-color: #e8f5e8;">
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #9b59b6;">하급</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">정9품</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">학유</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">30</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">기초 고증 학습 및 사료 수집</td>
+            </tr>
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #9b59b6;">하급</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">종9품</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">검열</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">10</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">정식 사관 임명 (첫 공적)</td>
+            </tr>
+            <tr style="background-color: #f8f9fa;">
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #95a5a6;">입문</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">별외</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">참봉</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">0</td>
+              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">수습 사관 (연구 시작)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 style="color: #34495e; margin-top: 30px; border-bottom: 2px solid #9b59b6; padding-bottom: 8px;">💡 사관을 위한 지침</h3>
+
+        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
+          <p style="margin: 8px 0; font-weight: bold; color: #e74c3c;">실시간 인사 조정:</p>
+          <p style="margin: 5px 0; padding-left: 15px;">재상급(1~4위) 관직은 랭킹에 따라 매일 아침 조정됩니다. 문하시중의 자리를 지키기 위해 연구를 멈추지 마십시오.</p>
+
+          <p style="margin: 8px 0; font-weight: bold; color: #f39c12;">불멸의 이름:</p>
+          <p style="margin: 5px 0; padding-left: 15px;">최고위 사관의 업적은 <strong>'대륙 고려 전도 명예의 전당'</strong>에 영구히 기록됩니다.</p>
+
+          <p style="margin: 8px 0; font-weight: bold; color: #c0392b;">허위 보고 주의:</p>
+          <p style="margin: 5px 0; padding-left: 15px;">근거 없는 정보를 반복 제출할 경우 공적이 삭감될 수 있습니다.</p>
+        </div>
+
+        <blockquote style="font-style: italic; font-size: 1.1em; color: #7f8c8d; border-left: 4px solid #3498db; padding-left: 15px; margin: 25px 0;">
+          "기록되지 않은 역사는 사라지지만, 사관이 증명한 강역은 영원합니다."
+        </blockquote>
+
+        <div style="background-color: #ecf0f1; color: white; padding: 20px; border-radius: 8px; margin-top: 25px; text-align: center;">
+          <p style="margin: 0; font-size: 1.1em; font-weight: bold;">
+            지금 바로 대륙의 지명과 천문의 궤적을 담은 첫 번째 연구 보고서를 상주하십시오.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
 
 </body>
 </html>

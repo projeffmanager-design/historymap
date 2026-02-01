@@ -2331,44 +2331,6 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
-        // 🚩 [추가] DELETE: 본인 사료 삭제 (승인 전에만 가능)
-        app.delete('/api/contributions/:id/my', verifyToken, async (req, res) => {
-            try {
-                const { id } = req.params;
-                const userId = req.user.userId;
-                const _id = toObjectId(id);
-                if (!_id) return res.status(400).json({ message: '잘못된 ID 형식입니다.' });
-
-                const contribution = await collections.contributions.findOne({ _id });
-                if (!contribution) return res.status(404).json({ message: '항목을 찾을 수 없습니다.' });
-
-                // 본인 사료인지 확인
-                if (contribution.userId.toString() !== userId) {
-                    return res.status(403).json({ message: '본인이 제출한 사료만 삭제할 수 있습니다.' });
-                }
-
-                // 승인된 사료는 삭제 불가
-                if (contribution.status === 'approved') {
-                    return res.status(400).json({ message: '이미 승인된 사료는 삭제할 수 없습니다.' });
-                }
-
-                const result = await collections.contributions.deleteOne({ _id });
-                if (result.deletedCount === 0) {
-                    return res.status(500).json({ message: '삭제에 실패했습니다.' });
-                }
-
-                // 제출자의 totalCount 감소
-                await collections.users.updateOne(
-                    { _id: toObjectId(userId) },
-                    { $inc: { totalCount: -1 } }
-                );
-
-                res.json({ message: '사료가 삭제되었습니다.' });
-            } catch (error) {
-                res.status(500).json({ message: '삭제 실패', error: error.message });
-            }
-        });
-
         // DELETE: 기여 삭제 (관리자 전용)
         app.delete('/api/contributions/:id', verifyAdmin, async (req, res) => {
             try {

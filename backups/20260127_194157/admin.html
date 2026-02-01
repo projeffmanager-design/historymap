@@ -34,7 +34,7 @@
             align-items: center;
         }
         .container {
-            max-width: 1200px;
+            max-width: 1600px; /* 🚩 [수정] 페이지 전체 너비 확장 */
             margin: 0 auto;
             background: #2c3e50;
             padding: 20px;
@@ -50,8 +50,25 @@
             border: 1px solid #5d7185;
             text-align: left;
         }
+        /* 🚩 [추가] 작업 버튼 셀이 줄바꿈되지 않도록 설정 */
+        td:last-child {
+            white-space: nowrap;
+        }
         th {
             background-color: #3e4a56;
+        }
+        /* 🚩 [추가] 정렬 가능한 테이블 헤더 스타일 */
+        th.sortable {
+            cursor: pointer;
+            position: relative;
+        }
+        th.sortable.sort-asc::after {
+            content: ' ▲';
+            opacity: 1;
+        }
+        th.sortable.sort-desc::after {
+            content: ' ▼';
+            opacity: 1;
         }
         form {
             display: flex; 
@@ -341,7 +358,10 @@
                     <th class="sortable" data-sort-by="username">사용자 이름</th>
                     <th class="sortable" data-sort-by="email">이메일</th>
                     <th class="sortable" data-sort-by="lastLogin">마지막 로그인</th>
+                    <th class="sortable" data-sort-by="loginCount">로그인 횟수</th>
                     <th class="sortable" data-sort-by="role">역할</th>
+                    <th class="sortable" data-sort-by="position">직급</th>
+                    <th class="sortable" data-sort-by="createdAt">가입일</th>
                     <th>작업</th>
                 </tr>
             </thead>
@@ -366,6 +386,27 @@
                 <option value="user">User</option>
                 <option value="admin">Admin</option>
                 <option value="superuser">Superuser</option>
+            </select>
+            <select id="position">
+                <option value="참봉">참봉</option>
+                <option value="검열">검열</option>
+                <option value="학유">학유</option>
+                <option value="기주관">기주관</option>
+                <option value="지제고">지제고</option>
+                <option value="사천승">사천승</option>
+                <option value="태학박사">태학박사</option>
+                <option value="직사관">직사관</option>
+                <option value="좌·우사간">좌·우사간</option>
+                <option value="기거주">기거주</option>
+                <option value="낭중">낭중</option>
+                <option value="수찬관">수찬관</option>
+                <option value="사천감">사천감</option>
+                <option value="한림학사">한림학사</option>
+                <option value="상서">상서</option>
+                <option value="수국사">수국사</option>
+                <option value="동수국사">동수국사</option>
+                <option value="감수국사">감수국사</option>
+                <option value="문하시중">문하시중</option>
             </select>
             <button type="submit">등록</button>
         </form>
@@ -430,6 +471,30 @@
                             <option value="user">User</option>
                             <option value="admin">Admin</option>
                             <option value="superuser">Superuser</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label for="editPosition">직급</label>
+                        <select id="editPosition">
+                            <option value="참봉">참봉</option>
+                            <option value="검열">검열</option>
+                            <option value="학유">학유</option>
+                            <option value="기주관">기주관</option>
+                            <option value="기주관">지제고</option>
+                            <option value="사천승">사천승</option>
+                            <option value="태학박사">태학박사</option>
+                            <option value="직사관">직사관</option>
+                            <option value="좌·우사간">좌·우사간</option>
+                            <option value="기거주">기거주</option>
+                            <option value="낭중">낭중</option>
+                            <option value="수찬관">수찬관</option>
+                            <option value="사천감">사천감</option>
+                            <option value="한림학사">한림학사</option>
+                            <option value="상서">상서</option>
+                            <option value="수국사">수국사</option>
+                            <option value="동수국사">동수국사</option>
+                            <option value="감수국사">감수국사</option>
+                            <option value="문하시중">문하시중</option>
                         </select>
                     </div>
                     <div style="text-align: right; display: flex; gap: 10px; justify-content: flex-end; margin-top: 15px;">
@@ -570,11 +635,17 @@
                 const lastLogin = user.lastLogin 
                     ? new Date(user.lastLogin).toLocaleString() 
                     : '기록 없음';
+                const createdAt = user.createdAt 
+                    ? new Date(user.createdAt).toLocaleString() 
+                    : '알 수 없음';
                 tr.innerHTML = ` 
                     <td>${user.username}</td>
                     <td>${user.email || '미입력'}</td>
                     <td>${lastLogin}</td>
+                    <td>${user.loginCount || 0}회</td>
                     <td>${user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'N/A'}</td>
+                    <td>${user.position || '참봉'}</td>
+                    <td>${createdAt}</td>
                     <td>
                         <button class="button lock-btn" onclick="toggleLockStatus(this, '${user._id}', ${user.isLocked || false})">${user.isLocked ? '잠금 해제' : '계정 잠금'}</button>
                         <button class="primary" onclick="openEditUserModal('${user._id}')">수정</button>
@@ -828,6 +899,7 @@
             const password = document.getElementById('password').value;
             const email = document.getElementById('email').value;
             const role = document.getElementById('role').value;
+            const position = document.getElementById('position').value;
             const submitBtn = e.target.querySelector('button[type="submit"]');
 
             try {
@@ -837,7 +909,7 @@
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${token}`
                     },
-                    body: JSON.stringify({ username, password, email, role })
+                    body: JSON.stringify({ username, password, email, role, position })
                 });
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.message);
@@ -994,23 +1066,23 @@
                 let valA = a[key];
                 let valB = b[key];
 
-                if (key === 'lastLogin') {
+                if (key === 'lastLogin' || key === 'createdAt') {
                     // '기록 없음' (null) 값을 가장 오래된 것으로 처리
-                    valA = valA ? new Date(valA).getTime() : -Infinity;
-                    valB = valB ? new Date(valB).getTime() : -Infinity;
+                    const dateA = valA ? new Date(valA).getTime() : 0;
+                    const dateB = valB ? new Date(valB).getTime() : 0;
+                    return (dateA - dateB) * direction;
+                } else if (key === 'loginCount') {
+                    const numA = Number(valA) || 0;
+                    const numB = Number(valB) || 0;
+                    return (numA - numB) * direction;
                 } else {
                     // 문자열 비교
                     valA = String(valA || '').toLowerCase();
                     valB = String(valB || '').toLowerCase();
+                    if (valA < valB) return -1 * direction;
+                    if (valA > valB) return 1 * direction;
+                    return 0;
                 }
-
-                if (valA < valB) {
-                    return -1 * direction;
-                }
-                if (valA > valB) {
-                    return 1 * direction;
-                }
-                return 0;
             });
 
             filteredAndSortedUsers = tempUsers;
@@ -1037,6 +1109,7 @@
             if (!header) return;
 
             const sortKey = header.dataset.sortBy;
+            if (!sortKey) return;
 
             if (currentSort.key === sortKey) {
                 currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
@@ -1082,6 +1155,7 @@
             document.getElementById('editUsername').value = user.username;
             document.getElementById('editEmail').value = user.email;
             document.getElementById('editRole').value = user.role;
+            document.getElementById('editPosition').value = user.position || '참봉';
             document.getElementById('editPassword').value = ''; // 비밀번호 필드는 항상 비움
 
             editUserModal.style.display = 'block';
@@ -1100,6 +1174,7 @@
                 username: document.getElementById('editUsername').value,
                 email: document.getElementById('editEmail').value,
                 role: document.getElementById('editRole').value,
+                position: document.getElementById('editPosition').value,
             };
 
             const password = document.getElementById('editPassword').value;
