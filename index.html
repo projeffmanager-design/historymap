@@ -126,8 +126,8 @@ body.force-mobile #accountLink {
     padding: 4px 8px !important;
     font-size: 11px !important;
 }
+/* 🚩 [수정] 모바일에서도 회원 관리는 admin만 표시되도록 CSS 제거 */
 body.force-mobile #adminLink {
-    display: inline-block !important;
     padding: 4px 8px !important;
     font-size: 11px !important;
 }
@@ -9703,6 +9703,20 @@ function getCountryInfoById(id) {
         }
         
         try {
+            // 🚩 [수정] 토큰 가져오기
+            const token = getToken();
+            if (!token) {
+                alert('로그인이 필요합니다.');
+                return;
+            }
+
+            // 🚩 [추가] 토큰 디코딩하여 권한 확인
+            const payload = parseJwt(token);
+            if (!payload || (payload.role !== 'admin' && payload.role !== 'superuser')) {
+                alert('⛔ 국가 정보 수정은 관리자 권한이 필요합니다.\n\n현재 계정: ' + (payload?.username || '알 수 없음') + '\n권한: ' + (payload?.role || '없음') + '\n\n관리자 계정으로 로그인해주세요.');
+                return;
+            }
+
             let url = `${API_BASE_URL}/countries`;
             let method = 'POST';
 
@@ -9720,7 +9734,10 @@ function getCountryInfoById(id) {
                 body: JSON.stringify(data)
             });
 
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+            }
 
             alert(isUpdate ? "국가 정보가 성공적으로 수정되었습니다." : "새 국가가 성공적으로 추가되었습니다.");
 
@@ -9753,12 +9770,29 @@ function getCountryInfoById(id) {
         const originalName = document.getElementById('countryOriginalName').value;
         if (!originalName || !confirm('정말로 이 국가를 삭제하시겠습니까? 해당 국가의 모든 성/전장 정보는 유지되지만 국가 정보가 없어집니다.')) return;
         try {
+            // 🚩 [수정] 토큰 가져오기
+            const token = getToken();
+            if (!token) {
+                alert('로그인이 필요합니다.');
+                return;
+            }
+
+            // 🚩 [추가] 토큰 디코딩하여 권한 확인
+            const payload = parseJwt(token);
+            if (!payload || (payload.role !== 'admin' && payload.role !== 'superuser')) {
+                alert('⛔ 국가 정보 삭제는 관리자 권한이 필요합니다.\n\n현재 계정: ' + (payload?.username || '알 수 없음') + '\n권한: ' + (payload?.role || '없음') + '\n\n관리자 계정으로 로그인해주세요.');
+                return;
+            }
+
             const response = await fetch(`${API_BASE_URL}/countries/${originalName}`, { 
                 method: 'DELETE',
                 headers: { 'Authorization': `Bearer ${token}` }
             });
 
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+            }
 
             document.getElementById('countryForm').style.display = 'none';
             
@@ -11650,11 +11684,17 @@ kingSelect.addEventListener('change', () => {
                 // 🚩 [추가] 게스트는 기여 기능 숨김
                 const userContributionsBtn = document.querySelector('button[data-layer="userContributions"]');
                 if (userContributionsBtn) userContributionsBtn.style.display = 'none';
+                // 🚩 [추가] 게스트는 사관 기록 제출 버튼 숨김
+                const historicalRecordBtn = document.getElementById('historicalRecordButton');
+                if (historicalRecordBtn) historicalRecordBtn.style.display = 'none';
             } else {
                 document.getElementById('accountLink').style.display = 'inline-block';
                 // 🚩 [추가] 일반 유저는 기여 기능 표시
                 const userContributionsBtn = document.querySelector('button[data-layer="userContributions"]');
                 if (userContributionsBtn) userContributionsBtn.style.display = 'inline-block';
+                // 🚩 [추가] 일반 유저는 사관 기록 제출 버튼 표시
+                const historicalRecordBtn = document.getElementById('historicalRecordButton');
+                if (historicalRecordBtn) historicalRecordBtn.style.display = 'block';
             }
             const isPrivileged = currentUser.role === 'admin' || currentUser.role === 'superuser';
             const approverPositions = ['수국사', '동수국사', '감수국사', '문하시중'];
@@ -11663,22 +11703,43 @@ kingSelect.addEventListener('change', () => {
                 // 🚩 [수정] 사관 랭킹은 로그인한 모든 유저가 볼 수 있도록 함
                 rankingBtn.style.display = 'inline-block';
             }
+            // 🚩 [수정] 회원 관리는 admin 역할만 표시 (게스트 제외)
             if (adminLink) {
-                adminLink.style.display = currentUser.role === 'admin' ? 'inline-block' : 'none';
+                if (currentUser.role === 'admin' && !currentUser.isGuest) {
+                    adminLink.style.setProperty('display', 'inline-block', 'important');
+                } else {
+                    adminLink.style.setProperty('display', 'none', 'important');
+                }
             }
             if (territoryManagerLink) {
                 territoryManagerLink.style.display = isPrivileged ? 'inline-block' : 'none';
+            }
+            // 🚩 [수정] 편집 버튼은 관리자만 표시
+            if (editDropdownContainer) {
+                editDropdownContainer.style.display = isPrivileged ? 'inline-block' : 'none';
+            }
+            // 🚩 [추가] 모바일 편집 버튼도 관리자만 표시
+            const mobileEditDropdownContainer = document.getElementById('mobile-edit-dropdown-container');
+            if (mobileEditDropdownContainer) {
+                mobileEditDropdownContainer.style.display = isPrivileged ? 'block' : 'none';
             }
             // 🚩 [추가] 탑바 실시간 직급 업데이트
             await updateTopBarUserInfo();
             // 🚩 [수정] 로그인 시 항상 일반 뷰 모드로 시작 (편집모드 자동 활성화 제거)
             setEditModeState(false);
-            if (isPrivileged && editDropdownContainer) {
-                editDropdownContainer.style.display = 'inline-block';
-            }
         } else {
-            if (adminLink) adminLink.style.display = 'none';
+            // 🚩 [수정] 비로그인 시 회원 관리 숨김 (important로 강제)
+            if (adminLink) adminLink.style.setProperty('display', 'none', 'important');
             if (territoryManagerLink) territoryManagerLink.style.display = 'none';
+            // 🚩 [수정] 비로그인 시 편집 버튼 숨김
+            if (editDropdownContainer) {
+                editDropdownContainer.style.display = 'none';
+            }
+            // 🚩 [추가] 비로그인 시 모바일 편집 버튼도 숨김
+            const mobileEditDropdownContainer = document.getElementById('mobile-edit-dropdown-container');
+            if (mobileEditDropdownContainer) {
+                mobileEditDropdownContainer.style.display = 'none';
+            }
             setEditModeState(false);
         }
 
