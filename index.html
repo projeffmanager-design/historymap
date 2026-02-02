@@ -7274,23 +7274,46 @@ function getCountryInfoById(id) {
 
           try {
               // 1. 타일 인덱스 로드
-              // 🎯 [로컬/서버 호환] 경로 자동 감지
+              // 🎯 [로컬/서버 호환] 절대 경로 + 캐시 무효화
               // - 로컬 개발: /public/tiles/ (Express static 미들웨어)
               // - Vercel 배포: /tiles/ (public 폴더가 루트로 이동)
-              let tilesBasePath = '/tiles';
               
-              // 먼저 /tiles/ 시도 (Vercel 방식)
-              let indexResponse = await fetch('/tiles/index.json');
+              // 🔥 [캐시 무효화] 타임스탬프 추가로 Vercel Edge Cache 우회
+              const timestamp = new Date().getTime();
+              const origin = window.location.origin; // 절대 경로 생성
+              
+              let tilesBasePath = '/tiles';
+              let indexUrl = `${origin}/tiles/index.json?v=${timestamp}`;
+              
+              console.log('📡 시도 중인 절대 경로:', indexUrl);
+              
+              // 먼저 /tiles/ 시도 (Vercel 방식) + 캐시 무효화 헤더
+              let indexResponse = await fetch(indexUrl, {
+                  method: 'GET',
+                  headers: {
+                      'Accept': 'application/json',
+                      'Cache-Control': 'no-cache',
+                      'Pragma': 'no-cache'
+                  }
+              });
               
               // 404면 /public/tiles/ 시도 (로컬 개발)
               if (!indexResponse.ok) {
                   console.log('🔄 /tiles/ 실패, /public/tiles/ 시도...');
                   tilesBasePath = '/public/tiles';
-                  indexResponse = await fetch('/public/tiles/index.json');
+                  indexUrl = `${origin}/public/tiles/index.json?v=${timestamp}`;
+                  indexResponse = await fetch(indexUrl, {
+                      method: 'GET',
+                      headers: {
+                          'Accept': 'application/json',
+                          'Cache-Control': 'no-cache',
+                          'Pragma': 'no-cache'
+                      }
+                  });
               }
               
               if (!indexResponse.ok) {
-                  throw new Error(`타일 인덱스 로드 실패: ${indexResponse.status}`);
+                  throw new Error(`타일 인덱스 로드 실패: ${indexResponse.status} (URL: ${indexUrl})`);
               }
               
               const tileIndex = await indexResponse.json();
@@ -7305,8 +7328,16 @@ function getCountryInfoById(id) {
                   const batch = tileIndex.slice(i, i + batchSize);
                   const batchPromises = batch.map(async (tile) => {
                       try {
-                          // 감지된 경로 사용
-                          const tileResponse = await fetch(`${tilesBasePath}/${tile.filename}`);
+                          // 감지된 경로 사용 + 캐시 무효화
+                          const tileUrl = `${origin}${tilesBasePath}/${tile.filename}?v=${timestamp}`;
+                          const tileResponse = await fetch(tileUrl, {
+                              method: 'GET',
+                              headers: {
+                                  'Accept': 'application/json',
+                                  'Cache-Control': 'no-cache',
+                                  'Pragma': 'no-cache'
+                              }
+                          });
                           if (!tileResponse.ok) {
                               console.warn(`타일 로드 실패: ${tile.filename}`);
                               return [];
