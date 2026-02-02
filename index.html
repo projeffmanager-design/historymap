@@ -7255,13 +7255,27 @@ function getCountryInfoById(id) {
 
           try {
               // 1. 타일 인덱스 로드
-              // 🎯 [Vercel 호환] /public/ 제거 (Vercel은 public 폴더를 루트로 배포)
-              const indexResponse = await fetch('/tiles/index.json');
+              // 🎯 [로컬/서버 호환] 경로 자동 감지
+              // - 로컬 개발: /public/tiles/ (Express static 미들웨어)
+              // - Vercel 배포: /tiles/ (public 폴더가 루트로 이동)
+              let tilesBasePath = '/tiles';
+              
+              // 먼저 /tiles/ 시도 (Vercel 방식)
+              let indexResponse = await fetch('/tiles/index.json');
+              
+              // 404면 /public/tiles/ 시도 (로컬 개발)
+              if (!indexResponse.ok) {
+                  console.log('🔄 /tiles/ 실패, /public/tiles/ 시도...');
+                  tilesBasePath = '/public/tiles';
+                  indexResponse = await fetch('/public/tiles/index.json');
+              }
+              
               if (!indexResponse.ok) {
                   throw new Error(`타일 인덱스 로드 실패: ${indexResponse.status}`);
               }
+              
               const tileIndex = await indexResponse.json();
-              console.log(`📊 타일 인덱스: ${tileIndex.length}개 타일`);
+              console.log(`📊 타일 인덱스: ${tileIndex.length}개 타일 (경로: ${tilesBasePath})`);
 
               // 2. 모든 타일 파일들 로드 (287개 영토는 충분히 작아서 전체 로드 가능)
               // 병렬로 10개씩 로드해서 서버 부하 방지
@@ -7272,8 +7286,8 @@ function getCountryInfoById(id) {
                   const batch = tileIndex.slice(i, i + batchSize);
                   const batchPromises = batch.map(async (tile) => {
                       try {
-                          // 🎯 [Vercel 호환] /public/ 제거
-                          const tileResponse = await fetch(`/tiles/${tile.filename}`);
+                          // 감지된 경로 사용
+                          const tileResponse = await fetch(`${tilesBasePath}/${tile.filename}`);
                           if (!tileResponse.ok) {
                               console.warn(`타일 로드 실패: ${tile.filename}`);
                               return [];
