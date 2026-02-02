@@ -37,6 +37,11 @@
 // (removed duplicate/conflicting menu toggle logic)
 </script>
 <style>
+            .header-icon img {
+            width: 120px;
+            height: auto;
+            max-width: 100%;
+        }
 /* 세로가 가로보다 길면(모바일 강제) 모바일 레이아웃 적용 */
 body.force-mobile #mainContainer {
     flex-direction: column !important;
@@ -2507,9 +2512,10 @@ function enableFormDrag(formId) {
           <!-- 🚩 [이동] PC용 컨트롤 토글 버튼을 아이디 오른쪽으로 이동 -->
           <!-- 모바일에서는 톱니 버튼 제거 -->
           <button id="pcTopPanelToggleBtn" class="button-style" title="컨트롤 패널 숨기기/보이기" style="display:none;">⚙️</button>
-          <a id="accountLink" href="account.html" class="button-style" style="display: none;">계정 관리</a>
-          <a id="adminLink" href="admin.html" class="button-style" style="display: none;">회원 관리</a>
-          <a id="territoryManagerLink" href="territory_manager.html" class="button-style" style="display: none;">영토 관리</a>
+          <a id="recruitLink" href="recruit.html" class="button-style" style="background-color: #f39c12; border-color: #e67e22; font-weight: 600;">🏯 사관 모집</a>
+          <button id="accountLink" class="button-style" style="display: none;">계정 관리</button>
+          <button id="adminLink" class="button-style" style="display: none;">회원 관리</button>
+          <button id="territoryManagerLink" class="button-style" style="display: none;">영토 관리</button>
           <button id="rankingBtn" class="button-style" style="background-color: #8e44ad; border-color: #9b59b6;">사관(史館)랭킹</button>
           <button id="logoutBtnHeader" class="danger">로그아웃</button>
       </div>
@@ -3667,6 +3673,7 @@ function enableFormDrag(formId) {
     let contributions = []; // 🚩 [추가] 유저 기여 데이터
     let markers = [];
     let currentOpenPopup = null; // 🚩 [추가] 현재 열린 팝업 추적
+    let isInitializing = true; // 🚀 [최적화] 초기 로딩 플래그
 
     function getCastleLayerType(castle) {
         if (!castle) return 'city';
@@ -3732,7 +3739,7 @@ function enableFormDrag(formId) {
         military: false,   // 🔄 [최적화] 군대 초기 OFF
         battle: false,     // 🔄 [최적화] 전장 초기 OFF
         natural: false,    // 🔄 [최적화] 자연 초기 OFF
-        territoryPolygon: false, // 🔄 [변경] 영토 초기 ON
+        territoryPolygon: true, // 🔄 [변경] 영토 초기 ON (자동 로딩)
         rivers: false,    // 🌊 [추가] 강 레이어 가시성
         event: false,      // 📖 [최적화] 이벤트 초기 OFF
         timeline: true,   // 🚩 [추가] 연대표 가시성
@@ -4977,13 +4984,42 @@ function getKingByYear(countryName, year, month) {
 // --- 4. 지도 렌더링 및 마커 생성 함수 ---
 
 function updateMap(year, month, cacheOnly = false) {
+        // 🚀 [최적화] 초기 로딩 중에는 실행 차단
+        if (isInitializing) {
+            console.log('⏭️ 초기 로딩 중이므로 updateMap 스킵');
+            return;
+        }
+        
+        // 🎯 [핵심] 빈 데이터로 캐시 데이터 덮어쓰기 방지
+        // castles가 0개인데 territories가 있다면, 이전에 렌더링된 캐시 보호
+        if (castles.length === 0 && territories.length > 0) {
+            console.log('⚠️ [밥상 보호] castles 없이 territories만 있음. 서버 데이터 대기 중... 기존 렌더링 유지');
+            return; // 🛡️ 밥상을 엎지 못하게 막음!
+        }
+        
+        // 둘 다 비어있으면 렌더링 불가
+        if (castles.length === 0 && territories.length === 0) {
+            console.log('⏭️ castles와 territories가 모두 비어있음, 렌더링할 데이터 없음');
+            return;
+        }
+        
+        console.log(`🗺️ updateMap 호출: year=${year}, month=${month}, cacheOnly=${cacheOnly}`);
+        console.log(`  📊 지도 상태: map=${!!map}, map._loaded=${map?._loaded}`);
+        console.log(`  📦 데이터 현황: castles=${castles.length}, territories=${territories.length}, countries=${countries.length}`);
+        
         // Leaflet.heat 초기화는 지도 load 이후에만 안전하게 진행 가능하므로, 아직 로드되지 않았다면 다시 호출을 예약합니다.
         if (!map || !map._loaded) {
+            console.warn('⚠️ 지도가 아직 로드되지 않음, 로드 대기 중...');
             if (map && typeof map.once === 'function') {
-                map.once('load', () => updateMap(year, month, cacheOnly));
+                map.once('load', () => {
+                    console.log('✅ 지도 로드 완료, updateMap 재호출');
+                    updateMap(year, month, cacheOnly);
+                });
             }
             return;
         }
+        
+        console.log('✅ 지도 로드 확인됨, 렌더링 시작...');
 
         // 🚩 [수정] 그리기 레이어 초기화를 다른 레이어 초기화와 함께 처리
         if (drawnItems) drawnItems.clearLayers();
@@ -5015,12 +5051,17 @@ function updateMap(year, month, cacheOnly = false) {
             // 🚩 [추가] 이미 렌더링된 영토 추적 (중복 방지)
             const renderedTerritories = new Set();
             
+            console.log(`🗺️ 영토 렌더링 시작: territories=${territories.length}, territoryPolygon=${layerVisibility.territoryPolygon}`);
+            
+            let skipReasons = { duplicate: 0, outOfView: 0, timeRange: 0, noCountry: 0, countryNotFound: 0 };
+            
             territories.forEach(territory => {
                 // 📖️ [수정] 전역 추적과 로컬 중복 방지 모두 적용
                 const territoryKey = `${territory._id || territory.name}_${year}`;
                 const localKey = `${territory.name}_${territory.type}`;
                 
                 if (renderedTerritories.has(localKey)) {
+                    skipReasons.duplicate++;
                     return; // 로컬 중복 방지
                 }
                 renderedTerritories.add(localKey);
@@ -5028,6 +5069,7 @@ function updateMap(year, month, cacheOnly = false) {
                 // 뷰포트와 전혀 겹치지 않는 폴리곤은 스킵하여 성능 개선
                 const tBounds = getTerritoryBounds(territory);
                 if (tBounds && (tBounds.maxLat < viewBox.minLat || tBounds.minLat > viewBox.maxLat || tBounds.maxLng < viewBox.minLng || tBounds.minLng > viewBox.maxLng)) {
+                    skipReasons.outOfView++;
                     return;
                 }
 
@@ -5035,18 +5077,23 @@ function updateMap(year, month, cacheOnly = false) {
                 const startYear = territory.start || territory.start_year || -5000;
                 const endYear = territory.end || territory.end_year || 3000;
                 
-                if (!(year >= startYear && year <= endYear)) return;
+                if (!(year >= startYear && year <= endYear)) {
+                    skipReasons.timeRange++;
+                    return;
+                }
                 
                 // 🚩 폴리곤 내 마커들의 국가를 계산하여 지배 국가 결정
                 // 가중치: 수도=3, 일반 도시=1
                 const dominantCountryId = calculateDominantCountry(territory, year, month);
                 if (!dominantCountryId) {
                     // 마커가 없거나 국가를 결정할 수 없는 경우 조용히 건너뛰기
+                    skipReasons.noCountry++;
                     return;
                 }
                 
                 const countryInfo = getCountryInfoById(dominantCountryId);
                 if (!countryInfo) {
+                    skipReasons.countryNotFound++;
                     return;
                 }
                 
@@ -5092,6 +5139,9 @@ function updateMap(year, month, cacheOnly = false) {
                 renderedCount++;
             });
             
+            console.log(`✅ 영토 렌더링 완료: ${renderedCount}개 폴리곤 추가됨`);
+            console.log(`📊 스킵 이유: 중복=${skipReasons.duplicate}, 뷰포트밖=${skipReasons.outOfView}, 시간범위=${skipReasons.timeRange}, 국가없음=${skipReasons.noCountry}, 국가찾기실패=${skipReasons.countryNotFound}`);
+            
             // 영토 색칠 로그 제거 (불필요)
         }
 
@@ -5134,8 +5184,8 @@ function updateMap(year, month, cacheOnly = false) {
             contributionLayerGroup.clearLayers();
 
             contributions.forEach(contrib => {
-                // 🚩 [수정] '유저복원' 레이어에는 '대기 중(pending)'인 기여만 표시 (승인된 것은 정식 오브젝트가 됨)
-                if (contrib.status !== 'pending') return;
+                // 🚩 [수정] '유저복원' 레이어에는 '대기 중(pending)'과 '1차 검토 완료(reviewed)' 기여만 표시 (최종 승인된 것은 정식 오브젝트가 됨)
+                if (contrib.status !== 'pending' && contrib.status !== 'reviewed') return;
 
                 // 🚩 [추가] 사관 기록의 경우 좌표가 없으므로 지도에 표시하지 않음
                 if (contrib.category === 'historical_record' || !contrib.lat || !contrib.lng) return;
@@ -5149,8 +5199,18 @@ function updateMap(year, month, cacheOnly = false) {
                 );
                 console.log('Debug - isMyContribution:', isMyContribution, 'currentUser:', currentUser ? 'exists' : 'null', 'contrib.userId:', contrib.userId);
                 
-                const iconColor = isMyContribution ? '#3498db' : '#f39c12';
-                const iconHtml = `<div style="width: 16px; height: 20px; background: ${iconColor}; border: 2px solid #fff; border-radius: 2px; box-shadow: 0 0 4px rgba(0,0,0,0.5); position: relative;" title="${isMyContribution ? '내 사료' : '다른 사료'}">
+                // 🚩 [수정] 상태에 따라 마커 색상 변경: pending(대기) = 주황, reviewed(1차검토완료) = 초록
+                const isReviewed = contrib.status === 'reviewed';
+                let iconColor;
+                if (isReviewed) {
+                    iconColor = '#27ae60'; // 초록색: 1차 검토 완료
+                } else if (isMyContribution) {
+                    iconColor = '#3498db'; // 파란색: 내 대기 중 사료
+                } else {
+                    iconColor = '#f39c12'; // 주황색: 다른 사람의 대기 중 사료
+                }
+                const statusTitle = isReviewed ? '1차 검토 완료' : (isMyContribution ? '내 사료 (대기 중)' : '사료 (대기 중)');
+                const iconHtml = `<div style="width: 16px; height: 20px; background: ${iconColor}; border: 2px solid #fff; border-radius: 2px; box-shadow: 0 0 4px rgba(0,0,0,0.5); position: relative;" title="${statusTitle}">
                     <div style="width: 8px; height: 2px; background: #fff; position: absolute; top: 4px; left: 2px;"></div>
                     <div style="width: 8px; height: 2px; background: #fff; position: absolute; top: 8px; left: 2px;"></div>
                     <div style="width: 8px; height: 2px; background: #fff; position: absolute; top: 12px; left: 2px;"></div>
@@ -5170,31 +5230,61 @@ function updateMap(year, month, cacheOnly = false) {
                 
                 let adminControls = '';
                 
+                // 🚩 [수정] 현재 사용자 정보를 토큰에서 직접 파싱 (전역 currentUser가 null일 수 있음)
+                let popupCurrentUser = currentUser;
+                if (!popupCurrentUser && token) {
+                    popupCurrentUser = parseJwt(token);
+                    console.log('🔍 [팝업] 토큰에서 사용자 정보 파싱:', popupCurrentUser);
+                }
+                
                 // 권한에 따른 버튼 표시
-                if (currentUser) {
-                    const userPosition = currentUser.position;
-                    const reviewerPositions = ['수찬관', '사천감', '한림학사', '상서', '수국사', '동수국사', '감수국사', '문하시중'];
-                    const approverPositions = ['수국사', '동수국사', '감수국사', '문하시중'];
+                if (popupCurrentUser) {
+                    // 🚩 [수정] 전역 currentUser가 업데이트되었으면 그것을 사용 (DB 직급 반영)
+                    // popupCurrentUser는 토큰 파싱이고, currentUser는 /api/user/me로 업데이트됨
+                    console.log('🔍 [팝업 권한] currentUser 존재 여부:', currentUser ? 'O' : 'X');
+                    console.log('🔍 [팝업 권한] popupCurrentUser 존재 여부:', popupCurrentUser ? 'O' : 'X');
+                    console.log('🔍 [팝업 권한] currentUser 전체:', currentUser);
+                    console.log('🔍 [팝업 권한] popupCurrentUser 전체:', popupCurrentUser);
+                    
+                    const userPosition = currentUser ? currentUser.position : popupCurrentUser.position;
+                    console.log('🔍 [권한 체크] 사용할 직급:', userPosition);
+                    console.log('🔍 [권한 체크] popupCurrentUser.position:', popupCurrentUser.position);
+                    console.log('🔍 [권한 체크] currentUser?.position:', currentUser?.position);
+                    console.log('🔍 [권한 체크] contribution status:', contrib.status);
+                    
+                    // 🚩 [수정] 직급 체계 업데이트
+                    // 검토 권한: 시강학사(종4품) ~ 수찬관(정3품) - 상급 사관
+                    const reviewerPositions = [
+                        '시강학사', '사관수찬', '직수찬관', '수찬관'  // 종4품~정3품 (상급 사관)
+                    ];
+                    // 승인 권한: 동수국사(종2품) ~ 감수국사(정1품) - 재상급 (검토 없이 바로 승인 가능)
+                    const approverPositions = ['동수국사', '수국사', '판사관사', '감수국사'];
+                    
+                    console.log('🔍 [권한 체크] reviewerPositions includes:', reviewerPositions.includes(userPosition));
+                    console.log('🔍 [권한 체크] approverPositions includes:', approverPositions.includes(userPosition));
                     
                     console.log('Debug - User position:', userPosition);
                     console.log('Debug - Contribution status:', contrib.status);
                     console.log('Debug - Contribution reviewerId:', contrib.reviewerId);
-                    console.log('Debug - Current user ID:', currentUser ? currentUser.userId : 'null');
+                    console.log('Debug - Current user ID:', popupCurrentUser ? popupCurrentUser.userId : 'null');
+                    console.log('Debug - ReviewerId match:', !contrib.reviewerId || (contrib.reviewerId && contrib.reviewerId.toString() === popupCurrentUser.userId));
                     
-                    // 🚩 [수정] 검토 버튼 (수찬관 이상) - pending 상태에서만 표시
+                    // 🚩 [수정] 검토 버튼 (시강학사 이상) - pending 상태이면 표시
+                    // reviewerId 체크 제거: 검토 권한이 있는 모든 사용자가 검토 가능
                     if (reviewerPositions.includes(userPosition) && contrib.status === 'pending') {
                         console.log('Debug - 검토 버튼 표시 조건 만족');
                         adminControls += `<button onclick="showReviewModal('${contrib._id}')" class="button-style" style="padding: 2px 6px; font-size: 11px; margin-left: 5px; background-color: #f39c12;">🔍 검토</button>`;
                     }
                     
-                    // 🚩 [수정] 승인 버튼 (수국사 이상) - reviewed 또는 pending 상태에서 표시
+                    // 🚩 [수정] 승인 버튼 (동수국사 이상) - reviewed 또는 pending 상태에서 표시
+                    // 승인 시 마커 변환 폼을 바로 표시
                     if (approverPositions.includes(userPosition) && (contrib.status === 'reviewed' || contrib.status === 'pending')) {
                         console.log('Debug - 승인 버튼 표시 조건 만족');
-                        adminControls += `<button onclick="approveContribution('${contrib._id}')" class="button-style primary" style="padding: 2px 6px; font-size: 11px; margin-left: 5px; background-color: #27ae60;">✅ 최종 승인</button>`;
+                        adminControls += `<button onclick="convertContribution('${contrib._id}')" class="button-style primary" style="padding: 2px 6px; font-size: 11px; margin-left: 5px; background-color: #27ae60;">✅ 최종 승인</button>`;
                     }
                     
-                    // 🚩 [수정] 마커 변환 버튼 (수국사 이상 또는 관리자) - approved 상태에서만 표시
-                    if ((approverPositions.includes(userPosition) || currentUser.role === 'admin' || currentUser.role === 'superuser') && contrib.status === 'approved') {
+                    // 🚩 [수정] 마커 변환 버튼 (동수국사 이상 또는 관리자) - approved 상태에서만 표시
+                    if ((approverPositions.includes(userPosition) || popupCurrentUser.role === 'admin' || popupCurrentUser.role === 'superuser') && contrib.status === 'approved') {
                         adminControls += `<button onclick="convertContribution('${contrib._id}')" class="button-style primary" style="padding: 2px 6px; font-size: 11px; margin-left: 5px;">🏰 마커 변환</button>`;
                     }
                 }
@@ -5461,7 +5551,15 @@ function updateMap(year, month, cacheOnly = false) {
 
         castleLayerGroup.clearLayers(); // 마커 레이어는 기존처럼 클리어 후 다시 추가
         markers = [];
-        if (!Array.isArray(castles) || castles.length === 0) return;
+        
+        console.log(`🏰 성/도시 렌더링 시작: castles=${castles.length}, layerVisibility.city=${layerVisibility.city}`);
+        
+        if (!Array.isArray(castles) || castles.length === 0) {
+            console.warn('⚠️ castles 배열이 비어있거나 배열이 아님');
+            return;
+        }
+        
+        let renderedCastleCount = 0;
         let marker;
         
         castleLayerGroup.clearLayers();
@@ -6146,7 +6244,8 @@ function updateMap(year, month, cacheOnly = false) {
               marker = null; 
             }
         });
-
+        
+        console.log(`✅ 성/도시 렌더링 완료: 마커 ${markers.length}개 추가됨`);
     }
 
 function getCountryInfoById(id) {
@@ -6197,6 +6296,22 @@ function getCountryInfoById(id) {
     async function fetchData(endpoint) {
       try {
         console.log(`📡 [Fetch] ${endpoint} 요청 시작...`);
+        
+        // 🚀 [최적화] countries 데이터 캐싱 (localStorage)
+        if (endpoint === 'countries') {
+            const cachedData = localStorage.getItem('countries_cache');
+            const cacheTime = localStorage.getItem('countries_cache_time');
+            const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
+            
+            if (cachedData && cacheTime) {
+                const age = Date.now() - parseInt(cacheTime);
+                if (age < CACHE_DURATION) {
+                    console.log(`💾 [캐시] countries 캐시 사용 (${(age / 1000 / 60).toFixed(1)}분 전 저장)`);
+                    return JSON.parse(cachedData);
+                }
+            }
+        }
+        
         const response = await fetch(`${API_BASE_URL}/${endpoint}`, {
             headers: {
                 'Authorization': `Bearer ${token}`
@@ -6219,14 +6334,86 @@ function getCountryInfoById(id) {
         }
         const data = await response.json();
         console.log(`✅ [Fetch] ${endpoint} 완료 (${data.length || 0}개)`);
+        
+        // 🚀 [최적화] countries 데이터 캐싱 저장
+        if (endpoint === 'countries') {
+            localStorage.setItem('countries_cache', JSON.stringify(data));
+            localStorage.setItem('countries_cache_time', Date.now().toString());
+            console.log('💾 [캐시] countries 데이터 저장 완료');
+        }
+        
         return data;
       } catch (error) {
         console.error(`❌ [Fetch] ${endpoint} 오류:`, error);
+        
+        // 🚀 [최적화] 오류 시 캐시 데이터 사용 (countries)
+        if (endpoint === 'countries') {
+            const cachedData = localStorage.getItem('countries_cache');
+            if (cachedData) {
+                console.log('💾 [캐시] 오류 발생, countries 캐시 데이터 사용');
+                return JSON.parse(cachedData);
+            }
+        }
+        
         return []; 
       }
     }
 
-    // 🚩 [추가] 레이어 기본 설정 불러오기 및 적용
+    // 🚩 [최적화] 레이어 설정 먼저 로드 (데이터 로딩 전)
+    async function loadLayerSettings() {
+        console.log('🚀 [1단계] 레이어 설정 우선 로드...');
+        try {
+            const response = await fetch(`${API_BASE_URL}/layer-settings`);
+            if (!response.ok) {
+                console.log('⚠️ 레이어 설정을 불러올 수 없어 기본값을 사용합니다.');
+                return null;
+            }
+
+            const data = await response.json();
+            const settings = data.settings;
+            console.log('✅ 레이어 설정 로드 성공:', settings);
+            
+            // layerVisibility 객체 업데이트
+            Object.assign(layerVisibility, settings);
+            
+            return settings;
+        } catch (error) {
+            console.error('❌ 레이어 설정 로드 실패:', error);
+            return null;
+        }
+    }
+
+    // 🚩 [추가] 레이어 설정 UI 적용 (데이터 로딩 후)
+    function applyLayerSettingsToUI(settings) {
+        if (!settings) return;
+        
+        console.log('🎨 레이어 설정 UI 적용 중...');
+        
+        // 레이어 토글 버튼들의 초기 상태 설정
+        Object.entries(settings).forEach(([layerKey, isEnabled]) => {
+            const button = document.querySelector(`.layer-toggle-btn[data-layer="${layerKey}"]`);
+            if (button) {
+                if (isEnabled) {
+                    button.classList.add('active');
+                } else {
+                    button.classList.remove('active');
+                }
+            }
+        });
+
+        // 모바일 레이어 체크박스들도 업데이트
+        const mobileCheckboxes = document.querySelectorAll('#mobile-layer-menu input[type="checkbox"]');
+        mobileCheckboxes.forEach(checkbox => {
+            const layerKey = checkbox.dataset.layer;
+            if (settings.hasOwnProperty(layerKey)) {
+                checkbox.checked = settings[layerKey];
+            }
+        });
+        
+        console.log('✅ 레이어 설정 UI 적용 완료');
+    }
+
+    // 🚩 [기존] 레이어 기본 설정 불러오기 및 적용 (하위 호환성)
     async function loadAndApplyLayerSettings() {
         console.log('🚀 loadAndApplyLayerSettings 함수 시작');
         try {
@@ -6242,6 +6429,10 @@ function getCountryInfoById(id) {
             const settings = data.settings;
             console.log('✅ 레이어 설정 불러오기 성공:', settings);
 
+            // 🚀 [최적화] 레이어 일괄 업데이트 - 한 번의 렌더링 사이클로 처리
+            let needsMapUpdate = false;
+            const layersToUpdate = [];
+
             // 레이어 토글 버튼들의 초기 상태 설정 및 레이어 표시/숨김 적용
             Object.entries(settings).forEach(([layerKey, isEnabled]) => {
                 const button = document.querySelector(`.layer-toggle-btn[data-layer="${layerKey}"]`);
@@ -6253,38 +6444,40 @@ function getCountryInfoById(id) {
                     }
                     // layerVisibility 객체도 업데이트
                     layerVisibility[layerKey] = isEnabled;
-                    console.log(`🔧 레이어 ${layerKey}: ${isEnabled ? '활성화' : '비활성화'}`);
 
-                    // 실제 레이어 표시/숨김 적용 (모바일 체크박스 이벤트 핸들러와 동일한 로직)
+                    // UI 전용 레이어 처리 (맵 업데이트 불필요)
                     if (layerKey === 'timeline') {
                         const timelineWrapper = document.getElementById('timeline-slider-wrapper');
                         if (timelineWrapper) {
                             timelineWrapper.style.display = isEnabled ? 'block' : 'none';
-                            console.log(`📅 연대표 ${isEnabled ? '표시' : '숨김'}`);
                         }
                     } else if (layerKey === 'kingPanel') {
                         const kingPanel = document.getElementById('map-king-panel');
                         if (kingPanel) {
                             kingPanel.style.display = isEnabled ? 'block' : 'none';
-                            console.log(`👑 왕 패널 ${isEnabled ? '표시' : '숨김'}`);
                         }
                     } else if (layerKey === 'historyPanel') {
                         const historyPanel = document.getElementById('map-history-panel');
                         if (historyPanel) {
                             historyPanel.style.display = isEnabled ? 'block' : 'none';
-                            console.log(`📜 역사 패널 ${isEnabled ? '표시' : '숨김'}`);
                         }
                     }
-                    // 다른 레이어들은 맵 업데이트 (timeline, kingPanel, historyPanel 제외)
+                    // 다른 레이어들은 한 번만 업데이트 예약
                     else {
-                        const { year, month } = getCurrentYearMonth();
-                        updateMap(year, month);
-                        console.log(`🗺️ 맵 레이어 ${layerKey} 업데이트`);
+                        needsMapUpdate = true;
+                        layersToUpdate.push(layerKey);
                     }
                 } else {
                     console.warn(`⚠️ 버튼을 찾을 수 없음: .layer-toggle-btn[data-layer="${layerKey}"]`);
                 }
             });
+
+            // 🚀 [최적화] 모든 맵 레이어를 한 번에 업데이트
+            if (needsMapUpdate) {
+                const { year, month } = getCurrentYearMonth();
+                updateMap(year, month);
+                console.log(`🗺️ 일괄 맵 레이어 업데이트 (${layersToUpdate.length}개):`, layersToUpdate.join(', '));
+            }
 
             // 모바일 레이어 체크박스들도 업데이트
             const mobileCheckboxes = document.querySelectorAll('#mobile-layer-menu input[type="checkbox"]');
@@ -6318,6 +6511,180 @@ function getCountryInfoById(id) {
                     reject(err);
                 });
         });
+    }
+
+    // 🚀 [IndexedDB] 영토 타일 캐싱 시스템
+    const TERRITORY_DB_NAME = 'TerritoryTilesDB';
+    const TERRITORY_DB_VERSION = 1;
+    const TERRITORY_STORE_NAME = 'tiles';
+    const TERRITORY_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
+
+    // 🚀 [IndexedDB] Castles 캐싱 시스템
+    const CASTLES_DB_NAME = 'CastlesDB';
+    const CASTLES_DB_VERSION = 1;
+    const CASTLES_STORE_NAME = 'castles';
+    const CASTLES_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
+
+    // IndexedDB 초기화 (영토)
+    function openTerritoryDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(TERRITORY_DB_NAME, TERRITORY_DB_VERSION);
+            
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result);
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(TERRITORY_STORE_NAME)) {
+                    const objectStore = db.createObjectStore(TERRITORY_STORE_NAME, { keyPath: 'id' });
+                    objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    console.log('✅ IndexedDB 영토 타일 저장소 생성 완료');
+                }
+            };
+        });
+    }
+
+    // IndexedDB 초기화 (Castles)
+    function openCastlesDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(CASTLES_DB_NAME, CASTLES_DB_VERSION);
+            
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result);
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(CASTLES_STORE_NAME)) {
+                    const objectStore = db.createObjectStore(CASTLES_STORE_NAME, { keyPath: 'id' });
+                    objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    console.log('✅ IndexedDB Castles 저장소 생성 완료');
+                }
+            };
+        });
+    }
+
+    // 캐시에서 영토 데이터 로드
+    async function loadTerritoriesFromCache() {
+        try {
+            const db = await openTerritoryDB();
+            const transaction = db.transaction([TERRITORY_STORE_NAME], 'readonly');
+            const objectStore = transaction.objectStore(TERRITORY_STORE_NAME);
+            const request = objectStore.get('all_territories');
+            
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => {
+                    const cached = request.result;
+                    if (!cached) {
+                        resolve(null);
+                        return;
+                    }
+                    
+                    // 캐시 유효성 확인 (24시간)
+                    const age = Date.now() - cached.timestamp;
+                    if (age > TERRITORY_CACHE_DURATION) {
+                        console.log('⚠️ IndexedDB 캐시 만료 (24시간 초과)');
+                        resolve(null);
+                        return;
+                    }
+                    
+                    console.log(`💾 IndexedDB에서 영토 데이터 로드: ${cached.data.length}개 (${(age / 1000 / 60).toFixed(1)}분 전 저장)`);
+                    resolve(cached.data);
+                };
+                request.onerror = () => reject(request.error);
+            });
+        } catch (error) {
+            console.warn('⚠️ IndexedDB 로드 실패:', error);
+            return null;
+        }
+    }
+
+    // 캐시에 영토 데이터 저장
+    async function saveTerritoriesCache(territoriesData) {
+        try {
+            const db = await openTerritoryDB();
+            const transaction = db.transaction([TERRITORY_STORE_NAME], 'readwrite');
+            const objectStore = transaction.objectStore(TERRITORY_STORE_NAME);
+            
+            const cacheData = {
+                id: 'all_territories',
+                data: territoriesData,
+                timestamp: Date.now()
+            };
+            
+            objectStore.put(cacheData);
+            
+            return new Promise((resolve, reject) => {
+                transaction.oncomplete = () => {
+                    console.log('💾 IndexedDB에 영토 데이터 저장 완료');
+                    resolve();
+                };
+                transaction.onerror = () => reject(transaction.error);
+            });
+        } catch (error) {
+            console.warn('⚠️ IndexedDB 저장 실패:', error);
+        }
+    }
+
+    // 🚀 [IndexedDB] Castles 데이터 로드
+    async function loadCastlesFromCache() {
+        try {
+            const db = await openCastlesDB();
+            const transaction = db.transaction([CASTLES_STORE_NAME], 'readonly');
+            const objectStore = transaction.objectStore(CASTLES_STORE_NAME);
+            const request = objectStore.get('all_castles');
+            
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => {
+                    const cached = request.result;
+                    if (!cached) {
+                        resolve(null);
+                        return;
+                    }
+                    
+                    // 캐시 유효성 확인 (24시간)
+                    const age = Date.now() - cached.timestamp;
+                    if (age > CASTLES_CACHE_DURATION) {
+                        console.log('⚠️ Castles IndexedDB 캐시 만료 (24시간 초과)');
+                        resolve(null);
+                        return;
+                    }
+                    
+                    console.log(`💾 IndexedDB에서 Castles 데이터 로드: ${cached.data.length}개 (${(age / 1000 / 60).toFixed(1)}분 전 저장)`);
+                    resolve(cached.data);
+                };
+                request.onerror = () => reject(request.error);
+            });
+        } catch (error) {
+            console.warn('⚠️ Castles IndexedDB 로드 실패:', error);
+            return null;
+        }
+    }
+
+    // 🚀 [IndexedDB] Castles 데이터 저장
+    async function saveCastlesCache(castlesData) {
+        try {
+            const db = await openCastlesDB();
+            const transaction = db.transaction([CASTLES_STORE_NAME], 'readwrite');
+            const objectStore = transaction.objectStore(CASTLES_STORE_NAME);
+            
+            const cacheData = {
+                id: 'all_castles',
+                data: castlesData,
+                timestamp: Date.now()
+            };
+            
+            objectStore.put(cacheData);
+            
+            return new Promise((resolve, reject) => {
+                transaction.oncomplete = () => {
+                    console.log('💾 IndexedDB에 Castles 데이터 저장 완료');
+                    resolve();
+                };
+                transaction.onerror = () => reject(transaction.error);
+            });
+        } catch (error) {
+            console.warn('⚠️ Castles IndexedDB 저장 실패:', error);
+        }
     }
     
         // 🚩 [추가] 도시/성 선택 드롭다운을 채우는 함수
@@ -6359,185 +6726,470 @@ function getCountryInfoById(id) {
       const startTime = performance.now();
       
       // 🎯 로딩 패널 표시
-      showLoadingStatus('기존 통설과 가설을 분리하고 있습니다...', 0);
+      showLoadingStatus('역사의 문을 여는 중입니다...', 0);
 
-      // 빈 배열로 초기화
-      castles = [];
-      territories = [];
+      // 🎯 [핵심] 캐시 데이터 먼저 확인 (초기화 전에!)
+      const cachedCountries = localStorage.getItem('countries_cache');
+      const territoriesPromise = loadTerritoriesFromCache();
+      const castlesPromise = loadCastlesFromCache();
+      
+      // 병렬 대기
+      const [cachedTerritories, cachedCastles] = await Promise.all([
+          territoriesPromise,
+          castlesPromise
+      ]);
+      
+      // 🎯 [핵심] 캐시가 없는 데이터만 초기화 (캐시 데이터 보호!)
+      if (!cachedCastles || cachedCastles.length === 0) {
+          castles = [];
+          console.log('📦 castles 초기화 (캐시 없음)');
+      } else {
+          console.log('� castles 캐시 보존 (초기화 생략)');
+      }
+      
+      if (!cachedTerritories || cachedTerritories.length === 0) {
+          territories = [];
+          console.log('📦 territories 초기화 (캐시 없음)');
+      } else {
+          console.log('💾 territories 캐시 보존 (초기화 생략)');
+      }
+      
+      // 나머지는 항상 초기화
       events = [];
       drawings = [];
       history = [];
       naturalFeatures = [];
 
       try {
-          // ===== 단계 1: 국가 데이터 (10%) =====
-          console.log('🌍 국가 데이터 로딩...');
-          showLoadingStatus('왕조와 정체성을 기준으로 국가를 분류 중입니다...', 10);
-          countries = await fetchData('countries');
+          // ===== 🚀 [0단계] 캐시된 핵심 데이터 병렬 즉시 적용 =====
+          // 🎯 [핵심] countries, territories, castles를 병렬로 로드하여 국가 색상 매칭 가능!
+          console.log('🚀 캐시된 핵심 데이터 병렬 로딩 시작...');
           
-          // ===== 단계 2: 연대표 데이터 (20-40%) =====
-          console.log('📅 연대표 데이터 로딩...');
-          showLoadingStatus('시간의 흐름을 하나의 축으로 고정하고 있습니다...', 20);
+          // 이미 위에서 로드했으므로 여기서는 할당만
           
-          const [eventsData, historyData] = await Promise.all([
-              fetchData('events'),
-              fetchData('history')
-          ]);
+          let hasCachedData = false;
           
-          showLoadingStatus('사건 기록을 연대와 지리 위에 대입하고 있습니다...', 30);
-          events = eventsData || [];
-          history = historyData || [];
+          // Countries 캐시 적용
+          if (cachedCountries) {
+              try {
+                  countries = JSON.parse(cachedCountries);
+                  console.log(`💾 [즉시 캐시] countries ${countries.length}개 로드 완료`);
+                  hasCachedData = true;
+              } catch (e) {
+                  console.warn('⚠️ Countries 캐시 파싱 실패:', e);
+              }
+          }
           
-          // 시간 목록 생성 (연대표용)
-          showLoadingStatus('서로 다른 사서의 기록을 교차 대조하고 있습니다...', 40);
-          const historyTimes = history.map(h => yearMonthToTotalMonths(h.year, h.month || 1));
-          const eventTimes = events.map(e => yearMonthToTotalMonths(e.year, e.month || 1));
-          historyEventTimes = [...new Set([...historyTimes, ...eventTimes])].sort((a, b) => a - b);
+          // Territories 캐시 적용
+          if (cachedTerritories && cachedTerritories.length > 0) {
+              territories = cachedTerritories;
+              window.territories = cachedTerritories; // 🎯 [핵심] 전역 변수 명시적 할당
+              console.log(`💾 [즉시 캐시] territories ${territories.length}개 IndexedDB에서 로드 완료`);
+              hasCachedData = true;
+          }
           
-          console.log(`✅ 연대표 데이터: 이벤트 ${events.length}개, 역사 ${history.length}개`);
-          
-          // ===== 단계 3: 초기 지도 렌더링 (50%) =====
-          console.log("🖼️ 초기 지도 렌더링...");
-          showLoadingStatus('산과 강을 기준으로 공간 좌표를 설정 중입니다...', 50);
-          updateMap(parseInt(yearInput.value), parseInt(monthInput.value));
-          
-          // ===== 단계 4: 성/도시 데이터 (60%) =====
-          console.log('🏰 성/도시 데이터 로딩...');
-          showLoadingStatus('고지도 속 도시를 실제 지형에서 다시 찾고 있습니다...', 60);
-          const allCastlesData = await fetchData('castle');
-              
-              // 🚀 [최적화] 국가명 → ID 매핑 캐시 (countries.find() 반복 방지)
-              const countryNameMap = new Map();
-              countries.forEach(c => {
-                  if (c.name) countryNameMap.set(c.name, c._id);
-              });
-              
-              // castles 처리 (history 필드 보강)
-              castles = allCastlesData.map(castle => {
-                  // 🚀 history가 이미 정상적으로 구성되어 있으면 그대로 사용
-                  if (castle.history && Array.isArray(castle.history) && castle.history.length > 0) {
-                      const firstHistory = castle.history[0];
-                      if (firstHistory.start_year !== undefined && firstHistory.country_id) {
-                          return castle;
-                      }
-                  }
-                  
-                  // history가 없거나 불완전한 경우에만 처리
-                  let processedHistory;
-                  const hasHistory = castle.history && Array.isArray(castle.history) && castle.history.length > 0;
-
-                  if (hasHistory) {
-                      processedHistory = castle.history.map(h => {
-                          const parsedStartYear = h.start_year ?? castle.built_year ?? -5000;
-                          const parsedStartMonth = h.start_month ?? castle.built_month ?? 1;
-                          const parsedEndYear = h.end_year ?? castle.destroyed_year ?? null;
-                          const parsedEndMonth = h.end_month ?? castle.destroyed_month ?? 12;
-
-                          let resolvedCountryId = h.country_id || castle.country_id || '';
-                          if (typeof resolvedCountryId !== 'string') resolvedCountryId = String(resolvedCountryId);
-                          if (!resolvedCountryId && h.country) {
-                              resolvedCountryId = countryNameMap.get(h.country) || '';
-                          }
-
-                          return {
-                              name: h.name ?? castle.name ?? '',
-                              country_id: resolvedCountryId,
-                              start_year: parsedStartYear,
-                              start_month: parsedStartMonth,
-                              end_year: parsedEndYear,
-                              end_month: parsedEndMonth,
-                              is_capital: h.is_capital ?? castle.is_capital ?? false,
-                              is_battle: h.is_battle ?? false
-                          };
-                      });
-                  } else {
-                      processedHistory = [{
-                          name: castle.name || '',
-                          country_id: castle.country_id || '',
-                          start_year: castle.built_year || -5000,
-                          start_month: castle.built_month || 1,
-                          end_year: castle.destroyed_year,
-                          end_month: castle.destroyed_month || 12,
-                          is_capital: castle.is_capital || false,
-                          is_battle: castle.is_battle || false
-                      }];
-                  }
-
-                  if (castle.is_capital && !processedHistory.some(h => h.is_capital)) {
-                      processedHistory[0].is_capital = true;
-                  }
-
-                  return { ...castle, history: processedHistory };
-              });
-              
-              console.log(`✅ 성/도시 데이터: ${castles.length}개`);
+          // Castles 캐시 적용
+          if (cachedCastles && cachedCastles.length > 0) {
+              castles = cachedCastles;
+              window.castles = cachedCastles; // 🎯 [핵심] 전역 변수 명시적 할당
+              console.log(`💾 [즉시 캐시] castles ${castles.length}개 IndexedDB에서 로드 완료`);
+              console.log(`🔍 [디버깅] castles 첫 번째 데이터:`, castles[0]);
               populateCitySelectForEdit();
+              hasCachedData = true;
+          }
+          
+          // 🎯 [핵심] 3가지 핵심 데이터 모두 준비되면 한 번만 렌더링!
+          if (hasCachedData && countries.length > 0 && castles.length > 0 && territories.length > 0) {
+              console.log(`🚀 [캐시 강제 렌더링] countries: ${countries.length}, castles: ${castles.length}, territories: ${territories.length}`);
               
-              // 성/도시 레이어가 켜져 있으면 지도 업데이트
-              if (layerVisibility.city) {
-                  const { year, month } = getCurrentYearMonth();
-                  updateMap(year, month);
-              }
+              // 🎯 [핵심] isInitializing 플래그 일시적으로 해제 (캐시 렌더링 허용)
+              const wasInitializing = isInitializing;
+              isInitializing = false; // 문을 열어서 렌더링 허용!
+              console.log('🔓 [캐시 렌더링] isInitializing 플래그 일시 해제 (문 열림)');
               
-              // 🚀 [최적화] 영토 데이터는 백그라운드에서 로딩 (await 제거)
-              console.log('🗺️ 영토 데이터 백그라운드 로딩 시작...');
-              showLoadingStatus('시대별 영토 범위를 백그라운드에서 로딩 중입니다...', 70);
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
               
-              // await 없이 비동기로 실행 - 다른 데이터 로딩을 차단하지 않음
-              window.loadTerritoryTiles().then(() => {
-                  console.log(`✅ 영토 데이터 백그라운드 로딩 완료: ${territories.length}개`);
-                  // 영토가 켜져 있으면 지도 업데이트
-                  if (layerVisibility.territoryPolygon) {
-                      const { year, month } = getCurrentYearMonth();
-                      updateMap(year, month);
-                  }
-              }).catch(err => {
-                  console.error('❌ 영토 데이터 로딩 실패:', err);
-              });
+              // 🎯 [복원] 플래그 복원 (다른 곳에서의 중복 호출 방지)
+              isInitializing = wasInitializing;
+              console.log('🔒 [캐시 렌더링] isInitializing 플래그 복원');
               
-              showLoadingStatus('정복 가능성과 통치 범위를 분리하여 표시 중입니다...', 77);
+              console.log('🗺️ [즉시 렌더링] 캐시 데이터로 국가 색상이 입혀진 완전한 지도 렌더링 완료 (0.5초)');
+              showLoadingStatus('과거의 기록을 복원했습니다...', 35);
               
-              // 영토 로딩을 기다리지 않고 바로 다음 단계로 진행
-              console.log('👑 왕 데이터 로딩...');
-              showLoadingStatus('재위 시기와 활동 범위를 공간적으로 검증 중입니다...', 82);
-
-              const kingsDataResult = await fetchData('kings');
-              kings = {};
-              if (Array.isArray(kingsDataResult)) {
-                  kingsDataResult.forEach(item => {
-                      if (item.country_id && Array.isArray(item.kings)) {
-                          kings[item.country_id] = item.kings;
-                      }
+              // 📊 디버깅: 실제 렌더링된 영토 수 확인
+              if (territories.length > 0) {
+                  const renderedTerritories = territories.filter(t => {
+                      const country = getCountryInfoById(t.properties?.country_id);
+                      return country != null;
                   });
+                  console.log(`📊 [디버깅] 캐시 렌더링: 전체 ${territories.length}개, 국가 매칭 성공 ${renderedTerritories.length}개, 국가없음 ${territories.length - renderedTerritories.length}개`);
               }
-              console.log(`✅ 왕 데이터 로드 완료`);
-              showLoadingStatus('모든 기록을 지도 위에서 상호 검증하고 있습니다...', 88);
-
-              // 🎨 drawings 로드
-              console.log('🎨 그리기 데이터 로딩...');
-              const drawingsData = await fetchData('drawings');
-              drawings = drawingsData || [];
-              console.log(`✅ 그리기 데이터: ${drawings.length}개`);
-              // 🌊 자연 지형지물 로드
-              console.log('🌊 자연 지형지물 로딩...');
-              const featuresData = await fetchData('natural-features');
-              naturalFeatures = featuresData || [];
-              console.log(`✅ 자연 지형지물: ${naturalFeatures.length}개`);
-
-              // 🚩 [추가] 기여 데이터 로드
-              console.log('🚩 유저 기여 데이터 로딩...');
-              contributions = await fetchData('contributions');
-              console.log(`✅ 유저 기여: ${contributions.length}개`);
+          }
+          
+          // ===== 🚀 [1단계] 레이어 설정 우선 로드 (0-5%) =====
+          showLoadingStatus('지도 제작 도구를 준비하는 중입니다...', 5);
+          const layerSettings = await loadLayerSettings();
+          console.log('📋 활성화된 레이어:', Object.entries(layerVisibility).filter(([k, v]) => v).map(([k]) => k));
+          
+          // ===== 🚀 [2단계] 필수 데이터만 병렬 로딩 (5-60%) =====
+          console.log('🚀 필수 데이터 병렬 로딩 시작...');
+          const parallelStartTime = performance.now();
+          showLoadingStatus('산둥 반도에서 사신이 오고 있습니다...', 25);
+          
+          // 🎯 [최적화] 레이어 설정에 따라 로딩할 데이터 결정
+          // 🚀 [최적화] history, castles 제외 - 지도 렌더링 후 백그라운드 로드
+          const loadPromises = {
+              countries: fetchData('countries'),  // 필수 (영토 렌더링용)
+              events: layerVisibility.event ? fetchData('events') : Promise.resolve([]),
+              // history: 제외 - 2,221개로 가장 무거움, 지도에 직접 영향 없음
+              // castles: 제외 - 1,168개, 11초 소요, 백그라운드 로드로 전환
+          };
+          
+          // 진행률 표시를 위한 개별 완료 추적
+          let completedCount = 0;
+          const totalLoads = Object.keys(loadPromises).length;
+          
+          // 🎯 [디버깅] 각 요청의 시작/종료 시간 추적
+          const timingMap = {};
+          
+          // 🎯 [핵심 최적화] countries 데이터가 오는 즉시 1차 렌더링 (Promise.all 기다리지 않음)
+          loadPromises.countries.then(data => {
+              countries = data || [];
+              console.log(`✅ [즉시 렌더링] countries ${countries.length}개 로드 완료`);
               
-              // 강 레이어가 켜져 있으면 자동으로 렌더링
-              if (layerVisibility.rivers) {
-                  const { year, month } = getCurrentYearMonth();
-                  updateMap(year, month);
+              // 🎯 countries 데이터만으로도 1차 지도 렌더링 가능 (국가 라벨 표시)
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+              console.log('🗺️ [즉시 렌더링] countries 데이터로 초기 지도 렌더링 완료 (네트워크 응답 즉시)');
+          }).catch(err => {
+              console.error('❌ countries 즉시 로드 실패:', err);
+          });
+          
+          const results = await Promise.all(
+              Object.entries(loadPromises).map(async ([key, promise]) => {
+                  const requestStart = performance.now();
+                  try {
+                      const data = await promise;
+                      const requestEnd = performance.now();
+                      const duration = ((requestEnd - requestStart) / 1000).toFixed(2);
+                      timingMap[key] = duration;
+                      
+                      completedCount++;
+                      const progress = 10 + Math.floor((completedCount / totalLoads) * 50);
+                      showLoadingStatus(`${key} 데이터 로드 완료...`, progress);
+                      console.log(`⏱️ [타이밍] ${key}: ${duration}초`);
+                      return [key, data];
+                  } catch (error) {
+                      console.error(`❌ ${key} 로드 실패:`, error);
+                      return [key, []];
+                  }
+              })
+          );
+          
+          const parallelEndTime = performance.now();
+          const parallelDuration = ((parallelEndTime - parallelStartTime) / 1000).toFixed(2);
+          console.log(`⏱️ [타이밍] Promise.all 전체: ${parallelDuration}초`);
+          console.log(`📊 [타이밍] 상세:`, timingMap);
+          
+          // 결과 할당
+          const dataMap = Object.fromEntries(results);
+          countries = dataMap.countries || [];
+          events = dataMap.events || [];
+          
+          // 🎯 [핵심] castles와 history는 캐시가 없을 때만 초기화 (캐시 데이터 보호!)
+          if (castles.length === 0) {
+              history = []; // 🚀 [최적화] 백그라운드 로드
+              console.log('📦 castles/history 초기화 (캐시 없음, 백그라운드 로드 대기)');
+          } else {
+              console.log('💾 castles 캐시 보존 (초기화 생략, 현재 개수:', castles.length, ')');
+          }
+          
+          console.log(`✅ 병렬 로딩 완료: countries ${countries.length}, events ${events.length}, history (지연 로딩), castles (캐시: ${castles.length}개)`);
+          
+          // 🚀 [최적화] 시간 목록 생성 (history 없이 events만 먼저)
+          showLoadingStatus('역사의 시간축을 정렬하고 있습니다...', 60);
+          const eventTimes = events.map(e => yearMonthToTotalMonths(e.year, e.month || 1));
+          historyEventTimes = [...new Set(eventTimes)].sort((a, b) => a - b);
+          console.log(`📅 연대표 시간 목록 (events만): ${historyEventTimes.length}개 시점`);
+          
+          showLoadingStatus('강역을 검증하고 있습니다...', 75);
+          
+          // 🚀 [최적화] 영토 데이터는 백그라운드 로딩으로 전환
+          if (layerVisibility.territoryPolygon) {
+              // 캐시가 있으면 백그라운드 로딩 스킵
+              if (territories.length > 0) {
+                  console.log('✅ 영토 데이터 이미 로드됨 (캐시 사용):', territories.length, '개');
+              } else {
+                  console.log('🗺️ 영토 데이터 백그라운드 로딩 예약...');
+                  setTimeout(async () => {
+                      try {
+                          console.log('🌍 영토 데이터 백그라운드 로딩 시작...');
+                          await loadTerritoryTiles();
+                          console.log('✅ 영토 데이터 백그라운드 로딩 완료');
+                          
+                          // 🎯 [IndexedDB] 로드한 영토 데이터를 캐시에 저장
+                          if (territories.length > 0) {
+                              await saveTerritoriesCache(territories);
+                          }
+                          
+                          // 🎯 [핵심] 영토 로딩 완료 즉시 자동으로 지도 업데이트
+                          const { year, month } = getCurrentYearMonth();
+                          updateMap(year, month);
+                          console.log('🗺️ 영토 추가 렌더링 완료 (백그라운드)');
+                      } catch (error) {
+                          console.error('❌ 영토 백그라운드 로딩 실패:', error);
+                      }
+                  }, 50); // 50ms로 단축 (빠른 렌더링)
               }
+          } else {
+              console.log('⏭️ 영토 레이어 비활성화 → 로드 스킵');
+          }
+          
+          // ===== 🚀 [최적화] 추가 데이터 병렬 로딩 (80-90%) =====
+          const additionalStartTime = performance.now();
+          console.log('� 추가 데이터 병렬 로딩 시작...');
+          showLoadingStatus('재위 시기와 활동 범위를 공간적으로 검증 중입니다...', 82);
+          
+          const additionalLoadPromises = {};
+          
+          // 왕 데이터 (kingPanel 레이어가 켜져있을 때만)
+          if (layerVisibility.kingPanel) {
+              additionalLoadPromises.kings = fetchData('kings');
+          } else {
+              additionalLoadPromises.kings = Promise.resolve([]);
+          }
+          
+          // 그리기 데이터 (항상 로드)
+          additionalLoadPromises.drawings = fetchData('drawings');
+          
+          // 자연 지형지물 (natural 레이어가 켜져있을 때만)
+          if (layerVisibility.natural || layerVisibility.rivers) {
+              additionalLoadPromises.naturalFeatures = fetchData('natural-features');
+          } else {
+              additionalLoadPromises.naturalFeatures = Promise.resolve([]);
+          }
+          
+          // 유저 기여 (userContributions 레이어가 켜져있을 때만)
+          if (layerVisibility.userContributions) {
+              additionalLoadPromises.contributions = fetchData('contributions');
+          } else {
+              additionalLoadPromises.contributions = Promise.resolve([]);
+          }
+          
+          // 🚀 병렬 실행
+          const additionalTimingMap = {};
+          const additionalResults = await Promise.all(
+              Object.entries(additionalLoadPromises).map(async ([key, promise]) => {
+                  const requestStart = performance.now();
+                  try {
+                      const data = await promise;
+                      const requestEnd = performance.now();
+                      const duration = ((requestEnd - requestStart) / 1000).toFixed(2);
+                      additionalTimingMap[key] = duration;
+                      console.log(`⏱️ [타이밍] ${key}: ${duration}초`);
+                      return [key, data];
+                  } catch (error) {
+                      console.error(`❌ ${key} 로드 실패:`, error);
+                      return [key, key === 'kings' ? {} : []];
+                  }
+              })
+          );
+          
+          const additionalEndTime = performance.now();
+          const additionalDuration = ((additionalEndTime - additionalStartTime) / 1000).toFixed(2);
+          console.log(`⏱️ [타이밍] 추가 데이터 Promise.all 전체: ${additionalDuration}초`);
+          console.log(`📊 [타이밍] 추가 데이터 상세:`, additionalTimingMap);
+          
+          const additionalData = Object.fromEntries(additionalResults);
+          
+          // 왕 데이터 처리
+          kings = {};
+          if (layerVisibility.kingPanel && Array.isArray(additionalData.kings)) {
+              additionalData.kings.forEach(item => {
+                  if (item.country_id && Array.isArray(item.kings)) {
+                      kings[item.country_id] = item.kings;
+                  }
+              });
+              console.log(`✅ 왕 데이터 로드 완료`);
+          } else {
+              console.log('⏭️ 왕 패널 비활성화 → 로드 스킵');
+          }
+          
+          // 그리기 데이터
+          drawings = additionalData.drawings || [];
+          console.log(`✅ 그리기 데이터: ${drawings.length}개`);
+          
+          // 자연 지형지물
+          naturalFeatures = additionalData.naturalFeatures || [];
+          if (layerVisibility.natural || layerVisibility.rivers) {
+              console.log(`✅ 자연 지형지물: ${naturalFeatures.length}개`);
+          } else {
+              console.log('⏭️ 자연 지형지물 레이어 비활성화 → 로드 스킵');
+          }
+          
+          // 유저 기여
+          contributions = additionalData.contributions || [];
+          if (layerVisibility.userContributions) {
+              console.log(`✅ 유저 기여: ${contributions.length}개`);
+          } else {
+              console.log('⏭️ 유저 기여 레이어 비활성화 → 로드 스킵');
+          }
+          
+          console.log('✅ 추가 데이터 병렬 로딩 완료');
+          
+          // ===== 최종 지도 업데이트 (추가 데이터 반영) =====
+          console.log('🗺️ 추가 데이터 지도 반영 시작...');
+          console.log(`  📊 데이터 현황: countries ${countries.length}, castles ${castles.length}, territories ${territories.length}, history (지연 로딩 중), events ${events.length}`);
+          
+          // 🚀 [최적화] 초기화 완료 플래그 해제
+          isInitializing = false;
+          
+          // 🎯 [최적화] 추가 데이터(drawings, naturalFeatures 등) 반영
+          // 🎯 [핵심] castles/territories가 있을 때만 updateMap 호출 (빈 데이터 덮어쓰기 방지)
+          if (castles.length > 0 || territories.length > 0) {
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+              console.log('✅ 추가 데이터 지도 반영 완료 (drawings, naturalFeatures 등)');
+          } else {
+              console.log('⏭️ castles/territories 없음, 추가 데이터 렌더링 스킵 (캐시 데이터 보호)');
+          }
           
           // ===== 로딩 완료 =====
           const totalTime = ((performance.now() - startTime) / 1000).toFixed(2);
           console.log(`🎉 전체 데이터 로드 완료! (총 ${totalTime}초)`);
+          
+          // 🚀 [최적화] 우선순위 낮은 데이터들 백그라운드 로딩
+          
+          // 1️⃣ history 데이터 (2,221개)
+          console.log('📚 history 데이터 백그라운드 로딩 시작... (2,221개)');
+          setTimeout(async () => {
+              try {
+                  history = await fetchData('history');
+                  console.log(`✅ history 백그라운드 로드 완료: ${history.length}개`);
+                  
+                  // 🚀 [최적화] 시간 목록 재생성을 requestIdleCallback으로 지연 (1,605개 시점 = DOM 부하)
+                  const updateTimeline = () => {
+                      const historyTimes = history.map(h => yearMonthToTotalMonths(h.year, h.month || 1));
+                      const eventTimes = events.map(e => yearMonthToTotalMonths(e.year, e.month || 1));
+                      historyEventTimes = [...new Set([...historyTimes, ...eventTimes])].sort((a, b) => a - b);
+                      console.log(`✅ 연대표 시간 목록 업데이트 완료: ${historyEventTimes.length}개 시점`);
+                  };
+                  
+                  // 브라우저가 한가할 때 실행 (또는 2초 타임아웃)
+                  if (window.requestIdleCallback) {
+                      requestIdleCallback(updateTimeline, { timeout: 2000 });
+                  } else {
+                      setTimeout(updateTimeline, 500);
+                  }
+              } catch (error) {
+                  console.error('❌ history 백그라운드 로드 실패:', error);
+                  history = [];
+              }
+          }, 100); // 100ms 후 실행 (UI 렌더링 완료 후)
+          
+          // 2️⃣ castles 데이터 (1,168개, 11초 소요)
+          if (layerVisibility.city || layerVisibility.territoryPolygon) {
+              // 캐시가 있으면 백그라운드 로딩 스킵
+              if (castles.length > 0) {
+                  console.log('✅ Castles 데이터 이미 로드됨 (캐시 사용):', castles.length, '개');
+              } else {
+                  console.log('🏰 castles 데이터 백그라운드 로딩 시작... (1,168개)');
+                  setTimeout(async () => {
+                      try {
+                          const castleLoadStart = performance.now();
+                          const allCastlesData = await fetchData('castle');
+                          const castleLoadTime = ((performance.now() - castleLoadStart) / 1000).toFixed(2);
+                          console.log(`✅ castles 백그라운드 로드 완료: ${allCastlesData.length}개 (${castleLoadTime}초)`);
+                          
+                          // 🚀 [최적화] 국가명 → ID 매핑 캐시 (countries.find() 반복 방지)
+                          const countryNameMap = new Map();
+                          countries.forEach(c => {
+                              if (c.name) countryNameMap.set(c.name, c._id);
+                          });
+                          
+                          // castles 처리 (history 필드 보강)
+                          const processStart = performance.now();
+                      castles = allCastlesData.map(castle => {
+                          // 🚀 history가 이미 정상적으로 구성되어 있으면 그대로 사용
+                          if (castle.history && Array.isArray(castle.history) && castle.history.length > 0) {
+                              const firstHistory = castle.history[0];
+                              if (firstHistory.start_year !== undefined && firstHistory.country_id) {
+                                  return castle;
+                              }
+                          }
+                          
+                          // history가 없거나 불완전한 경우에만 처리
+                          let processedHistory;
+                          const hasHistory = castle.history && Array.isArray(castle.history) && castle.history.length > 0;
+
+                          if (hasHistory) {
+                              processedHistory = castle.history.map(h => {
+                                  const parsedStartYear = h.start_year ?? castle.built_year ?? -5000;
+                                  const parsedStartMonth = h.start_month ?? castle.built_month ?? 1;
+                                  const parsedEndYear = h.end_year ?? castle.destroyed_year ?? null;
+                                  const parsedEndMonth = h.end_month ?? castle.destroyed_month ?? 12;
+
+                                  let resolvedCountryId = h.country_id || castle.country_id || '';
+                                  if (typeof resolvedCountryId !== 'string') resolvedCountryId = String(resolvedCountryId);
+                                  if (!resolvedCountryId && h.country) {
+                                      resolvedCountryId = countryNameMap.get(h.country) || '';
+                                  }
+
+                                  return {
+                                      name: h.name ?? castle.name ?? '',
+                                      country_id: resolvedCountryId,
+                                      start_year: parsedStartYear,
+                                      start_month: parsedStartMonth,
+                                      end_year: parsedEndYear,
+                                      end_month: parsedEndMonth,
+                                      is_capital: h.is_capital ?? castle.is_capital ?? false,
+                                      is_battle: h.is_battle ?? false
+                                  };
+                              });
+                          } else {
+                              processedHistory = [{
+                                  name: castle.name || '',
+                                  country_id: castle.country_id || '',
+                                  start_year: castle.built_year || -5000,
+                                  start_month: castle.built_month || 1,
+                                  end_year: castle.destroyed_year,
+                                  end_month: castle.destroyed_month || 12,
+                                  is_capital: castle.is_capital || false,
+                                  is_battle: castle.is_battle || false
+                              }];
+                          }
+
+                          if (castle.is_capital && !processedHistory.some(h => h.is_capital)) {
+                              processedHistory[0].is_capital = true;
+                          }
+
+                          return { ...castle, history: processedHistory };
+                      });
+                      
+                      const processingTime = ((performance.now() - processStart) / 1000).toFixed(2);
+                      console.log(`✅ castles 데이터 처리 완료: ${castles.length}개 (${processingTime}초)`);
+                      
+                      // 🎯 [IndexedDB] 처리된 castles 데이터를 캐시에 저장
+                      if (castles.length > 0) {
+                          await saveCastlesCache(castles);
+                      }
+                      
+                      populateCitySelectForEdit();
+                      
+                      // 🎯 [핵심] castles 로딩 완료 즉시 자동으로 지도 업데이트
+                      const { year, month } = getCurrentYearMonth();
+                      updateMap(year, month);
+                      console.log('🗺️ castles 마커 추가 렌더링 완료 (백그라운드)');
+                  } catch (error) {
+                      console.error('❌ castles 백그라운드 로드 실패:', error);
+                      castles = [];
+                  }
+              }, 200); // 200ms 후 실행 (history 이후)
+              }
+          } else {
+              console.log('⏭️ castles 로딩 스킵 (city, territoryPolygon 모두 비활성화)');
+          }
           
           // 🎯 로딩 완료 - 패널 숨김
           showLoadingStatus('검증된 역사만이 지도에 남았습니다.', 100);
@@ -6567,10 +7219,9 @@ function getCountryInfoById(id) {
               
               const bounds = map.getBounds();
               
-              // 📖 [최적화] 항상 MongoDB 직접 사용 (정적 타일 미사용)
-              // 인덱스 최적화로 충분히 빠른 성능 보장 (2-5초)
-              console.log(`📡 [MongoDB] 영토 데이터 직접 로드`);
-              await loadTerritoryFromMongoDB(bounds);
+              // 📖 [최적화] 정적 타일 파일 사용 (네트워크 지연 해결)
+              console.log(`📡 [정적 파일] 영토 타일 데이터 로드`);
+              await loadTerritoryFromStaticTiles(bounds);
               return;
               
           } catch (error) {
@@ -6582,9 +7233,115 @@ function getCountryInfoById(id) {
           }
       };
 
-      // 🔄 [MongoDB 폴백] 정적 파일이 없을 때 MongoDB에서 로드
-      // 🚀 [최적화] 전체 territories를 한 번만 로드 (91개 - 매우 적음)
+      // 🔄 [정적 파일] 정적 타일 파일에서 영토 로드
+      // 🚀 [최적화] 전체 territories를 한 번만 로드 (287개 - 매우 적음)
       let allTerritoriesLoaded = false;
+      
+      async function loadTerritoryFromStaticTiles(bounds) {
+          // 이미 로드된 경우 스킵
+          if (allTerritoriesLoaded && territories.length > 0) {
+              console.log(`✅ 캐시된 영토 사용: ${territories.length}개`);
+              const territoryBtns = document.querySelectorAll('[data-layer="territoryPolygon"]');
+              territoryBtns.forEach(btn => {
+                  if (btn.tagName === 'BUTTON') btn.textContent = `영토 ${territories.length}개`;
+              });
+              return;
+          }
+
+          console.log(`📡 [정적 파일] 전체 영토 데이터 로딩...`);
+
+          const territoryBtns = document.querySelectorAll('[data-layer="territoryPolygon"]');
+          const startTime = Date.now();
+
+          try {
+              // 1. 타일 인덱스 로드
+              const indexResponse = await fetch('/public/tiles/index.json');
+              if (!indexResponse.ok) {
+                  throw new Error(`타일 인덱스 로드 실패: ${indexResponse.status}`);
+              }
+              const tileIndex = await indexResponse.json();
+              console.log(`📊 타일 인덱스: ${tileIndex.length}개 타일`);
+
+              // 2. 모든 타일 파일들 로드 (287개 영토는 충분히 작아서 전체 로드 가능)
+              // 병렬로 10개씩 로드해서 서버 부하 방지
+              const batchSize = 10;
+              const allFeatures = [];
+              
+              for (let i = 0; i < tileIndex.length; i += batchSize) {
+                  const batch = tileIndex.slice(i, i + batchSize);
+                  const batchPromises = batch.map(async (tile) => {
+                      try {
+                          const tileResponse = await fetch(`/public/tiles/${tile.filename}`);
+                          if (!tileResponse.ok) {
+                              console.warn(`타일 로드 실패: ${tile.filename}`);
+                              return [];
+                          }
+                          const tileData = await tileResponse.json();
+                          return tileData.features || [];
+                      } catch (error) {
+                          console.warn(`타일 로드 오류: ${tile.filename}`, error);
+                          return [];
+                      }
+                  });
+                  
+                  const batchResults = await Promise.all(batchPromises);
+                  allFeatures.push(...batchResults.flat());
+                  
+                  // 진행률 표시
+                  const progress = Math.floor((i + batch.length) / tileIndex.length * 100);
+                  territoryBtns.forEach(btn => {
+                      if (btn.tagName === 'BUTTON') {
+                          btn.textContent = `영토 로딩중... ${progress}%`;
+                      }
+                  });
+              }
+
+              // 3. 🚀 [최적화] 중복 제거 - _id 기준으로 고유한 영토만 저장
+              const uniqueTerritories = new Map();
+              
+              allFeatures.forEach(feature => {
+                  const id = feature.properties?._id || feature.properties?.id || feature.id;
+                  if (id && !uniqueTerritories.has(id)) {
+                      uniqueTerritories.set(id, {
+                          _id: id,
+                          name: feature.properties?.name || '영토',
+                          name_ko: feature.properties?.name_ko,
+                          name_type: feature.properties?.name_type,
+                          type: feature.geometry?.type,
+                          coordinates: feature.geometry?.coordinates,
+                          level: feature.properties?.level,
+                          start: feature.properties?.start_year || feature.properties?.start,
+                          end: feature.properties?.end_year || feature.properties?.end
+                      });
+                  }
+              });
+              
+              territories = Array.from(uniqueTerritories.values());
+              allTerritoriesLoaded = true;
+              const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+              
+              console.log(`🎉 정적 파일 로드 완료!`);
+              console.log(`  📦 원본 features: ${allFeatures.length}개`);
+              console.log(`  ✅ 고유 영토: ${territories.length}개`);
+              console.log(`  ⏱️ 소요 시간: ${elapsed}초`);
+              
+              territoryBtns.forEach(btn => {
+                  if (btn.tagName === 'BUTTON') btn.textContent = `영토 ${territories.length}개`;
+              });
+
+              // 🚀 [최적화] updateMap 중복 호출 제거
+              // 최종 렌더링은 initialize() 함수 끝에서 한 번만 실행
+              console.log('✅ 영토 로드 완료 (렌더링은 최종 단계에서 수행)');
+
+          } catch (error) {
+              console.error('❌ 정적 파일 영토 로드 실패:', error);
+              // 폴백: MongoDB에서 로드
+              console.log('🔄 MongoDB 폴백 사용');
+              await loadTerritoryFromMongoDB(bounds);
+          }
+      }
+
+      // 🔄 [MongoDB 폴백] 정적 파일이 없을 때 MongoDB에서 로드
       
       async function loadTerritoryFromMongoDB(bounds) {
           // 이미 로드된 경우 스킵
@@ -6593,8 +7350,7 @@ function getCountryInfoById(id) {
               return;
           }
           
-          console.log(`📡 [MongoDB] 전체 영토 데이터 로딩... (11MB, 약 2-3분 소요)`);
-          console.log(`⏳ 잠시만 기다려주세요... 대용량 폴리곤 데이터 전송 중`);
+          console.log(`📡 [MongoDB] 전체 영토 데이터 로딩...`);
           
           // 🔑 토큰이 있으면 헤더에 포함 (선택적 인증)
           const headers = {};
@@ -6605,6 +7361,7 @@ function getCountryInfoById(id) {
           
           // 진행률 표시
           const territoryBtns = document.querySelectorAll('[data-layer="territoryPolygon"]');
+          const startTime = Date.now();
           let progressInterval = setInterval(() => {
               const elapsed = Math.floor((Date.now() - startTime) / 1000);
               territoryBtns.forEach(btn => {
@@ -6614,9 +7371,8 @@ function getCountryInfoById(id) {
               });
           }, 1000);
           
-          const startTime = Date.now();
-          
           try {
+              // 🚀 bounds 없이 전체 영토 로드 (캐싱 활용)
               const response = await fetch(
                   `${API_BASE_URL}/territories`,
                   { headers }
@@ -11011,8 +11767,20 @@ kingSelect.addEventListener('change', () => {
         };
 
         // 🚩 [추가] 탑바 사용자 정보 실시간 업데이트 함수
-        async function updateTopBarUserInfo() {
-            console.log('🚀 updateTopBarUserInfo 호출됨');
+        // 🚀 [최적화] 중복 호출 방지 캐시 추가
+        let lastUserInfoUpdate = 0;
+        const USER_INFO_CACHE_DURATION = 30000; // 30초 캐시
+        
+        async function updateTopBarUserInfo(forceUpdate = false, blocking = false) {
+            console.log('🚀 updateTopBarUserInfo 호출됨 (forceUpdate:', forceUpdate, ', blocking:', blocking, ')');
+            
+            // 🚀 [최적화] 30초 이내 중복 호출 방지 (강제 업데이트 제외)
+            const now = Date.now();
+            if (!forceUpdate && (now - lastUserInfoUpdate) < USER_INFO_CACHE_DURATION) {
+                console.log('⏭️ 캐시된 사용자 정보 사용 (마지막 업데이트:', Math.floor((now - lastUserInfoUpdate) / 1000), '초 전)');
+                return;
+            }
+            
             console.log('currentUser:', currentUser);
             console.log('token:', token);
             
@@ -11021,8 +11789,32 @@ kingSelect.addEventListener('change', () => {
                 return;
             }
             
+            // 🚩 [최적화] 초기 로딩 시 (blocking=false) 로컬 캐시 정보로 즉시 UI 렌더링
+            const usernameDisplay = document.getElementById('usernameDisplay');
+            if (!blocking && usernameDisplay) {
+                // 로컬 스토리지에서 캐시된 정보 사용
+                const cachedPosition = localStorage.getItem('lastKnownPosition') || currentUser.position || '백성';
+                usernameDisplay.textContent = `${cachedPosition} ${currentUser.username}님`;
+                console.log('⚡ 캐시된 정보로 즉시 UI 렌더링:', cachedPosition);
+            }
+            
             try {
-                console.log('📡 /api/rankings 호출 중...');
+                // 🚩 [추가] 서버에서 최신 사용자 정보 가져오기 (백그라운드)
+                console.log('📡 /api/user/me 호출 중... (백그라운드)');
+                const userResponse = await fetch('/api/user/me', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (userResponse.ok) {
+                    const latestUserInfo = await userResponse.json();
+                    console.log('👤 최신 사용자 정보:', latestUserInfo);
+                    // currentUser 업데이트 (DB 직급 반영)
+                    if (latestUserInfo.position) {
+                        currentUser.position = latestUserInfo.position;
+                        console.log('✅ currentUser.position 업데이트:', currentUser.position);
+                    }
+                }
+                
+                console.log('📡 /api/rankings 호출 중... (백그라운드)');
                 // 사용자의 랭킹 데이터 조회
                 const response = await fetch('/api/rankings');
                 const rankings = await response.json();
@@ -11032,43 +11824,60 @@ kingSelect.addEventListener('change', () => {
                 const userRanking = rankings.find(ranking => ranking.username === currentUser.username);
                 console.log('👤 사용자 랭킹 데이터:', userRanking);
                 
-                const usernameDisplay = document.getElementById('usernameDisplay');
                 if (!usernameDisplay) {
                     console.warn('⚠️ usernameDisplay 요소를 찾을 수 없음');
                     return;
                 }
                 
                 if (userRanking) {
-                    // 실시간 직급 계산
-                    const realtimePosition = calculateRealtimePosition(userRanking);
-                    console.log('🏅 실시간 직급:', realtimePosition);
+                    // 🚩 [수정] DB 직급이 있으면 우선 사용, 없으면 실시간 계산
+                    // admin이 수동으로 직급을 부여한 경우 DB 직급 우선
+                    let displayPosition;
+                    if (currentUser.position && currentUser.position !== '백성' && currentUser.position !== '수분권지') {
+                        // DB에 저장된 직급이 있으면 우선 사용
+                        displayPosition = currentUser.position;
+                        console.log('🏅 DB 직급 사용:', displayPosition);
+                    } else {
+                        // DB 직급이 없거나 기본값이면 실시간 계산
+                        displayPosition = calculateRealtimePosition(userRanking);
+                        console.log('🏅 실시간 직급 계산:', displayPosition);
+                    }
                     
                     // 🚩 [추가] 승급 체크 - 이전 직급과 비교
                     const lastKnownPosition = localStorage.getItem('lastKnownPosition');
-                    if (lastKnownPosition && lastKnownPosition !== realtimePosition) {
-                        showPromotionEffect(lastKnownPosition, realtimePosition);
-                    } else if (!lastKnownPosition) {
-                        // 처음 로그인 시 현재 직급 저장
-                        localStorage.setItem('lastKnownPosition', realtimePosition);
+                    if (lastKnownPosition && lastKnownPosition !== displayPosition) {
+                        showPromotionEffect(lastKnownPosition, displayPosition);
                     }
                     
+                    // 로컬 스토리지에 현재 직급 저장
+                    localStorage.setItem('lastKnownPosition', displayPosition);
+                    
                     // 탑바 업데이트
-                    usernameDisplay.textContent = `${realtimePosition} ${currentUser.username}님`;
+                    usernameDisplay.textContent = `${displayPosition} ${currentUser.username}님`;
                     console.log('✅ 탑바 업데이트 완료');
                 } else {
                     // 랭킹 데이터가 없는 경우 기본값 사용
                     console.log('⚠️ 랭킹 데이터 없음, 기본값 사용');
-                    usernameDisplay.textContent = `${currentUser.position || '백성'} ${currentUser.username}님`;
+                    const defaultPosition = currentUser.position || '백성';
+                    usernameDisplay.textContent = `${defaultPosition} ${currentUser.username}님`;
+                    localStorage.setItem('lastKnownPosition', defaultPosition);
                 }
+                
+                // 🚀 [최적화] 마지막 업데이트 시간 기록
+                lastUserInfoUpdate = Date.now();
+                console.log('✅ 사용자 정보 업데이트 완료 (캐시 갱신)');
+                
             } catch (error) {
                 console.error('❌ 탑바 사용자 정보 업데이트 실패:', error);
-                // 오류 시 기본값 사용
-                const usernameDisplay = document.getElementById('usernameDisplay');
+                // 오류 시 캐시된 값 또는 기본값 사용
                 if (usernameDisplay) {
-                    usernameDisplay.textContent = `${currentUser.position || '백성'} ${currentUser.username}님`;
+                    const cachedPosition = localStorage.getItem('lastKnownPosition') || currentUser.position || '백성';
+                    usernameDisplay.textContent = `${cachedPosition} ${currentUser.username}님`;
                 }
             }
         }
+
+
 
         // 🚩 [추가] drawingForm 스타일 강제 적용 - 우측 하단
         const drawingForm = document.getElementById('drawingForm');
@@ -11089,9 +11898,24 @@ kingSelect.addEventListener('change', () => {
         createDynastyTimeline(); // 🚩 [추가] 연대표 생성 함수 호출 (내부에서 tick도 생성)
         const checkTimelineDragged = initTimelineDrag(); // 🚩 [수정] 드래그 상태 체크 함수를 저장
 
-        // 🚩 [추가] 레이어 기본 설정 불러오기 및 적용
-        console.log('🏁 DOMContentLoaded 완료, 레이어 설정 불러오기 준비');
-        loadAndApplyLayerSettings();
+        // 🚩 [최적화] 레이어 설정 UI만 동기화 (API 호출 제거, 메모리 캐시 사용)
+        console.log('🏁 DOMContentLoaded 완료, 레이어 설정 UI 동기화');
+        if (layerVisibility) {
+            applyLayerSettingsToUI(layerVisibility);
+            console.log('✅ 레이어 UI 동기화 완료 (캐시 사용)');
+        }
+        
+        // 🚀 [최적화] 사용자 정보 업데이트 (백그라운드, Non-blocking)
+        if (currentUser && token) {
+            console.log('🔍 [DOMContentLoaded] updateTopBarUserInfo() 백그라운드 호출 시작');
+            setTimeout(() => {
+                updateTopBarUserInfo(false, false).then(() => {
+                    console.log('✅ [DOMContentLoaded] updateTopBarUserInfo() 백그라운드 완료');
+                }).catch(err => {
+                    console.error('⚠️ [DOMContentLoaded] updateTopBarUserInfo() 오류:', err);
+                });
+            }, 200); // 200ms 후 실행 (초기화 완료 후)
+        }
 
     // initializeDrawControl(); // 그리기 컨트롤은 편집모드에서만 활성화
 
@@ -11724,8 +12548,8 @@ kingSelect.addEventListener('change', () => {
             if (mobileEditDropdownContainer) {
                 mobileEditDropdownContainer.style.display = isPrivileged ? 'block' : 'none';
             }
-            // 🚩 [추가] 탑바 실시간 직급 업데이트
-            await updateTopBarUserInfo();
+            // 🚩 [제거] 중복 호출 - 이미 initialize() 이전에 호출됨
+            // await updateTopBarUserInfo();
             // 🚩 [수정] 로그인 시 항상 일반 뷰 모드로 시작 (편집모드 자동 활성화 제거)
             setEditModeState(false);
         } else {
@@ -11869,96 +12693,79 @@ kingSelect.addEventListener('change', () => {
         const contributionForm = document.getElementById('contributionForm');
         const cancelContribBtn = document.getElementById('cancelContribBtn');
         const addContributionForm = document.getElementById('addContributionForm');
-        const rankingModal = document.getElementById('rankingModal');
-        const closeRankingBtn = document.getElementById('closeRankingBtn');
-        const rankInfoBtn = document.getElementById('rankInfoBtn');
-        const rankInfoModal = document.getElementById('rankInfoModal');
-        const closeRankInfoBtn = document.getElementById('closeRankInfoBtn');
 
-        // 탭 관련 요소들
-        const rankingTabBtn = document.getElementById('rankingTabBtn');
-        const contributionsTabBtn = document.getElementById('contributionsTabBtn');
-        const rankingTab = document.getElementById('rankingTab');
-        const contributionsTab = document.getElementById('contributionsTab');
-        const contributionFilter = document.getElementById('contributionFilter');
-
-        // 탭 전환 함수
-        function switchTab(activeTab, activeBtn, inactiveTab, inactiveBtn) {
-            activeTab.style.display = 'block';
-            inactiveTab.style.display = 'none';
-            activeBtn.style.background = '#3498db';
-            activeBtn.style.color = 'white';
-            inactiveBtn.style.background = '#5d7185';
-            inactiveBtn.style.color = '#ecf0f1';
-        }
-
+        // 🚩 [수정] 사관 랭킹 버튼 - 팝업으로 열기
         if (rankingBtn) {
-            rankingBtn.addEventListener('click', async () => {
-                if (rankingModal) {
-                    rankingModal.style.display = 'block';
-                    // modal 초기 위치 재설정
-                    const modalContent = document.getElementById('rankingModalContent');
-                    modalContent.style.left = '50%';
-                    modalContent.style.top = '50%';
-                    modalContent.style.transform = 'translate(-50%, -50%)';
-                    // 기본적으로 랭킹 탭 활성화
-                    switchTab(rankingTab, rankingTabBtn, contributionsTab, contributionsTabBtn);
-                    await displayRanking();
-                    // 드래그 및 리사이즈 기능 초기화
-                    initializeModalDragAndResize();
-                    
-                    // 포커스 관리: 모달이 열릴 때 포커스를 모달로 이동
-                    setTimeout(() => {
-                        modalContent.focus();
-                    }, 100);
-                }
-            });
-        }
-        // 탭 버튼 이벤트 리스너
-        if (rankingTabBtn) {
-            rankingTabBtn.addEventListener('click', async () => {
-                switchTab(rankingTab, rankingTabBtn, contributionsTab, contributionsTabBtn);
-                await displayRanking();
+            rankingBtn.addEventListener('click', () => {
+                // 팝업 창 크기 및 위치 설정
+                const width = 1300;
+                const height = 850;
+                const left = (screen.width - width) / 2;
+                const top = (screen.height - height) / 2;
+                
+                window.open(
+                    'ranking.html',
+                    'rankingWindow',
+                    `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+                );
             });
         }
 
-        if (contributionsTabBtn) {
-            contributionsTabBtn.addEventListener('click', async () => {
-                switchTab(contributionsTab, contributionsTabBtn, rankingTab, rankingTabBtn);
-                await displayContributions();
+        // 🚩 [추가] 회원 관리 버튼 - 팝업으로 열기
+        const adminLinkBtn = document.getElementById('adminLink');
+        if (adminLinkBtn) {
+            adminLinkBtn.addEventListener('click', () => {
+                // 팝업 창 크기 및 위치 설정
+                const width = 1200;
+                const height = 800;
+                const left = (screen.width - width) / 2;
+                const top = (screen.height - height) / 2;
+                
+                window.open(
+                    'admin.html',
+                    'adminPopup',
+                    `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+                );
             });
         }
 
-        // 사료 필터 이벤트 리스너
-        if (contributionFilter) {
-            contributionFilter.addEventListener('change', async () => {
-                await displayContributions();
+        // 🚩 [추가] 계정 관리 버튼 - 팝업으로 열기
+        const accountLinkBtn = document.getElementById('accountLink');
+        if (accountLinkBtn) {
+            accountLinkBtn.addEventListener('click', () => {
+                // 팝업 창 크기 및 위치 설정
+                const width = 500;
+                const height = 600;
+                const left = (screen.width - width) / 2;
+                const top = (screen.height - height) / 2;
+                
+                window.open(
+                    'account.html',
+                    'accountPopup',
+                    `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+                );
             });
         }
 
-        if (closeRankingBtn) {
-            closeRankingBtn.addEventListener('click', () => {
-                if (rankingModal) {
-                    rankingModal.style.display = 'none';
-                    // 포커스 복원
-                    setTimeout(() => {
-                        document.body.focus();
-                    }, 100);
-                }
+        // 🚩 [추가] 영토 관리 버튼 - 팝업으로 열기
+        const territoryManagerBtn = document.getElementById('territoryManagerLink');
+        if (territoryManagerBtn) {
+            territoryManagerBtn.addEventListener('click', () => {
+                // 팝업 창 크기 및 위치 설정
+                const width = 1400;
+                const height = 900;
+                const left = (screen.width - width) / 2;
+                const top = (screen.height - height) / 2;
+                
+                window.open(
+                    'territory_manager.html',
+                    'territoryPopup',
+                    `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+                );
             });
         }
 
-        if (rankInfoBtn) {
-            rankInfoBtn.addEventListener('click', () => {
-                if (rankInfoModal) rankInfoModal.style.display = 'block';
-            });
-        }
-
-        if (closeRankInfoBtn) {
-            closeRankInfoBtn.addEventListener('click', () => {
-                if (rankInfoModal) rankInfoModal.style.display = 'none';
-            });
-        }
+        // 🚩 [제거됨] 모달 관련 이벤트 리스너들 - ranking.html로 이동
 
         // 🗑️ 휴지통 관련 이벤트 리스너들
         const trashBtnDropdown = document.getElementById('trashBtnDropdown');
@@ -12134,9 +12941,17 @@ kingSelect.addEventListener('change', () => {
         const cancelRecordBtn = document.getElementById('cancelRecordBtn');
         if (cancelRecordBtn) {
             cancelRecordBtn.addEventListener('click', () => {
+                console.log('📜 취소 버튼 클릭됨');
                 const historicalRecordForm = document.getElementById('historicalRecordForm');
-                if (historicalRecordForm) historicalRecordForm.style.display = 'none';
+                if (historicalRecordForm) {
+                    historicalRecordForm.style.display = 'none';
+                    console.log('✅ 역사기록 폼 닫힘');
+                } else {
+                    console.log('❌ historicalRecordForm 요소를 찾을 수 없음');
+                }
             });
+        } else {
+            console.log('❌ cancelRecordBtn 요소를 찾을 수 없음');
         }
 
         const addHistoricalRecordForm = document.getElementById('addHistoricalRecordForm');
@@ -12403,446 +13218,87 @@ kingSelect.addEventListener('change', () => {
                 alert('오류 발생');
             }
         };
+        // 🚩 [수정] 사료 상세보기 → ranking.html 팝업으로 변경
         function showContributionDetail(contribution) {
-            const modal = document.getElementById('contributionDetailModal');
-            const content = document.getElementById('contributionDetailContent');
-            const currentUser = parseJwt(token);
-
-            // 🚩 [수정] reviewed 상태 추가
-            const statusColor = contribution.status === 'approved' ? '#27ae60' : 
-                               contribution.status === 'reviewed' ? '#3498db' :
-                               contribution.status === 'rejected' ? '#e74c3c' : '#f39c12';
-            const statusText = contribution.status === 'approved' ? '최종 승인됨' : 
-                              contribution.status === 'reviewed' ? '검토 완료 (승인 대기)' :
-                              contribution.status === 'rejected' ? '거부됨' : '검토 대기중';
-            const statusIcon = contribution.status === 'approved' ? '✅' : 
-                              contribution.status === 'reviewed' ? '🔍' :
-                              contribution.status === 'rejected' ? '❌' : '⏳';
-
-            const isMyContribution = currentUser && contribution.userId.toString() === currentUser.userId;
+            // contribution이 객체인 경우 ID 추출, 문자열이면 그대로 사용
+            const contributionId = typeof contribution === 'object' ? contribution._id : contribution;
             
-            // 🚩 [추가] 권한 확인
-            const userPosition = currentUser?.position || '';
-            const reviewerPositions = ['수찬관', '사천감', '한림학사', '상서', '수국사', '동수국사', '감수국사', '문하시중'];
-            const approverPositions = ['수국사', '동수국사', '감수국사', '문하시중'];
-            const canReview = reviewerPositions.includes(userPosition);
-            const canApprove = approverPositions.includes(userPosition);
-
-            content.innerHTML = `
-                <div style="background-color: ${isMyContribution ? '#1a252f' : '#2c3e50'}; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid ${isMyContribution ? '#3498db' : '#5d7185'};">
-                    <h3 style="margin: 0 0 10px 0; color: #ffffff;">${contribution.name || contribution.title || '제목 없음'} ${isMyContribution ? '📖📖 (내 사료)' : ''}</h3>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                        <span style="color: #bdc3c7; font-size: 0.9em;">제출자: ${contribution.username || '알 수 없음'}</span>
-                        <span style="color: ${statusColor}; font-weight: bold;">${statusIcon} ${statusText}</span>
-                    </div>
-                    <div style="color: #bdc3c7; font-size: 0.9em;">제출일: ${new Date(contribution.createdAt).toLocaleString()}</div>
-                </div>
-
-                <div style="margin-bottom: 20px;">
-                    <h4 style="color: #f1c40f; margin-bottom: 10px;">📝 ${contribution.category === 'historical_record' ? '사관 기록 내용' : '사료 내용'}</h4>
-                    <div style="background-color: #34495e; padding: 15px; border-radius: 5px; line-height: 1.6; color: #ffffff;">
-                        ${contribution.category === 'historical_record' ? 
-                            `<strong>연도:</strong> ${contribution.year || '미상'}<br>
-                            <strong>이름/제목:</strong> ${contribution.name || '미상'}<br>
-                            <strong>출전:</strong> ${contribution.source || '미상'}<br><br>
-                            <strong>내용:</strong><br>${contribution.content || '내용이 없습니다.'}` :
-                            `${contribution.description || '내용이 없습니다.'}`
-                        }
-                    </div>
-                </div>
-
-                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px;">
-                    <div>
-                        <h4 style="color: #f1c40f; margin-bottom: 10px;">📊 통계 정보</h4>
-                        <div style="background-color: #34495e; padding: 15px; border-radius: 5px; color: #ffffff;">
-                            <div style="margin-bottom: 8px;"><strong>추천 수:</strong> ${contribution.votes || 0}</div>
-                            <div style="margin-bottom: 8px;"><strong>카테고리:</strong> ${contribution.category === 'historical_record' ? '사관 기록' : (contribution.category || '미분류')}</div>
-                            ${contribution.category === 'historical_record' ? 
-                                `<div style="margin-bottom: 8px;"><strong>연도:</strong> ${contribution.year || '미상'}</div>
-                                <div><strong>출전:</strong> ${contribution.source || '미상'}</div>` :
-                                `<div style="margin-bottom: 8px;"><strong>좌표:</strong> ${contribution.lat ? contribution.lat.toFixed(4) : 'N/A'}, ${contribution.lng ? contribution.lng.toFixed(4) : 'N/A'}</div>
-                                <div><strong>장소명:</strong> ${contribution.name || 'N/A'}</div>`
-                            }
-                        </div>
-                    </div>
-
-                    <div>
-                        <h4 style="color: #f1c40f; margin-bottom: 10px;">📖 추천자 목록</h4>
-                        <div style="background-color: #34495e; padding: 15px; border-radius: 5px; color: #ffffff; max-height: 150px; overflow-y: auto;" class="voters-list">
-                            ${contribution.votedBy && contribution.votedBy.length > 0 ? 
-                                contribution.votedBy.map(voterId => `<div style="margin-bottom: 5px;">• ${voterId}</div>`).join('') : 
-                                '<div style="color: #bdc3c7; font-style: italic;">아직 추천자가 없습니다.</div>'}
-                        </div>
-                    </div>
-
-                    <div>
-                        <h4 style="color: #f1c40f; margin-bottom: 10px;">👨‍⚖️ 검토/승인 정보</h4>
-                        <div style="background-color: #34495e; padding: 15px; border-radius: 5px; color: #ffffff;">
-                            <div style="margin-bottom: 8px;"><strong>검토자:</strong> <span style="color: #3498db;">${contribution.reviewerUsername || '아직 없음'}</span></div>
-                            <div style="margin-bottom: 8px;"><strong>검토일:</strong> ${contribution.reviewedAt ? new Date(contribution.reviewedAt).toLocaleString() : '미완료'}</div>
-                            <div style="margin-bottom: 8px;"><strong>최종 승인자:</strong> <span style="color: #27ae60;">${contribution.approverUsername || '아직 없음'}</span></div>
-                            <div style="margin-bottom: 8px;"><strong>승인일:</strong> ${contribution.approvedAt ? new Date(contribution.approvedAt).toLocaleString() : '미완료'}</div>
-                            ${contribution.reviewComment ? `<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #5d7185;"><strong>💬 검토 의견:</strong><br><div style="margin-top: 5px; padding: 8px; background-color: #2c3e50; border-radius: 3px; border-left: 3px solid #f39c12;">${contribution.reviewComment.replace(/\n/g, '<br>')}</div></div>` : ''}
-                        </div>
-                    </div>
-                </div>
-
-                <div style="text-align: center;">
-                    ${contribution.status === 'pending' && currentUser && contribution.userId !== currentUser.userId && !(contribution.votedBy && contribution.votedBy.includes(currentUser.username)) ? 
-                        `<button onclick="voteContribution('${contribution._id}')" style="padding: 10px 20px; background-color: #3498db; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">👍 추천하기</button>` : 
-                        ''}
-                    
-                    ${contribution.status === 'pending' && canReview && contribution.userId.toString() !== currentUser.userId ? 
-                        `<button onclick="reviewContribution('${contribution._id}', 'approved')" style="padding: 10px 20px; background-color: #f39c12; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-left: 10px;">🔍 검토 완료</button>
-                         <button onclick="reviewContribution('${contribution._id}', 'rejected')" style="padding: 10px 20px; background-color: #e74c3c; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-left: 10px;">❌ 검토 거부</button>` : 
-                        ''}
-                    
-                    ${(contribution.status === 'reviewed' || contribution.status === 'pending') && canApprove && contribution.userId.toString() !== currentUser.userId ? 
-                        `<button onclick="approveContribution('${contribution._id}')" style="padding: 10px 20px; background-color: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-left: 10px;">✅ 최종 승인</button>` : 
-                        ''}
-                    
-                    ${isMyContribution && contribution.status !== 'approved' ? 
-                        `<button onclick="deleteMyContribution('${contribution._id}')" style="padding: 10px 20px; background-color: #95a5a6; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-left: 10px;">🗑️ 내 사료 삭제</button>` : 
-                        ''}
-                    
-                    ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'superuser') ? 
-                        `<button onclick="deleteContribution('${contribution._id}')" style="padding: 10px 20px; background-color: #c0392b; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-left: 10px;">🗑️ 관리자 삭제</button>` : 
-                        ''}
-                </div>
-            `;
-
-            modal.style.display = 'block';
+            // ranking.html 팝업을 열고 특정 사료로 이동
+            const width = 1300;
+            const height = 850;
+            const left = (screen.width - width) / 2;
+            const top = (screen.height - height) / 2;
+            const features = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`;
             
-            // 포커스 관리: 모달이 열릴 때 포커스를 모달로 이동
-            setTimeout(() => {
-                if (modal) {
-                    modal.focus();
-                    // ESC 키로 모달 닫기
-                    const handleEscape = (e) => {
-                        if (e.key === 'Escape') {
-                            modal.style.display = 'none';
-                            document.removeEventListener('keydown', handleEscape);
-                        }
-                    };
-                    document.addEventListener('keydown', handleEscape);
-                }
-            }, 100);
+            window.open(`ranking.html?contributionId=${contributionId}`, '_blank', features);
         }
 
-        // 🚩 [추가] 검토 모달 표시 함수
-        window.showReviewModal = async (contributionId) => {
-            try {
-                // contribution 데이터 가져오기
-                const response = await fetch(`${API_BASE_URL}/contributions?status=pending`);
-                const contributions = await response.json();
-                const contribution = contributions.find(c => c._id === contributionId);
-                
-                if (!contribution) {
-                    alert('기여를 찾을 수 없습니다.');
-                    return;
-                }
-
-                const modal = document.getElementById('contributionDetailModal');
-                const content = document.getElementById('contributionDetailContent');
-                const currentUser = parseJwt(token);
-
-                const statusColor = '#f39c12'; // 검토 중
-                const statusText = '검토 대기중';
-                const statusIcon = '🔍';
-
-                const isMyContribution = currentUser && contribution.userId.toString() === currentUser.userId;
-
-                content.innerHTML = `
-                    <div style="background-color: ${isMyContribution ? '#1a252f' : '#2c3e50'}; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #f39c12;">
-                        <h3 style="margin: 0 0 10px 0; color: #ffffff;">🔍 검토 중: ${contribution.name || contribution.title || '제목 없음'} ${isMyContribution ? '👤 (내 사료)' : ''}</h3>
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <span style="color: #bdc3c7; font-size: 0.9em;">제출자: ${contribution.username || '알 수 없음'}</span>
-                            <span style="color: ${statusColor}; font-weight: bold;">${statusIcon} ${statusText}</span>
-                        </div>
-                        <div style="color: #bdc3c7; font-size: 0.9em;">제출일: ${new Date(contribution.createdAt).toLocaleString()}</div>
-                    </div>
-
-                    <div style="margin-bottom: 20px;">
-                        <h4 style="color: #f1c40f; margin-bottom: 10px;">📝 사료 내용</h4>
-                        <div style="background-color: #34495e; padding: 15px; border-radius: 5px; line-height: 1.6; color: #ffffff;">
-                            ${contribution.description || '내용이 없습니다.'}
-                        </div>
-                    </div>
-
-                    <div style="margin-bottom: 20px;">
-                        <h4 style="color: #f1c40f; margin-bottom: 10px;">📊 검토 정보</h4>
-                        <div style="background-color: #34495e; padding: 15px; border-radius: 5px; color: #ffffff;">
-                            <div style="margin-bottom: 8px;"><strong>추천 수:</strong> ${contribution.votes || 0}</div>
-                            <div style="margin-bottom: 8px;"><strong>카테고리:</strong> ${contribution.category || '미분류'}</div>
-                            <div style="margin-bottom: 8px;"><strong>좌표:</strong> ${contribution.lat}, ${contribution.lng}</div>
-                        </div>
-                    </div>
-
-                    <div style="margin-bottom: 20px;">
-                        <h4 style="color: #f1c40f; margin-bottom: 10px;">💬 검토 의견 (선택사항)</h4>
-                        <textarea id="reviewComment" placeholder="검토 의견을 입력하세요..." style="width: 100%; height: 80px; padding: 10px; border: 1px solid #34495e; border-radius: 5px; background-color: #2c3e50; color: #ffffff; resize: vertical;"></textarea>
-                    </div>
-
-                    <div style="text-align: center;">
-                        <button onclick="reviewContribution('${contribution._id}', 'approved')" style="padding: 12px 25px; background-color: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-right: 10px;">✅ 검토 완료</button>
-                        <button onclick="reviewContribution('${contribution._id}', 'rejected')" style="padding: 12px 25px; background-color: #e74c3c; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-right: 10px;">❌ 검토 거부</button>
-                        <button onclick="document.getElementById('contributionDetailModal').style.display='none'" style="padding: 12px 25px; background-color: #95a5a6; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">취소</button>
-                    </div>
-                `;
-
-                modal.style.display = 'block';
-            } catch (error) {
-                console.error('검토 모달 표시 오류:', error);
-                alert('검토 모달을 표시할 수 없습니다.');
-            }
+        // 🚩 [수정] 검토 모달 → ranking.html 팝업으로 변경
+        window.showReviewModal = (contributionId) => {
+            // ranking.html 팝업을 열고 특정 사료로 이동
+            const width = 1300;
+            const height = 850;
+            const left = (screen.width - width) / 2;
+            const top = (screen.height - height) / 2;
+            const features = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`;
+            
+            window.open(`ranking.html?contributionId=${contributionId}`, '_blank', features);
         }
 
         async function displayRanking() {
             try {
                 const response = await fetch('/api/rankings');
                 const users = await response.json();
-                const tableBody = document.getElementById('rankingList');
-                tableBody.innerHTML = ''; // Clear previous data
+                
+                // 🚩 [수정] 모달이 제거되었으므로 좌측 패널만 업데이트
+                const rankingDisplay = document.getElementById('rankingDisplay');
+                if (!rankingDisplay) {
+                    console.log('rankingDisplay 요소를 찾을 수 없음');
+                    return;
+                }
                 
                 // 🚩 [추가] 현재 로그인한 사용자 정보 가져오기
                 const currentUser = parseJwt(token);
                 const currentUsername = currentUser?.username;
 
                 if (users.length === 0) {
-                    const row = document.createElement('tr');
-                    const cell = document.createElement('td');
-                    cell.colSpan = 7;
-                    cell.textContent = '랭킹 정보가 없습니다.';
-                    cell.style.textAlign = 'center';
-                    row.appendChild(cell);
-                    tableBody.appendChild(row);
+                    rankingDisplay.innerHTML = '<div style="color: #95a5a6;">랭킹 정보가 없습니다.</div>';
                     return;
                 }
 
-                users.forEach((user, index) => {
-                    const row = document.createElement('tr');
-                    const rank = index + 1;
-                    const isCurrentUser = user.username === currentUsername;
-                    const isFirstPlace = rank === 1;
-                    
-                    // 🚩 [수정] 1위 또는 본인에게 특별한 스타일 적용
-                    if (isFirstPlace && isCurrentUser) {
-                        // 1위이면서 본인인 경우 - 황금색 + 파란색 테두리
-                        row.style.background = 'linear-gradient(135deg, rgba(243, 156, 18, 0.3), rgba(52, 152, 219, 0.2))';
-                        row.style.border = '3px solid #f39c12';
-                        row.style.boxShadow = '0 0 12px rgba(243, 156, 18, 0.5), inset 0 0 8px rgba(52, 152, 219, 0.3)';
-                        row.innerHTML = `
-                            <td style="text-align: left; padding: 5px; font-weight: bold; color: #f39c12;">${rank} 👑</td>
-                            <td style="text-align: left; font-weight: bold; color: #3498db;">${user.username} 👤</td>
-                            <td style="text-align: left; font-weight: bold; color: #f39c12;">${user.position || '백성'}</td>
-                            <td style="text-align: right; font-weight: bold;"><span style="cursor: pointer; color: #3498db; text-decoration: underline;" onclick="showUserContributions('${user.username}')">${user.totalCount || 0}</span></td>
-                            <td style="text-align: right; font-weight: bold;">${user.totalVotes || 0}</td>
-                            <td style="text-align: right; font-weight: bold;">${user.approvedCount || 0}</td>
-                            <td style="text-align: right; font-weight: bold; color: #f39c12;">${user.score || 0}</td>
-                        `;
-                    } else if (isFirstPlace) {
-                        // 1위(문하시중)에게 특별한 황금색 스타일 적용
-                        row.style.background = 'linear-gradient(135deg, rgba(243, 156, 18, 0.2), rgba(230, 126, 34, 0.2))';
-                        row.style.border = '2px solid #f39c12';
-                        row.style.boxShadow = '0 0 8px rgba(243, 156, 18, 0.3)';
-                        row.innerHTML = `
-                            <td style="text-align: left; padding: 5px; font-weight: bold; color: #f39c12;">${rank} 👑</td>
-                            <td style="text-align: left; font-weight: bold;">${user.username}</td>
-                            <td style="text-align: left; font-weight: bold; color: #f39c12;">${user.position || '백성'}</td>
-                            <td style="text-align: right; font-weight: bold;"><span style="cursor: pointer; color: #3498db; text-decoration: underline;" onclick="showUserContributions('${user.username}')">${user.totalCount || 0}</span></td>
-                            <td style="text-align: right; font-weight: bold;">${user.totalVotes || 0}</td>
-                            <td style="text-align: right; font-weight: bold;">${user.approvedCount || 0}</td>
-                            <td style="text-align: right; font-weight: bold; color: #f39c12;">${user.score || 0}</td>
-                        `;
-                    } else if (isCurrentUser) {
-                        // 🚩 [추가] 본인에게 파란색 하이라이트 스타일 적용
-                        row.style.background = 'linear-gradient(135deg, rgba(52, 152, 219, 0.2), rgba(41, 128, 185, 0.2))';
-                        row.style.border = '2px solid #3498db';
-                        row.style.boxShadow = '0 0 8px rgba(52, 152, 219, 0.3)';
-                        row.innerHTML = `
-                            <td style="text-align: left; padding: 5px; font-weight: bold; color: #3498db;">${rank}</td>
-                            <td style="text-align: left; font-weight: bold; color: #3498db;">${user.username} 👤</td>
-                            <td style="text-align: left; font-weight: bold; color: #3498db;">${user.position || '백성'}</td>
-                            <td style="text-align: right; font-weight: bold;"><span style="cursor: pointer; color: #3498db; text-decoration: underline;" onclick="showUserContributions('${user.username}')">${user.totalCount || 0}</span></td>
-                            <td style="text-align: right; font-weight: bold;">${user.totalVotes || 0}</td>
-                            <td style="text-align: right; font-weight: bold;">${user.approvedCount || 0}</td>
-                            <td style="text-align: right; font-weight: bold; color: #3498db;">${user.score || 0}</td>
-                        `;
-                    } else {
-                        row.innerHTML = `
-                            <td style="text-align: left; padding: 5px;">${rank}</td>
-                            <td style="text-align: left;">${user.username}</td>
-                            <td style="text-align: left;">${user.position || '백성'}</td>
-                            <td style="text-align: right;"><span style="cursor: pointer; color: #3498db; text-decoration: underline;" onclick="showUserContributions('${user.username}')">${user.totalCount || 0}</span></td>
-                            <td style="text-align: right;">${user.totalVotes || 0}</td>
-                            <td style="text-align: right;">${user.approvedCount || 0}</td>
-                            <td style="text-align: right;">${user.score || 0}</td>
-                        `;
-                    }
-                    tableBody.appendChild(row);
-                });
-
-                // 🚩 [추가] 지도 왼쪽에 상위 랭커 표시
-                const rankingDisplay = document.getElementById('rankingDisplay');
-                if (rankingDisplay && users.length > 0) {
-                    const topUsers = users.slice(0, 5); // 상위 5명 표시
-                    rankingDisplay.innerHTML = '<div style="font-weight: bold; margin-bottom: 5px; color: #f1c40f;">🏆 사관 랭킹</div>' +
-                        topUsers.map((user, index) => {
-                            const rank = index + 1;
-                            const medal = rank === 1 ? '👑' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '🏅';
-                            const isMe = user.username === currentUsername;
-                            return `<div style="margin-bottom: 3px; font-size: 11px; ${isMe ? 'color: #3498db; font-weight: bold;' : ''}">${medal} ${user.username}${isMe ? ' 👤' : ''} (${user.score || 0})</div>`;
-                        }).join('');
-                }
+                // 🚩 [수정] 지도 왼쪽에 상위 랭커 표시
+                const topUsers = users.slice(0, 5); // 상위 5명 표시
+                rankingDisplay.innerHTML = '<div style="font-weight: bold; margin-bottom: 5px; color: #f1c40f;">🏆 사관 랭킹</div>' +
+                    topUsers.map((user, index) => {
+                        const rank = index + 1;
+                        const medal = rank === 1 ? '👑' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '🏅';
+                        const isMe = user.username === currentUsername;
+                        return `<div style="margin-bottom: 3px; font-size: 11px; ${isMe ? 'color: #3498db; font-weight: bold;' : ''}">${medal} ${user.username}${isMe ? ' 👤' : ''} (${user.score || 0})</div>`;
+                    }).join('');
             } catch (error) {
                 console.error('Error fetching ranking data:', error);
-                const tableBody = document.getElementById('rankingList');
-                tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center;">랭킹을 불러오는데 실패했습니다.</td></tr>';
-            }
-        }
-
-        // 🚩 [추가] 특정 사용자의 사료 표시 함수
-        window.showUserContributions = async (username) => {
-            try {
-                const response = await fetch('/api/contributions');
-                const contributions = await response.json();
-                const userContributions = contributions.filter(c => c.username === username);
-                const currentUser = parseJwt(token);
-
-                // 사료 탭으로 전환
-                switchTab(contributionsTab, contributionsTabBtn, rankingTab, rankingTabBtn);
-                
-                // 필터를 "전체 사료"로 설정
-                document.getElementById('contributionFilter').value = 'all';
-
-                const container = document.getElementById('contributionsList');
-                container.innerHTML = `<div style="text-align: center; padding: 20px; background-color: #2c3e50; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #3498db;">
-                    <h3 style="margin: 0; color: #ecf0f1;">👤 ${username}님의 사료 목록</h3>
-                    <p style="margin: 5px 0 0 0; color: #bdc3c7;">총 ${userContributions.length}개의 사료</p>
-                </div>`;
-
-                if (userContributions.length === 0) {
-                    container.innerHTML += '<div style="text-align: center; padding: 40px; color: #bdc3c7;">표시할 사료가 없습니다.</div>';
-                    return;
+                const rankingDisplay = document.getElementById('rankingDisplay');
+                if (rankingDisplay) {
+                    rankingDisplay.innerHTML = '<div style="color: #e74c3c;">랭킹을 불러오는데 실패했습니다.</div>';
                 }
-
-                userContributions.forEach(contribution => {
-                    const item = document.createElement('div');
-                    item.style.border = '1px solid #5d7185';
-                    item.style.borderRadius = '8px';
-                    item.style.padding = '15px';
-                    item.style.marginBottom = '10px';
-                    item.style.backgroundColor = '#34495e';
-                    item.style.cursor = 'pointer';
-                    item.style.transition = 'all 0.2s ease';
-
-                    // 🚩 [수정] 현재 사용자의 사료인지 확인하고 파란색 박스 적용
-                    const isMyContribution = currentUser && contribution.userId === currentUser.id;
-                    if (isMyContribution) {
-                        item.style.border = '2px solid #3498db';
-                        item.style.backgroundColor = 'rgba(52, 152, 219, 0.1)';
-                        item.style.boxShadow = '0 0 8px rgba(52, 152, 219, 0.3)';
-                    }
-
-                    // 🚩 [수정] reviewed 상태 추가
-                    const statusColor = contribution.status === 'approved' ? '#27ae60' : 
-                                       contribution.status === 'reviewed' ? '#3498db' :
-                                       contribution.status === 'rejected' ? '#e74c3c' : '#f39c12';
-                    const statusText = contribution.status === 'approved' ? '최종 승인' : 
-                                      contribution.status === 'reviewed' ? '검토 완료' :
-                                      contribution.status === 'rejected' ? '거부됨' : '검토 대기';
-                    const statusIcon = contribution.status === 'approved' ? '✅' : 
-                                      contribution.status === 'reviewed' ? '🔍' :
-                                      contribution.status === 'rejected' ? '❌' : '⏳';
-
-                    item.innerHTML = `
-                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
-                            <div style="font-weight: bold; color: #ffffff;">${contribution.name || contribution.title || '제목 없음'} ${isMyContribution ? '👤' : ''}</div>
-                            <div style="color: ${statusColor}; font-weight: bold; font-size: 0.9em;">${statusIcon} ${statusText}</div>
-                        </div>
-                        <div style="color: #bdc3c7; margin-bottom: 10px; font-size: 0.9em;">제출자: ${contribution.username || '알 수 없음'} | ${new Date(contribution.createdAt).toLocaleDateString()}</div>
-                        ${contribution.category === 'historical_record' ? 
-                            `<div style="color: #ffffff; line-height: 1.4; margin-bottom: 10px;">
-                                <strong>연도:</strong> ${contribution.year || '미상'}<br>
-                                <strong>출전:</strong> ${contribution.source || '미상'}<br>
-                                <strong>내용:</strong> ${contribution.content || '내용 없음'}
-                            </div>` :
-                            `<div style="color: #ffffff; line-height: 1.4; margin-bottom: 10px;">${contribution.description || '내용 없음'}</div>`
-                        }
-                        <div style="margin-top: 10px; font-size: 0.9em; color: #bdc3c7;">
-                            추천: ${contribution.votes || 0} | 카테고리: ${contribution.category === 'historical_record' ? '사관 기록' : (contribution.category || '미분류')}
-                        </div>
-                    `;
-
-                    // 호버 효과
-                    item.onmouseover = () => {
-                        item.style.transform = 'translateY(-2px)';
-                        item.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
-                    };
-                    item.onmouseout = () => {
-                        item.style.transform = 'translateY(0)';
-                        item.style.boxShadow = 'none';
-                    };
-
-                    // 클릭 이벤트로 상세 모달 열기
-                    item.onclick = () => showContributionDetail(contribution);
-
-                    // 투표 버튼 추가 (승인 대기중이고 자신의 사료가 아닌 경우만)
-                    if (contribution.status === 'pending' && currentUser && contribution.userId !== currentUser.id) {
-                        const voteBtn = document.createElement('button');
-                        voteBtn.textContent = '추천하기';
-                        voteBtn.style.marginTop = '10px';
-                        voteBtn.style.padding = '5px 10px';
-                        voteBtn.style.backgroundColor = '#3498db';
-                        voteBtn.style.color = 'white';
-                        voteBtn.style.border = 'none';
-                        voteBtn.style.borderRadius = '4px';
-                        voteBtn.style.cursor = 'pointer';
-                        voteBtn.onclick = (e) => {
-                            e.stopPropagation(); // 클릭 이벤트 전파 방지
-                            voteContribution(contribution._id);
-                        };
-                        item.appendChild(voteBtn);
-                    }
-
-                    // 🚩 [추가] 관리자 컨트롤 추가 (수찬관 이상)
-                    let adminControls = '';
-                    if (currentUser) {
-                        const userPosition = currentUser.position;
-                        const reviewerPositions = ['수찬관', '사천감', '한림학사', '상서', '수국사', '동수국사', '감수국사', '문하시중'];
-                        const approverPositions = ['수국사', '동수국사', '감수국사', '문하시중'];
-                        
-                        // 검토 버튼 (수찬관 이상) - pending 상태이고 (검토자가 아직 할당되지 않았거나, 자신이 검토자인 경우)
-                        if (reviewerPositions.includes(userPosition) && contribution.status === 'pending' && (!contribution.reviewerId || (contribution.reviewerId && contribution.reviewerId.toString() === currentUser.userId))) {
-                            adminControls += `<button onclick="event.stopPropagation(); showReviewModal('${contribution._id}')" class="button-style" style="padding: 2px 6px; font-size: 11px; margin-left: 5px; background-color: #f39c12;">🔍 검토</button>`;
-                        }
-                        
-                        // 승인 버튼 (수국사 이상) - pending 또는 reviewed 상태
-                        if (approverPositions.includes(userPosition) && (contribution.status === 'pending' || contribution.status === 'reviewed')) {
-                            adminControls += `<button onclick="event.stopPropagation(); approveContribution('${contribution._id}')" class="button-style primary" style="padding: 2px 6px; font-size: 11px; margin-left: 5px; background-color: #27ae60;">✅ 최종 승인</button>`;
-                        }
-                        
-                        // 🚩 [수정] 마커 변환 버튼 (수국사 이상 또는 관리자) - approved 상태에서만
-                        if ((approverPositions.includes(userPosition) || currentUser.role === 'admin' || currentUser.role === 'superuser') && contribution.status === 'approved') {
-                            adminControls += `<button onclick="event.stopPropagation(); convertContribution('${contribution._id}')" class="button-style primary" style="padding: 2px 6px; font-size: 11px; margin-left: 5px;">🏰 마커 변환</button>`;
-                        }
-                    }
-
-                    // 컨트롤 버튼들을 추가
-                    if (adminControls) {
-                        const controlsDiv = document.createElement('div');
-                        controlsDiv.style.marginTop = '10px';
-                        controlsDiv.innerHTML = adminControls;
-                        item.appendChild(controlsDiv);
-                    }
-
-                    container.appendChild(item);
-                });
-            } catch (error) {
-                console.error('Error fetching user contributions:', error);
-                alert('사용자의 사료를 불러오는데 실패했습니다.');
             }
         }
+
+        // 🚩 [수정] 특정 사용자의 사료 표시 함수 - ranking.html 팝업으로 열기
+        window.showUserContributions = async (username) => {
+            // ranking.html 팝업을 열고 해당 사용자의 사료를 표시
+            const width = 1300;
+            const height = 850;
+            const left = (screen.width - width) / 2;
+            const top = (screen.height - height) / 2;
+            
+            window.open(
+                `ranking.html?user=${encodeURIComponent(username)}`,
+                'rankingWindow',
+                `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+            );
+        };
+
         async function displayContributions() {
             try {
                 const response = await fetch('/api/contributions');
@@ -12967,19 +13423,24 @@ kingSelect.addEventListener('change', () => {
                         item.appendChild(voteBtn);
                     }
 
-                    // 🚩 [추가] 관리자 컨트롤 추가 (수찬관 이상)
+                    // 🚩 [수정] 관리자 컨트롤 추가 (시강학사 이상)
                     let adminControls = '';
                     if (currentUser) {
                         const userPosition = currentUser.position;
-                        const reviewerPositions = ['수찬관', '사천감', '한림학사', '상서', '수국사', '동수국사', '감수국사', '문하시중'];
-                        const approverPositions = ['수국사', '동수국사', '감수국사', '문하시중'];
+                        // 🚩 [수정] 직급 체계 업데이트
+                        // 검토 권한: 시강학사(종4품) ~ 수찬관(정3품) - 상급 사관
+                        const reviewerPositions = [
+                            '시강학사', '사관수찬', '직수찬관', '수찬관'  // 종4품~정3품 (상급 사관)
+                        ];
+                        // 승인 권한: 동수국사(종2품) ~ 감수국사(정1품) - 재상급
+                        const approverPositions = ['동수국사', '수국사', '판사관사', '감수국사'];
                         
-                        // 검토 버튼 (수찬관 이상) - pending 상태이고 (검토자가 아직 할당되지 않았거나, 자신이 검토자인 경우)
-                        if (reviewerPositions.includes(userPosition) && contribution.status === 'pending' && (!contribution.reviewerId || (contribution.reviewerId && contribution.reviewerId.toString() === currentUser.userId))) {
+                        // 🚩 [수정] 검토 버튼 - pending 상태면 무조건 표시 (reviewerId 체크 제거)
+                        if (reviewerPositions.includes(userPosition) && contribution.status === 'pending') {
                             adminControls += `<button onclick="event.stopPropagation(); showReviewModal('${contribution._id}')" class="button-style" style="padding: 2px 6px; font-size: 11px; margin-left: 5px; background-color: #f39c12;">🔍 검토</button>`;
                         }
                         
-                        // 승인 버튼 (수국사 이상) - pending 또는 reviewed 상태
+                        // 승인 버튼 (동수국사 이상) - pending 또는 reviewed 상태
                         if (approverPositions.includes(userPosition) && (contribution.status === 'pending' || contribution.status === 'reviewed')) {
                             adminControls += `<button onclick="event.stopPropagation(); approveContribution('${contribution._id}')" class="button-style primary" style="padding: 2px 6px; font-size: 11px; margin-left: 5px; background-color: #27ae60;">✅ 최종 승인</button>`;
                         }
@@ -13036,293 +13497,8 @@ kingSelect.addEventListener('change', () => {
     });
   </script>
 
-  <!-- 🚩 [추가] 랭킹 모달 -->
-  <div id="rankingModal" class="modal" style="display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
-    <div id="rankingModalContent" class="modal-content" style="background: #2c3e50; color: #ecf0f1; border: 2px solid #f1c40f; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 20px; width: 90%; max-width: 1000px; min-height: 600px; height: 70vh; overflow-y: auto; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.8); resize: vertical; cursor: move;">
-      <div id="rankingModalHeader" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; cursor: move;">
-        <h2 style="margin: 0; color: #f1c40f;">📜 사관(史官) 랭킹 및 사료</h2>
-        <div style="display: flex; gap: 10px;">
-          <button type="button" id="rankInfoBtn" style="background: #8e44ad; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">직급 안내</button>
-          <button id="closeRankingBtn" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #ecf0f1;">&times;</button>
-        </div>
-      </div>
-      
-      <!-- 탭 메뉴 -->
-      <div style="display: flex; border-bottom: 1px solid #5d7185; margin-bottom: 20px;">
-        <button id="rankingTabBtn" style="padding: 10px 20px; border: none; background: #3498db; color: white; cursor: pointer; border-radius: 4px 4px 0 0;">🏆 랭킹</button>
-        <button id="contributionsTabBtn" style="padding: 10px 20px; border: none; background: #5d7185; color: #ecf0f1; cursor: pointer; border-radius: 4px 4px 0 0;">📚 사료</button>
-      </div>
-      
-      <!-- 랭킹 탭 내용 -->
-      <div id="rankingTab" style="display: block;">
-        <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px;">
-          <thead>
-            <tr style="border-bottom: 1px solid #5d7185;">
-              <th style="text-align: left; padding: 5px; color: #ecf0f1;">순위</th>
-              <th style="text-align: left; padding: 5px; color: #ecf0f1;">사관명</th>
-              <th style="text-align: left; padding: 5px; color: #ecf0f1;">직급</th>
-              <th style="text-align: right; padding: 5px; color: #ecf0f1;">사료제출(3점)</th>
-              <th style="text-align: right; padding: 5px; color: #ecf0f1;">추천 수(1점)</th>
-              <th style="text-align: right; padding: 5px; color: #ecf0f1;">승인 건수(5점)</th>
-              <th style="text-align: right; padding: 5px; color: #ecf0f1;">공적</th>
-            </tr>
-          </thead>
-          <tbody id="rankingList">
-            <!-- 랭킹 데이터가 여기에 동적으로 추가됩니다 -->
-          </tbody>
-        </table>
-      </div>
-      
-      <!-- 사료 탭 내용 -->
-      <div id="contributionsTab" style="display: none;">
-        <div style="margin-bottom: 15px;">
-          <label style="margin-right: 10px; color: #ecf0f1;">필터:</label>
-          <select id="contributionFilter" style="padding: 5px; border: 1px solid #5d7185; border-radius: 4px; background: #34495e; color: #ecf0f1;">
-            <option value="mine">내 사료만</option>
-            <option value="all">전체 사료</option>
-          </select>
-        </div>
-        <div id="contributionsList" style="max-height: 400px; overflow-y: auto;">
-          <!-- 사료 데이터가 여기에 동적으로 추가됩니다 -->
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 🚩 [추가] 사료 상세 모달 -->
-  <div id="contributionDetailModal" class="modal" style="display: none; position: fixed; z-index: 10001; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6);">
-    <div class="modal-content" style="background-color: #2c3e50; color: #ecf0f1; margin: 5% auto; padding: 20px; border: 2px solid #f1c40f; width: 90%; max-width: 700px; max-height: 80vh; overflow-y: auto; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h2 style="margin: 0; color: #f1c40f;">📚 사료 상세 정보</h2>
-        <button id="closeContributionDetailBtn" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #ecf0f1;">&times;</button>
-      </div>
-      <div id="contributionDetailContent">
-        <!-- 상세 내용이 여기에 동적으로 추가됩니다 -->
-      </div>
-    </div>
-  </div>
-  <div id="rankInfoModal" class="modal" style="display: none; position: fixed; z-index: 99999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
-    <div class="modal-content" style="background-color: #2c3e50; color: #ecf0f1; margin: 5% auto; padding: 20px; border: 2px solid #f1c40f; width: 90%; max-width: 900px; max-height: 80vh; overflow-y: auto; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h2 style="margin: 0; color: #f1c40f;">📜 고려만리지도 사관(史館) 직급 시스템 안내</h2>
-        <button id="closeRankInfoBtn" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #ecf0f1;">&times;</button>
-      </div>
-
-      <div style="line-height: 1.6;">
-        <blockquote style="font-style: italic; font-size: 1.1em; color: #7f8c8d; border-left: 4px solid #3498db; padding-left: 15px; margin: 20px 0;">
-          "사관의 붓 끝에서 대륙의 강역이 되살아납니다."
-        </blockquote>
-
-        <p style="text-align: justify; margin-bottom: 25px;">
-          고려만리지도는 『고려사』, 『고려도경』 및 천문 기록을 바탕으로 왜곡된 역사를 바로잡는 집단지성 연구소입니다. 사관이 되어 대륙 고려의 실체를 입증하고 명예로운 품계를 획득하십시오.
-        </p>
-
-        <h3 style="color: #34495e; margin-top: 30px; border-bottom: 2px solid #3498db; padding-bottom: 8px;">🎖️ 사관의 공적(P)을 쌓는 법</h3>
-        <p style="margin-bottom: 15px;">단순한 데이터 입력이 아닌, 사료를 입증하고 논리를 세우는 과정이 모두 공적이 됩니다.</p>
-
-        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
-          <p style="margin: 5px 0; font-weight: bold;">역사연구 보고서 상주 (1P):</p>
-          <ul style="margin: 10px 0; padding-left: 20px;">
-            <li><strong>지명 고증:</strong> 고지도와 대륙 지형을 대조하여 성곽, 강, 산의 위치 보고.</li>
-            <li><strong>천문 대조:</strong> 사서의 천문 기록이 대륙 특정 좌표에서 관측됨을 증명.</li>
-            <li><strong>문물 입증:</strong> 원숭이, 낙타, 금 등 대륙적 산물 기록을 근거로 강역 논증.</li>
-          </ul>
-
-          <p style="margin: 5px 0; font-weight: bold;">보고서 최종 승인 (5P):</p>
-          <ul style="margin: 10px 0; padding-left: 20px;">
-            <li>제출한 보고서가 수국사(정2품) 이상의 검증을 거쳐 '공식 강역'으로 확정될 시 획득.</li>
-          </ul>
-
-          <p style="margin: 5px 0; font-weight: bold;">학술적 지지 획득 (1P):</p>
-          <ul style="margin: 10px 0; padding-left: 20px;">
-            <li>다른 사관들로부터 연구 내용에 대해 '추천'을 받을 때마다 누적.</li>
-          </ul>
-        </div>
-
-        <h3 style="color: #34495e; margin-top: 30px; border-bottom: 2px solid #e74c3c; padding-bottom: 8px;">🏛️ 📜 고려 사관(史館) 통합 18단계 직급표</h3>
-
-        <h4 style="color: #c0392b; margin-top: 25px;">[재상급 : 경쟁 임명제 (정1품~종2품)]</h4>
-        <p style="font-size: 0.9em; color: #7f8c8d; margin-bottom: 15px;">최고의 고증 실력을 갖춘 단 4인에게만 허락되는 지고한 직위입니다.</p>
-
-        <table style="width: 100%; border-collapse: collapse; margin: 15px 0; border: 2px solid #f39c12;">
-          <thead>
-            <tr style="background-color: #f39c12; color: white;">
-              <th style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold;">품계</th>
-              <th style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold;">직급명</th>
-              <th style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold;">임명 조건</th>
-              <th style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold;">비고 및 역할</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr style="background-color: #fff8e1;">
-              <td style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold; color: #d68910;">정1품</td>
-              <td style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold;">감수국사(監修國史)</td>
-              <td style="border: 1px solid #ddd; padding: 12px; text-align: center;">1위 + 5,000점</td>
-              <td style="border: 1px solid #ddd; padding: 12px; text-align: left;">시중(侍중) 겸임. 사관의 최고 수장</td>
-            </tr>
-            <tr>
-              <td style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold; color: #d68910;">종1품</td>
-              <td style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold;">판사관사(判史館事)</td>
-              <td style="border: 1px solid #ddd; padding: 12px; text-align: center;">2위 + 4,300점</td>
-              <td style="border: 1px solid #ddd; padding: 12px; text-align: left;">국가의 대사(大事) 기록 최종 승인</td>
-            </tr>
-            <tr style="background-color: #fff8e1;">
-              <td style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold; color: #d68910;">정2품</td>
-              <td style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold;">수국사(修國史)</td>
-              <td style="border: 1px solid #ddd; padding: 12px; text-align: center;">3위 + 3,700점</td>
-              <td style="border: 1px solid #ddd; padding: 12px; text-align: left;">평장사 등 겸임. 실록 편찬 총괄</td>
-            </tr>
-            <tr>
-              <td style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold; color: #d68910;">종2품</td>
-              <td style="border: 1px solid #ddd; padding: 12px; text-align: center; font-weight: bold;">동수국사(同修國史)</td>
-              <td style="border: 1px solid #ddd; padding: 12px; text-align: center;">4위 + 3,100점</td>
-              <td style="border: 1px solid #ddd; padding: 12px; text-align: left;">정당문학, 참지정사 등 겸임</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h4 style="color: #27ae60; margin-top: 25px;">[상급~하급 사관 : 자동 진급제 (정3품~종9품)]</h4>
-        <p style="font-size: 0.9em; color: #7f8c8d; margin-bottom: 15px;">일정 공적을 쌓으면 그 전문성을 인정받아 품계가 자동으로 상승합니다.</p>
-
-        <table style="width: 100%; border-collapse: collapse; margin: 15px 0; border: 2px solid #27ae60;">
-          <thead>
-            <tr style="background-color: #27ae60; color: white;">
-              <th style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">구분</th>
-              <th style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">품계</th>
-              <th style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">직급명</th>
-              <th style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">누적 공적</th>
-              <th style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">비고 및 역할</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr style="background-color: #e8f5e8;">
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #27ae60;">상급</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">정3품</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">수찬관(修撰官)</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">2,600</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">한림학사 승지 등 겸임. 기록 검토 및 교정</td>
-            </tr>
-            <tr>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #27ae60;">상급</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">종3품</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">직수찬관(直修撰官)</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">2,100</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">좌·우산기상시 등 겸임</td>
-            </tr>
-            <tr style="background-color: #e8f5e8;">
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #27ae60;">상급</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">정4품</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">사관수찬(史館修撰)</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">1,700</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">중서문하성 고위 관원 겸임</td>
-            </tr>
-            <tr>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #27ae60;">상급</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">종4품</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">시강학사(侍講學士)</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">1,400</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">왕의 곁에서 역사적 사례를 강론하며 기록</td>
-            </tr>
-            <tr style="background-color: #e8f5e8;">
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #3498db;">중급</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">정5품</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">기거주(起居注) / 낭중(郞中)</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">1,100</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">왕의 언행 밀착 기록 (가장 핵심적인 사관)</td>
-            </tr>
-            <tr>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #3498db;">중급</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">종5품</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">기거사(起居舍) / 원외랑(員外郞)</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">850</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">기록 초안 작성 및 행정 실무</td>
-            </tr>
-            <tr style="background-color: #e8f5e8;">
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #3498db;">중급</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">정6품</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">기거랑(起居郞) / 직사관(直史館)</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">650</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">사초(史草) 작성의 실무 주역</td>
-            </tr>
-            <tr>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #3498db;">중급</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">종6품</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">기거도위(起居都尉)</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">450</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">국왕의 행차 및 대외 활동 기록</td>
-            </tr>
-            <tr style="background-color: #e8f5e8;">
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #9b59b6;">하급</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">정7품</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">수찬(修撰)</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">300</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">한림원 등 실무 사관</td>
-            </tr>
-            <tr>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #9b59b6;">하급</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">종7품</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">직문한(直文翰)</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">200</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">문장과 기록의 기초 정비</td>
-            </tr>
-            <tr style="background-color: #e8f5e8;">
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #9b59b6;">하급</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">정8품</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">주서(注書)</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">120</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">회의 기록 및 사본 관리</td>
-            </tr>
-            <tr>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #9b59b6;">하급</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">종8품</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">검열(檢閱)</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">60</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">기록물의 오탈자 및 사실관계 1차 확인</td>
-            </tr>
-            <tr style="background-color: #e8f5e8;">
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #9b59b6;">하급</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">정9품</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">정자(正字)</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">30</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">교서관 등에서 문헌 보관 및 정리</td>
-            </tr>
-            <tr style="background-color: #f8f9fa;">
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold; color: #95a5a6;">입문</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">종9품</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center; font-weight: bold;">수분권지(修分權知)</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">0</td>
-              <td style="border: 1px solid #ddd; padding: 10px; text-align: left;">실무 수습 및 기록 보조 (입문)</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h3 style="color: #34495e; margin-top: 30px; border-bottom: 2px solid #9b59b6; padding-bottom: 8px;">💡 사관을 위한 지침</h3>
-
-        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
-          <p style="margin: 8px 0; font-weight: bold; color: #e74c3c;">실시간 인사 조정:</p>
-          <p style="margin: 5px 0; padding-left: 15px;">재상급(1~4위) 관직은 랭킹에 따라 매일 아침 조정됩니다. 문하시중의 자리를 지키기 위해 연구를 멈추지 마십시오.</p>
-
-          <p style="margin: 8px 0; font-weight: bold; color: #f39c12;">불멸의 이름:</p>
-          <p style="margin: 5px 0; padding-left: 15px;">최고위 사관의 업적은 <strong>'대륙 고려 전도 명예의 전당'</strong>에 영구히 기록됩니다.</p>
-
-          <p style="margin: 8px 0; font-weight: bold; color: #c0392b;">허위 보고 주의:</p>
-          <p style="margin: 5px 0; padding-left: 15px;">근거 없는 정보를 반복 제출할 경우 공적이 삭감될 수 있습니다.</p>
-        </div>
-
-        <blockquote style="font-style: italic; font-size: 1.1em; color: #7f8c8d; border-left: 4px solid #3498db; padding-left: 15px; margin: 25px 0;">
-          "기록되지 않은 역사는 사라지지만, 사관이 증명한 강역은 영원합니다."
-        </blockquote>
-
-        <div style="background-color: #ecf0f1; color: white; padding: 20px; border-radius: 8px; margin-top: 25px; text-align: center;">
-          <p style="margin: 0; font-size: 1.1em; font-weight: bold;">
-            지금 바로 대륙의 지명과 천문의 궤적을 담은 첫 번째 연구 보고서를 상주하십시오.
-          </p>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- 🚩 [추가] 사관 모집 팝업 모달 -->
+   
   <div id="welcomePopupModal" style="display: none; position: fixed; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); overflow-y: auto;">
     <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); color: #ecf0f1; margin: 3% auto; padding: 30px; border: 3px solid #f39c12; width: 95%; max-width: 850px; max-height: 90vh; overflow-y: auto; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.8); position: relative;">
       
@@ -13331,7 +13507,7 @@ kingSelect.addEventListener('change', () => {
       
       <!-- 헤더 -->
       <div style="text-align: center; margin-bottom: 30px;">
-        <div style="font-size: 60px; animation: float 3s ease-in-out infinite;">🏯</div>
+       <div class="header-icon"><img src="https://github.com/projeffmanager-design/historymap/blob/main/2I63ySQI9qG-97MMKptL_n5FJhNOWE2DLt-ZKOcLL5TKeV4xxTfCN06j0lhGg5YMDH0ade2X99P-pzcKInnlOg.png?raw=true"></div>
         <h1 style="font-family: 'Noto Serif KR', serif; font-size: 2.2em; background: linear-gradient(135deg, #f39c12, #e67e22, #d35400); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin: 15px 0;">고려만리지도 사관 모집</h1>
         <p style="font-size: 1.1em; color: #bdc3c7; font-style: italic;">史館 (역사를 기록하는 관청)</p>
       </div>
