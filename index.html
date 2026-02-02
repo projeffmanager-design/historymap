@@ -3655,7 +3655,8 @@ function enableFormDrag(formId) {
         }
     ];
 
-    const API_BASE_URL = 'http://localhost:3000/api'; // 💡 절대 경로로 변경하여 CORS 문제 해결
+    // 🎯 [로컬/서버 호환] 상대 경로 사용 (배포 환경에서 자동으로 도메인 추적)
+    const API_BASE_URL = '/api'; // 로컬: localhost:3000/api, Vercel: historymap-psi.vercel.app/api
     let isLoggedIn = true; // 이 페이지는 항상 로그인된 상태입니다.
     // 전역 데이터 저장소
     let countries = [];
@@ -4983,7 +4984,25 @@ function getKingByYear(countryName, year, month) {
 
 // --- 4. 지도 렌더링 및 마커 생성 함수 ---
 
+// 🔄 [무한 루프 방지] updateMap 디바운싱
+let updateMapTimer = null;
+let lastUpdateMapCall = { year: null, month: null, cacheOnly: null };
+
 function updateMap(year, month, cacheOnly = false) {
+        // 🛡️ [중복 호출 차단] 동일한 파라미터로 300ms 이내 재호출 시 무시
+        const now = Date.now();
+        if (lastUpdateMapCall.year === year && 
+            lastUpdateMapCall.month === month && 
+            lastUpdateMapCall.cacheOnly === cacheOnly &&
+            lastUpdateMapCall.timestamp && 
+            (now - lastUpdateMapCall.timestamp) < 300) {
+            console.log(`⏭️ updateMap 중복 호출 차단 (${now - lastUpdateMapCall.timestamp}ms 전 실행됨)`);
+            return;
+        }
+        
+        // 호출 정보 기록
+        lastUpdateMapCall = { year, month, cacheOnly, timestamp: now };
+        
         // 🚀 [최적화] 초기 로딩 중에는 실행 차단
         if (isInitializing) {
             console.log('⏭️ 초기 로딩 중이므로 updateMap 스킵');
