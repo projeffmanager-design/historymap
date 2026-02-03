@@ -36,7 +36,7 @@
 <script>
 // 🚀 [캐시 버스팅] 버전 체크 및 강제 새로고침
 (function() {
-    const CURRENT_VERSION = '2.0.7';  // MarkerCluster 적용 - 라벨 겹침 방지
+    const CURRENT_VERSION = '2.0.8';  // MarkerCluster 효과 강화 (반경 80px, 줌11까지)
     const storedVersion = localStorage.getItem('app_version');
     
     if (storedVersion !== CURRENT_VERSION) {
@@ -5128,11 +5128,14 @@ function renderImmediateCountryLabels(year, month) {
     
     // 🚀 [v2.0.7] MarkerCluster 그룹 생성 (라벨 겹침 방지)
     labelClusterGroup = L.markerClusterGroup({
-        maxClusterRadius: 40, // 40px 반경 내 라벨을 그룹화
+        maxClusterRadius: 80, // 80px 반경 내 라벨을 그룹화 (효과 강화)
         spiderfyOnMaxZoom: true, // 최대 확대 시 거미줄 모양으로 펼침
         showCoverageOnHover: false, // 마우스 오버 시 범위 표시 안함
         zoomToBoundsOnClick: true, // 클러스터 클릭 시 확대
-        disableClusteringAtZoom: 8, // 줌 레벨 8 이상에서는 클러스터 해제
+        disableClusteringAtZoom: 11, // 줌 레벨 11 이상에서는 클러스터 해제 (더 넓은 범위에서 클러스터 유지)
+        removeOutsideVisibleBounds: false, // 화면 밖 마커도 유지
+        animate: true, // 애니메이션 활성화
+        animateAddingMarkers: false, // 마커 추가 애니메이션 비활성화 (성능)
         iconCreateFunction: function(cluster) {
             const count = cluster.getChildCount();
             let sizeClass = 'small';
@@ -5244,7 +5247,10 @@ function renderImmediateCountryLabels(year, month) {
     // 🚀 [v2.0.7] 클러스터 그룹을 지도에 추가
     map.addLayer(labelClusterGroup);
     
-    console.log(`✅ [초고속 라벨] 전체 라벨 즉시 렌더링 완료: ${renderedCount}개 (강제표시: ${forcedCount}개, 클러스터 적용)`);
+    // 🚀 [v2.0.7] 클러스터 통계 로그
+    const clusterCount = labelClusterGroup.getClusters(map.getZoom()).length;
+    console.log(`✅ [초고속 라벨] 전체 라벨 즉시 렌더링 완료: ${renderedCount}개 (강제표시: ${forcedCount}개)`);
+    console.log(`🔘 [MarkerCluster] 현재 줌 레벨: ${map.getZoom()}, 클러스터 개수: ${clusterCount}개`);
 }
 
 // --- 4. 지도 렌더링 및 마커 생성 함수 ---
