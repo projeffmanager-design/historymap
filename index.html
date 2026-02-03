@@ -36,7 +36,7 @@
 <script>
 // 🚀 [캐시 버스팅] 버전 체크 및 강제 새로고침
 (function() {
-    const CURRENT_VERSION = '2.0.5';  // countries 캐시 즉시 사용 + 초기 라벨 강제 표시
+    const CURRENT_VERSION = '2.0.6';  // 초기 로딩 화면에 랜덤 메시지 + 기존 패널 제거
     const storedVersion = localStorage.getItem('app_version');
     
     if (storedVersion !== CURRENT_VERSION) {
@@ -2542,7 +2542,7 @@ function enableFormDrag(formId) {
     }
 </style>
 <body>
-  <!-- � [v2.0.5] 초기 로딩 화면 (JavaScript 실행 전부터 표시) -->
+  <!-- 🚀 [v2.0.5] 초기 로딩 화면 (JavaScript 실행 전부터 표시) -->
   <div id="initial-loading-screen" style="
     position: fixed;
     top: 0;
@@ -2561,9 +2561,20 @@ function enableFormDrag(formId) {
     <h2 style="font-size: 2.5em; margin-bottom: 20px; text-shadow: 2px 2px 4px #000;">
       고려만리지도 <span style="font-size: 0.7em;">(高麗萬里地圖)</span>
     </h2>
-    <div style="font-size: 1.2em; margin-bottom: 30px; color: #d4af37;">
+    
+    <!-- 🎯 랜덤 로딩 메시지 -->
+    <div id="loading-message-text" style="font-size: 1.2em; margin-bottom: 10px; color: #d4af37; min-height: 30px; text-align: center; padding: 0 20px;">
       역사의 문을 여는 중입니다...
     </div>
+    
+    <!-- 🎯 프로그레스 바 -->
+    <div style="width: 400px; max-width: 80%; background: rgba(0,0,0,0.3); border-radius: 8px; overflow: hidden; height: 8px; margin-bottom: 20px;">
+      <div id="loading-progress-bar-initial" style="width: 0%; height: 100%; background: linear-gradient(90deg, #d4af37, #f5e9d2); transition: width 0.3s ease; box-shadow: 0 0 10px rgba(212, 175, 55, 0.5);"></div>
+    </div>
+    
+    <!-- 🎯 퍼센트 표시 -->
+    <div id="loading-percentage-initial" style="font-size: 14px; color: #d4af37; margin-bottom: 30px; font-weight: bold;">0%</div>
+    
     <div style="
       width: 60px;
       height: 60px;
@@ -2575,6 +2586,10 @@ function enableFormDrag(formId) {
     <style>
       @keyframes spin {
         to { transform: rotate(360deg); }
+      }
+    </style>
+  </div>
+
       }
     </style>
   </div>
@@ -2757,28 +2772,7 @@ function enableFormDrag(formId) {
         <!-- 🚩 [추가] 사관 랭킹 표시 (좌측 중앙) -->
         <div id="rankingDisplay" style="position: absolute; top: 50%; left: 10px; transform: translateY(-50%); z-index: 1000; color: white; font-size: 12px; text-shadow: 1px 1px 2px rgba(0,0,0,0.8); line-height: 1.4;"></div>
         
-        <!-- 🎯 [추가] 로딩 상태 패널 (화면 왼쪽 중앙) -->
-        <div id="loading-status-panel" style="position: absolute; left: 20px; top: 50%; transform: translateY(-50%); z-index: 9999; background: rgba(20, 30, 40, 0.95); backdrop-filter: blur(10px); padding: 20px 24px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); border: 2px solid rgba(255, 200, 0, 0.3); min-width: 350px; max-width: 450px; display: none; pointer-events: none;">
-            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
-                <div id="loading-spinner" style="width: 24px; height: 24px; border: 3px solid rgba(255, 200, 0, 0.3); border-top-color: #ffc800; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-                <h3 style="margin: 0; font-size: 16px; color: #ffc800; font-weight: bold;">역사를 불러오는 중...</h3>
-            </div>
-            <div id="loading-message" style="font-size: 14px; line-height: 1.6; color: #e0e0e0; margin-bottom: 12px; min-height: 42px;">
-                시간 여행을 준비하고 있습니다...
-            </div>
-            <div style="background: rgba(0,0,0,0.3); border-radius: 8px; overflow: hidden; height: 8px; margin-bottom: 8px;">
-                <div id="loading-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #ffc800, #ff8c00); transition: width 0.3s ease; box-shadow: 0 0 10px rgba(255, 200, 0, 0.5);"></div>
-            </div>
-            <div id="loading-percentage" style="text-align: right; font-size: 12px; color: #ffc800; font-weight: bold;">0%</div>
-        </div>
         
-        <!-- CSS 애니메이션 추가 -->
-        <style>
-            @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-            }
-        </style>
         
         <!-- 🚩 [수정] 왕 목록 투명 박스 (지도 왼쪽 하단, 확대축소 버튼 위) -->
         <div id="map-king-panel" style="position: absolute; bottom: 80px; left: 10px; width: 370px; max-height: 30vh; z-index: 998; background: rgba(30, 42, 56, 0.40); backdrop-filter: blur(3px); padding: 12px; border-radius: 8px; box-shadow: 1 2px 8px rgba(0,0,0,0.3); overflow-y: auto; pointer-events: auto;">
@@ -6908,28 +6902,41 @@ function getCountryInfoById(id) {
         });
     }
 
-    // 🎯 [추가] 로딩 상태 표시 함수
+    // 🎯 [v2.0.6] 로딩 상태 표시 함수 - 초기 로딩 화면 업데이트
+    const loadingMessages = [
+        '역사의 문을 여는 중입니다...',
+        '산둥 반도에서 사신이 오고 있습니다...',
+        '고구려의 기록을 정리하는 중...',
+        '백제의 영토를 펼치는 중...',
+        '신라의 역사를 불러오는 중...',
+        '고려의 만리를 측량하는 중...',
+        '조선의 지도를 그리는 중...',
+        '과거의 기록을 복원하는 중...',
+        '시간 여행을 준비하고 있습니다...',
+        '역사서를 읽고 있습니다...',
+        '왕조의 흥망성쇠를 기록하는 중...',
+        '전장의 자취를 더듬는 중...',
+        '옛 도읍지를 찾는 중...',
+        '강역의 변천을 추적하는 중...'
+    ];
+    
     function showLoadingStatus(message, percent) {
-        const panel = document.getElementById('loading-status-panel');
-        const messageEl = document.getElementById('loading-message');
-        const progressBar = document.getElementById('loading-progress-bar');
-        const percentageEl = document.getElementById('loading-percentage');
+        // 초기 로딩 화면 업데이트
+        const messageEl = document.getElementById('loading-message-text');
+        const progressBar = document.getElementById('loading-progress-bar-initial');
+        const percentageEl = document.getElementById('loading-percentage-initial');
         
-        if (panel && messageEl && progressBar && percentageEl) {
-            panel.style.display = 'block';
-            messageEl.textContent = message;
+        if (messageEl && progressBar && percentageEl) {
+            // 메시지가 제공되지 않으면 랜덤 선택
+            const displayMessage = message || loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
+            messageEl.textContent = displayMessage;
             progressBar.style.width = percent + '%';
             percentageEl.textContent = percent + '%';
         }
     }
     
     function hideLoadingStatus() {
-        const panel = document.getElementById('loading-status-panel');
-        if (panel) {
-            panel.style.display = 'none';
-        }
-        
-        // 🚀 [v2.0.5] 초기 로딩 화면 제거
+        // 🚀 [v2.0.6] 초기 로딩 화면 제거
         const initialScreen = document.getElementById('initial-loading-screen');
         if (initialScreen) {
             initialScreen.style.opacity = '0';
