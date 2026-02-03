@@ -14,10 +14,15 @@ FILES=(
     "index.html"
     "admin.html"
     "account.html"
+    "register.html"
+    "ranking.html"
+    "recruit.html"
     "server.js"
     "package.json"
     "login.html"
     "territory_manager.html"
+    "vercel.json"
+    "db.js"
 )
 
 # 파일 백업 실행
