@@ -36,7 +36,7 @@
 <script>
 // 🚀 [캐시 버스팅] 버전 체크 및 강제 새로고침
 (function() {
-    const CURRENT_VERSION = '2.0.6';  // 초기 로딩 화면에 랜덤 메시지 + 기존 패널 제거
+    const CURRENT_VERSION = '2.0.7';  // MarkerCluster 적용 - 라벨 겹침 방지
     const storedVersion = localStorage.getItem('app_version');
     
     if (storedVersion !== CURRENT_VERSION) {
@@ -795,6 +795,12 @@ body.force-mobile .marker-type-selector button {
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&family=Yeon+Sung&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  
+  <!-- 🚀 [v2.0.7] Leaflet MarkerCluster - 라벨 겹침 방지 -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+  <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+  
   <!-- 🚩 [추가] Leaflet.draw 플러그인 -->
   <script src="https://cdn.jsdelivr.net/npm/leaflet-textpath/leaflet.textpath.min.js"></script>
   <!-- 🚩 [추가] 모바일 스와이프 이벤트를 위한 Hammer.js -->
@@ -1093,6 +1099,48 @@ body.force-mobile .marker-type-selector button {
     .label-text-marker {
         /* 🚩 [추가] 줌 레벨에 따른 크기 조절 */
         transform: scale(var(--marker-scale, 1));
+    }
+    
+    /* 🚀 [v2.0.7] MarkerCluster 스타일 커스터마이징 */
+    .marker-cluster {
+        background: rgba(212, 175, 55, 0.6);
+        border: 3px solid rgba(212, 175, 55, 0.9);
+        border-radius: 50%;
+        text-align: center;
+        font-weight: bold;
+        color: #fff;
+        text-shadow: 1px 1px 2px #000;
+    }
+    .marker-cluster div {
+        width: 34px;
+        height: 34px;
+        margin: 3px;
+        background: rgba(212, 175, 55, 0.8);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .marker-cluster-small {
+        background: rgba(181, 226, 140, 0.6);
+        border-color: rgba(110, 204, 57, 0.9);
+    }
+    .marker-cluster-small div {
+        background: rgba(110, 204, 57, 0.8);
+    }
+    .marker-cluster-medium {
+        background: rgba(241, 211, 87, 0.6);
+        border-color: rgba(240, 194, 12, 0.9);
+    }
+    .marker-cluster-medium div {
+        background: rgba(240, 194, 12, 0.8);
+    }
+    .marker-cluster-large {
+        background: rgba(253, 156, 115, 0.6);
+        border-color: rgba(241, 128, 23, 0.9);
+    }
+    .marker-cluster-large div {
+        background: rgba(241, 128, 23, 0.8);
     }
     
     /* 일반 성/도시 마커 텍스트 스타일 */
@@ -3753,6 +3801,9 @@ function enableFormDrag(formId) {
     let markers = [];
     let currentOpenPopup = null; // 🚩 [추가] 현재 열린 팝업 추적
     let isInitializing = true; // 🚀 [최적화] 초기 로딩 플래그
+    
+    // 🚀 [v2.0.7] MarkerCluster 그룹 (라벨 겹침 방지)
+    let labelClusterGroup = null;
 
     function getCastleLayerType(castle) {
         if (!castle) return 'city';
@@ -5069,6 +5120,33 @@ function renderImmediateCountryLabels(year, month) {
     
     console.log('🚩 [초고속 라벨] 전체 라벨 즉시 렌더링 시작');
     
+    // 🚀 [v2.0.7] 기존 클러스터 그룹 제거
+    if (labelClusterGroup) {
+        map.removeLayer(labelClusterGroup);
+        labelClusterGroup = null;
+    }
+    
+    // 🚀 [v2.0.7] MarkerCluster 그룹 생성 (라벨 겹침 방지)
+    labelClusterGroup = L.markerClusterGroup({
+        maxClusterRadius: 40, // 40px 반경 내 라벨을 그룹화
+        spiderfyOnMaxZoom: true, // 최대 확대 시 거미줄 모양으로 펼침
+        showCoverageOnHover: false, // 마우스 오버 시 범위 표시 안함
+        zoomToBoundsOnClick: true, // 클러스터 클릭 시 확대
+        disableClusteringAtZoom: 8, // 줌 레벨 8 이상에서는 클러스터 해제
+        iconCreateFunction: function(cluster) {
+            const count = cluster.getChildCount();
+            let sizeClass = 'small';
+            if (count > 10) sizeClass = 'medium';
+            if (count > 30) sizeClass = 'large';
+            
+            return L.divIcon({
+                html: `<div><span>${count}</span></div>`,
+                className: `marker-cluster marker-cluster-${sizeClass}`,
+                iconSize: L.point(40, 40)
+            });
+        }
+    });
+    
     // 활성화된 레이어 확인
     const shouldRenderCountry = layerVisibility.countryLabel;
     const shouldRenderPlace = layerVisibility.placeLabel;
@@ -5152,18 +5230,21 @@ function renderImmediateCountryLabels(year, month) {
             pane: 'labelPane'
         });
         
-        marker.addTo(map);
+        // 🚀 [v2.0.7] MarkerCluster에 추가 (개별 addTo(map) 대신)
         marker._castleData = label;
         marker._isImmediateLabel = true; // 즉시 렌더링된 라벨 표시
         marker._forceShown = forceShow; // 강제 표시 여부 기록
-        allCastleMarkers.push(marker);
+        labelClusterGroup.addLayer(marker); // 클러스터 그룹에 추가
         renderedCount++;
         if (forceShow && !shouldRenderCountry && !shouldRenderPlace && !shouldRenderEthnic) {
             forcedCount++;
         }
     });
     
-    console.log(`✅ [초고속 라벨] 전체 라벨 즉시 렌더링 완료: ${renderedCount}개 (강제표시: ${forcedCount}개)`);
+    // 🚀 [v2.0.7] 클러스터 그룹을 지도에 추가
+    map.addLayer(labelClusterGroup);
+    
+    console.log(`✅ [초고속 라벨] 전체 라벨 즉시 렌더링 완료: ${renderedCount}개 (강제표시: ${forcedCount}개, 클러스터 적용)`);
 }
 
 // --- 4. 지도 렌더링 및 마커 생성 함수 ---
