@@ -36,26 +36,45 @@
 <script>
 // 🚀 [캐시 버스팅] 버전 체크 및 강제 새로고침
 (function() {
-    const CURRENT_VERSION = '2.0.1';  // 버전 업데이트
+    const CURRENT_VERSION = '2.0.2';  // 버전 업데이트
     const storedVersion = localStorage.getItem('app_version');
     
     if (storedVersion !== CURRENT_VERSION) {
         console.log(`🔄 버전 업데이트: ${storedVersion || '없음'} → ${CURRENT_VERSION}`);
+        
+        // 모든 localStorage 클리어
+        localStorage.clear();
         localStorage.setItem('app_version', CURRENT_VERSION);
         
-        // 캐시 클리어
+        // IndexedDB 클리어
+        if (window.indexedDB) {
+            indexedDB.databases().then(dbs => {
+                dbs.forEach(db => {
+                    console.log(`🗑️ IndexedDB 삭제: ${db.name}`);
+                    indexedDB.deleteDatabase(db.name);
+                });
+            }).catch(e => console.warn('IndexedDB 클리어 실패:', e));
+        }
+        
+        // Service Worker 캐시 클리어
         if ('caches' in window) {
             caches.keys().then(names => {
-                names.forEach(name => caches.delete(name));
+                names.forEach(name => {
+                    console.log(`🗑️ 캐시 삭제: ${name}`);
+                    caches.delete(name);
+                });
             });
         }
         
-        // URL 파라미터 없이 첫 로드인 경우만 새로고침
-        if (!window.location.search.includes('v=')) {
-            window.location.href = window.location.pathname + '?v=' + CURRENT_VERSION + '#reloaded';
+        // 강제 리로드 (캐시 무시)
+        if (!window.location.hash.includes('reloaded')) {
+            console.log('🔄 강제 리로드 실행...');
+            window.location.href = window.location.pathname + '?v=' + CURRENT_VERSION + '&t=' + Date.now() + '#reloaded';
             return;
         }
     }
+    
+    console.log(`✅ 버전 확인 완료: ${CURRENT_VERSION}`);
 })();
 
 // (removed duplicate/conflicting menu toggle logic)
