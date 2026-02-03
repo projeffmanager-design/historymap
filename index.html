@@ -36,7 +36,7 @@
 <script>
 // 🚀 [캐시 버스팅] 버전 체크 및 강제 새로고침
 (function() {
-    const CURRENT_VERSION = '2.0.8';  // MarkerCluster 효과 강화 (반경 80px, 줌11까지)
+    const CURRENT_VERSION = '2.0.9';  // 초기 로딩 화면 개선 (영토 렌더링 완료까지 유지)
     const storedVersion = localStorage.getItem('app_version');
     
     if (storedVersion !== CURRENT_VERSION) {
@@ -7260,6 +7260,12 @@ function getCountryInfoById(id) {
               // 캐시가 있으면 백그라운드 로딩 스킵
               if (territories.length > 0) {
                   console.log('✅ 영토 데이터 이미 로드됨 (캐시 사용):', territories.length, '개');
+                  
+                  // 🎯 [v2.0.9] 캐시 사용 시에도 로딩 화면 숨김
+                  setTimeout(() => {
+                      hideLoadingStatus();
+                      console.log('✅ 초기 로딩 완료 (영토 캐시 사용) - 로딩 화면 숨김');
+                  }, 300);
               } else {
                   console.log('🗺️ 영토 데이터 백그라운드 로딩 예약...');
                   setTimeout(async () => {
@@ -7277,13 +7283,29 @@ function getCountryInfoById(id) {
                           const { year, month } = getCurrentYearMonth();
                           updateMap(year, month);
                           console.log('🗺️ 영토 추가 렌더링 완료 (백그라운드)');
+                          
+                          // 🎯 [v2.0.9] 영토 렌더링 완료 시 로딩 화면 숨김
+                          setTimeout(() => {
+                              hideLoadingStatus();
+                              console.log('✅ 초기 로딩 완전히 완료 - 로딩 화면 숨김');
+                          }, 300);
                       } catch (error) {
                           console.error('❌ 영토 백그라운드 로딩 실패:', error);
+                          // 실패해도 로딩 화면 숨김
+                          setTimeout(() => {
+                              hideLoadingStatus();
+                          }, 300);
                       }
                   }, 50); // 50ms로 단축 (빠른 렌더링)
               }
           } else {
               console.log('⏭️ 영토 레이어 비활성화 → 로드 스킵');
+              
+              // 🎯 [v2.0.9] 영토 레이어가 비활성화된 경우에도 로딩 화면 숨김
+              setTimeout(() => {
+                  hideLoadingStatus();
+                  console.log('✅ 초기 로딩 완료 (영토 레이어 비활성화) - 로딩 화면 숨김');
+              }, 300);
           }
           
           // ===== 🚀 [최적화] 추가 데이터 병렬 로딩 (80-90%) =====
@@ -7531,11 +7553,11 @@ function getCountryInfoById(id) {
               console.log('⏭️ castles 로딩 스킵 (city, territoryPolygon 모두 비활성화)');
           }
           
-          // 🎯 로딩 완료 - 패널 숨김
-          showLoadingStatus('검증된 역사만이 지도에 남았습니다.', 100);
-          setTimeout(() => {
-              hideLoadingStatus();
-          }, 500); // 0.5초 후 패널 숨김
+          // 🎯 [v2.0.9] 기존 조기 숨김 제거 - 영토 렌더링 완료 시점으로 이동
+          // showLoadingStatus('검증된 역사만이 지도에 남았습니다.', 100);
+          // setTimeout(() => {
+          //     hideLoadingStatus();
+          // }, 500);
           
       } catch (error) {
           console.error('❌ 초기화 오류:', error);
