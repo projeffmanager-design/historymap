@@ -4982,52 +4982,60 @@ function getKingByYear(countryName, year, month) {
         console.log(`  ✅ 새 라벨 추가: ${addedCount}개`);
     }
 
-// 🚀 [초고속 라벨] 국가 라벨 즉시 렌더링 (국가 매칭 기다리지 않음)
+// 🚀 [초고속 라벨] 모든 라벨 즉시 렌더링 (영토 계산 기다리지 않음)
 function renderImmediateCountryLabels(year, month) {
-    if (!map || !countries || countries.length === 0 || !castles || castles.length === 0) {
-        console.log('⚠️ [초고속 라벨] 데이터 미준비 (countries 또는 castles 없음)');
+    if (!map || !castles || castles.length === 0) {
+        console.log('⚠️ [초고속 라벨] castles 데이터 미준비');
         return;
     }
     
-    if (!layerVisibility.countryLabel) {
-        console.log('⏭️ [초고속 라벨] countryLabel 레이어 비활성화됨');
-        return;
-    }
+    console.log('🚩 [초고속 라벨] 전체 라벨 즉시 렌더링 시작');
     
-    console.log('🚩 [초고속 라벨] 국가 라벨 즉시 렌더링 시작');
+    // 활성화된 레이어 확인
+    const shouldRenderCountry = layerVisibility.countryLabel;
+    const shouldRenderPlace = layerVisibility.placeLabel;
+    const shouldRenderEthnic = layerVisibility.ethnicLabel;
     
-    const currentTime = yearMonthToTotalMonths(year, month);
+    console.log(`🏷️ [라벨 레이어] country: ${shouldRenderCountry}, place: ${shouldRenderPlace}, ethnic: ${shouldRenderEthnic}`);
     
-    // 현재 시점에 존재하는 국가들 필터링
-    const activeCountries = countries.filter(c => {
-        const startTime = yearMonthToTotalMonths(c.start_year, c.start_month || 1);
-        const endTime = yearMonthToTotalMonths(c.end_year || 9999, c.end_month || 12);
-        return currentTime >= startTime && currentTime <= endTime;
-    });
+    // castles에서 모든 라벨 필터링 (is_label === true)
+    const allLabels = castles.filter(c => c.is_label === true);
     
-    console.log(`🏷️ [초고속 라벨] 현재 시점 활성 국가: ${activeCountries.length}/${countries.length}개`);
-    
-    // castles에서 country 라벨만 필터링
-    const countryLabels = castles.filter(c => 
-        c.is_label && 
-        c.label_type === 'country' &&
-        activeCountries.some(country => country.name === c.country_id)
-    );
-    
-    console.log(`🏷️ [초고속 라벨] 즉시 표시할 국가 라벨: ${countryLabels.length}개`);
+    console.log(`🏷️ [초고속 라벨] 전체 라벨 개수: ${allLabels.length}개`);
     
     let renderedCount = 0;
     
-    // 라벨 즉시 렌더링 (updateMap 기다리지 않음)
-    countryLabels.forEach(label => {
-        const country = countries.find(c => c.name === label.country_id);
-        if (!country) return;
+    // 라벨 즉시 렌더링 (영토 계산 불필요)
+    allLabels.forEach(label => {
+        // 라벨 타입별 가시성 체크
+        const labelType = label.label_type || 'place';
+        let shouldRender = false;
+        
+        if (labelType === 'country') {
+            shouldRender = shouldRenderCountry;
+        } else if (labelType === 'ethnic') {
+            shouldRender = shouldRenderEthnic;
+        } else {
+            shouldRender = shouldRenderPlace; // place, city, mountain, river 등
+        }
+        
+        if (!shouldRender) return;
         
         // 시간 범위 체크
         const startYear = label.start_year || label.built_year || -Infinity;
         const endYear = label.end_year || label.destroyed_year || Infinity;
         if (!(startYear <= year && endYear >= year)) return;
         
+        // 국가 색상 가져오기 (있으면)
+        let labelColor = label.label_color || '#FFFFFF';
+        if (labelType === 'country' && countries && countries.length > 0) {
+            const country = countries.find(c => c.name === label.country_id);
+            if (country && country.color) {
+                labelColor = country.color;
+            }
+        }
+        
+        // 라벨 크기
         const labelSize = label.label_size || 'medium';
         let fontSize;
         switch (labelSize) {
@@ -5038,11 +5046,11 @@ function renderImmediateCountryLabels(year, month) {
         
         const marker = L.marker([label.lat, label.lng], {
             icon: L.divIcon({
-                className: 'label-text-marker country-label-immediate',
+                className: `label-text-marker ${labelType}-label-immediate`,
                 html: `<div style="
                     font-size: ${fontSize}px;
                     font-weight: bold;
-                    color: ${label.label_color || country.color || '#FFFFFF'};
+                    color: ${labelColor};
                     text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 0px 2px #000;
                     white-space: nowrap;
                     text-align: center;
@@ -5061,7 +5069,7 @@ function renderImmediateCountryLabels(year, month) {
         renderedCount++;
     });
     
-    console.log(`✅ [초고속 라벨] 국가 라벨 즉시 렌더링 완료: ${renderedCount}개`);
+    console.log(`✅ [초고속 라벨] 전체 라벨 즉시 렌더링 완료: ${renderedCount}개 (영토 계산 불필요)`);
 }
 
 // --- 4. 지도 렌더링 및 마커 생성 함수 ---
