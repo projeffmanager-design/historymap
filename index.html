@@ -36,7 +36,7 @@
 <script>
 // 🚀 [캐시 버스팅] 버전 체크 및 강제 새로고침
 (function() {
-    const CURRENT_VERSION = '2.0.4';  // 버전 업데이트 - initialize try-catch 수정
+    const CURRENT_VERSION = '2.0.5';  // countries 캐시 즉시 사용 + 초기 라벨 강제 표시
     const storedVersion = localStorage.getItem('app_version');
     
     if (storedVersion !== CURRENT_VERSION) {
@@ -5043,7 +5043,13 @@ function renderImmediateCountryLabels(year, month) {
     const shouldRenderPlace = layerVisibility.placeLabel;
     const shouldRenderEthnic = layerVisibility.ethnicLabel;
     
-    console.log(`🏷️ [라벨 레이어] country: ${shouldRenderCountry}, place: ${shouldRenderPlace}, ethnic: ${shouldRenderEthnic}`);
+    // 🚀 [v2.0.5 최적화] 초기 로딩 시 중요 라벨 강제 표시
+    const isInitial = window.isInitializing;
+    if (isInitial) {
+        console.log('🚩 [초기 로딩] 중요 라벨 강제 표시 모드 활성화');
+    }
+    
+    console.log(`🏷️ [라벨 레이어] country: ${shouldRenderCountry}, place: ${shouldRenderPlace}, ethnic: ${shouldRenderEthnic}, 초기로딩: ${isInitial}`);
     
     // castles에서 모든 라벨 필터링 (is_label === true)
     const allLabels = castles.filter(c => c.is_label === true);
@@ -5051,6 +5057,7 @@ function renderImmediateCountryLabels(year, month) {
     console.log(`🏷️ [초고속 라벨] 전체 라벨 개수: ${allLabels.length}개`);
     
     let renderedCount = 0;
+    let forcedCount = 0;
     
     // 라벨 즉시 렌더링 (영토 계산 불필요)
     allLabels.forEach(label => {
@@ -5058,12 +5065,17 @@ function renderImmediateCountryLabels(year, month) {
         const labelType = label.label_type || 'place';
         let shouldRender = false;
         
+        // 🚀 [v2.0.5] 초기 로딩 시 중요 라벨 강제 표시
+        // importance가 3 이상인 라벨은 레이어 설정과 무관하게 표시
+        const importance = label.importance || 0;
+        const forceShow = isInitial && (importance >= 3 || labelType === 'country');
+        
         if (labelType === 'country') {
-            shouldRender = shouldRenderCountry;
+            shouldRender = shouldRenderCountry || forceShow;
         } else if (labelType === 'ethnic') {
-            shouldRender = shouldRenderEthnic;
+            shouldRender = shouldRenderEthnic || forceShow;
         } else {
-            shouldRender = shouldRenderPlace; // place, city, mountain, river 등
+            shouldRender = shouldRenderPlace || forceShow; // place, city, mountain, river 등
         }
         
         if (!shouldRender) return;
@@ -5112,11 +5124,15 @@ function renderImmediateCountryLabels(year, month) {
         marker.addTo(map);
         marker._castleData = label;
         marker._isImmediateLabel = true; // 즉시 렌더링된 라벨 표시
+        marker._forceShown = forceShow; // 강제 표시 여부 기록
         allCastleMarkers.push(marker);
         renderedCount++;
+        if (forceShow && !shouldRenderCountry && !shouldRenderPlace && !shouldRenderEthnic) {
+            forcedCount++;
+        }
     });
     
-    console.log(`✅ [초고속 라벨] 전체 라벨 즉시 렌더링 완료: ${renderedCount}개 (영토 계산 불필요)`);
+    console.log(`✅ [초고속 라벨] 전체 라벨 즉시 렌더링 완료: ${renderedCount}개 (강제표시: ${forcedCount}개)`);
 }
 
 // --- 4. 지도 렌더링 및 마커 생성 함수 ---
@@ -7015,8 +7031,15 @@ function getCountryInfoById(id) {
           
           // 🎯 [최적화] 레이어 설정에 따라 로딩할 데이터 결정
           // 🚀 [최적화] history, castles 제외 - 지도 렌더링 후 백그라운드 로드
+          
+          // 🚀 [최적화 v2.0.5] countries 캐시가 있으면 네트워크 요청 스킵!
+          const countriesAlreadyLoaded = countries.length > 0;
+          
           const loadPromises = {
-              countries: fetchData('countries'),  // 필수 (영토 렌더링용)
+              // 🎯 countries: 캐시가 있으면 즉시 resolve, 없으면 네트워크 요청
+              countries: countriesAlreadyLoaded 
+                  ? Promise.resolve(countries).then(d => { console.log('⚡ [초고속] countries 캐시 사용 (네트워크 스킵)'); return d; })
+                  : fetchData('countries'),
               events: layerVisibility.event ? fetchData('events') : Promise.resolve([]),
               // history: 제외 - 2,221개로 가장 무거움, 지도에 직접 영향 없음
               // castles: 제외 - 1,168개, 11초 소요, 백그라운드 로드로 전환
