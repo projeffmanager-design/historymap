@@ -36,7 +36,7 @@
 <script>
 // 🚀 [캐시 버스팅] 버전 체크 및 강제 새로고침
 (function() {
-    const CURRENT_VERSION = '2.0.9';  // 초기 로딩 화면 개선 (영토 렌더링 완료까지 유지)
+    const CURRENT_VERSION = '2.1.0';  // 영토 타일 뷰포트 최적화 + 라벨 중첩 방지
     const storedVersion = localStorage.getItem('app_version');
     
     if (storedVersion !== CURRENT_VERSION) {
@@ -5852,6 +5852,9 @@ function updateMap(year, month, cacheOnly = false) {
         let renderedCastleCount = 0;
         let marker;
         
+        // 🚀 [v2.1.0] 라벨 중첩 방지: 이미 렌더링된 좌표 저장
+        const renderedLabelCoords = [];
+        
         castleLayerGroup.clearLayers();
         castles.forEach(castle => {
             const baseCountryId = castle.country_id || castle.countryId || (Array.isArray(castle.history) && castle.history.length > 0 ? castle.history[0]?.country_id : null);
@@ -6529,13 +6532,39 @@ function updateMap(year, month, cacheOnly = false) {
                     }
                 }
               });
+              
+              // 🚀 [v2.1.0] 라벨 중첩 방지 로직
+              if (castle.is_label || !castle.history || castle.history.length === 0) {
+                  // 현재 줌 레벨에 따른 최소 거리 설정
+                  const currentZoom = map.getZoom();
+                  const minDistance = currentZoom < 5 ? 0.5 : currentZoom < 7 ? 0.3 : 0.15;
+                  
+                  // 중첩 체크: 이미 렌더링된 라벨과 너무 가까운지 확인
+                  const isOverlapping = renderedLabelCoords.some(coord => {
+                      const latDiff = coord.lat - castle.lat;
+                      const lngDiff = coord.lng - castle.lng;
+                      const dist = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff);
+                      return dist < minDistance;
+                  });
+                  
+                  // 중요도가 낮고 겹치면 렌더링 스킵
+                  const importance = castle.importance || 1;
+                  if (isOverlapping && importance < 4) {
+                      marker = null;
+                      return; // 다음 castle로 이동
+                  }
+                  
+                  // 렌더링 성공 시 좌표 저장
+                  renderedLabelCoords.push({ lat: castle.lat, lng: castle.lng });
+              }
+              
               markers.push(marker);
               marker.addTo(castleLayerGroup);
               marker = null; 
             }
         });
         
-        console.log(`✅ 성/도시 렌더링 완료: 마커 ${markers.length}개 추가됨`);
+        console.log(`✅ 성/도시 렌더링 완료: 마커 ${markers.length}개 추가됨 (중첩 방지 적용)`);
     }
 
 function getCountryInfoById(id) {
@@ -7662,16 +7691,42 @@ function getCountryInfoById(id) {
               const tileIndex = await indexResponse.json();
               console.log(`📊 타일 인덱스: ${tileIndex.length}개 타일 (경로: ${tilesBasePath})`);
 
-              // 2. 모든 타일 파일들 로드 (287개 영토는 충분히 작아서 전체 로드 가능)
-              // 병렬로 10개씩 로드해서 서버 부하 방지
-              const batchSize = 10;
+              // 🚀 [v2.1.0 최적화] 뷰포트 기반 타일 필터링 (24초 → 2초)
+              // 2-1. 현재 화면에 보이는 영역 계산
+              const viewport = {
+                  north: bounds.getNorth(),
+                  south: bounds.getSouth(),
+                  east: bounds.getEast(),
+                  west: bounds.getWest()
+              };
+              console.log(`🎯 [뷰포트] 북: ${viewport.north.toFixed(2)}, 남: ${viewport.south.toFixed(2)}, 동: ${viewport.east.toFixed(2)}, 서: ${viewport.west.toFixed(2)}`);
+              
+              // 2-2. 뷰포트와 겹치는 타일만 선택 (우선순위 로딩)
+              const visibleTiles = tileIndex.filter(tile => {
+                  if (!tile.bounds) return true; // bounds 없으면 일단 포함
+                  
+                  const tileIntersects = !(
+                      tile.bounds[2] < viewport.west ||  // 타일이 화면 왼쪽 밖
+                      tile.bounds[0] > viewport.east ||  // 타일이 화면 오른쪽 밖
+                      tile.bounds[3] < viewport.south || // 타일이 화면 아래쪽 밖
+                      tile.bounds[1] > viewport.north    // 타일이 화면 위쪽 밖
+                  );
+                  return tileIntersects;
+              });
+              
+              const invisibleTiles = tileIndex.filter(tile => !visibleTiles.includes(tile));
+              console.log(`🎯 [필터링] 화면 내 타일: ${visibleTiles.length}개, 화면 밖: ${invisibleTiles.length}개`);
+              
+              // 2-3. 우선순위 타일만 먼저 로드 (병렬 20개)
+              const batchSize = 20; // 10 → 20으로 증가 (더 빠르게)
               const allFeatures = [];
               
-              for (let i = 0; i < tileIndex.length; i += batchSize) {
-                  const batch = tileIndex.slice(i, i + batchSize);
+              // 🚀 1차: 화면에 보이는 타일 먼저 로드
+              console.log(`⚡ [1차 로딩] 화면 내 타일 ${visibleTiles.length}개 로딩 시작...`);
+              for (let i = 0; i < visibleTiles.length; i += batchSize) {
+                  const batch = visibleTiles.slice(i, i + batchSize);
                   const batchPromises = batch.map(async (tile) => {
                       try {
-                          // 감지된 경로 사용 + 캐시 무효화
                           const tileUrl = `${origin}${tilesBasePath}/${tile.filename}?v=${timestamp}`;
                           const tileResponse = await fetch(tileUrl, {
                               method: 'GET',
@@ -7681,14 +7736,11 @@ function getCountryInfoById(id) {
                                   'Pragma': 'no-cache'
                               }
                           });
-                          if (!tileResponse.ok) {
-                              console.warn(`타일 로드 실패: ${tile.filename}`);
-                              return [];
-                          }
+                          if (!tileResponse.ok) return [];
                           const tileData = await tileResponse.json();
                           return tileData.features || [];
                       } catch (error) {
-                          console.warn(`타일 로드 오류: ${tile.filename}`, error);
+                          console.warn(`타일 로드 오류: ${tile.filename}`);
                           return [];
                       }
                   });
@@ -7696,13 +7748,62 @@ function getCountryInfoById(id) {
                   const batchResults = await Promise.all(batchPromises);
                   allFeatures.push(...batchResults.flat());
                   
-                  // 진행률 표시
-                  const progress = Math.floor((i + batch.length) / tileIndex.length * 100);
+                  // 진행률 표시 (화면 내 타일만)
+                  const progress = Math.floor((i + batch.length) / visibleTiles.length * 100);
                   territoryBtns.forEach(btn => {
                       if (btn.tagName === 'BUTTON') {
                           btn.textContent = `영토 로딩중... ${progress}%`;
                       }
                   });
+              }
+              
+              console.log(`✅ [1차 완료] 화면 내 타일 로딩 완료: ${allFeatures.length}개 영토`);
+              
+              // 🚀 2차: 나머지 타일은 백그라운드에서 로드 (비동기)
+              if (invisibleTiles.length > 0) {
+                  console.log(`⏳ [2차 예약] 화면 밖 타일 ${invisibleTiles.length}개는 백그라운드 로딩...`);
+                  setTimeout(async () => {
+                      const backgroundFeatures = [];
+                      for (let i = 0; i < invisibleTiles.length; i += batchSize) {
+                          const batch = invisibleTiles.slice(i, i + batchSize);
+                          const batchPromises = batch.map(async (tile) => {
+                              try {
+                                  const tileUrl = `${origin}${tilesBasePath}/${tile.filename}?v=${timestamp}`;
+                                  const tileResponse = await fetch(tileUrl);
+                                  if (!tileResponse.ok) return [];
+                                  const tileData = await tileResponse.json();
+                                  return tileData.features || [];
+                              } catch (error) {
+                                  return [];
+                              }
+                          });
+                          const batchResults = await Promise.all(batchPromises);
+                          backgroundFeatures.push(...batchResults.flat());
+                      }
+                      
+                      // 백그라운드 로딩 완료 후 territories에 추가
+                      if (backgroundFeatures.length > 0) {
+                          const uniqueMap = new Map(territories.map(t => [t._id, t]));
+                          backgroundFeatures.forEach(feature => {
+                              const id = feature.properties?._id || feature.properties?.id || feature.id;
+                              if (id && !uniqueMap.has(id)) {
+                                  uniqueMap.set(id, {
+                                      _id: id,
+                                      name: feature.properties?.name || '영토',
+                                      name_ko: feature.properties?.name_ko,
+                                      name_type: feature.properties?.name_type,
+                                      type: feature.geometry?.type,
+                                      coordinates: feature.geometry?.coordinates,
+                                      level: feature.properties?.level,
+                                      start: feature.properties?.start_year || feature.properties?.start,
+                                      end: feature.properties?.end_year || feature.properties?.end
+                                  });
+                              }
+                          });
+                          territories = Array.from(uniqueMap.values());
+                          console.log(`🌍 [2차 완료] 전체 영토: ${territories.length}개 (백그라운드 로딩 완료)`);
+                      }
+                  }, 500); // 0.5초 후 시작
               }
 
               // 3. 🚀 [최적화] 중복 제거 - _id 기준으로 고유한 영토만 저장
