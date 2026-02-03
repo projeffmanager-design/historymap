@@ -1,0 +1,47 @@
+              // �️ [초고속 라벨] 국가 라벨을 0.5초에 즉시 표시 (영토보다 먼저!)
+              if (layerVisibility.countryLabel && countries.length > 0) {
+                  console.log('🚩 [0.5초] 국가 라벨 레이어 즉시 렌더링 시작');
+                  
+                  const { year, month } = getCurrentYearMonth();
+                  const currentTime = yearMonthToTotalMonths(year, month);
+                  
+                  // 현재 시점에 존재하는 국가들의 라벨 즉시 렌더링
+                  const activeCountries = countries.filter(c => {
+                      const startTime = yearMonthToTotalMonths(c.start_year, c.start_month || 1);
+                      const endTime = yearMonthToTotalMonths(c.end_year || 9999, c.end_month || 12);
+                      return currentTime >= startTime && currentTime <= endTime;
+                  });
+                  
+                  console.log(`🏷️ [0.5초] 현재 시점 활성 국가: ${activeCountries.length}개`);
+                  
+                  // castles에서 country 라벨만 필터링하여 즉시 렌더링
+                  const countryLabels = castles.filter(c => 
+                      c.is_label && 
+                      c.label_type === 'country' &&
+                      activeCountries.some(country => country.name === c.country_id)
+                  );
+                  
+                  console.log(`🏷️ [0.5초] 즉시 표시할 국가 라벨: ${countryLabels.length}개`);
+                  
+                  // 라벨 즉시 렌더링 (updateMap 기다리지 않음)
+                  countryLabels.forEach(label => {
+                      const country = countries.find(c => c.name === label.country_id);
+                      if (!country) return;
+                      
+                      const marker = L.marker([label.lat, label.lng], {
+                          icon: L.divIcon({
+                              className: 'country-label-icon',
+                              html: `<div style="
+                                  font-size: 14px;
+                                  font-weight: bold;
+                                  color: ${country.color || '#fff'};
+                                  text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+                                  white-space: nowrap;
+                                  pointer-events: none;
+                              ">${label.name}</div>`,
+                              iconSize: null
+                          })
+                      });
+                      
+                      marker.addTo(map);
+                      marker._castleData = label;
