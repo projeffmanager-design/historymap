@@ -6911,57 +6911,20 @@ function getCountryInfoById(id) {
           if (hasCachedData && countries.length > 0 && castles.length > 0 && territories.length > 0) {
               console.log(`🚀 [캐시 강제 렌더링] countries: ${countries.length}, castles: ${castles.length}, territories: ${territories.length}`);
               
-              // �️ [초고속 라벨] 국가 라벨을 0.5초에 즉시 표시 (영토보다 먼저!)
-              if (layerVisibility.countryLabel && countries.length > 0) {
-                  console.log('🚩 [0.5초] 국가 라벨 레이어 즉시 렌더링 시작');
+              // 🏷️ [초고속 라벨] 모든 라벨(국가+지명+민족)을 0.5초에 즉시 표시!
+              // 라벨 레이어 중 하나라도 켜져 있으면 renderImmediateCountryLabels 호출
+              if ((layerVisibility.countryLabel || layerVisibility.placeLabel || layerVisibility.ethnicLabel) 
+                  && castles.length > 0) {
+                  console.log('🚩 [초고속 라벨] 전체 라벨 즉시 렌더링 시작 (국가+지명+민족)');
+                  console.log(`🏷️ [라벨 레이어] country: ${layerVisibility.countryLabel}, place: ${layerVisibility.placeLabel}, ethnic: ${layerVisibility.ethnicLabel}`);
                   
                   const { year, month } = getCurrentYearMonth();
-                  const currentTime = yearMonthToTotalMonths(year, month);
                   
-                  // 현재 시점에 존재하는 국가들의 라벨 즉시 렌더링
-                  const activeCountries = countries.filter(c => {
-                      const startTime = yearMonthToTotalMonths(c.start_year, c.start_month || 1);
-                      const endTime = yearMonthToTotalMonths(c.end_year || 9999, c.end_month || 12);
-                      return currentTime >= startTime && currentTime <= endTime;
-                  });
+                  // 🎯 renderImmediateCountryLabels 함수 호출 (모든 라벨 처리)
+                  renderImmediateCountryLabels(year, month);
                   
-                  console.log(`🏷️ [0.5초] 현재 시점 활성 국가: ${activeCountries.length}개`);
-                  
-                  // castles에서 country 라벨만 필터링하여 즉시 렌더링
-                  const countryLabels = castles.filter(c => 
-                      c.is_label && 
-                      c.label_type === 'country' &&
-                      activeCountries.some(country => country.name === c.country_id)
-                  );
-                  
-                  console.log(`🏷️ [0.5초] 즉시 표시할 국가 라벨: ${countryLabels.length}개`);
-                  
-                  // 라벨 즉시 렌더링 (updateMap 기다리지 않음)
-                  countryLabels.forEach(label => {
-                      const country = countries.find(c => c.name === label.country_id);
-                      if (!country) return;
-                      
-                      const marker = L.marker([label.lat, label.lng], {
-                          icon: L.divIcon({
-                              className: 'country-label-icon',
-                              html: `<div style="
-                                  font-size: 14px;
-                                  font-weight: bold;
-                                  color: ${country.color || '#fff'};
-                                  text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
-                                  white-space: nowrap;
-                                  pointer-events: none;
-                              ">${label.name}</div>`,
-                              iconSize: null
-                          })
-                      });
-                      
-                      marker.addTo(map);
-                      marker._castleData = label;
-                      allCastleMarkers.push(marker);
-                  });
-                  
-                  console.log('✅ [0.5초] 국가 라벨 즉시 렌더링 완료!');
+                  console.log('✅ [초고속 라벨] 전체 라벨(국가+지명+민족) 즉시 렌더링 완료!');
+              }
               }
               
               // �🎯 [핵심] isInitializing 플래그 일시적으로 해제 (캐시 렌더링 허용)
@@ -6988,6 +6951,11 @@ function getCountryInfoById(id) {
                   console.log(`📊 [디버깅] 캐시 렌더링: 전체 ${territories.length}개, 국가 매칭 성공 ${renderedTerritories.length}개, 국가없음 ${territories.length - renderedTerritories.length}개`);
               }
           }
+      } catch (error) {
+          console.error('❌ [캐시 렌더링 오류]', error);
+          // 오류 발생 시 캐시 없이 정상 로딩 진행
+      }
+
           
           // ===== 🚀 [1단계] 레이어 설정 우선 로드 (0-5%) =====
           showLoadingStatus('지도 제작 도구를 준비하는 중입니다...', 5);
