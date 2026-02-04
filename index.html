@@ -68,7 +68,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '2.2.1',           // UI/로직 수정 시마다 변경
+        APP_VERSION: '2.2.2',           // UI/로직 수정 시마다 변경 (왕 패널 활성화)
         DATA_SCHEMA_VERSION: '2.0.0'    // 데이터 구조 변경 시에만 변경
     };
     
@@ -4402,6 +4402,7 @@ function getKingByYear(countryName, year, month) {
 
     /** 현재 연도와 월의 왕 정보를 패널에 업데이트합니다. */
     function updateKingLabel(year, month) {
+      console.log(`🔍 [왕 패널] updateKingLabel 호출: ${year}년 ${month}월, kings 개수: ${Object.keys(kings).length}`);
       let html = "";
       countries.forEach(country => { // 🚩 [수정] 불필요한 괄호 제거
         const king = getKingByYear(country.name, year, month); // <-- THIS LINE WAS MISSING OR MISPLACED
@@ -4432,11 +4433,15 @@ function getKingByYear(countryName, year, month) {
         }
     });
     const kingContent = html || "해당 연도 왕 정보 없음";
+    console.log(`🔍 [왕 패널] kingContent 길이: ${kingContent.length}, 내용 미리보기: ${kingContent.substring(0, 100)}`);
     // document.getElementById('kingList').innerHTML = kingContent; // 오른쪽 패널 제거로 비활성화
     // 🚩 [수정] 지도 내 왕 목록 패널만 업데이트
     const mapKingList = document.getElementById('map-king-list');
     if (mapKingList) {
         mapKingList.innerHTML = kingContent;
+        console.log(`✅ [왕 패널] map-king-list 업데이트 완료`);
+    } else {
+        console.warn('⚠️ [왕 패널] map-king-list 요소를 찾을 수 없습니다');
     }
 }
     
@@ -7795,12 +7800,14 @@ function getCountryInfoById(id) {
           // 왕 데이터 처리
           kings = {};
           if (layerVisibility.kingPanel && Array.isArray(additionalData.kings)) {
+              let totalKings = 0;
               additionalData.kings.forEach(item => {
                   if (item.country_id && Array.isArray(item.kings)) {
                       kings[item.country_id] = item.kings;
+                      totalKings += item.kings.length;
                   }
               });
-              console.log(`✅ 왕 데이터 로드 완료`);
+              console.log(`✅ 왕 데이터 로드 완료: ${Object.keys(kings).length}개 국가, 총 ${totalKings}명 왕`);
           } else {
               console.log('⏭️ 왕 패널 비활성화 → 로드 스킵');
           }

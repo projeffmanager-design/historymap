@@ -691,7 +691,7 @@ app.delete('/api/countries/:name', verifyAdmin, async (req, res) => {
 // ----------------------------------------------------
 
 // GET: 모든 왕 정보 반환 (변경 없음)
-app.get('/api/kings', verifyToken, async (req, res) => {
+app.get('/api/kings', async (req, res) => {
      try {
         const kings = await collections.kings.find({}).toArray();
         res.json(kings);
