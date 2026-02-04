@@ -4915,7 +4915,98 @@ function getKingByYear(countryName, year, month) {
         console.log(`  ✅ 새 라벨 추가 완료`);
     }
 
-    // 🎨 [추가] 새로운 라벨 추가 (라벨 생성 시)
+    // � [v2.0.6] 자연 지형지물 개별 업데이트
+    function updateSingleNaturalFeature(oldCastle, newCastle, year, month) {
+        if (!map || !map._loaded) return;
+        
+        console.log(`🌳 자연 지형지물 업데이트: ${oldCastle.name} → ${newCastle.name}`);
+        
+        // 기존 마커 제거
+        let removedCount = 0;
+        for (let i = allCastleMarkers.length - 1; i >= 0; i--) {
+            const marker = allCastleMarkers[i];
+            const castleData = marker._castleData;
+            if (castleData && (castleData._id === oldCastle._id || castleData.name === oldCastle.name)) {
+                if (map.hasLayer(marker)) {
+                    map.removeLayer(marker);
+                }
+                allCastleMarkers.splice(i, 1);
+                removedCount++;
+            }
+        }
+        console.log(`  📖 기존 마커 ${removedCount}개 제거`);
+        
+        // 시간 범위 체크
+        const startYear = newCastle.start_year || newCastle.built_year || -Infinity;
+        const endYear = newCastle.end_year || newCastle.destroyed_year || Infinity;
+        const isWithinDuration = startYear <= year && endYear >= year;
+        
+        if (!isWithinDuration || !layerVisibility.natural) {
+            console.log(`  ⏭️ 현재 시간대(${year}) 또는 레이어 비활성화로 표시 안 함`);
+            return;
+        }
+        
+        // 새 마커 생성
+        let marker;
+        const castleName = newCastle.name;
+        
+        if (newCastle.custom_icon) {
+            const iconWidth = newCastle.icon_width || 32;
+            const iconHeight = newCastle.icon_height || 32;
+            const customIconHtml = `<img src="${newCastle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+            const featureIcon = L.divIcon({
+                className: 'custom-icon-marker',
+                html: customIconHtml,
+                iconSize: [iconWidth, iconHeight],
+                iconAnchor: [iconWidth / 2, iconHeight],
+                popupAnchor: [0, -iconHeight]
+            });
+            marker = L.marker([newCastle.lat, newCastle.lng], { icon: featureIcon });
+        } else {
+            const featureType = newCastle.natural_feature_type || 'other';
+            let iconInfo = getNaturalFeatureIcon(featureType);
+            if (!iconInfo) {
+                iconInfo = getNaturalFeatureIcon('other');
+            }
+            const iconClass = iconInfo?.className || 'feature-other';
+            const iconSymbol = iconInfo?.symbol || '❖';
+            
+            const featureIcon = L.divIcon({
+                className: `natural-feature-marker ${iconClass}`,
+                html: `<div>${iconSymbol}</div><div class="feature-name">${castleName}</div>`,
+                iconSize: [60, 40],
+                iconAnchor: [30, 40],
+                popupAnchor: [6, -30]
+            });
+            marker = L.marker([newCastle.lat, newCastle.lng], { icon: featureIcon });
+        }
+        
+        // 팝업 추가
+        const editorInfoHtml = newCastle.lastModifiedBy 
+            ? `<br><small>마지막 수정: ${newCastle.lastModifiedBy}</small>` 
+            : (newCastle.createdBy ? `<br><small>생성자: ${newCastle.createdBy}</small>` : '');
+        
+        const popupHtml = `<div style="padding:0;margin:0;line-height:1.4;"><b style="font-size:14px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;">${newCastle.desc}</span>` : ''}${newCastle.photo ? `<br><img src="${newCastle.photo}" style="max-width:150px;max-height:100px;object-fit:cover;margin-top:4px;">` : ''}${editorInfoHtml}</div>`;
+        
+        marker.bindPopup(popupHtml, {
+            className: 'compact-popup',
+            maxWidth: 200,
+            minWidth: 100
+        });
+        
+        marker.on('click', function () {
+            if (this && typeof this.openPopup === 'function') this.openPopup();
+        });
+        
+        // 마커 저장 및 추가
+        marker._castleData = newCastle;
+        allCastleMarkers.push(marker);
+        marker.addTo(map);
+        
+        console.log(`  ✅ 새 자연 지형지물 마커 추가 완료`);
+    }
+
+    // �🎨 [추가] 새로운 라벨 추가 (라벨 생성 시)
     function addSingleLabel(newCastle, year, month) {
         if (!map || !map._loaded) return;
         
@@ -7785,7 +7876,19 @@ function getCountryInfoById(id) {
                           console.error('❌ 라벨 업데이트 실패, 전체 맵 갱신:', labelError);
                           updateMap(year, month);
                       }
-                  } else {
+                  } 
+                  // 🌳 [v2.0.6] 자연 지형지물인 경우 개별 업데이트
+                  else if (updatedCastle.is_natural_feature) {
+                      console.log('🌳 자연 지형지물 업데이트 시작...');
+                      const { year, month } = getCurrentYearMonth();
+                      try {
+                          updateSingleNaturalFeature(oldCastle, updatedCastle, year, month);
+                      } catch (error) {
+                          console.error('❌ 자연 지형지물 업데이트 실패, 전체 맵 갱신:', error);
+                          updateMap(year, month);
+                      }
+                  }
+                  else {
                       // 일반 성/전장은 전체 맵 갱신
                       const { year, month } = getCurrentYearMonth();
                       updateMap(year, month);
