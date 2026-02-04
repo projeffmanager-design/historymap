@@ -67,7 +67,7 @@
 <script>
 // 🚀 [캐시 버스팅] 버전 체크 및 강제 새로고침
 (function() {
-    const CURRENT_VERSION = '2.0.6';  // 초기 로딩 화면에 랜덤 메시지 + 기존 패널 제거
+    const CURRENT_VERSION = '2.0.7';  // 자연 지형지물 개별 업데이트 수정 (castleLayerGroup + markers 사용)
     const storedVersion = localStorage.getItem('app_version');
     
     if (storedVersion !== CURRENT_VERSION) {
@@ -5001,9 +5001,16 @@ function getKingByYear(countryName, year, month) {
         // 마커 저장 및 추가
         marker._castleData = newCastle;
         allCastleMarkers.push(marker);
-        marker.addTo(map);
+        markers.push(marker); // 🎯 markers 배열에도 추가
         
-        console.log(`  ✅ 새 자연 지형지물 마커 추가 완료`);
+        // 🎯 [핵심] castleLayerGroup에 추가 (자연 지형지물의 올바른 레이어)
+        if (castleLayerGroup) {
+            marker.addTo(castleLayerGroup);
+        } else {
+            marker.addTo(map);
+        }
+        
+        console.log(`  ✅ 새 자연 지형지물 마커 추가 완료 (레이어: ${castleLayerGroup ? 'castleLayerGroup' : 'map'})`);
     }
 
     // �🎨 [추가] 새로운 라벨 추가 (라벨 생성 시)
@@ -7877,14 +7884,17 @@ function getCountryInfoById(id) {
                           updateMap(year, month);
                       }
                   } 
-                  // 🌳 [v2.0.6] 자연 지형지물인 경우 개별 업데이트
+                  // 🌳 [v2.0.7] 자연 지형지물인 경우 개별 업데이트 + 캐시 업데이트
                   else if (updatedCastle.is_natural_feature) {
-                      console.log('🌳 자연 지형지물 업데이트 시작...');
-                      const { year, month } = getCurrentYearMonth();
+                      console.log('🌳 자연 지형지물 개별 업데이트 시작...');
                       try {
-                          updateSingleNaturalFeature(oldCastle, updatedCastle, year, month);
+                          updateSingleNaturalFeature(oldCastle, updatedCastle);
+                          // IndexedDB 캐시 업데이트
+                          await saveCastlesToCache();
+                          console.log('💾 자연 지형지물 캐시 업데이트 완료');
                       } catch (error) {
-                          console.error('❌ 자연 지형지물 업데이트 실패, 전체 맵 갱신:', error);
+                          console.error('❌ 자연 지형지물 개별 업데이트 실패, 전체 맵 갱신:', error);
+                          const { year, month } = getCurrentYearMonth();
                           updateMap(year, month);
                       }
                   }
