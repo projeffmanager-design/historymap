@@ -67,7 +67,7 @@
 <script>
 // 🚀 [캐시 버스팅] 버전 체크 및 강제 새로고침
 (function() {
-    const CURRENT_VERSION = '2.0.7';  // 자연 지형지물 개별 업데이트 수정 (castleLayerGroup + markers 사용)
+    const CURRENT_VERSION = '2.0.8';  // 영토 데이터 필수 로딩으로 변경 (빈 지도 현상 방지)
     const storedVersion = localStorage.getItem('app_version');
     
     if (storedVersion !== CURRENT_VERSION) {
@@ -7046,7 +7046,10 @@ function getCountryInfoById(id) {
         '왕조의 흥망성쇠를 기록하는 중...',
         '전장의 자취를 더듬는 중...',
         '옛 도읍지를 찾는 중...',
-        '강역의 변천을 추적하는 중...'
+        '강역의 변천을 추적하는 중...',
+        '대륙의 영토를 복원하는 중...',
+        '한반도의 경계를 그리는 중...',
+        '역사의 지도가 펼쳐지고 있습니다...'
     ];
     
     function showLoadingStatus(message, percent) {
@@ -7297,32 +7300,28 @@ function getCountryInfoById(id) {
           
           showLoadingStatus('강역을 검증하고 있습니다...', 75);
           
-          // 🚀 [최적화] 영토 데이터는 백그라운드 로딩으로 전환
+          // 🚀 [v2.0.8] 영토 데이터를 필수 로딩으로 변경 (빈 지도 현상 방지)
           if (layerVisibility.territoryPolygon) {
-              // 캐시가 있으면 백그라운드 로딩 스킵
-              if (territories.length > 0) {
-                  console.log('✅ 영토 데이터 이미 로드됨 (캐시 사용):', territories.length, '개');
-              } else {
-                  console.log('🗺️ 영토 데이터 백그라운드 로딩 예약...');
-                  setTimeout(async () => {
-                      try {
-                          console.log('🌍 영토 데이터 백그라운드 로딩 시작...');
-                          await loadTerritoryTiles();
-                          console.log('✅ 영토 데이터 백그라운드 로딩 완료');
-                          
-                          // 🎯 [IndexedDB] 로드한 영토 데이터를 캐시에 저장
-                          if (territories.length > 0) {
-                              await saveTerritoriesCache(territories);
-                          }
-                          
-                          // 🎯 [핵심] 영토 로딩 완료 즉시 자동으로 지도 업데이트
-                          const { year, month } = getCurrentYearMonth();
-                          updateMap(year, month);
-                          console.log('🗺️ 영토 추가 렌더링 완료 (백그라운드)');
-                      } catch (error) {
-                          console.error('❌ 영토 백그라운드 로딩 실패:', error);
+              // 캐시가 없으면 필수 로딩
+              if (territories.length === 0) {
+                  console.log('🗺️ 영토 데이터 필수 로딩 시작... (빈 지도 방지)');
+                  const territoryStartTime = performance.now();
+                  try {
+                      showLoadingStatus('대륙의 강역을 복원하는 중입니다...', 77);
+                      await loadTerritoryTiles();
+                      const territoryLoadTime = ((performance.now() - territoryStartTime) / 1000).toFixed(2);
+                      console.log(`✅ 영토 데이터 로딩 완료: ${territories.length}개 (${territoryLoadTime}초)`);
+                      
+                      // 🎯 [IndexedDB] 로드한 영토 데이터를 캐시에 저장
+                      if (territories.length > 0) {
+                          await saveTerritoriesCache(territories);
+                          console.log('💾 영토 데이터 IndexedDB 캐시 저장 완료');
                       }
-                  }, 50); // 50ms로 단축 (빠른 렌더링)
+                  } catch (error) {
+                      console.error('❌ 영토 데이터 로딩 실패:', error);
+                  }
+              } else {
+                  console.log('✅ 영토 데이터 이미 로드됨 (캐시 사용):', territories.length, '개');
               }
           } else {
               console.log('⏭️ 영토 레이어 비활성화 → 로드 스킵');
@@ -7574,10 +7573,10 @@ function getCountryInfoById(id) {
           }
           
           // 🎯 로딩 완료 - 패널 숨김
-          showLoadingStatus('검증된 역사만이 지도에 남았습니다.', 100);
+          showLoadingStatus('역사의 전장이 준비되었습니다!', 100);
           setTimeout(() => {
               hideLoadingStatus();
-          }, 500); // 0.5초 후 패널 숨김
+          }, 800); // 0.8초 후 패널 숨김 (완료 메시지 보여주기)
           
       } catch (error) {
           console.error('❌ 초기화 오류:', error);
