@@ -68,7 +68,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '2.1.3',           // UI/로직 수정 시마다 변경
+        APP_VERSION: '2.2.0',           // UI/로직 수정 시마다 변경
         DATA_SCHEMA_VERSION: '2.0.0'    // 데이터 구조 변경 시에만 변경
     };
     
@@ -6904,6 +6904,18 @@ function getCountryInfoById(id) {
     const EVENTS_STORE_NAME = 'events';
     const EVENTS_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
 
+    // 🚀 [IndexedDB] Drawings 캐싱 시스템
+    const DRAWINGS_DB_NAME = 'DrawingsDB';
+    const DRAWINGS_DB_VERSION = 1;
+    const DRAWINGS_STORE_NAME = 'drawings';
+    const DRAWINGS_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
+
+    // 🚀 [IndexedDB] Contributions 캐싱 시스템
+    const CONTRIBUTIONS_DB_NAME = 'ContributionsDB';
+    const CONTRIBUTIONS_DB_VERSION = 1;
+    const CONTRIBUTIONS_STORE_NAME = 'contributions';
+    const CONTRIBUTIONS_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
+
     // IndexedDB 초기화 (영토)
     function openTerritoryDB() {
         return new Promise((resolve, reject) => {
@@ -6956,6 +6968,44 @@ function getCountryInfoById(id) {
                     const objectStore = db.createObjectStore(EVENTS_STORE_NAME, { keyPath: 'id' });
                     objectStore.createIndex('timestamp', 'timestamp', { unique: false });
                     console.log('✅ IndexedDB Events 저장소 생성 완료');
+                }
+            };
+        });
+    }
+
+    // IndexedDB 초기화 (Drawings)
+    function openDrawingsDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(DRAWINGS_DB_NAME, DRAWINGS_DB_VERSION);
+            
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result);
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(DRAWINGS_STORE_NAME)) {
+                    const objectStore = db.createObjectStore(DRAWINGS_STORE_NAME, { keyPath: 'id' });
+                    objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    console.log('✅ IndexedDB Drawings 저장소 생성 완료');
+                }
+            };
+        });
+    }
+
+    // IndexedDB 초기화 (Contributions)
+    function openContributionsDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(CONTRIBUTIONS_DB_NAME, CONTRIBUTIONS_DB_VERSION);
+            
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result);
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(CONTRIBUTIONS_STORE_NAME)) {
+                    const objectStore = db.createObjectStore(CONTRIBUTIONS_STORE_NAME, { keyPath: 'id' });
+                    objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    console.log('✅ IndexedDB Contributions 저장소 생성 완료');
                 }
             };
         });
@@ -7183,6 +7233,128 @@ function getCountryInfoById(id) {
             console.warn('⚠️ Events IndexedDB 저장 실패:', error);
         }
     }
+
+    // 🚀 [IndexedDB] Drawings 데이터 로드
+    async function loadDrawingsFromCache() {
+        try {
+            const db = await openDrawingsDB();
+            const transaction = db.transaction([DRAWINGS_STORE_NAME], 'readonly');
+            const objectStore = transaction.objectStore(DRAWINGS_STORE_NAME);
+            const request = objectStore.get('all_drawings');
+            
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => {
+                    const cached = request.result;
+                    if (!cached) {
+                        resolve(null);
+                        return;
+                    }
+                    
+                    const age = Date.now() - cached.timestamp;
+                    if (age > DRAWINGS_CACHE_DURATION) {
+                        console.log('⏰ Drawings 캐시 만료됨 (24시간 초과)');
+                        resolve(null);
+                        return;
+                    }
+                    
+                    console.log(`💾 IndexedDB에서 Drawings 데이터 로드: ${cached.data.length}개 (${(age / 1000 / 60).toFixed(1)}분 전 저장)`);
+                    resolve(cached.data);
+                };
+                request.onerror = () => reject(request.error);
+            });
+        } catch (error) {
+            console.warn('⚠️ Drawings IndexedDB 로드 실패:', error);
+            return null;
+        }
+    }
+
+    // 🚀 [IndexedDB] Drawings 데이터 저장
+    async function saveDrawingsCache(drawingsData) {
+        try {
+            const db = await openDrawingsDB();
+            const transaction = db.transaction([DRAWINGS_STORE_NAME], 'readwrite');
+            const objectStore = transaction.objectStore(DRAWINGS_STORE_NAME);
+            
+            const cacheData = {
+                id: 'all_drawings',
+                data: drawingsData,
+                timestamp: Date.now()
+            };
+            
+            objectStore.put(cacheData);
+            
+            return new Promise((resolve, reject) => {
+                transaction.oncomplete = () => {
+                    console.log(`💾 IndexedDB에 Drawings 데이터 저장 완료: ${drawingsData.length}개`);
+                    resolve();
+                };
+                transaction.onerror = () => reject(transaction.error);
+            });
+        } catch (error) {
+            console.warn('⚠️ Drawings IndexedDB 저장 실패:', error);
+        }
+    }
+
+    // 🚀 [IndexedDB] Contributions 데이터 로드
+    async function loadContributionsFromCache() {
+        try {
+            const db = await openContributionsDB();
+            const transaction = db.transaction([CONTRIBUTIONS_STORE_NAME], 'readonly');
+            const objectStore = transaction.objectStore(CONTRIBUTIONS_STORE_NAME);
+            const request = objectStore.get('all_contributions');
+            
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => {
+                    const cached = request.result;
+                    if (!cached) {
+                        resolve(null);
+                        return;
+                    }
+                    
+                    const age = Date.now() - cached.timestamp;
+                    if (age > CONTRIBUTIONS_CACHE_DURATION) {
+                        console.log('⏰ Contributions 캐시 만료됨 (24시간 초과)');
+                        resolve(null);
+                        return;
+                    }
+                    
+                    console.log(`💾 IndexedDB에서 Contributions 데이터 로드: ${cached.data.length}개 (${(age / 1000 / 60).toFixed(1)}분 전 저장)`);
+                    resolve(cached.data);
+                };
+                request.onerror = () => reject(request.error);
+            });
+        } catch (error) {
+            console.warn('⚠️ Contributions IndexedDB 로드 실패:', error);
+            return null;
+        }
+    }
+
+    // 🚀 [IndexedDB] Contributions 데이터 저장
+    async function saveContributionsCache(contributionsData) {
+        try {
+            const db = await openContributionsDB();
+            const transaction = db.transaction([CONTRIBUTIONS_STORE_NAME], 'readwrite');
+            const objectStore = transaction.objectStore(CONTRIBUTIONS_STORE_NAME);
+            
+            const cacheData = {
+                id: 'all_contributions',
+                data: contributionsData,
+                timestamp: Date.now()
+            };
+            
+            objectStore.put(cacheData);
+            
+            return new Promise((resolve, reject) => {
+                transaction.oncomplete = () => {
+                    console.log(`💾 IndexedDB에 Contributions 데이터 저장 완료: ${contributionsData.length}개`);
+                    resolve();
+                };
+                transaction.onerror = () => reject(transaction.error);
+            });
+        } catch (error) {
+            console.warn('⚠️ Contributions IndexedDB 저장 실패:', error);
+        }
+    }
     
         // 🚩 [추가] 도시/성 선택 드롭다운을 채우는 함수
     function populateCitySelectForEdit() {
@@ -7257,12 +7429,16 @@ function getCountryInfoById(id) {
       const territoriesPromise = loadTerritoriesFromCache();
       const castlesPromise = loadCastlesFromCache();
       const eventsPromise = loadEventsFromCache();
+      const drawingsPromise = loadDrawingsFromCache();
+      const contributionsPromise = loadContributionsFromCache();
       
       // 병렬 대기
-      const [cachedTerritories, cachedCastles, cachedEvents] = await Promise.all([
+      const [cachedTerritories, cachedCastles, cachedEvents, cachedDrawings, cachedContributions] = await Promise.all([
           territoriesPromise,
           castlesPromise,
-          eventsPromise
+          eventsPromise,
+          drawingsPromise,
+          contributionsPromise
       ]);
       
       // 🎯 [핵심] 캐시가 없는 데이터만 초기화 (캐시 데이터 보호!)
@@ -7286,6 +7462,22 @@ function getCountryInfoById(id) {
       } else {
           events = cachedEvents;
           console.log(`💾 events 캐시 사용: ${events.length}개 (초기화 생략)`);
+      }
+      
+      if (!cachedDrawings || cachedDrawings.length === 0) {
+          drawings = [];
+          console.log('📦 drawings 초기화 (캐시 없음)');
+      } else {
+          drawings = cachedDrawings;
+          console.log(`💾 drawings 캐시 사용: ${drawings.length}개 (초기화 생략)`);
+      }
+      
+      if (!cachedContributions || cachedContributions.length === 0) {
+          contributions = [];
+          console.log('📦 contributions 초기화 (캐시 없음)');
+      } else {
+          contributions = cachedContributions;
+          console.log(`💾 contributions 캐시 사용: ${contributions.length}개 (초기화 생략)`);
       }
       
       // 나머지는 항상 초기화
@@ -7553,21 +7745,14 @@ function getCountryInfoById(id) {
               additionalLoadPromises.kings = Promise.resolve([]);
           }
           
-          // 그리기 데이터 (항상 로드)
-          additionalLoadPromises.drawings = fetchData('drawings');
+          // ❌ drawings: 제거 - 사용자 그리기 데이터, 백그라운드 로드로 전환 (21초 병목 제거)
+          // ❌ contributions: 제거 - 사용자 기여 데이터, 백그라운드 로드로 전환 (4초 병목 제거)
           
           // 자연 지형지물 (natural 레이어가 켜져있을 때만)
           if (layerVisibility.natural || layerVisibility.rivers) {
               additionalLoadPromises.naturalFeatures = fetchData('natural-features');
           } else {
               additionalLoadPromises.naturalFeatures = Promise.resolve([]);
-          }
-          
-          // 유저 기여 (userContributions 레이어가 켜져있을 때만)
-          if (layerVisibility.userContributions) {
-              additionalLoadPromises.contributions = fetchData('contributions');
-          } else {
-              additionalLoadPromises.contributions = Promise.resolve([]);
           }
           
           // 🚀 병렬 실행
@@ -7609,9 +7794,55 @@ function getCountryInfoById(id) {
               console.log('⏭️ 왕 패널 비활성화 → 로드 스킵');
           }
           
-          // 그리기 데이터
-          drawings = additionalData.drawings || [];
-          console.log(`✅ 그리기 데이터: ${drawings.length}개`);
+          // 🚀 [백그라운드 로딩] drawings는 사용자 그리기 전용으로 비동기 로딩 (캐시 우선)
+          if (drawings.length === 0) {
+              console.log('✏️ [백그라운드] drawings 데이터 로딩 시작 (캐시 없음)...');
+              fetchData('drawings').then(data => {
+                  drawings = data || [];
+                  console.log(`✅ [백그라운드] drawings ${drawings.length}개 네트워크에서 로드 완료`);
+                  
+                  // IndexedDB에 캐싱
+                  saveDrawingsCache(drawings).then(() => {
+                      console.log('💾 [백그라운드] drawings IndexedDB 캐싱 완료');
+                  });
+                  
+                  // 지도에 drawings 반영
+                  const { year, month } = getCurrentYearMonth();
+                  updateMap(year, month);
+                  console.log('🗺️ [백그라운드] drawings 데이터 지도 반영 완료');
+              }).catch(err => {
+                  console.error('❌ [백그라운드] drawings 로드 실패:', err);
+                  drawings = [];
+              });
+          } else {
+              console.log(`♻️ [백그라운드] drawings 캐시 사용: ${drawings.length}개 (네트워크 스킵)`);
+          }
+          
+          // 🚀 [백그라운드 로딩] contributions는 사용자 기여 전용으로 비동기 로딩 (캐시 우선)
+          if (contributions.length === 0 && layerVisibility.userContributions) {
+              console.log('👥 [백그라운드] contributions 데이터 로딩 시작 (캐시 없음)...');
+              fetchData('contributions').then(data => {
+                  contributions = data || [];
+                  console.log(`✅ [백그라운드] contributions ${contributions.length}개 네트워크에서 로드 완료`);
+                  
+                  // IndexedDB에 캐싱
+                  saveContributionsCache(contributions).then(() => {
+                      console.log('💾 [백그라운드] contributions IndexedDB 캐싱 완료');
+                  });
+                  
+                  // 지도에 contributions 반영
+                  const { year, month } = getCurrentYearMonth();
+                  updateMap(year, month);
+                  console.log('🗺️ [백그라운드] contributions 데이터 지도 반영 완료');
+              }).catch(err => {
+                  console.error('❌ [백그라운드] contributions 로드 실패:', err);
+                  contributions = [];
+              });
+          } else if (contributions.length > 0) {
+              console.log(`♻️ [백그라운드] contributions 캐시 사용: ${contributions.length}개 (네트워크 스킵)`);
+          } else {
+              console.log('⏭️ 유저 기여 레이어 비활성화 → contributions 로드 스킵');
+          }
           
           // 자연 지형지물
           naturalFeatures = additionalData.naturalFeatures || [];
@@ -7619,14 +7850,6 @@ function getCountryInfoById(id) {
               console.log(`✅ 자연 지형지물: ${naturalFeatures.length}개`);
           } else {
               console.log('⏭️ 자연 지형지물 레이어 비활성화 → 로드 스킵');
-          }
-          
-          // 유저 기여
-          contributions = additionalData.contributions || [];
-          if (layerVisibility.userContributions) {
-              console.log(`✅ 유저 기여: ${contributions.length}개`);
-          } else {
-              console.log('⏭️ 유저 기여 레이어 비활성화 → 로드 스킵');
           }
           
           console.log('✅ 추가 데이터 병렬 로딩 완료');
