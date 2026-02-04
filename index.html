@@ -65,19 +65,22 @@
 
 </style>
 <script>
-// 🚀 [캐시 버스팅] 버전 체크 및 강제 새로고침
+// 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
-    const CURRENT_VERSION = '2.1.1';  // 빈 지도 해결: country_id 우선 사용 (castles 없어도 영토 렌더링)
-    const storedVersion = localStorage.getItem('app_version');
+    const CONFIG = {
+        APP_VERSION: '2.1.2',           // UI/로직 수정 시마다 변경
+        DATA_SCHEMA_VERSION: '2.0.0'    // 데이터 구조 변경 시에만 변경
+    };
     
-    if (storedVersion !== CURRENT_VERSION) {
-        console.log(`🔄 버전 업데이트: ${storedVersion || '없음'} → ${CURRENT_VERSION}`);
+    const storedAppVersion = localStorage.getItem('app_version');
+    const storedSchemaVersion = localStorage.getItem('data_schema_version');
+    
+    // 1️⃣ 데이터 구조가 변경된 경우에만 IndexedDB 삭제
+    if (storedSchemaVersion !== CONFIG.DATA_SCHEMA_VERSION) {
+        console.log(`�️ 데이터 구조 변경 감지: ${storedSchemaVersion || '없음'} → ${CONFIG.DATA_SCHEMA_VERSION}`);
+        console.log('📦 IndexedDB 초기화 중... (영토/성 데이터 재다운로드 필요)');
         
-        // 모든 localStorage 클리어
-        localStorage.clear();
-        localStorage.setItem('app_version', CURRENT_VERSION);
-        
-        // IndexedDB 클리어
+        // IndexedDB만 선택적 삭제
         if (window.indexedDB) {
             indexedDB.databases().then(dbs => {
                 dbs.forEach(db => {
@@ -87,7 +90,16 @@
             }).catch(e => console.warn('IndexedDB 클리어 실패:', e));
         }
         
-        // Service Worker 캐시 클리어
+        localStorage.setItem('data_schema_version', CONFIG.DATA_SCHEMA_VERSION);
+    } else {
+        console.log(`♻️ 기존 캐시 데이터 사용 가능 (스키마 버전: ${CONFIG.DATA_SCHEMA_VERSION})`);
+    }
+    
+    // 2️⃣ 앱 버전이 변경된 경우 (UI/로직 수정)
+    if (storedAppVersion !== CONFIG.APP_VERSION) {
+        console.log(`🔄 앱 버전 업데이트: ${storedAppVersion || '없음'} → ${CONFIG.APP_VERSION}`);
+        
+        // Service Worker 캐시만 클리어 (HTML/CSS/JS 최신화)
         if ('caches' in window) {
             caches.keys().then(names => {
                 names.forEach(name => {
@@ -97,15 +109,17 @@
             });
         }
         
+        localStorage.setItem('app_version', CONFIG.APP_VERSION);
+        
         // 강제 리로드 (캐시 무시)
         if (!window.location.hash.includes('reloaded')) {
-            console.log('🔄 강제 리로드 실행...');
-            window.location.href = window.location.pathname + '?v=' + CURRENT_VERSION + '&t=' + Date.now() + '#reloaded';
+            console.log('🔄 강제 리로드 실행 (데이터는 보존)...');
+            window.location.href = window.location.pathname + '?v=' + CONFIG.APP_VERSION + '&t=' + Date.now() + '#reloaded';
             return;
         }
     }
     
-    console.log(`✅ 버전 확인 완료: ${CURRENT_VERSION}`);
+    console.log(`✅ 버전 확인 완료: 앱 ${CONFIG.APP_VERSION} / 데이터 ${CONFIG.DATA_SCHEMA_VERSION}`);
 })();
 
 // (removed duplicate/conflicting menu toggle logic)
