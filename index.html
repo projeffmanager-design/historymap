@@ -5699,7 +5699,7 @@ function updateMap(year, month, cacheOnly = false) {
                 }
 
                 const popupContent = `<div style="min-width: 200px; line-height: 1.4; font-size: 13px; white-space: normal;">
-                        <h4 style="margin: 0 0 6px 0; color: #e67e22; border-bottom: 1px solid rgba(0,0,0,0.2); padding-bottom: 4px;">🚩 ${contrib.name}${currentUser && contrib.userId === currentUser.id ? ' 👤' : ''}</h4>
+                        <h4 style="margin: 0 0 6px 0; color: #000000; border-bottom: 1px solid rgba(0,0,0,0.2); padding-bottom: 4px;">📜 ${contrib.name}${currentUser && contrib.userId === currentUser.id ? ' 👤' : ''}</h4>
                         <p style="margin: 0 0 8px 0; font-size: 12px; white-space: pre-wrap; word-wrap: break-word; max-height: 150px; overflow-y: auto;">${contrib.description}</p>
                         <div style="font-size: 11px; color: #000000; display: flex; flex-direction: column; gap: 3px; border-top: 1px solid rgba(0,0,0,0.2); padding-top: 6px;">
                             <div style="display: flex; justify-content: space-between;"><span>복원자:</span> <b>${contrib.username}${currentUser && contrib.userId === currentUser.id ? ' (나)' : ''}</b></div>
@@ -14121,13 +14121,111 @@ kingSelect.addEventListener('change', () => {
                 const data = await response.json();
                 if (response.ok) {
                     alert(data.message);
-                    // 모달 닫기 및 페이지 새로고침
+                    // 모달 닫기
                     document.getElementById('contributionDetailModal').style.display = 'none';
-                    location.reload();
+                    
+                    // 🟢 실시간 업데이트: 마커 색상 즉시 변경
+                    if (status === 'reviewed') {
+                        // 전역 contributions 배열에서 해당 contribution 찾아서 상태 업데이트
+                        const contribution = contributions.find(c => c._id === id);
+                        if (contribution) {
+                            contribution.status = 'reviewed';
+                            console.log(`✅ [실시간 업데이트] ${contribution.name}의 상태를 'reviewed'로 변경`);
+                        }
+                        
+                        // userContributions 레이어의 모든 마커 다시 렌더링
+                        if (map.getSource('userContributions')) {
+                            console.log('🔄 [실시간 업데이트] 사관 마커 다시 렌더링 중...');
+                            
+                            const geojsonData = {
+                                type: 'FeatureCollection',
+                                features: []
+                            };
+
+                            contributions.forEach(c => {
+                                // pending 또는 reviewed 상태만 표시
+                                if (!['pending', 'reviewed'].includes(c.status)) return;
+                                if (!c.lat || !c.lng) return;
+                                if (c.type === 'historical_record') return;
+
+                                const isMyContribution = c.created_by_username === currentUser?.username;
+                                const isReviewed = c.status === 'reviewed';
+
+                                let iconColor;
+                                if (isReviewed) {
+                                    iconColor = '#27ae60'; // 🟢 초록색: 1차 검토 완료
+                                } else if (isMyContribution) {
+                                    iconColor = '#3498db'; // 🔵 파란색: 내가 제출한 사료
+                                } else {
+                                    iconColor = '#e67e22'; // 🟠 주황색: 다른 사람의 사료
+                                }
+
+                                geojsonData.features.push({
+                                    type: 'Feature',
+                                    geometry: {
+                                        type: 'Point',
+                                        coordinates: [c.lng, c.lat]
+                                    },
+                                    properties: {
+                                        id: c._id,
+                                        name: c.name,
+                                        type: c.type,
+                                        status: c.status,
+                                        created_by: c.created_by_username,
+                                        iconColor: iconColor,
+                                        isMyContribution: isMyContribution,
+                                        isReviewed: isReviewed
+                                    }
+                                });
+                            });
+
+                            map.getSource('userContributions').setData(geojsonData);
+                            console.log(`✅ [실시간 업데이트] ${geojsonData.features.length}개 마커 렌더링 완료`);
+                        }
+                    } else if (status === 'approved') {
+                        // approved된 경우 마커 제거 (정식 Castle로 전환됨)
+                        const contributionIndex = contributions.findIndex(c => c._id === id);
+                        if (contributionIndex !== -1) {
+                            console.log(`✅ [실시간 업데이트] ${contributions[contributionIndex].name} 승인됨 - 마커 제거`);
+                            contributions.splice(contributionIndex, 1);
+                            
+                            // 마커 다시 렌더링 (approved된 것 제외)
+                            if (map.getSource('userContributions')) {
+                                const geojsonData = {
+                                    type: 'FeatureCollection',
+                                    features: contributions
+                                        .filter(c => ['pending', 'reviewed'].includes(c.status) && c.lat && c.lng && c.type !== 'historical_record')
+                                        .map(c => {
+                                            const isMyContribution = c.created_by_username === currentUser?.username;
+                                            const isReviewed = c.status === 'reviewed';
+                                            let iconColor = isReviewed ? '#27ae60' : (isMyContribution ? '#3498db' : '#e67e22');
+                                            
+                                            return {
+                                                type: 'Feature',
+                                                geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
+                                                properties: {
+                                                    id: c._id,
+                                                    name: c.name,
+                                                    type: c.type,
+                                                    status: c.status,
+                                                    created_by: c.created_by_username,
+                                                    iconColor: iconColor,
+                                                    isMyContribution: isMyContribution,
+                                                    isReviewed: isReviewed
+                                                }
+                                            };
+                                        })
+                                };
+                                map.getSource('userContributions').setData(geojsonData);
+                                console.log(`✅ [실시간 업데이트] 승인된 마커 제거 완료`);
+                            }
+                        }
+                    }
                 } else {
                     alert(data.message || '검토 실패');
                 }
             } catch (error) {
+                console.error('검토 처리 오류:', error);
                 alert('오류 발생');
             }
         };
@@ -14604,6 +14702,66 @@ kingSelect.addEventListener('change', () => {
       if (fullRankBtn) {
         fullRankBtn.addEventListener('click', showFullRankInfo);
       }
+      
+      // 🟢 [추가] ranking.html에서 검토 완료 메시지 받아서 실시간 업데이트
+      window.addEventListener('message', async (event) => {
+        console.log('📨 [메시지 수신] event.data:', event.data);
+        
+        if (event.data.type === 'contributionReviewed') {
+          const { contributionId, newStatus } = event.data;
+          console.log(`📨 [메시지 수신] ${contributionId} → ${newStatus}`);
+          console.log('🗺️ [디버그] map 존재:', !!map);
+          console.log('🗺️ [디버그] userContributions 소스 존재:', map ? !!map.getSource('userContributions') : 'map 없음');
+          console.log('📊 [디버그] 현재 contributions 개수:', contributions.length);
+          
+          // 🔄 서버에서 최신 contributions 데이터 다시 불러오기
+          try {
+            console.log('🔄 [실시간 업데이트] 서버에서 최신 데이터 불러오는 중...');
+            const freshContributions = await fetchData('contributions');
+            console.log('📥 [실시간 업데이트] 받은 데이터:', freshContributions ? freshContributions.length : 'null');
+            
+            if (freshContributions && freshContributions.length > 0) {
+              contributions = freshContributions;
+              console.log(`✅ [실시간 업데이트] Contributions 데이터 갱신 완료: ${contributions.length}개`);
+              
+              // userContributions 레이어 다시 렌더링
+              if (map.getSource('userContributions')) {
+                const geojsonData = {
+                  type: 'FeatureCollection',
+                  features: contributions
+                    .filter(c => ['pending', 'reviewed'].includes(c.status) && c.lat && c.lng && c.type !== 'historical_record')
+                    .map(c => {
+                      const isMyContribution = c.created_by_username === currentUser?.username;
+                      const isReviewed = c.status === 'reviewed';
+                      let iconColor = isReviewed ? '#27ae60' : (isMyContribution ? '#3498db' : '#e67e22');
+                      
+                      return {
+                        type: 'Feature',
+                        geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
+                        properties: {
+                          id: c._id,
+                          name: c.name,
+                          type: c.type,
+                          status: c.status,
+                          created_by: c.created_by_username,
+                          iconColor: iconColor,
+                          isMyContribution: isMyContribution,
+                          isReviewed: isReviewed
+                        }
+                      };
+                    })
+                };
+                map.getSource('userContributions').setData(geojsonData);
+                console.log(`✅ [실시간 업데이트] 마커 ${geojsonData.features.length}개 렌더링 완료`);
+              } else {
+                console.warn('⚠️ [실시간 업데이트] userContributions 소스를 찾을 수 없습니다');
+              }
+            }
+          } catch (error) {
+            console.error('❌ [실시간 업데이트] Contributions 갱신 실패:', error);
+          }
+        }
+      });
     });
   })();
   </script>
