@@ -68,7 +68,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '2.2.0',           // UI/로직 수정 시마다 변경
+        APP_VERSION: '2.2.1',           // UI/로직 수정 시마다 변경
         DATA_SCHEMA_VERSION: '2.0.0'    // 데이터 구조 변경 시에만 변경
     };
     
@@ -3854,8 +3854,8 @@ function enableFormDrag(formId) {
     // 🚩 [추가] 레이어 가시성 상태
     let layerVisibility = {
         city: false,        // 🔄 [변경] 성/도시 초기 ON
-        placeLabel: false, // 🔄 [최적화] 지명 초기 OFF
-        countryLabel: false, // ✨ [최적화] 국가명 라벨 우선 표시
+        placeLabel: true,  // 🔄 [수정] 지명 초기 ON (초보산 등 지명 표시)
+        countryLabel: true, // ✨ [수정] 국가명 라벨 초기 ON
         ethnicLabel: false, // ✨ [신규] 민족 거주지
         military: false,   // 🔄 [최적화] 군대 초기 OFF
         battle: false,     // 🔄 [최적화] 전장 초기 OFF
@@ -5557,12 +5557,22 @@ function updateMap(year, month, cacheOnly = false) {
             
             contributionLayerGroup.clearLayers();
 
+            console.log(`🔍 [사관 마커] 전체 contributions: ${contributions.length}개`);
+            const pendingContribs = contributions.filter(c => c.status === 'pending' || c.status === 'reviewed');
+            console.log(`🔍 [사관 마커] pending/reviewed 상태: ${pendingContribs.length}개`);
+            pendingContribs.forEach(c => console.log(`  - ${c.name} (${c.status}) lat:${c.lat}, lng:${c.lng}, category:${c.category}`));
+
             contributions.forEach(contrib => {
                 // 🚩 [수정] '유저복원' 레이어에는 '대기 중(pending)'과 '1차 검토 완료(reviewed)' 기여만 표시 (최종 승인된 것은 정식 오브젝트가 됨)
                 if (contrib.status !== 'pending' && contrib.status !== 'reviewed') return;
 
                 // 🚩 [추가] 사관 기록의 경우 좌표가 없으므로 지도에 표시하지 않음
-                if (contrib.category === 'historical_record' || !contrib.lat || !contrib.lng) return;
+                if (contrib.category === 'historical_record' || !contrib.lat || !contrib.lng) {
+                    console.log(`🚫 [사관 마커 스킵] ${contrib.name} - category:${contrib.category}, lat:${contrib.lat}, lng:${contrib.lng}`);
+                    return;
+                }
+
+                console.log(`✅ [사관 마커 렌더링] ${contrib.name} at [${contrib.lat}, ${contrib.lng}]`);
 
                 // 자신의 기여인지 확인
                 const isMyContribution = currentUser && contrib.userId && (
@@ -7818,9 +7828,9 @@ function getCountryInfoById(id) {
               console.log(`♻️ [백그라운드] drawings 캐시 사용: ${drawings.length}개 (네트워크 스킵)`);
           }
           
-          // 🚀 [백그라운드 로딩] contributions는 사용자 기여 전용으로 비동기 로딩 (캐시 우선)
-          if (contributions.length === 0 && layerVisibility.userContributions) {
-              console.log('👥 [백그라운드] contributions 데이터 로딩 시작 (캐시 없음)...');
+          // 🚀 [백그라운드 로딩] contributions는 사용자 기여 전용으로 비동기 로딩 (항상 최신 데이터 로드)
+          if (layerVisibility.userContributions) {
+              console.log('👥 [백그라운드] contributions 데이터 로딩 시작 (캐시:', contributions.length, '개)...');
               fetchData('contributions').then(data => {
                   contributions = data || [];
                   console.log(`✅ [백그라운드] contributions ${contributions.length}개 네트워크에서 로드 완료`);
@@ -7839,7 +7849,7 @@ function getCountryInfoById(id) {
                   contributions = [];
               });
           } else if (contributions.length > 0) {
-              console.log(`♻️ [백그라운드] contributions 캐시 사용: ${contributions.length}개 (네트워크 스킵)`);
+              console.log(`♻️ [백그라운드] contributions 캐시 사용: ${contributions.length}개 (레이어 비활성화)`);
           } else {
               console.log('⏭️ 유저 기여 레이어 비활성화 → contributions 로드 스킵');
           }
