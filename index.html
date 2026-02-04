@@ -67,7 +67,7 @@
 <script>
 // 🚀 [캐시 버스팅] 버전 체크 및 강제 새로고침
 (function() {
-    const CURRENT_VERSION = '2.0.8';  // 영토 데이터 필수 로딩으로 변경 (빈 지도 현상 방지)
+    const CURRENT_VERSION = '2.1.1';  // 빈 지도 해결: country_id 우선 사용 (castles 없어도 영토 렌더링)
     const storedVersion = localStorage.getItem('app_version');
     
     if (storedVersion !== CURRENT_VERSION) {
@@ -4645,7 +4645,18 @@ function getKingByYear(countryName, year, month) {
 
     // 🚩 [추가] 특정 영토 폴리곤의 지배 국가 계산 (최적화됨)
     function calculateDominantCountry(territory, year, month) {
-        // 🚩 [수정] territory.geojson 또는 territory.type/coordinates 지원
+        // � [v2.1.1] 영토 데이터에 country_id가 직접 있으면 우선 사용 (castles 없어도 렌더링 가능)
+        if (territory.properties && territory.properties.country_id) {
+            const countryId = territory.properties.country_id;
+            // 국가가 실제로 존재하는지 확인
+            const countryInfo = getCountryInfoById(countryId);
+            if (countryInfo) {
+                return countryId;
+            }
+        }
+        
+        // 🚩 [기존 로직] castles 기반 지배 국가 계산
+        // castles가 비어있으면 이 로직도 null 반환
         let geometry;
         if (territory.geojson && territory.geojson.geometry) {
             geometry = territory.geojson.geometry;
@@ -5297,8 +5308,16 @@ function renderImmediateCountryLabels(year, month) {
 // 🔄 [무한 루프 방지] updateMap 디바운싱
 let updateMapTimer = null;
 let lastUpdateMapCall = { year: null, month: null, cacheOnly: null };
+let pendingUpdateMapRAF = null; // 🚀 [v2.0.9] requestAnimationFrame ID
 
 function updateMap(year, month, cacheOnly = false) {
+        // 🚀 [v2.0.9] requestAnimationFrame으로 렌더링 최적화 (초기 로딩 시에만)
+        if (!isInitializing && pendingUpdateMapRAF) {
+            // 이미 예약된 렌더링이 있으면 취소하고 새로 예약
+            cancelAnimationFrame(pendingUpdateMapRAF);
+            pendingUpdateMapRAF = null;
+        }
+        
         // 🛡️ [중복 호출 차단] 동일한 파라미터로 300ms 이내 재호출 시 무시
         const now = Date.now();
         if (lastUpdateMapCall.year === year && 
@@ -5321,9 +5340,17 @@ function updateMap(year, month, cacheOnly = false) {
         
         // 🎯 [핵심] 빈 데이터로 캐시 데이터 덮어쓰기 방지
         // castles가 0개인데 territories가 있다면, 이전에 렌더링된 캐시 보호
-        if (castles.length === 0 && territories.length > 0) {
-            console.log('⚠️ [밥상 보호] castles 없이 territories만 있음. 서버 데이터 대기 중... 기존 렌더링 유지');
-            return; // 🛡️ 밥상을 엎지 못하게 막음!
+        // 단, 초기 로딩 직후에는 territories만 있어도 렌더링 허용 (빈 지도 방지)
+        const isInitialLoad = (castles.length === 0 && territories.length > 0 && !isInitializing);
+        
+        if (isInitialLoad) {
+            // 🚀 [v2.0.9] 초기 로딩 직후: territories만 먼저 표시 (castles 백그라운드 대기 중)
+            console.log('🗺️ [초기 로딩] territories만 먼저 렌더링 (castles 백그라운드 로딩 중...)');
+            // 렌더링 계속 진행
+        } else if (castles.length === 0 && territories.length > 0 && isInitializing) {
+            // 초기화 중에 호출되면 스킵
+            console.log('⏭️ [초기화 중] updateMap 스킵 (isInitializing=true)');
+            return;
         }
         
         // 둘 다 비어있으면 렌더링 불가
@@ -6957,63 +6984,101 @@ function getCountryInfoById(id) {
         }
     }
 
-    // 🚀 [IndexedDB] Castles 데이터 로드
+    // 🚀 [IndexedDB] Castles 데이터 로드 (청크 병합)
     async function loadCastlesFromCache() {
         try {
             const db = await openCastlesDB();
             const transaction = db.transaction([CASTLES_STORE_NAME], 'readonly');
             const objectStore = transaction.objectStore(CASTLES_STORE_NAME);
-            const request = objectStore.get('all_castles');
             
-            return new Promise((resolve, reject) => {
-                request.onsuccess = () => {
-                    const cached = request.result;
-                    if (!cached) {
-                        resolve(null);
-                        return;
-                    }
-                    
-                    // 캐시 유효성 확인 (24시간)
-                    const age = Date.now() - cached.timestamp;
-                    if (age > CASTLES_CACHE_DURATION) {
-                        console.log('⚠️ Castles IndexedDB 캐시 만료 (24시간 초과)');
-                        resolve(null);
-                        return;
-                    }
-                    
-                    console.log(`💾 IndexedDB에서 Castles 데이터 로드: ${cached.data.length}개 (${(age / 1000 / 60).toFixed(1)}분 전 저장)`);
-                    resolve(cached.data);
-                };
-                request.onerror = () => reject(request.error);
+            // 메인 청크 먼저 확인
+            const mainRequest = objectStore.get('all_castles');
+            
+            const mainCached = await new Promise((resolve, reject) => {
+                mainRequest.onsuccess = () => resolve(mainRequest.result);
+                mainRequest.onerror = () => reject(mainRequest.error);
             });
+            
+            if (!mainCached) {
+                return null;
+            }
+            
+            // 캐시 유효성 확인 (24시간)
+            const age = Date.now() - mainCached.timestamp;
+            if (age > CASTLES_CACHE_DURATION) {
+                console.log('⚠️ Castles IndexedDB 캐시 만료 (24시간 초과)');
+                return null;
+            }
+            
+            // 🚀 [v2.0.9] 청크가 있으면 병합
+            let allData = [...mainCached.data];
+            
+            if (mainCached.totalChunks && mainCached.totalChunks > 1) {
+                console.log(`💾 [청크 로드] ${mainCached.totalChunks}개 청크 병합 중...`);
+                
+                for (let i = 1; i < mainCached.totalChunks; i++) {
+                    const chunkRequest = objectStore.get(`castles_chunk_${i}`);
+                    const chunkData = await new Promise((resolve, reject) => {
+                        chunkRequest.onsuccess = () => resolve(chunkRequest.result);
+                        chunkRequest.onerror = () => reject(chunkRequest.error);
+                    });
+                    
+                    if (chunkData && chunkData.data) {
+                        allData = allData.concat(chunkData.data);
+                    }
+                }
+            }
+            
+            console.log(`💾 IndexedDB에서 Castles 데이터 로드: ${allData.length}개 (${(age / 1000 / 60).toFixed(1)}분 전 저장)`);
+            return allData;
         } catch (error) {
             console.warn('⚠️ Castles IndexedDB 로드 실패:', error);
             return null;
         }
     }
 
-    // 🚀 [IndexedDB] Castles 데이터 저장
+    // 🚀 [IndexedDB] Castles 데이터 저장 (청크 단위 최적화)
     async function saveCastlesCache(castlesData) {
         try {
             const db = await openCastlesDB();
-            const transaction = db.transaction([CASTLES_STORE_NAME], 'readwrite');
-            const objectStore = transaction.objectStore(CASTLES_STORE_NAME);
             
-            const cacheData = {
-                id: 'all_castles',
-                data: castlesData,
-                timestamp: Date.now()
-            };
+            // 🚀 [v2.0.9] 청크 단위 저장 (1000개씩)으로 메인 스레드 부하 감소
+            const CHUNK_SIZE = 500;
+            const chunks = Math.ceil(castlesData.length / CHUNK_SIZE);
             
-            objectStore.put(cacheData);
+            console.log(`💾 [청크 저장] ${castlesData.length}개 데이터를 ${chunks}개 청크로 분할 저장...`);
             
-            return new Promise((resolve, reject) => {
-                transaction.oncomplete = () => {
-                    console.log('💾 IndexedDB에 Castles 데이터 저장 완료');
-                    resolve();
+            for (let i = 0; i < chunks; i++) {
+                const start = i * CHUNK_SIZE;
+                const end = Math.min((i + 1) * CHUNK_SIZE, castlesData.length);
+                const chunkData = castlesData.slice(start, end);
+                
+                const transaction = db.transaction([CASTLES_STORE_NAME], 'readwrite');
+                const objectStore = transaction.objectStore(CASTLES_STORE_NAME);
+                
+                const cacheData = {
+                    id: i === 0 ? 'all_castles' : `castles_chunk_${i}`,
+                    data: chunkData,
+                    timestamp: Date.now(),
+                    isChunk: i > 0,
+                    chunkIndex: i,
+                    totalChunks: chunks
                 };
-                transaction.onerror = () => reject(transaction.error);
-            });
+                
+                objectStore.put(cacheData);
+                
+                await new Promise((resolve, reject) => {
+                    transaction.oncomplete = () => resolve();
+                    transaction.onerror = () => reject(transaction.error);
+                });
+                
+                // 🚀 다음 청크 저장 전 브라우저에 제어권 반환 (UI 버벅임 방지)
+                if (i < chunks - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+            }
+            
+            console.log(`💾 IndexedDB에 Castles 데이터 저장 완료 (${chunks}개 청크)`);
         } catch (error) {
             console.warn('⚠️ Castles IndexedDB 저장 실패:', error);
         }
@@ -7317,11 +7382,23 @@ function getCountryInfoById(id) {
                           await saveTerritoriesCache(territories);
                           console.log('💾 영토 데이터 IndexedDB 캐시 저장 완료');
                       }
+                      
+                      // 🚀 [v2.0.9] 영토 로딩 완료 → 초기화 플래그 해제 및 즉시 렌더링
+                      isInitializing = false;
+                      console.log('🔓 [초기화 완료] isInitializing = false (영토 로딩 완료)');
+                      
+                      const { year, month } = getCurrentYearMonth();
+                      updateMap(year, month);
+                      console.log('🗺️ [즉시 렌더링] 영토 데이터로 지도 렌더링 완료');
                   } catch (error) {
                       console.error('❌ 영토 데이터 로딩 실패:', error);
+                      isInitializing = false; // 오류 시에도 해제
                   }
               } else {
                   console.log('✅ 영토 데이터 이미 로드됨 (캐시 사용):', territories.length, '개');
+                  // 캐시 사용 시에도 플래그 해제
+                  isInitializing = false;
+                  console.log('🔓 [초기화 완료] isInitializing = false (캐시 사용)');
               }
           } else {
               console.log('⏭️ 영토 레이어 비활성화 → 로드 스킵');
@@ -7423,11 +7500,11 @@ function getCountryInfoById(id) {
           console.log('🗺️ 추가 데이터 지도 반영 시작...');
           console.log(`  📊 데이터 현황: countries ${countries.length}, castles ${castles.length}, territories ${territories.length}, history (지연 로딩 중), events ${events.length}`);
           
-          // 🚀 [최적화] 초기화 완료 플래그 해제
-          isInitializing = false;
+          // 🚀 [v2.0.9] 초기화 플래그는 영토 로딩 후 이미 해제됨 (중복 제거)
+          // isInitializing은 영토 로딩 완료 시점에 false로 변경됨
           
           // 🎯 [최적화] 추가 데이터(drawings, naturalFeatures 등) 반영
-          // 🎯 [핵심] castles/territories가 있을 때만 updateMap 호출 (빈 데이터 덮어쓰기 방지)
+          // 🎯 [핵심] territories가 있으면 updateMap 호출 (castles는 백그라운드 대기 중)
           if (castles.length > 0 || territories.length > 0) {
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
@@ -7572,11 +7649,28 @@ function getCountryInfoById(id) {
               console.log('⏭️ castles 로딩 스킵 (city, territoryPolygon 모두 비활성화)');
           }
           
-          // 🎯 로딩 완료 - 패널 숨김
+          // 🎯 [v2.1.1] 로딩 완료 조건 개선: 최소 1개 영토 렌더링 확인 후 화면 표시
           showLoadingStatus('역사의 전장이 준비되었습니다!', 100);
-          setTimeout(() => {
-              hideLoadingStatus();
-          }, 800); // 0.8초 후 패널 숨김 (완료 메시지 보여주기)
+          
+          // 🎯 영토 렌더링 확인 함수
+          const checkTerritoriesRendered = () => {
+              // territoryLayerGroup에 실제로 추가된 레이어 수 확인
+              const renderedCount = territoryLayerGroup ? territoryLayerGroup.getLayers().length : 0;
+              
+              if (renderedCount > 0) {
+                  console.log(`✅ 영토 렌더링 확인: ${renderedCount}개 폴리곤 표시됨`);
+                  setTimeout(() => {
+                      hideLoadingStatus();
+                  }, 500); // 0.5초 후 로딩 화면 제거
+              } else {
+                  console.log('⏳ 영토 렌더링 대기 중... (재시도)');
+                  // 0.5초 후 재확인 (최대 3초 대기)
+                  setTimeout(checkTerritoriesRendered, 500);
+              }
+          };
+          
+          // 1초 후 첫 확인 (렌더링 완료 대기)
+          setTimeout(checkTerritoriesRendered, 1000);
           
       } catch (error) {
           console.error('❌ 초기화 오류:', error);
@@ -7644,12 +7738,17 @@ function getCountryInfoById(id) {
               const timestamp = new Date().getTime();
               const origin = window.location.origin; // 절대 경로 생성
               
-              let tilesBasePath = '/tiles';
-              let indexUrl = `${origin}/tiles/index.json?v=${timestamp}`;
+              // 🚀 [v2.0.9] 환경 자동 감지 (404 에러 방지, 2.4초 단축)
+              const isLocal = origin.includes('localhost') || origin.includes('127.0.0.1');
+              const primaryPath = isLocal ? '/public/tiles' : '/tiles';
+              const fallbackPath = isLocal ? '/tiles' : '/public/tiles';
               
-              console.log('📡 시도 중인 절대 경로:', indexUrl);
+              let tilesBasePath = primaryPath;
+              let indexUrl = `${origin}${primaryPath}/index.json?v=${timestamp}`;
               
-              // 먼저 /tiles/ 시도 (Vercel 방식) + 캐시 무효화 헤더
+              console.log(`📡 [환경 감지] ${isLocal ? '로컬' : '배포'} 모드, 우선 경로: ${indexUrl}`);
+              
+              // 우선 경로 시도 + 캐시 무효화 헤더
               let indexResponse = await fetch(indexUrl, {
                   method: 'GET',
                   headers: {
@@ -7659,11 +7758,11 @@ function getCountryInfoById(id) {
                   }
               });
               
-              // 404면 /public/tiles/ 시도 (로컬 개발)
+              // 404면 폴백 경로 시도
               if (!indexResponse.ok) {
-                  console.log('🔄 /tiles/ 실패, /public/tiles/ 시도...');
-                  tilesBasePath = '/public/tiles';
-                  indexUrl = `${origin}/public/tiles/index.json?v=${timestamp}`;
+                  console.log(`🔄 ${primaryPath} 실패, ${fallbackPath} 시도...`);
+                  tilesBasePath = fallbackPath;
+                  indexUrl = `${origin}${fallbackPath}/index.json?v=${timestamp}`;
                   indexResponse = await fetch(indexUrl, {
                       method: 'GET',
                       headers: {
