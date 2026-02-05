@@ -2647,6 +2647,67 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // 🚩 [추가] 점수 재계산 API (관리자용)
+        app.post('/api/admin/recalculate-scores', verifyToken, async (req, res) => {
+            try {
+                // 관리자 권한 확인
+                const userId = req.user.userId;
+                const user = await collections.users.findOne({ _id: toObjectId(userId) });
+                if (!user || user.role !== 'admin') {
+                    return res.status(403).json({ message: "관리자 권한이 필요합니다." });
+                }
+
+                console.log('🔄 점수 재계산 시작...');
+
+                // 모든 사용자 조회
+                const allUsers = await collections.users.find({}).toArray();
+                let updatedCount = 0;
+
+                for (const user of allUsers) {
+                    // 실제 검토 횟수 계산 (승인된 기여물을 검토한 횟수)
+                    const actualReviewedCount = await collections.contributions.countDocuments({
+                        reviewerId: user._id,
+                        status: 'approved'
+                    });
+
+                    // 실제 승인 횟수 계산
+                    const actualApprovedCount = await collections.contributions.countDocuments({
+                        approverId: user._id,
+                        status: 'approved'
+                    });
+
+                    // 점수 계산
+                    const correctReviewScore = actualReviewedCount * 5;
+                    const correctApprovalScore = actualApprovedCount * 5;
+
+                    // 점수 업데이트
+                    await collections.users.updateOne(
+                        { _id: user._id },
+                        {
+                            $set: {
+                                reviewScore: correctReviewScore,
+                                approvalScore: correctApprovalScore
+                            }
+                        }
+                    );
+
+                    if (user.reviewScore !== correctReviewScore || user.approvalScore !== correctApprovalScore) {
+                        updatedCount++;
+                    }
+                }
+
+                console.log(`🎯 점수 재계산 완료: ${updatedCount}명의 점수 수정됨`);
+                res.json({
+                    message: `점수 재계산 완료: ${updatedCount}명의 점수 수정됨`,
+                    updatedUsers: updatedCount
+                });
+
+            } catch (error) {
+                console.error('점수 재계산 오류:', error);
+                res.status(500).json({ message: "점수 재계산 실패", error: error.message });
+            }
+        });
+
         // 🚩 [추가] 현재 로그인한 사용자 정보 조회 (DB 직급 포함)
         app.get('/api/user/me', verifyToken, async (req, res) => {
             try {
