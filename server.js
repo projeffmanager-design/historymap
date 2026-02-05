@@ -2513,8 +2513,54 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         }
                     },
                     {
+                        $lookup: {
+                            from: "contributions",
+                            let: { userId: "$_id" },
+                            pipeline: [
+                                {
+                                    $match: {
+                                        $expr: { $eq: ["$reviewer", "$$userId"] }
+                                    }
+                                },
+                                {
+                                    $count: "reviewedCount"
+                                }
+                            ],
+                            as: "reviewStats"
+                        }
+                    },
+                    {
+                        $lookup: {
+                            from: "contributions",
+                            let: { userId: "$_id" },
+                            pipeline: [
+                                {
+                                    $match: {
+                                        $expr: { $eq: ["$approver", "$$userId"] }
+                                    }
+                                },
+                                {
+                                    $count: "approvedByCount"
+                                }
+                            ],
+                            as: "approvalStats"
+                        }
+                    },
+                    {
                         $unwind: {
                             path: "$contributionStats",
+                            preserveNullAndEmptyArrays: true
+                        }
+                    },
+                    {
+                        $unwind: {
+                            path: "$reviewStats",
+                            preserveNullAndEmptyArrays: true
+                        }
+                    },
+                    {
+                        $unwind: {
+                            path: "$approvalStats",
                             preserveNullAndEmptyArrays: true
                         }
                     },
@@ -2524,6 +2570,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                             totalCount: { $ifNull: ["$contributionStats.totalCount", 0] },
                             approvedCount: { $ifNull: ["$contributionStats.approvedCount", 0] },
                             totalVotes: { $ifNull: ["$contributionStats.totalVotes", 0] },
+                            reviewedCount: { $ifNull: ["$reviewStats.reviewedCount", 0] },
+                            approvedByCount: { $ifNull: ["$approvalStats.approvedByCount", 0] },
                             reviewScore: { $ifNull: ["$reviewScore", 0] },
                             approvalScore: { $ifNull: ["$approvalScore", 0] },
                             position: {
