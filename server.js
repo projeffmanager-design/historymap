@@ -2519,7 +2519,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                             pipeline: [
                                 {
                                     $match: {
-                                        $expr: { $eq: ["$reviewer", "$$userId"] }
+                                        $expr: { $eq: ["$reviewerId", "$$userId"] }
                                     }
                                 },
                                 {
@@ -2536,7 +2536,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                             pipeline: [
                                 {
                                     $match: {
-                                        $expr: { $eq: ["$approver", "$$userId"] }
+                                        $expr: { $eq: ["$approverId", "$$userId"] }
                                     }
                                 },
                                 {

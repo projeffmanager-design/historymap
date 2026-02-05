@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>테스트 랭킹</title>
+    <style>
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; }
+        th { background-color: #4CAF50; color: white; }
+    </style>
+</head>
+<body>
+    <h1>랭킹 테스트</h1>
+    <table id="testTable">
+        <thead>
+            <tr>
+                <th>순위</th>
+                <th>사관명</th>
+                <th>사료제출</th>
+                <th>추천</th>
+                <th>승인</th>
+                <th>검토</th>
+                <th>승인함</th>
+                <th>총점</th>
+            </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+    </table>
+    
+    <script>
+    async function loadTest() {
+        const response = await fetch('http://localhost:3000/api/rankings');
+        const users = await response.json();
+        const tbody = document.getElementById('tableBody');
+        
+        users.forEach((user, index) => {
+            const submittedScore = (user.totalCount || 0) * 3;
+            const votesScore = (user.totalVotes || 0) * 1;
+            const approvedScore = (user.approvedCount || 0) * 10;
+            
+            const row = tbody.insertRow();
+            row.innerHTML = `
+                <td>${index + 1}</td>
+                <td>${user.username}</td>
+                <td>${submittedScore}(${user.totalCount || 0})</td>
+                <td>${votesScore}(${user.totalVotes || 0})</td>
+                <td>${approvedScore}(${user.approvedCount || 0})</td>
+                <td>${user.reviewScore || 0}(${user.reviewedCount || 0})</td>
+                <td>${user.approvalScore || 0}(${user.approvedByCount || 0})</td>
+                <td><strong>${user.score || 0}</strong></td>
+            `;
+        });
+    }
+    
+    loadTest();
+    </script>
+</body>
+</html>
