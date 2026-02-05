@@ -662,10 +662,16 @@
         }
 
         // 헤더 클릭 이벤트 설정
+        let sortingSetup = false;
         function setupSorting() {
+            if (sortingSetup) return; // 이미 설정되었으면 중복 실행 방지
+            sortingSetup = true;
+            
             document.querySelectorAll('.sortable').forEach(header => {
                 header.addEventListener('click', () => {
                     const column = header.dataset.sort;
+                    
+                    console.log(`클릭한 컬럼: ${column}, 현재: ${currentSortColumn}, 방향: ${currentSortDirection}`);
                     
                     // 기존 정렬 표시 제거
                     document.querySelectorAll('.sortable').forEach(h => {
@@ -674,11 +680,15 @@
                     
                     // 정렬 방향 결정
                     if (currentSortColumn === column) {
+                        // 같은 컬럼을 다시 클릭하면 방향 토글
                         currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
                     } else {
+                        // 다른 컬럼을 클릭하면 해당 컬럼으로 변경하고 내림차순으로 시작
                         currentSortColumn = column;
-                        currentSortDirection = 'desc'; // 기본 내림차순
+                        currentSortDirection = 'desc';
                     }
+                    
+                    console.log(`정렬 실행: ${column} (${currentSortDirection})`);
                     
                     // 정렬 표시 추가
                     header.classList.add(`sort-${currentSortDirection}`);
@@ -701,8 +711,17 @@
                 }
                 
                 // 기본 정렬 (점수 내림차순)
+                currentSortColumn = 'score';
+                currentSortDirection = 'desc';
                 sortRankings('score', 'desc');
                 renderRankings();
+                
+                // 초기 정렬 표시 추가
+                const scoreHeader = document.querySelector('[data-sort="score"]');
+                if (scoreHeader) {
+                    scoreHeader.classList.add('sort-desc');
+                }
+                
                 setupSorting();
             } catch (error) {
                 console.error('Error fetching ranking data:', error);
