@@ -14331,7 +14331,17 @@ kingSelect.addEventListener('change', () => {
 
         async function displayRanking() {
             try {
-                const response = await fetch('/api/rankings');
+                // 🚩 [추가] 캐시 우회를 위한 타임스탬프 파라미터
+                const timestamp = Date.now();
+                const response = await fetch(`/api/rankings?_t=${timestamp}`, {
+                    cache: 'no-cache',
+                    headers: {
+                        'Cache-Control': 'no-cache'
+                    }
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 const users = await response.json();
                 
                 // 🚩 [수정] 모달이 제거되었으므로 좌측 패널만 업데이트
@@ -14345,7 +14355,7 @@ kingSelect.addEventListener('change', () => {
                 const currentUser = parseJwt(token);
                 const currentUsername = currentUser?.username;
 
-                if (users.length === 0) {
+                if (!Array.isArray(users) || users.length === 0) {
                     rankingDisplay.innerHTML = '<div style="color: #95a5a6;">랭킹 정보가 없습니다.</div>';
                     return;
                 }
