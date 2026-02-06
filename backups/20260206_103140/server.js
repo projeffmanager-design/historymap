@@ -1735,11 +1735,6 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     return res.status(401).json({ message: "사용자 이름 또는 비밀번호가 잘못되었습니다." });
                 }
 
-                // 🚩 [수정] 비밀번호 필드가 없는 경우 방어 처리
-                if (!user.password) {
-                    return res.status(401).json({ message: "사용자 이름 또는 비밀번호가 잘못되었습니다." });
-                }
-
                 const isMatch = await bcrypt.compare(password, user.password);
                 if (!isMatch) {
                     return res.status(401).json({ message: "사용자 이름 또는 비밀번호가 잘못되었습니다." });
@@ -2613,9 +2608,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                             }
                         }
                     },
-                    // { $match: { score: { $gt: 0 } } },  // 점수가 0인 사용자도 포함
-                    { $sort: { score: -1 } }
-                    // { $limit: 100 }  // 제한 제거 - 모든 사용자 표시
+                    { $match: { score: { $gt: 0 } } },  // 점수가 0보다 큰 사용자만
+                    { $sort: { score: -1 } },
+                    { $limit: 100 }
                 ]).toArray();
 
                 console.log(`🏆 [랭킹 조회] ${rankings.length}명 조회 완료`);
@@ -2645,8 +2640,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     user.rank = rank;  // 순위 추가
                 });
 
-                // 모든 사용자 반환
-                res.json(rankings);
+                // 상위 20명만 반환
+                res.json(rankings.slice(0, 20));
             } catch (error) {
                 res.status(500).json({ message: "랭킹 조회 실패", error: error.message });
             }

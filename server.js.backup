@@ -27,23 +27,24 @@ const toObjectId = (id) => {
     return null;
 }
 
-// 헬퍼 함수: 점수에 따른 직급 결정
+// 헬퍼 함수: 점수에 따른 직급 결정 (새로운 품계 체계 적용)
 const getPosition = (score) => {
-    if (score >= 2600) return '상서';
-    if (score >= 2100) return '한림학사';
-    if (score >= 1700) return '사천감';
-    if (score >= 1600) return '기거주';
-    if (score >= 1400) return '수찬관';
-    if (score >= 1250) return '좌·우사간';
-    if (score >= 1100) return '낭중';
-    if (score >= 450) return '직사관';
-    if (score >= 300) return '태학박사';
-    if (score >= 200) return '사천승';
-    if (score >= 120) return '지제고';
-    if (score >= 60) return '기주관';
-    if (score >= 30) return '학유';
-    if (score >= 10) return '검열';
-    return '참봉';
+    // 고위직 (정1품~종2품): 순위 정보 필요하므로 현재 시스템에서는 적용하지 않음
+    // 상급~하급 사관: 점수 기반 자동 진급제
+    if (score >= 2600) return '정3품 수찬관';        // 정3품
+    if (score >= 2100) return '종3품 직수찬관';      // 종3품
+    if (score >= 1700) return '정4품 사관수찬';      // 정4품
+    if (score >= 1400) return '종4품 시강학사';      // 종4품
+    if (score >= 1100) return '정5품 기거주';        // 정5품 (낭중)
+    if (score >= 850) return '종5품 기거사';         // 종5품 (원외랑)
+    if (score >= 650) return '정6품 기거랑';         // 정6품 (직사관)
+    if (score >= 450) return '종6품 기거도위';       // 종6품
+    if (score >= 300) return '정7품 수찬';           // 정7품
+    if (score >= 200) return '종7품 직문한';         // 종7품
+    if (score >= 120) return '정8품 주서';           // 정8품
+    if (score >= 60) return '종8품 검열';            // 종8품
+    if (score >= 30) return '정9품 정자';            // 정9품
+    return '종9품 수분권지';                         // 종9품 (입문)
 };
 
 // 헬퍼 함수: Geometry로부터 bbox 계산
@@ -133,7 +134,36 @@ const verifyAdmin = (req, res, next) => { // (전역으로 이동)
     });
 };
 
-const verifyAdminOnly = (req, res, next) => { // (전역으로 이동)
+const verifyApprover = (req, res, next) => { // 동수국사 이상 승인 권한 검증
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1];
+
+    console.log('🔍 [verifyApprover] Authorization Header:', authHeader);
+    console.log('🔍 [verifyApprover] Token:', token ? token.substring(0, 20) + '...' : 'null');
+
+    if (!token) return res.status(401).json({ message: "인증 토큰이 없습니다." });
+
+    jwt.verify(token, jwtSecret, (err, user) => {
+        if (err) {
+            console.log('❌ [verifyApprover] JWT 검증 실패:', err.message);
+            return res.status(403).json({ message: "유효하지 않은 토큰입니다.", error: err.message });
+        }
+
+        console.log('✅ [verifyApprover] JWT 검증 성공 - User:', user.username, 'Position:', user.position);
+
+        // 승인 권한이 있는 직급들 (정2품 수국사 이상)
+        const approverPositions = ['수국사', '판사관사', '감수국사'];
+
+        if (user.role !== 'admin' && user.role !== 'superuser' && !approverPositions.includes(user.position)) {
+            console.log('⛔ [verifyApprover] 승인 권한 부족 - Position:', user.position);
+            return res.status(403).json({ message: "승인 권한이 필요합니다. (정2품 수국사 이상)" });
+        }
+        req.user = user;
+        next();
+    });
+};
+
+const verifyAdminOnly = (req, res, next) => { // 회원 관리자 권한 검증
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -141,7 +171,7 @@ const verifyAdminOnly = (req, res, next) => { // (전역으로 이동)
 
     jwt.verify(token, jwtSecret, (err, user) => {
         if (err) return res.status(403).json({ message: "유효하지 않은 토큰입니다." });
-        
+
         if (user.role !== 'admin') {
             return res.status(403).json({ message: "회원 관리자(admin) 권한이 필요합니다." });
         }
@@ -219,8 +249,49 @@ app.use(async (req, res, next) => {
 // 이제 index.html, admin.html 등을 루트 디렉토리에서 직접 서비스할 수 있습니다.
 app.use(express.static(__dirname));
 
+// 🚩 [추가] public 폴더를 정적 파일로 제공 (타일 파일 접근용)
+app.use('/public', express.static(path.join(__dirname, 'public')));
+
 // This function will set up all the routes and collections
 async function setupRoutesAndCollections() {
+    try {
+        // 간단한 테스트 라우트만 추가
+        app.get('/api/test', (req, res) => {
+            res.json({ message: 'Server is working' });
+        });
+
+        console.log('✅ Routes setup completed');
+    } catch (error) {
+        console.error('❌ Routes setup failed:', error);
+        throw error;
+    }
+}
+            try {
+                const { username, email } = req.body;
+                if (!username && !email) {
+                    return res.status(400).json({ message: '이름 또는 이메일을 입력하세요.' });
+                }
+                let duplicate = false;
+                let message = '';
+                if (username) {
+                    const userByName = await collections.users.findOne({ username });
+                    if (userByName) {
+                        duplicate = true;
+                        message = '이미 등록된 사관 이름입니다.';
+                    }
+                }
+                if (!duplicate && email) {
+                    const userByEmail = await collections.users.findOne({ email });
+                    if (userByEmail) {
+                        duplicate = true;
+                        message = '이미 등록된 서신 주소(이메일)입니다.';
+                    }
+                }
+                res.json({ duplicate, message });
+            } catch (error) {
+                res.status(500).json({ message: '중복 체크 중 서버 오류', error: error.message });
+            }
+        });
     if (isAppSetup) {
         return; // Already set up
     }
@@ -241,22 +312,31 @@ async function setupRoutesAndCollections() {
             try {
                 // 🚩 [추가] label_type 쿼리 파라미터로 필터링 지원
                 const { label_type } = req.query;
-                const query = {};
+                let query = { $or: [{ deleted: { $exists: false } }, { deleted: false }] }; // deleted 필드가 없거나 false인 문서들 (삭제되지 않은 문서들)
                 
-                if (label_type) {
+                if (label_type && label_type !== 'exclude_labels') {
                     // label_type이 지정된 경우 해당 타입만 조회
                     query.label_type = label_type;
                     query.is_label = true; // 라벨 타입인 경우 is_label도 true여야 함
                 } else if (label_type === 'exclude_labels') {
-                    // 라벨을 제외한 모든 데이터 조회
-                    query.$or = [
-                        { is_label: false },
-                        { is_label: { $exists: false } }
-                    ];
+                    // 라벨을 제외한 모든 데이터 조회 - deleted 필터와 결합
+                    query = {
+                        $and: [
+                            { $or: [{ deleted: { $exists: false } }, { deleted: false }] },
+                            { $or: [{ is_label: false }, { is_label: { $exists: false } }] }
+                        ]
+                    };
                 }
                 
                 const castles = await collections.castle.find(query).toArray();
                 console.log(`📖 Castle 조회: ${castles.length}개 (필터: ${label_type || '전체'})`);
+                
+                // 디버깅: 첫 번째 문서의 deleted 필드 확인
+                if (castles.length > 0) {
+                    console.log(`🔍 첫 번째 문서의 deleted 필드:`, castles[0].deleted);
+                    console.log(`🔍 첫 번째 문서의 키들:`, Object.keys(castles[0]));
+                }
+                
                 res.json(castles);
             } catch (error) {
                 console.error("Castle 조회 중 오류:", error);
@@ -390,24 +470,93 @@ async function setupRoutesAndCollections() {
             }
         });
         
-        // DELETE: 성 정보 삭제
+        // DELETE: 성 정보 휴지통으로 이동 (소프트 삭제)
         app.delete('/api/castle/:id', verifyAdmin, async (req, res) => {
             try {
                 const { id } = req.params;
                 const _id = toObjectId(id);
                 if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
 
-                const result = await collections.castle.deleteOne({ _id: _id });
+                const result = await collections.castle.updateOne(
+                    { _id: _id },
+                    {
+                        $set: {
+                            deleted: true,
+                            deletedAt: new Date()
+                        }
+                    }
+                );
 
-                if (result.deletedCount === 0) {
+                if (result.matchedCount === 0) {
                     return res.status(404).json({ message: "성을 찾을 수 없습니다." });
                 }
 
-                logCRUD('DELETE', 'Castle', id);
-                res.json({ message: "Castle 정보 삭제 성공" });
+                logCRUD('SOFT_DELETE', 'Castle', id);
+                res.json({ message: "Castle 정보 휴지통으로 이동됨" });
             } catch (error) {
-                logCRUD('ERROR', 'Castle', 'DELETE', error.message);
-                res.status(500).json({ message: "Castle 정보 삭제 실패", error: error.message });
+                logCRUD('ERROR', 'Castle', 'SOFT_DELETE', error.message);
+                res.status(500).json({ message: "Castle 정보 휴지통 이동 실패", error: error.message });
+            }
+        });
+
+        // PUT: 휴지통에서 성 복원
+        app.put('/api/castle/:id/restore', verifyAdmin, async (req, res) => {
+            try {
+                const { id } = req.params;
+                const _id = toObjectId(id);
+                if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+
+                const result = await collections.castle.updateOne(
+                    { _id: _id, deleted: true },
+                    {
+                        $unset: {
+                            deleted: "",
+                            deletedAt: ""
+                        }
+                    }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).json({ message: "휴지통에서 성을 찾을 수 없습니다." });
+                }
+
+                logCRUD('RESTORE', 'Castle', id);
+                res.json({ message: "Castle 정보 복원 성공" });
+            } catch (error) {
+                logCRUD('ERROR', 'Castle', 'RESTORE', error.message);
+                res.status(500).json({ message: "Castle 정보 복원 실패", error: error.message });
+            }
+        });
+
+        // DELETE: 휴지통에서 성 영구 삭제
+        app.delete('/api/castle/:id/permanent', verifyAdmin, async (req, res) => {
+            try {
+                const { id } = req.params;
+                const _id = toObjectId(id);
+                if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+
+                const result = await collections.castle.deleteOne({ _id: _id, deleted: true });
+
+                if (result.deletedCount === 0) {
+                    return res.status(404).json({ message: "휴지통에서 성을 찾을 수 없습니다." });
+                }
+
+                logCRUD('PERMANENT_DELETE', 'Castle', id);
+                res.json({ message: "Castle 정보 영구 삭제 성공" });
+            } catch (error) {
+                logCRUD('ERROR', 'Castle', 'PERMANENT_DELETE', error.message);
+                res.status(500).json({ message: "Castle 정보 영구 삭제 실패", error: error.message });
+            }
+        });
+
+        // GET: 휴지통의 성 목록
+        app.get('/api/castle/trash', verifyAdmin, async (req, res) => {
+            try {
+                const castles = await collections.castle.find({ deleted: true }).toArray();
+                res.json(castles);
+            } catch (error) {
+                logCRUD('ERROR', 'Castle', 'GET_TRASH', error.message);
+                res.status(500).json({ message: "휴지통 조회 실패", error: error.message });
             }
         });
 
@@ -581,7 +730,7 @@ app.delete('/api/countries/:name', verifyAdmin, async (req, res) => {
 // ----------------------------------------------------
 
 // GET: 모든 왕 정보 반환 (변경 없음)
-app.get('/api/kings', verifyToken, async (req, res) => {
+app.get('/api/kings', async (req, res) => {
      try {
         const kings = await collections.kings.find({}).toArray();
         res.json(kings);
@@ -1014,12 +1163,28 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // � [추가] ----------------------------------------------------
         // 🗺️ TERRITORIES API 엔드포인트 (행정구역 영토 폴리곤)
         // ----------------------------------------------------
+        
+        // 🚀 [최적화] 서버 메모리 캐시 - MongoDB Atlas 네트워크 지연 해결
+        let territoriesCache = null;
+        let territoriesCacheTime = null;
+        const CACHE_TTL = 30 * 60 * 1000; // 30분 캐시
 
         // GET: 영토 폴리곤 조회 (뷰포트 bounds 필터링 지원)
         // 🗺️ [공개 API] Territories 조회 - 인증 불필요 (공개 데이터)
         app.get('/api/territories', async (req, res) => {
             try {
-                const { minLat, maxLat, minLng, maxLng, lightweight } = req.query;
+                const { minLat, maxLat, minLng, maxLng, lightweight, nocache } = req.query;
+                
+                // 🚀 캐시 사용 (bounds 없고, lightweight 아니고, nocache 아닌 경우)
+                const useCache = !minLat && !lightweight && nocache !== 'true';
+                
+                if (useCache && territoriesCache && territoriesCacheTime) {
+                    const cacheAge = Date.now() - territoriesCacheTime;
+                    if (cacheAge < CACHE_TTL) {
+                        console.log(`🚀 Territories 캐시 사용 (${(cacheAge/1000).toFixed(0)}초 전 데이터, ${territoriesCache.length}개)`);
+                        return res.json(territoriesCache);
+                    }
+                }
                 
                 let query = {};
                 
@@ -1071,6 +1236,13 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 } else {
                     // 전체 데이터 (geometry 포함)
                     territories = await collections.territories.find(query).toArray();
+                    
+                    // 🚀 캐시 저장 (bounds 없는 전체 조회인 경우만)
+                    if (useCache) {
+                        territoriesCache = territories;
+                        territoriesCacheTime = Date.now();
+                        console.log(`💾 Territories 캐시 저장됨 (${territories.length}개)`);
+                    }
                 }
                 
                 const elapsed = Date.now() - startTime;
@@ -1151,6 +1323,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     ids: Object.values(result.insertedIds).map(id => id.toString()),
                     insertedId: result.insertedIds[0] // 단일 추가 시 호환성
                 });
+                
+                // 🚀 캐시 무효화
+                territoriesCache = null;
+                territoriesCacheTime = null;
+                console.log('🗑️ Territories 캐시 무효화됨 (POST)');
             } catch (error) {
                 console.error("Territory 추가 중 오류:", error);
                 res.status(500).json({ message: "Territory 추가 실패", error: error.message });
@@ -1169,6 +1346,12 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
 
                 const result = await collections.territories.updateOne({ _id: _id }, { $set: updatedTerritory });
                 if (result.matchedCount === 0) return res.status(404).json({ message: "영토 정보를 찾을 수 없습니다." });
+                
+                // 🚀 캐시 무효화
+                territoriesCache = null;
+                territoriesCacheTime = null;
+                console.log('🗑️ Territories 캐시 무효화됨 (PUT)');
+                
                 res.json({ message: "Territory 정보 업데이트 성공" });
             } catch (error) {
                 console.error("Territory 정보 업데이트 중 오류:", error);
@@ -1184,6 +1367,12 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
                 const result = await collections.territories.deleteOne({ _id: _id });
                 if (result.deletedCount === 0) return res.status(404).json({ message: "영토 정보를 찾을 수 없습니다." });
+                
+                // 🚀 캐시 무효화
+                territoriesCache = null;
+                territoriesCacheTime = null;
+                console.log('🗑️ Territories 캐시 무효화됨 (DELETE)');
+                
                 res.json({ message: "Territory 정보 삭제 성공" });
             } catch (error) {
                 console.error("Territory 정보 삭제 중 오류:", error);
@@ -1209,6 +1398,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
 
                 const result = await collections.territories.deleteMany(query);
                 console.log(`✅ OSM 기반 삭제 완료: ${result.deletedCount}개 삭제`);
+                
+                // 🚀 캐시 무효화
+                territoriesCache = null;
+                territoriesCacheTime = null;
+                console.log('🗑️ Territories 캐시 무효화됨 (DELETE by OSM)');
 
                 res.json({ message: 'OSM 기반 영토 삭제 완료', deletedCount: result.deletedCount });
             } catch (error) {
@@ -1999,15 +2193,36 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // GET: 기여 목록 조회 (필터링 지원)
         app.get('/api/contributions', async (req, res) => {
             try {
-                const { status } = req.query;
+                const { status, userId } = req.query;
                 const query = {};
                 if (status) query.status = status;
+                if (userId) {
+                    // ObjectId로 변환하여 검색
+                    try {
+                        query.userId = toObjectId(userId);
+                    } catch (e) {
+                        // ObjectId 변환 실패 시 문자열로 검색
+                        query.userId = userId;
+                    }
+                }
                 
                 const contributions = await collections.contributions.find(query).sort({ createdAt: -1 }).toArray();
                 
                 // votedBy의 사용자 ID를 사용자 이름으로 변환 및 reviewer 정보 추가
                 const contributionsWithNames = await Promise.all(contributions.map(async (contrib) => {
                     let result = { ...contrib };
+                    
+                    // 🚩 [추가] username이 없는 경우 userId로 조회하여 추가
+                    if (!result.username && result.userId) {
+                        try {
+                            const user = await collections.users.findOne({ _id: toObjectId(result.userId) });
+                            if (user && user.username) {
+                                result.username = user.username;
+                            }
+                        } catch (e) {
+                            console.error('❌ username 조회 실패:', e);
+                        }
+                    }
                     
                     // votedBy 처리
                     if (contrib.votedBy && contrib.votedBy.length > 0) {
@@ -2048,19 +2263,36 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // POST: 기여 제출 (역사 복원 핀 꼽기)
         app.post('/api/contributions', verifyToken, async (req, res) => {
             try {
-                const { name, lat, lng, description, category, evidence } = req.body;
+                const { name, lat, lng, description, category, evidence, year, source, content } = req.body;
                 
-                const newContribution = {
-                    userId: toObjectId(req.user.userId),
-                    username: req.user.username,
-                    name, lat, lng, description, category, evidence,
-                    status: 'pending', // pending(대기), approved(승인), rejected(거절)
-                    votes: 0,
-                    votedBy: [],
-                    reviewerId: null, // 검토자 ID
-                    reviewedAt: null, // 검토 완료 시간
-                    createdAt: new Date()
-                };
+                // 🚩 [추가] 사관 기록의 경우 다른 필드 구조 사용
+                let newContribution;
+                if (category === 'historical_record') {
+                    newContribution = {
+                        userId: toObjectId(req.user.userId),
+                        username: req.user.username,
+                        name, year, source, content, category, evidence,
+                        status: 'pending',
+                        votes: 0,
+                        votedBy: [],
+                        reviewerId: null,
+                        reviewedAt: null,
+                        createdAt: new Date()
+                    };
+                } else {
+                    // 기존 지도 기반 기여
+                    newContribution = {
+                        userId: toObjectId(req.user.userId),
+                        username: req.user.username,
+                        name, lat, lng, description, category, evidence,
+                        status: 'pending',
+                        votes: 0,
+                        votedBy: [],
+                        reviewerId: null,
+                        reviewedAt: null,
+                        createdAt: new Date()
+                    };
+                }
 
                 // 수찬관 이상의 사용자를 검토자로 할당 (랜덤, 본인 제외)
                 const reviewerPositions = ['수찬관', '사천감', '한림학사', '상서', '수국사', '동수국사', '감수국사', '문하시중'];
@@ -2080,7 +2312,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const createdContribution = { ...newContribution, _id: result.insertedId };
                 
                 res.status(201).json({ 
-                    message: "역사 복원 제안이 접수되었습니다. 검토 후 지도에 반영됩니다.",
+                    message: category === 'historical_record' ? "사관 기록이 접수되었습니다. 검토 후 반영됩니다." : "역사 복원 제안이 접수되었습니다. 검토 후 지도에 반영됩니다.",
                     contribution: createdContribution 
                 });
             } catch (error) {
@@ -2100,14 +2332,38 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
 
                 // 이미 투표했는지 확인
                 if (contribution.votedBy && contribution.votedBy.includes(userId)) {
-                    // 🚩 [수정] 이미 추천했다면 추천 취소 (Toggle)
-                    await collections.contributions.updateOne(
-                        { _id },
-                        { $inc: { votes: -1 }, $pull: { votedBy: userId } }
-                    );
-                    // 최신 데이터 조회
-                    const updatedContribution = await collections.contributions.findOne({ _id });
-                    return res.json({ message: "추천을 취소했습니다.", votes: updatedContribution.votes || 0, action: 'cancel' });
+                    return res.status(400).json({ message: "이미 추천했습니다." });
+                }
+
+                // 🚩 [추가] 일일 추천 제한 10회 체크
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const tomorrow = new Date(today);
+                tomorrow.setDate(tomorrow.getDate() + 1);
+
+                const todayVoteCount = await collections.contributions.countDocuments({
+                    votedBy: userId,
+                    updatedAt: { $gte: today, $lt: tomorrow }
+                });
+
+                // 오늘 이미 본인이 추천한 총 횟수 계산 (더 정확한 방법)
+                const allContributions = await collections.contributions.find({
+                    votedBy: userId
+                }).toArray();
+                
+                // 각 contribution의 votedBy에서 userId가 오늘 추가되었는지 확인하기 어려우므로
+                // users 컬렉션에 dailyVoteCount 필드를 사용
+                const user = await collections.users.findOne({ _id: toObjectId(userId) });
+                const lastVoteDate = user?.lastVoteDate ? new Date(user.lastVoteDate) : null;
+                let dailyVoteCount = user?.dailyVoteCount || 0;
+
+                // 날짜가 바뀌었으면 카운트 리셋
+                if (!lastVoteDate || lastVoteDate < today) {
+                    dailyVoteCount = 0;
+                }
+
+                if (dailyVoteCount >= 10) {
+                    return res.status(400).json({ message: "일일 추천 제한(10회)을 초과했습니다. 내일 다시 시도해주세요." });
                 }
 
                 await collections.contributions.updateOne(
@@ -2115,16 +2371,30 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     { $inc: { votes: 1 }, $push: { votedBy: userId } }
                 );
 
+                // 🚩 [추가] 일일 추천 카운트 업데이트
+                await collections.users.updateOne(
+                    { _id: toObjectId(userId) },
+                    { 
+                        $set: { lastVoteDate: new Date() },
+                        $inc: { dailyVoteCount: 1 }
+                    }
+                );
+
                 // 최신 데이터 조회
                 const updatedContribution = await collections.contributions.findOne({ _id });
-                res.json({ message: "추천하였습니다.", votes: updatedContribution.votes || 0, action: 'vote' });
+                res.json({ 
+                    message: "추천하였습니다.", 
+                    votes: updatedContribution.votes || 0, 
+                    action: 'vote',
+                    remainingVotes: 10 - dailyVoteCount - 1  // 남은 추천 횟수
+                });
             } catch (error) {
                 res.status(500).json({ message: "투표 실패", error: error.message });
             }
         });
 
-        // PUT: 기여 상태 변경 (관리자 승인/거절)
-        app.put('/api/contributions/:id/status', verifyAdmin, async (req, res) => {
+        // PUT: 기여 상태 변경 (동수국사 이상 승인/거절)
+        app.put('/api/contributions/:id/status', verifyApprover, async (req, res) => {
             try {
                 const { id } = req.params;
                 const { status } = req.body; // 'approved' or 'rejected'
@@ -2168,126 +2438,352 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
-        // PUT: 기여 검토 (검토자 전용)
-        app.put('/api/contributions/:id/review', verifyToken, async (req, res) => {
+        // 🚩 [추가] DELETE: 본인 사료 삭제 (승인 전에만 가능)
+        app.delete('/api/contributions/:id/my', verifyToken, async (req, res) => {
             try {
                 const { id } = req.params;
-                const { status, comment } = req.body; // 'approved' or 'rejected', comment (optional)
-                const reviewerId = req.user.userId;
-                
-                const contribution = await collections.contributions.findOne({ _id: toObjectId(id) });
-                if (!contribution) return res.status(404).json({ message: "항목을 찾을 수 없습니다." });
-                
-                // 본인 기여는 검토할 수 없음
-                if (contribution.userId.toString() === reviewerId) {
-                    return res.status(403).json({ message: "본인의 기여는 검토할 수 없습니다." });
+                const userId = req.user.userId;
+                const _id = toObjectId(id);
+                if (!_id) return res.status(400).json({ message: '잘못된 ID 형식입니다.' });
+
+                const contribution = await collections.contributions.findOne({ _id });
+                if (!contribution) return res.status(404).json({ message: '항목을 찾을 수 없습니다.' });
+
+                // 본인 사료인지 확인
+                if (contribution.userId.toString() !== userId) {
+                    return res.status(403).json({ message: '본인이 제출한 사료만 삭제할 수 있습니다.' });
                 }
-                
-                // 검토자 권한 확인 및 할당
-                if (!contribution.reviewerId) {
-                    // 검토자가 아직 할당되지 않은 경우, 현재 사용자를 검토자로 할당
-                    await collections.contributions.updateOne(
-                        { _id: toObjectId(id) },
-                        { $set: { reviewerId: toObjectId(reviewerId) } }
-                    );
-                } else if (contribution.reviewerId.toString() !== reviewerId) {
-                    // 이미 다른 검토자가 할당된 경우 권한 확인
-                    return res.status(403).json({ message: "검토 권한이 없습니다." });
+
+                // 승인된 사료는 삭제 불가
+                if (contribution.status === 'approved') {
+                    return res.status(400).json({ message: '이미 승인된 사료는 삭제할 수 없습니다.' });
                 }
-                
-                // 이미 검토가 완료되었는지 확인
-                if (contribution.status !== 'pending') {
-                    return res.status(400).json({ message: "이미 검토가 완료되었습니다." });
+
+                const result = await collections.contributions.deleteOne({ _id });
+                if (result.deletedCount === 0) {
+                    return res.status(500).json({ message: '삭제에 실패했습니다.' });
                 }
-                
-                const updateData = { 
-                    status,
-                    reviewedAt: new Date()
-                    // 검토 단계에서는 reviewedBy(승인자)를 설정하지 않음
-                };
-                
-                // 검토 의견이 있는 경우 저장
-                if (comment && comment.trim()) {
-                    updateData.reviewComment = comment.trim();
-                }
-                
-                await collections.contributions.updateOne(
-                    { _id: toObjectId(id) },
-                    { $set: updateData }
-                );
-                
-                // 검토자에게 5점 부여
+
+                // 제출자의 totalCount 감소
                 await collections.users.updateOne(
-                    { _id: toObjectId(reviewerId) },
-                    { $inc: { reviewScore: 5 } }
+                    { _id: toObjectId(userId) },
+                    { $inc: { totalCount: -1 } }
                 );
-                
-                res.json({ message: `검토가 완료되었습니다. (${status === 'approved' ? '검토 완료' : '검토 거부'})` });
+
+                res.json({ message: '사료가 삭제되었습니다.' });
             } catch (error) {
-                res.status(500).json({ message: "검토 실패", error: error.message });
+                res.status(500).json({ message: '삭제 실패', error: error.message });
+            }
+        });
+
+        // DELETE: 기여 삭제 (관리자 전용)
+        app.delete('/api/contributions/:id', verifyAdmin, async (req, res) => {
+            try {
+                const { id } = req.params;
+                const _id = toObjectId(id);
+                if (!_id) return res.status(400).json({ message: '잘못된 ID 형식입니다.' });
+
+                const contribution = await collections.contributions.findOne({ _id });
+                if (!contribution) return res.status(404).json({ message: '항목을 찾을 수 없습니다.' });
+
+                const result = await collections.contributions.deleteOne({ _id });
+                if (result.deletedCount === 0) {
+                    return res.status(500).json({ message: '삭제에 실패했습니다.' });
+                }
+
+                // 승인된 항목인 경우 검토자/승인자의 점수를 되돌립니다.
+                if (contribution.status === 'approved') {
+                    try {
+                        if (contribution.reviewerId) {
+                            await collections.users.updateOne(
+                                { _id: toObjectId(contribution.reviewerId) },
+                                { $inc: { reviewScore: -5 } }
+                            );
+                        }
+                        if (contribution.reviewedBy) {
+                            await collections.users.updateOne(
+                                { _id: toObjectId(contribution.reviewedBy) },
+                                { $inc: { approvalScore: -5 } }
+                            );
+                        }
+                    } catch (scoreErr) {
+                        // 점수 되돌리기 실패는 로그만 남기고 삭제는 성공으로 처리
+                        console.error('기여 삭제 후 점수 되돌리기 실패:', scoreErr.message);
+                    }
+                }
+
+                res.json({ message: '사료가 삭제되었습니다.' });
+            } catch (error) {
+                res.status(500).json({ message: '삭제 실패', error: error.message });
             }
         });
 
         // GET: 명예의 전당 (랭킹)
         app.get('/api/rankings', async (req, res) => {
             try {
-                const rankings = await collections.contributions.aggregate([
+                console.log('🏆 [랭킹 조회] 시작');
+                
+                // 🚩 [수정] users 컬렉션 기반으로 랭킹 계산 (승인만 한 사용자도 포함)
+                const rankings = await collections.users.aggregate([
                     {
-                        $group: {
-                            _id: "$userId",
-                            username: { $first: "$username" },
-                            totalCount: { $sum: 1 }, // 핀 저장 (1점)
-                            approvedCount: {
-                                $sum: {
-                                    $cond: [{ $eq: ["$status", "approved"] }, 1, 0]
+                        $lookup: {
+                            from: "contributions",
+                            let: { userId: "$_id" },
+                            pipeline: [
+                                {
+                                    $match: {
+                                        $expr: { $eq: ["$userId", "$$userId"] }
+                                    }
+                                },
+                                {
+                                    $group: {
+                                        _id: null,
+                                        totalCount: { $sum: 1 },
+                                        approvedCount: {
+                                            $sum: {
+                                                $cond: [{ $eq: ["$status", "approved"] }, 1, 0]
+                                            }
+                                        },
+                                        totalVotes: { $sum: "$votes" }
+                                    }
                                 }
-                            }, // 승인됨 (5점)
-                            totalVotes: { $sum: "$votes" } // 추천 (1점)
+                            ],
+                            as: "contributionStats"
                         }
                     },
                     {
                         $lookup: {
-                            from: "users",
-                            localField: "_id",
-                            foreignField: "_id",
-                            as: "userInfo"
+                            from: "contributions",
+                            let: { userId: "$_id" },
+                            pipeline: [
+                                {
+                                    $match: {
+                                        $expr: { $eq: ["$reviewerId", "$$userId"] }
+                                    }
+                                },
+                                {
+                                    $count: "reviewedCount"
+                                }
+                            ],
+                            as: "reviewStats"
+                        }
+                    },
+                    {
+                        $lookup: {
+                            from: "contributions",
+                            let: { userId: "$_id" },
+                            pipeline: [
+                                {
+                                    $match: {
+                                        $expr: { $eq: ["$approverId", "$$userId"] }
+                                    }
+                                },
+                                {
+                                    $count: "approvedByCount"
+                                }
+                            ],
+                            as: "approvalStats"
                         }
                     },
                     {
                         $unwind: {
-                            path: "$userInfo",
+                            path: "$contributionStats",
+                            preserveNullAndEmptyArrays: true
+                        }
+                    },
+                    {
+                        $unwind: {
+                            path: "$reviewStats",
+                            preserveNullAndEmptyArrays: true
+                        }
+                    },
+                    {
+                        $unwind: {
+                            path: "$approvalStats",
                             preserveNullAndEmptyArrays: true
                         }
                     },
                     {
                         $project: {
                             username: 1,
-                            totalCount: 1,
-                            approvedCount: 1,
-                            totalVotes: 1,
-                            position: { $ifNull: ["$userInfo.position", "참봉"] },
-                            reviewScore: { $ifNull: ["$userInfo.reviewScore", 0] },
-                            approvalScore: { $ifNull: ["$userInfo.approvalScore", 0] },
+                            totalCount: { $ifNull: ["$contributionStats.totalCount", 0] },
+                            approvedCount: { $ifNull: ["$contributionStats.approvedCount", 0] },
+                            totalVotes: { $ifNull: ["$contributionStats.totalVotes", 0] },
+                            reviewedCount: { $ifNull: ["$reviewStats.reviewedCount", 0] },
+                            approvedByCount: { $ifNull: ["$approvalStats.approvedByCount", 0] },
+                            reviewScore: { $ifNull: ["$reviewScore", 0] },
+                            approvalScore: { $ifNull: ["$approvalScore", 0] },
+                            isAppointedMinister: { $ifNull: ["$isAppointedMinister", false] },
+                            position: {
+                                $switch: {
+                                    branches: [
+                                        // 고려 사관 통합 18단계 직급표 (정3품~종9품, 재상급은 순위별 후처리)
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 2600] }, then: "정3품 수찬관" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 2100] }, then: "종3품 직수찬관" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 1700] }, then: "정4품 사관수찬" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 1400] }, then: "종4품 시강학사" },
+                                        // 정5품~종6품 (중급 사관)
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 1100] }, then: "정5품 기거주" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 850] }, then: "종5품 기거사" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 650] }, then: "정6품 기거랑" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 450] }, then: "종6품 기거도위" },
+                                        // 정7품~종9품 (하급 사관)
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 300] }, then: "정7품 수찬" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 200] }, then: "종7품 직문한" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 120] }, then: "정8품 주서" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 60] }, then: "종8품 검열" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 30] }, then: "정9품 정자" }
+                                    ],
+                                    default: "종9품 수분권지"
+                                }
+                            },
                             score: {
                                 $add: [
-                                    { $multiply: ["$totalCount", 3] }, // 사료 제출: 3점
-                                    { $multiply: ["$approvedCount", 10] }, // 승인: 10점
-                                    "$totalVotes", // 추천: 1점
-                                    { $ifNull: ["$userInfo.reviewScore", 0] }, // 검토 점수
-                                    { $ifNull: ["$userInfo.approvalScore", 0] } // 승인 점수
+                                    { $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] },
+                                    { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] },
+                                    { $ifNull: ["$contributionStats.totalVotes", 0] },
+                                    { $ifNull: ["$reviewScore", 0] },
+                                    { $ifNull: ["$approvalScore", 0] }
                                 ]
                             }
                         }
                     },
+                    // { $match: { score: { $gt: 0 } } },  // 🚩 [수정] 공적이 0인 사관도 포함
                     { $sort: { score: -1 } },
-                    { $limit: 20 }
+                    { $limit: 100 }
                 ]).toArray();
 
-                res.json(rankings);
+                console.log(`🏆 [랭킹 조회] ${rankings.length}명 조회 완료`);
+                if (rankings.length > 0) {
+                    console.log('🏆 [랭킹 첫 번째 사용자 샘플]:', {
+                        username: rankings[0].username,
+                        totalCount: rankings[0].totalCount,
+                        approvedCount: rankings[0].approvedCount,
+                        totalVotes: rankings[0].totalVotes,
+                        reviewScore: rankings[0].reviewScore,
+                        approvalScore: rankings[0].approvalScore,
+                        score: rankings[0].score
+                    });
+                }
+
+                // 🚩 [추가] 재상급 직급 - 순위 기반으로 부여 (상위 4명, 정1품~종2품) + 관리자 임명
+                const ministerPositions = ['정1품 감수국사', '종1품 판사관사', '정2품 수국사', '종2품 동수국사'];
+                const ministerMinScores = [5000, 4300, 3700, 3100];  // 최소 점수 요건
+                
+                rankings.forEach((user, index) => {
+                    const rank = index + 1;
+                    
+                    // 관리자가 임명한 재상급 사관 처리
+                    if (user.isAppointedMinister) {
+                        // 임명된 사관에게 적절한 재상급 직급 부여 (사용 가능한 직급 중에서)
+                        const availablePositions = ministerPositions.filter(pos => 
+                            !rankings.some(u => u.position === pos && u !== user)
+                        );
+                        if (availablePositions.length > 0) {
+                            user.position = availablePositions[0]; // 첫 번째 사용 가능한 직급 부여
+                            user.isMinister = true;  // 재상급 표시
+                            user.isAppointed = true; // 임명 표시
+                        }
+                    }
+                    // 상위 4명 중 최소 점수를 충족하면 재상급 직급 부여 (이미 임명되지 않은 경우만)
+                    else if (rank <= 4 && user.score >= ministerMinScores[rank - 1] && !user.isAppointedMinister) {
+                        user.position = ministerPositions[rank - 1];
+                        user.isMinister = true;  // 재상급 표시
+                    }
+                    
+                    user.rank = rank;  // 순위 추가
+                });
+
+                // 상위 20명만 반환
+                res.json(rankings.slice(0, 20));
             } catch (error) {
                 res.status(500).json({ message: "랭킹 조회 실패", error: error.message });
             }
         });
+
+        // 🚩 [추가] 점수 재계산 API (관리자용)
+        app.post('/api/admin/recalculate-scores', verifyToken, async (req, res) => {
+            try {
+                // 관리자 권한 확인
+                const userId = req.user.userId;
+                const user = await collections.users.findOne({ _id: toObjectId(userId) });
+                if (!user || user.role !== 'admin') {
+                    return res.status(403).json({ message: "관리자 권한이 필요합니다." });
+                }
+
+                console.log('🔄 점수 재계산 시작...');
+
+                // 모든 사용자 조회
+                const allUsers = await collections.users.find({}).toArray();
+                let updatedCount = 0;
+
+                for (const user of allUsers) {
+                    // 실제 검토 횟수 계산 (승인된 기여물을 검토한 횟수)
+                    const actualReviewedCount = await collections.contributions.countDocuments({
+                        reviewerId: user._id,
+                        status: 'approved'
+                    });
+
+                    // 실제 승인 횟수 계산
+                    const actualApprovedCount = await collections.contributions.countDocuments({
+                        approverId: user._id,
+                        status: 'approved'
+                    });
+
+                    // 점수 계산
+                    const correctReviewScore = actualReviewedCount * 5;
+                    const correctApprovalScore = actualApprovedCount * 5;
+
+                    // 점수 업데이트
+                    await collections.users.updateOne(
+                        { _id: user._id },
+                        {
+                            $set: {
+                                reviewScore: correctReviewScore,
+                                approvalScore: correctApprovalScore
+                            }
+                        }
+                    );
+
+                    if (user.reviewScore !== correctReviewScore || user.approvalScore !== correctApprovalScore) {
+                        updatedCount++;
+                    }
+                }
+
+                console.log(`🎯 점수 재계산 완료: ${updatedCount}명의 점수 수정됨`);
+                res.json({
+                    message: `점수 재계산 완료: ${updatedCount}명의 점수 수정됨`,
+                    updatedUsers: updatedCount
+                });
+
+            } catch (error) {
+                console.error('점수 재계산 오류:', error);
+                res.status(500).json({ message: "점수 재계산 실패", error: error.message });
+            }
+        });
+
+        // 🚩 [추가] 현재 로그인한 사용자 정보 조회 (DB 직급 포함)
+        app.get('/api/user/me', verifyToken, async (req, res) => {
+            try {
+                const userId = req.user.userId;
+                const user = await collections.users.findOne({ _id: toObjectId(userId) });
+                
+                if (!user) {
+                    return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+                }
+                
+                // 비밀번호 제외하고 반환
+                const { password, ...userWithoutPassword } = user;
+                res.json(userWithoutPassword);
+            } catch (error) {
+                res.status(500).json({ message: "사용자 정보 조회 실패", error: error.message });
+            }
+        });
+
+    // 🚩 [수정] 지리 공간 인덱스 - 첫 실행시에만 필요, 이후에는 불필요
+    // 인덱스는 MongoDB에 영구 저장되므로 매 서버 시작마다 체크할 필요 없음
+    // 필요시 수동으로 scripts/check_and_fix_indexes.js 실행
+    console.log('ℹ️ 인덱스는 이미 설정됨 (수동 관리: scripts/check_and_fix_indexes.js)');
 
     isAppSetup = true; // Mark setup as complete
 }
@@ -2327,6 +2823,335 @@ app.post('/api/auth/signup', async (req, res) => {
         res.status(201).json({ message: "회원가입 성공" });
     } catch (error) {
         res.status(500).json({ message: "서버 오류가 발생했습니다.", error: error.message });
+    }
+});
+
+// 🚩 [추가] Admin: 사용자 스위치
+app.post('/api/admin/switch-user/:userId', verifyAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const targetUser = await collections.users.findOne({ _id: toObjectId(userId) });
+        if (!targetUser) return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+
+        // 해당 사용자의 JWT 토큰 생성
+        const token = jwt.sign(
+            { userId: targetUser._id.toString(), username: targetUser.username, role: targetUser.role, position: targetUser.position || '백성' },
+            jwtSecret,
+            { expiresIn: '365d' }
+        );
+
+        res.json({ message: "사용자로 스위치되었습니다.", token });
+    } catch (error) {
+        res.status(500).json({ message: "스위치 실패", error: error.message });
+    }
+});
+
+// 🚩 [추가] 레이어 기본 설정 관리
+// 기본 레이어 설정
+const defaultLayerSettings = {
+    city: true,
+    placeLabel: false,
+    countryLabel: true,
+    ethnicLabel: false,
+    military: false,
+    natural: false,
+    event: false,
+    territoryPolygon: true,
+    rivers: false,
+    timeline: true,
+    kingPanel: false,
+    historyPanel: false,
+    userContributions: true
+};
+
+// 레이어 설정 불러오기
+app.get('/api/layer-settings', async (req, res) => {
+    try {
+        const settings = await collections.layerSettings.findOne({ type: 'default' });
+        if (!settings) {
+            // 설정이 없으면 기본값 반환
+            return res.json({ settings: defaultLayerSettings });
+        }
+        res.json({ settings: settings.settings });
+    } catch (error) {
+        res.status(500).json({ message: "레이어 설정 불러오기 실패", error: error.message });
+    }
+});
+
+// 레이어 설정 저장
+app.put('/api/layer-settings', verifyAdmin, async (req, res) => {
+    try {
+        const { settings } = req.body;
+        if (!settings || typeof settings !== 'object') {
+            return res.status(400).json({ message: "올바른 설정 데이터가 필요합니다." });
+        }
+
+        // 설정 저장
+        await collections.layerSettings.updateOne(
+            { type: 'default' },
+            { $set: { settings, updatedAt: new Date() } },
+            { upsert: true }
+        );
+
+        res.json({ message: "레이어 설정이 저장되었습니다." });
+    } catch (error) {
+        res.status(500).json({ message: "레이어 설정 저장 실패", error: error.message });
+    }
+});
+
+// 🚩 [추가] 기여물 검토
+app.put('/api/contributions/:id/review', verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, comment } = req.body;
+        const userId = req.user.userId;
+
+        const contribution = await collections.contributions.findOne({ _id: toObjectId(id) });
+        if (!contribution) return res.status(404).json({ message: "기여를 찾을 수 없습니다." });
+
+        // pending 상태에서만 검토 가능
+        if (contribution.status !== 'pending') return res.status(400).json({ message: "이미 검토된 기여입니다." });
+
+        // 🚩 [수정] 검토자 권한 확인 - 시강학사(종4품) ~ 수찬관(정3품) - 상급 사관
+        const reviewerPositions = [
+            '시강학사', '사관수찬', '직수찬관', '수찬관'  // 종4품~정3품 (상급 사관)
+        ];
+        const user = await collections.users.findOne({ _id: toObjectId(userId) });
+        
+        // 🚩 [수정] DB에 저장된 직급 또는 실시간 계산된 직급 확인
+        // (admin이 수동으로 직급을 부여한 경우를 위해 DB 직급도 확인)
+        const hasReviewerPosition = reviewerPositions.includes(user.position);
+        
+        if (!user || !hasReviewerPosition) {
+            return res.status(403).json({ 
+                message: `검토 권한이 없습니다. (시강학사(종4품) 이상만 가능, 현재: ${user.position})` 
+            });
+        }
+
+        // 🚩 [수정] 검토는 'reviewed' 상태로 변경 (승인이 아님)
+        const updateData = {
+            status: status === 'approved' ? 'reviewed' : 'rejected',  // approved → reviewed로 변경
+            reviewerId: toObjectId(userId),
+            reviewerUsername: user.username,  // 검토자 이름 저장
+            reviewedAt: new Date(),
+            reviewComment: comment || null
+        };
+
+        await collections.contributions.updateOne({ _id: toObjectId(id) }, { $set: updateData });
+
+        // 🚩 [수정] 검토자 점수 부여 (5점)
+        await collections.users.updateOne(
+            { _id: toObjectId(userId) },
+            { $inc: { reviewScore: 5 } }
+        );
+
+        res.json({ message: `기여가 ${status === 'approved' ? '검토 완료' : '검토 거부'}되었습니다.` });
+    } catch (error) {
+        res.status(500).json({ message: "검토 실패", error: error.message });
+    }
+});
+
+// 🚩 [추가] 최종 승인 API (동수국사 이상만 가능)
+app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { comment } = req.body;
+        const userId = req.user.userId;
+
+        const contribution = await collections.contributions.findOne({ _id: toObjectId(id) });
+        if (!contribution) return res.status(404).json({ message: "기여를 찾을 수 없습니다." });
+
+        console.log('🔍 [Approve] 기여 상태:', contribution.status, '기여 ID:', id);
+
+        // reviewed 상태에서만 승인 가능 (또는 pending 상태도 허용 - 고위직이 바로 승인 가능)
+        if (contribution.status !== 'reviewed' && contribution.status !== 'pending') {
+            console.log('⛔ [Approve] 상태 오류 - 현재 상태:', contribution.status);
+            return res.status(400).json({ message: `승인할 수 없는 상태입니다. (현재 상태: ${contribution.status})` });
+        }
+
+        // 🚩 [수정] 승인자 권한 확인 (동수국사(종2품) 이상) - DB position과 실시간 계산 모두 확인
+        const approverPositions = ['동수국사', '수국사', '판사관사', '감수국사'];
+        const user = await collections.users.findOne({ _id: toObjectId(userId) });
+        
+        // 🚩 [추가] 실시간 직급 계산 (고려 사관 통합 18단계 직급표)
+        const userScore = (user.totalCount || 0) * 3 + (user.approvedCount || 0) * 10 + 
+                         (user.totalVotes || 0) + (user.reviewScore || 0) + (user.approvalScore || 0);
+        
+        // 사용자 순위 조회 (재상급 직급 판별용)
+        const allUsers = await collections.users.find().toArray();
+        const usersWithScores = allUsers.map(u => ({
+            _id: u._id.toString(),
+            score: (u.totalCount || 0) * 3 + (u.approvedCount || 0) * 10 + 
+                   (u.totalVotes || 0) + (u.reviewScore || 0) + (u.approvalScore || 0)
+        })).sort((a, b) => b.score - a.score);
+        const userRank = usersWithScores.findIndex(u => u._id === userId) + 1;
+        
+        let realtimePosition = user.position || '수분권지';
+        // 정1품~종2품 (재상급 - 순위 + 최소 점수 기준)
+        if (userScore >= 5000 && userRank === 1) realtimePosition = '감수국사';      // 정1품
+        else if (userScore >= 4300 && userRank <= 2) realtimePosition = '판사관사';  // 종1품
+        else if (userScore >= 3700 && userRank <= 3) realtimePosition = '수국사';    // 정2품
+        else if (userScore >= 3100 && userRank <= 4) realtimePosition = '동수국사';  // 종2품
+        // 정3품~종4품 (상급 사관)
+        else if (userScore >= 2600) realtimePosition = '수찬관';                     // 정3품
+        else if (userScore >= 2100) realtimePosition = '직수찬관';                   // 종3품
+        else if (userScore >= 1700) realtimePosition = '사관수찬';                   // 정4품
+        else if (userScore >= 1400) realtimePosition = '시강학사';                   // 종4품
+        // 정5품~종6품 (중급 사관)
+        else if (userScore >= 1100) realtimePosition = '기거주';                     // 정5품
+        else if (userScore >= 850) realtimePosition = '기거사';                      // 종5품
+        else if (userScore >= 650) realtimePosition = '기거랑';                      // 정6품
+        else if (userScore >= 450) realtimePosition = '기거도위';                    // 종6품
+        // 정7품~종9품 (하급 사관)
+        else if (userScore >= 300) realtimePosition = '수찬';                        // 정7품
+        else if (userScore >= 200) realtimePosition = '직문한';                      // 종7품
+        else if (userScore >= 120) realtimePosition = '주서';                        // 정8품
+        else if (userScore >= 60) realtimePosition = '검열';                         // 종8품
+        else if (userScore >= 30) realtimePosition = '정자';                         // 정9품
+        else realtimePosition = '수분권지';                                          // 종9품
+        
+        console.log('🔍 [Approve] 사용자:', user.username, 'DB직급:', user.position, '실시간직급:', realtimePosition, '점수:', userScore);
+        
+        // 🚩 [수정] DB에 저장된 직급 또는 실시간 계산된 직급 중 하나라도 승인 권한이 있으면 허용
+        const hasApproverPosition = approverPositions.includes(user.position) || approverPositions.includes(realtimePosition);
+        
+        if (!user || !hasApproverPosition) {
+            return res.status(403).json({ 
+                message: `승인 권한이 없습니다. (동수국사(종2품) 이상만 가능, DB직급: ${user.position}, 실시간직급: ${realtimePosition})` 
+            });
+        }
+
+        const updateData = {
+            status: 'approved',
+            approverId: toObjectId(userId),
+            approverUsername: user.username,
+            approvedAt: new Date(),
+            approveComment: comment || null
+        };
+
+        await collections.contributions.updateOne({ _id: toObjectId(id) }, { $set: updateData });
+
+        // 🚩 [추가] 승인자 점수 부여 (10점)
+        await collections.users.updateOne(
+            { _id: toObjectId(userId) },
+            { $inc: { approvalScore: 10 } }
+        );
+
+        // 🚩 [추가] 검토자가 있으면 검토자에게도 추가 점수 (5점)
+        if (contribution.reviewerId) {
+            await collections.users.updateOne(
+                { _id: contribution.reviewerId },
+                { $inc: { reviewScore: 5 } }  // 최종 승인 시 검토자 추가 보상
+            );
+        }
+
+        // 🚩 [핵심 추가] 승인된 기여를 Castle로 자동 변환
+        if (contribution.category !== 'historical_record' && contribution.lat && contribution.lng) {
+            try {
+                const newCastle = {
+                    name: contribution.name,
+                    lat: contribution.lat,
+                    lng: contribution.lng,
+                    description: contribution.description || '',
+                    built_year: contribution.year || null,
+                    country_id: contribution.countryId || null,
+                    is_label: contribution.category === 'place_label' || false,
+                    label_type: contribution.category === 'place_label' ? 'place' : null,
+                    created_by: contribution.username || 'unknown',
+                    created_from_contribution: contribution._id,
+                    created_at: new Date()
+                };
+
+                const insertResult = await collections.castles.insertOne(newCastle);
+                console.log(`✅ [Castle 생성] 승인된 기여 "${contribution.name}"를 Castle로 변환 완료 (ID: ${insertResult.insertedId})`);
+                
+                // 기여자에게도 추가 보상 (승인 완료 시)
+                if (contribution.userId) {
+                    await collections.users.updateOne(
+                        { _id: contribution.userId },
+                        { $inc: { approvedCount: 1 } }  // 승인된 기여 카운트 증가
+                    );
+                }
+            } catch (castleError) {
+                console.error('❌ [Castle 생성 실패]', castleError);
+                // Castle 생성 실패해도 승인은 완료된 상태 유지
+            }
+        } else {
+            console.log(`ℹ️ [Castle 변환 스킵] 사관 기록이거나 좌표 없음: category=${contribution.category}, lat=${contribution.lat}, lng=${contribution.lng}`);
+        }
+
+        res.json({ message: "기여가 최종 승인되었습니다. 성 마커로 변환되었습니다." });
+    } catch (error) {
+        res.status(500).json({ message: "승인 실패", error: error.message });
+    }
+});
+
+// 🚩 [추가] 재상급 사관 임명/해임 API
+app.post('/api/admin/appoint-minister', verifyToken, async (req, res) => {
+    try {
+        // 관리자 권한 확인
+        const userId = req.user.userId;
+        const admin = await collections.users.findOne({ _id: toObjectId(userId) });
+        if (!admin || admin.role !== 'admin') {
+            return res.status(403).json({ message: "관리자 권한이 필요합니다." });
+        }
+
+        const { targetUserId, action } = req.body; // action: 'appoint' or 'dismiss'
+
+        if (!targetUserId || !action) {
+            return res.status(400).json({ message: "사용자 ID와 액션이 필요합니다." });
+        }
+
+        const targetUser = await collections.users.findOne({ _id: toObjectId(targetUserId) });
+        if (!targetUser) {
+            return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+        }
+
+        if (action === 'appoint') {
+            // 재상급 사관 임명
+            await collections.users.updateOne(
+                { _id: toObjectId(targetUserId) },
+                { $set: { isAppointedMinister: true } }
+            );
+            console.log(`🏛️ [재상급 임명] ${targetUser.username}님이 재상급 사관으로 임명되었습니다.`);
+            res.json({ message: `${targetUser.username}님이 재상급 사관으로 임명되었습니다.` });
+        } else if (action === 'dismiss') {
+            // 재상급 사관 해임
+            await collections.users.updateOne(
+                { _id: toObjectId(targetUserId) },
+                { $set: { isAppointedMinister: false } }
+            );
+            console.log(`🏛️ [재상급 해임] ${targetUser.username}님의 재상급 사관 직위가 해임되었습니다.`);
+            res.json({ message: `${targetUser.username}님의 재상급 사관 직위가 해임되었습니다.` });
+        } else {
+            res.status(400).json({ message: "잘못된 액션입니다." });
+        }
+    } catch (error) {
+        res.status(500).json({ message: "재상급 사관 관리 실패", error: error.message });
+    }
+});
+
+// 🚩 [추가] 재상급 사관 목록 조회 API
+app.get('/api/admin/ministers', verifyToken, async (req, res) => {
+    try {
+        // 관리자 권한 확인
+        const userId = req.user.userId;
+        const admin = await collections.users.findOne({ _id: toObjectId(userId) });
+        if (!admin || admin.role !== 'admin') {
+            return res.status(403).json({ message: "관리자 권한이 필요합니다." });
+        }
+
+        // 재상급 사관들 조회 (자동 선정 + 관리자 임명)
+        const ministers = await collections.users.find({
+            $or: [
+                { isAppointedMinister: true },
+                { position: { $in: ['정1품 감수국사', '종1품 판사관사', '정2품 수국사', '종2품 동수국사'] } }
+            ]
+        }).project({ username: 1, position: 1, isAppointedMinister: 1 }).toArray();
+
+        res.json(ministers);
+    } catch (error) {
+        res.status(500).json({ message: "재상급 사관 목록 조회 실패", error: error.message });
     }
 });
 

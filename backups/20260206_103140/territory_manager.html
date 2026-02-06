@@ -10,21 +10,62 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            padding: 20px;
+            padding: 0;
+            margin: 0;
         }
+        
+        /* 🚩 [추가] 팝업 전용 헤더 */
+        .popup-header {
+            position: sticky;
+            top: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 15px 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        .popup-header h1 {
+            margin: 0;
+            font-size: 1.8em;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        
         .container {
-            max-width: 1200px;
-            margin: 0 auto;
+            max-width: 100%;
+            margin: 0;
             background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            border-radius: 0;
+            box-shadow: none;
             overflow: hidden;
         }
         .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 30px;
+            padding: 20px 30px;
             text-align: center;
+            position: relative;
+            display: none; /* 🚩 팝업 헤더가 대신하므로 숨김 */
+        }
+        .header .back-btn {
+            position: absolute;
+            left: 30px;
+            top: 50%;
+            transform: translateY(-50%);
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .header .back-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: white;
         }
         .header h1 {
             font-size: 32px;
@@ -200,8 +241,14 @@
     </style>
 </head>
 <body>
+    <!-- 🚩 [추가] 팝업 전용 헤더 -->
+    <div class="popup-header">
+        <h1>🗺️ 영토 관리 시스템</h1>
+    </div>
+    
     <div class="container">
         <div class="header">
+            <a href="javascript:history.back()" class="back-btn">← 돌아가기</a>
             <h1>🗺️ 영토 관리 시스템</h1>
             <p>GeoJSON/OSM 링크를 입력하면 자동으로 변환하여 MongoDB에 저장합니다</p>
         </div>
@@ -300,9 +347,6 @@
                             <button class="btn-warning" onclick="deleteByOSM()" style="flex:1; background:#dc3545; color:white;">
                                 🗑️ OSM으로 기존 영토 삭제
                             </button>
-                            <button class="btn-secondary" onclick="previewByOSM()" style="flex:1; background:#ffc107;">
-                                🔎 삭제 전 미리보기
-                            </button>
                             <button class="btn-secondary" onclick="openOSMMap()" style="flex:1; background:#17a2b8; color:white;">OSM 지도 열기</button>
                             <button class="btn-secondary" onclick="intersectPreview()" style="flex:1; background:#6f42c1; color:white;">이 영역과 교차하는 영토 검색</button>
                         </div>
@@ -314,20 +358,6 @@
                         <button class="btn-secondary" onclick="fetchFromURL()" style="margin-top: 10px;">
                             📥 URL에서 가져오기
                         </button>
-                    </div>
-
-                    <div id="osm_preview" style="display:none; margin-top:12px; background:#fff; padding:12px; border-radius:8px; border:1px solid #e0e0e0;">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                            <strong>미리보기: OSM으로 연결된 영토</strong>
-                            <button class="btn-secondary" onclick="closeOsmPreview()" style="background:#6c757d; color:white;">닫기</button>
-                        </div>
-                        <div id="osm_preview_list" style="max-height:200px; overflow:auto; margin-bottom:8px;"></div>
-                        <div style="display:flex; gap:10px;">
-                            <button class="btn-warning" onclick="deleteSelectedFromPreview()" style="background:#dc3545; color:white;">선택된 항목 삭제</button>
-                            <button class="btn-secondary" onclick="selectAllPreview(true)">모두 선택</button>
-                            <button class="btn-secondary" onclick="selectAllPreview(false)">선택 해제</button>
-                            <button class="btn-success" onclick="backupThenDeleteSelected()" style="background:#198754; color:white;">백업 후 삭제</button>
-                        </div>
                     </div>
                 </div>
 
@@ -355,6 +385,21 @@
                     <h2>처리 로그</h2>
                     <div class="log-area" id="log"></div>
                 </div>
+
+                <!-- 교차 검색 결과 -->
+                <div id="intersect_results" style="display:none; margin-top:12px; background:#fff; padding:12px; border-radius:8px; border:1px solid #e0e0e0;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <strong>교차 검색 결과</strong>
+                        <button class="btn-secondary" onclick="document.getElementById('intersect_results').style.display='none'" style="background:#6c757d; color:white;">닫기</button>
+                    </div>
+                    <div id="intersect_results_list" style="max-height:300px; overflow:auto; margin-bottom:8px;"></div>
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn-warning" onclick="deleteSelectedFromIntersect()" style="background:#dc3545; color:white;">선택된 항목 삭제</button>
+                        <button class="btn-secondary" onclick="selectAllIntersect(true)">모두 선택</button>
+                        <button class="btn-secondary" onclick="selectAllIntersect(false)">선택 해제</button>
+                        <button class="btn-success" onclick="backupThenDeleteSelectedIntersect()" style="background:#198754; color:white;">백업 후 삭제</button>
+                    </div>
+                </div>
             </form>
         </div>
     </div>
@@ -366,8 +411,9 @@
                      || window.location.protocol === 'file:';
         
         const API_BASE = isLocal
-            ? 'http://localhost:3000/api' 
-            : 'https://historymap.vercel.app/api';
+            // Use the same host the page was loaded from to avoid hostname mismatches (localhost vs 127.0.0.1)
+            ? `${window.location.protocol}//${window.location.host}/api`
+             : 'https://historymap.vercel.app/api';
 
         // 환경 정보 로깅
         console.log('🌍 환경 감지:', {
@@ -563,12 +609,13 @@
                 log(`  🏷️  행정단계: ${adminLevel}`, 'info');
                 log(`  📊 타입: ${type}`, 'info');
 
+                // 미리보기 기능은 현재 사용 중지됨
                 // 자동으로 미리보기 열기 (사용자 편의)
-                try {
-                    previewByOSM();
-                } catch (e) {
-                    // 무시 - 미리보기 로드 실패 시 수동으로 시도하도록 함
-                }
+                // try {
+                //     previewByOSM();
+                // } catch (e) {
+                //     // 무시 - 미리보기 로드 실패 시 수동으로 시도하도록 함
+                // }
 
                 // 한글 이름이 제대로 설정되었는지 확인
                 if (!nameKo || nameKo === nameEn) {
@@ -896,214 +943,6 @@
             }
         }
 
-        async function previewByOSM() {
-            const osmId = document.getElementById('osm_id').value.trim();
-            if (!osmId) {
-                log('미리보기할 OSM Relation ID를 입력해주세요', 'error');
-                return;
-            }
-
-            setProgress(10);
-            log(`🔎 OSM Relation ${osmId}으로 연결된 영토 미리보기 중...`, 'info');
-
-            try {
-                const tokenInput = document.getElementById('jwt_token');
-                let token = tokenInput.dataset.fullToken || tokenInput.value;
-                if (!token || token.includes('...')) {
-                    token = localStorage.getItem('token') || sessionStorage.getItem('token');
-                }
-                if (!token) {
-                    log('JWT 토큰이 없습니다. 먼저 로그인하세요.', 'error');
-                    setProgress(0);
-                    return;
-                }
-
-                const response = await fetch(`${API_BASE}/territories/by-osm/${encodeURIComponent(osmId)}`, {
-                    method: 'GET',
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-
-                if (!response.ok) {
-                    const text = await response.text();
-                    log(`미리보기 실패: HTTP ${response.status} - ${text}`, 'error');
-                    setProgress(0);
-                    return;
-                }
-
-                const result = await response.json();
-                const list = result.territories || [];
-                const container = document.getElementById('osm_preview_list');
-                container.innerHTML = '';
-
-                if (list.length === 0) {
-                    container.innerHTML = '<div>일치하는 영토가 없습니다.</div>';
-                } else {
-                    list.forEach(t => {
-                        const div = document.createElement('div');
-                        div.style.borderBottom = '1px solid #f0f0f0';
-                        div.style.padding = '8px 0';
-                        div.innerHTML = `
-                            <label style="display:flex; gap:10px; align-items:center;">
-                                <input type="checkbox" class="osm-preview-checkbox" data-id="${t._id}">
-                                <div style="flex:1;">
-                                    <div><strong>${t.name}</strong> (${t.name_ko || '-'})</div>
-                                    <div style="font-size:12px; color:#666;">타입: ${t.type || '-'} | 기간: ${t.start_year || '-'} ~ ${t.end_year || '-' } | osm_id: ${t.osm_id || '-'}</div>
-                                </div>
-                            </label>
-                        `;
-                        container.appendChild(div);
-                    });
-                }
-
-                document.getElementById('osm_preview').style.display = 'block';
-                setProgress(100);
-                log(`✓ 미리보기 로드 완료: ${list.length}개 항목`, 'success');
-            } catch (error) {
-                log(`미리보기 실패: ${error.message}`, 'error');
-                setProgress(0);
-            }
-        }
-
-        function closeOsmPreview() {
-            document.getElementById('osm_preview').style.display = 'none';
-        }
-
-        function selectAllPreview(yes) {
-            document.querySelectorAll('.osm-preview-checkbox').forEach(cb => cb.checked = !!yes);
-        }
-
-        async function deleteSelectedFromPreview() {
-            const checked = Array.from(document.querySelectorAll('.osm-preview-checkbox:checked'));
-            if (checked.length === 0) {
-                log('삭제할 항목을 하나 이상 선택하세요', 'error');
-                return;
-            }
-
-            const ids = checked.map(cb => cb.getAttribute('data-id'));
-            const confirmed = confirm(`선택된 ${ids.length}개의 영토를 삭제합니다. 계속 진행하시겠습니까? (복구 불가능)`);
-            if (!confirmed) return;
-
-            setProgress(10);
-            log(`🗑️ 선택된 ${ids.length}개 삭제 중...`, 'info');
-
-            try {
-                const tokenInput = document.getElementById('jwt_token');
-                let token = tokenInput.dataset.fullToken || tokenInput.value;
-                if (!token || token.includes('...')) {
-                    token = localStorage.getItem('token') || sessionStorage.getItem('token');
-                }
-                if (!token) {
-                    log('JWT 토큰이 없습니다. 먼저 로그인하세요.', 'error');
-                    setProgress(0);
-                    return;
-                }
-
-                // 병렬로 삭제 요청
-                const promises = ids.map(id => fetch(`${API_BASE}/territories/${encodeURIComponent(id)}`, {
-                    method: 'DELETE',
-                    headers: { 'Authorization': `Bearer ${token}` }
-                }));
-
-                const results = await Promise.all(promises);
-                let deleted = 0;
-                for (const r of results) {
-                    if (r.ok) deleted++;
-                }
-
-                log(`✓ 삭제 완료: ${deleted}/${ids.length} 항목이 삭제되었습니다`, 'success');
-                setProgress(100);
-
-                // 미리보기 갱신
-                document.getElementById('osm_preview').style.display = 'none';
-                previewByOSM();
-            } catch (error) {
-                log(`삭제 중 오류: ${error.message}`, 'error');
-                setProgress(0);
-            }
-        }
-
-        async function backupThenDeleteSelected() {
-            const checked = Array.from(document.querySelectorAll('.osm-preview-checkbox:checked'));
-            if (checked.length === 0) {
-                log('백업 및 삭제할 항목을 하나 이상 선택하세요', 'error');
-                return;
-            }
-
-            const ids = checked.map(cb => cb.getAttribute('data-id'));
-            const confirmed = confirm(`선택된 ${ids.length}개의 영토를 백업한 뒤 삭제합니다. 계속 진행하시겠습니까?`);
-            if (!confirmed) return;
-
-            setProgress(10);
-            log(`💾 선택된 ${ids.length}개 백업 중...`, 'info');
-
-            try {
-                const tokenInput = document.getElementById('jwt_token');
-                let token = tokenInput.dataset.fullToken || tokenInput.value;
-                if (!token || token.includes('...')) {
-                    token = localStorage.getItem('token') || sessionStorage.getItem('token');
-                }
-                if (!token) {
-                    log('JWT 토큰이 없습니다. 먼저 로그인하세요.', 'error');
-                    setProgress(0);
-                    return;
-                }
-
-                // 전체 문서를 가져와 JSON으로 묶음
-                const fetches = ids.map(id => fetch(`${API_BASE}/territories/${encodeURIComponent(id)}`, {
-                    method: 'GET', headers: { 'Authorization': `Bearer ${token}` }
-                }).then(r => { if (!r.ok) throw new Error(`ID ${id} 조회 실패: ${r.status}`); return r.json(); }));
-
-                const docs = await Promise.all(fetches);
-
-                // 파일로 다운로드
-                const osmIdVal = document.getElementById('osm_id').value.trim() || 'backup';
-                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                const filename = `territory_backup_${osmIdVal}_${timestamp}.json`;
-                const blob = new Blob([JSON.stringify(docs, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
-
-                log(`✓ 백업 다운로드 완료: ${filename}`, 'success');
-                setProgress(60);
-
-                // 확인 후 삭제 수행
-                const confirmedDelete = confirm(`백업이 완료되었습니다. 선택된 ${ids.length}개를 지금 삭제하시겠습니까? (복구 불가능)`);
-                if (!confirmedDelete) {
-                    setProgress(0);
-                    return;
-                }
-
-                setProgress(70);
-                log(`🗑️ 선택된 ${ids.length}개 삭제 중...`, 'info');
-
-                const promises = ids.map(id => fetch(`${API_BASE}/territories/${encodeURIComponent(id)}`, {
-                    method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` }
-                }));
-
-                const results = await Promise.all(promises);
-                let deleted = 0;
-                for (const r of results) if (r.ok) deleted++;
-
-                log(`✓ 삭제 완료: ${deleted}/${ids.length} 항목이 삭제되었습니다`, 'success');
-                setProgress(100);
-
-                // 미리보기 갱신
-                document.getElementById('osm_preview').style.display = 'none';
-                previewByOSM();
-            } catch (error) {
-                log(`백업/삭제 중 오류: ${error.message}`, 'error');
-                setProgress(0);
-            }
-        }
-
-        // Opens a default OpenStreetMap view in a new tab (useful for quick reference)
-        function openOSMMap() {
-            const osmUrl = 'https://www.openstreetmap.org/#map=5/35.69/116.50';
-            window.open(osmUrl, '_blank', 'noopener');
-            log(`🔗 OpenStreetMap 열기: ${osmUrl}`, 'info');
-        }
-
         async function intersectPreview() {
             // Read bbox from hidden osm_bbox_hidden that's set when geojson is loaded
             const bboxInput = document.getElementById('osm_bbox_hidden');
@@ -1137,7 +976,7 @@
 
                 const result = await response.json();
                 const list = result.territories || [];
-                const container = document.getElementById('osm_preview_list');
+                const container = document.getElementById('intersect_results_list');
                 container.innerHTML = '';
 
                 if (list.length === 0) {
@@ -1149,7 +988,7 @@
                         div.style.padding = '8px 0';
                         div.innerHTML = `
                             <label style="display:flex; gap:10px; align-items:center;">
-                                <input type="checkbox" class="osm-preview-checkbox" data-id="${t._id}">
+                                <input type="checkbox" class="intersect-checkbox" data-id="${t._id}">
                                 <div style="flex:1;">
                                     <div><strong>${t.name}</strong> (${t.name_ko || '-'})</div>
                                     <div style="font-size:12px; color:#666;">타입: ${t.type || '-'} | 기간: ${t.start_year || '-'} ~ ${t.end_year || '-' } | osm_id: ${t.osm_id || '-'}</div>
@@ -1160,13 +999,69 @@
                     });
                 }
 
-                document.getElementById('osm_preview').style.display = 'block';
+                document.getElementById('intersect_results').style.display = 'block';
                 setProgress(100);
                 log(`✓ 교차 검색 완료: ${list.length}개 항목`, 'success');
             } catch (error) {
                 log(`교차 검색 실패: ${error.message}`, 'error');
                 setProgress(0);
             }
+        }
+
+        function selectAllIntersect(yes) {
+            document.querySelectorAll('.intersect-checkbox').forEach(cb => cb.checked = !!yes);
+        }
+
+        async function deleteSelectedFromIntersect() {
+            const checked = Array.from(document.querySelectorAll('.intersect-checkbox:checked'));
+            if (checked.length === 0) { log('삭제할 항목을 하나 이상 선택하세요', 'error'); return; }
+            const ids = checked.map(cb => cb.getAttribute('data-id'));
+            const confirmed = confirm(`선택된 ${ids.length}개의 영토를 삭제합니다. 계속 진행하시겠습니까? (복구 불가능)`);
+            if (!confirmed) return;
+            setProgress(10); log(`🗑️ 선택된 ${ids.length}개 삭제 중...`, 'info');
+            try {
+                const tokenInput = document.getElementById('jwt_token');
+                let token = tokenInput.dataset.fullToken || tokenInput.value;
+                if (!token || token.includes('...')) token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                if (!token) { log('JWT 토큰이 없습니다. 먼저 로그인하세요.', 'error'); setProgress(0); return; }
+                const promises = ids.map(id => fetch(`${API_BASE}/territories/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } }));
+                const results = await Promise.all(promises);
+                let deleted = 0; for (const r of results) if (r.ok) deleted++;
+                log(`✓ 삭제 완료: ${deleted}/${ids.length} 항목이 삭제되었습니다`, 'success');
+                setProgress(100);
+                // refresh
+                document.getElementById('intersect_results').style.display = 'none';
+            } catch (error) { log(`삭제 중 오류: ${error.message}`, 'error'); setProgress(0); }
+        }
+
+        async function backupThenDeleteSelectedIntersect() {
+            const checked = Array.from(document.querySelectorAll('.intersect-checkbox:checked'));
+            if (checked.length === 0) { log('백업 및 삭제할 항목을 하나 이상 선택하세요', 'error'); return; }
+            const ids = checked.map(cb => cb.getAttribute('data-id'));
+            const confirmed = confirm(`선택된 ${ids.length}개의 영토를 백업한 뒤 삭제합니다. 계속 진행하시겠습니까?`);
+            if (!confirmed) return;
+            setProgress(10); log(`💾 선택된 ${ids.length}개 백업 중...`, 'info');
+            try {
+                const tokenInput = document.getElementById('jwt_token');
+                let token = tokenInput.dataset.fullToken || tokenInput.value;
+                if (!token || token.includes('...')) token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                if (!token) { log('JWT 토큰이 없습니다. 먼저 로그인하세요.', 'error'); setProgress(0); return; }
+                const fetches = ids.map(id => fetch(`${API_BASE}/territories/${encodeURIComponent(id)}`, { method: 'GET', headers: { 'Authorization': `Bearer ${token}` } }).then(r => { if (!r.ok) throw new Error(`ID ${id} 조회 실패: ${r.status}`); return r.json(); }));
+                const docs = await Promise.all(fetches);
+                const osmIdVal = document.getElementById('osm_id').value.trim() || 'backup';
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const filename = `territory_backup_${osmIdVal}_${timestamp}.json`;
+                const blob = new Blob([JSON.stringify(docs, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+                log(`✓ 백업 다운로드 완료: ${filename}`, 'success'); setProgress(60);
+                const confirmedDelete = confirm(`백업이 완료되었습니다. 선택된 ${ids.length}개를 지금 삭제하시겠습니까? (복구 불가능)`);
+                if (!confirmedDelete) { setProgress(0); return; }
+                setProgress(70); log(`🗑️ 선택된 ${ids.length}개 삭제 중...`, 'info');
+                const promises = ids.map(id => fetch(`${API_BASE}/territories/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } }));
+                const results = await Promise.all(promises); let deleted = 0; for (const r of results) if (r.ok) deleted++;
+                log(`✓ 삭제 완료: ${deleted}/${ids.length} 항목이 삭제되었습니다`, 'success'); setProgress(100);
+                document.getElementById('intersect_results').style.display = 'none';
+            } catch (error) { log(`백업/삭제 중 오류: ${error.message}`, 'error'); setProgress(0); }
         }
     </script>
 </body>

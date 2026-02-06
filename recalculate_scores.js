@@ -2,6 +2,25 @@
 require('dotenv').config();
 const { MongoClient, ObjectId } = require('mongodb');
 
+// 헬퍼 함수: 점수에 따른 직급 결정 (새로운 품계 체계 적용)
+const getPosition = (score) => {
+    // 상급~하급 사관: 점수 기반 자동 진급제
+    if (score >= 2600) return '수찬관';        // 정3품
+    if (score >= 2100) return '직수찬관';      // 종3품
+    if (score >= 1700) return '사관수찬';      // 정4품
+    if (score >= 1400) return '시강학사';      // 종4품
+    if (score >= 1100) return '기거주';        // 정5품
+    if (score >= 850) return '기거사';         // 종5품
+    if (score >= 650) return '기거랑';         // 정6품
+    if (score >= 450) return '기거도위';       // 종6품
+    if (score >= 300) return '수찬';           // 정7품
+    if (score >= 200) return '직문한';         // 종7품
+    if (score >= 120) return '주서';           // 정8품
+    if (score >= 60) return '검열';            // 종8품
+    if (score >= 30) return '정자';            // 정9품
+    return '수분권지';                         // 종9품 (입문)
+};
+
 async function recalculateScores() {
 
     const mongoUri = process.env.MONGO_URI;
@@ -37,20 +56,25 @@ async function recalculateScores() {
             // 점수 계산
             const correctReviewScore = actualReviewedCount * 5;
             const correctApprovalScore = actualApprovedCount * 5;
+            const totalScore = correctReviewScore + correctApprovalScore;
 
-            // 점수 업데이트
+            // 직급 계산 (점수 기반)
+            const correctPosition = getPosition(totalScore);
+
+            // 점수 및 직급 업데이트
             await db.collection('users').updateOne(
                 { _id: user._id },
                 {
                     $set: {
                         reviewScore: correctReviewScore,
-                        approvalScore: correctApprovalScore
+                        approvalScore: correctApprovalScore,
+                        position: correctPosition
                     }
                 }
             );
 
-            if (user.reviewScore !== correctReviewScore || user.approvalScore !== correctApprovalScore) {
-                console.log(`✅ ${user.username}: 검토 ${user.reviewScore} → ${correctReviewScore}, 승인 ${user.approvalScore} → ${correctApprovalScore}`);
+            if (user.reviewScore !== correctReviewScore || user.approvalScore !== correctApprovalScore || user.position !== correctPosition) {
+                console.log(`✅ ${user.username}: 검토 ${user.reviewScore} → ${correctReviewScore}, 승인 ${user.approvalScore} → ${correctApprovalScore}, 직급 ${user.position || '없음'} → ${correctPosition}`);
                 updatedCount++;
             }
 
