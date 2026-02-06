@@ -709,51 +709,17 @@
                     });
                 }
                 
-                // 일반 사관 테이블 채우기
-                const regularTableBody = document.getElementById('rankingTableBody');
-                regularTableBody.innerHTML = '';
-                
-                if (regularOfficers.length === 0) {
-                    const row = document.createElement('tr');
-                    const cell = document.createElement('td');
-                    cell.colSpan = 9;
-                    cell.textContent = '일반 사관이 없습니다.';
-                    cell.style.textAlign = 'center';
-                    cell.style.color = '#95a5a6';
-                    row.appendChild(cell);
-                    regularTableBody.appendChild(row);
-                } else {
-                    console.log('Displaying regular officers:', regularOfficers.length);
-                    regularOfficers.forEach((user, index) => {
-                        console.log('Processing user:', index, user.username, user.score);
-                        const row = document.createElement('tr');
-                        const rankClass = index < 3 ? `rank-${index + 1}` : '';
-                        const currentUsername = localStorage.getItem('username');
-                        const isCurrentUser = currentUsername && user.username === currentUsername;
-                        const userClass = isCurrentUser ? 'current-user' : '';
-                        
-                        // 점수 계산
-                        const submittedScore = (user.totalCount || 0) * 3;
-                        const votesScore = (user.totalVotes || 0) * 1;
-                        const approvedScore = (user.approvedCount || 0) * 10;
-                        
-                        row.innerHTML = `
-                            <td class="${rankClass} ${userClass}">${index + 1}</td>
-                            <td class="${userClass}">${user.username}${isCurrentUser ? ' 👑' : ''}</td>
-                            <td class="${userClass}">${getDetailedPosition(user.score || 0)}</td>
-                            <td style="text-align: right;" class="${userClass}">${submittedScore}(${user.totalCount || 0})</td>
-                            <td style="text-align: right;" class="${userClass}">${votesScore}(${user.totalVotes || 0})</td>
-                            <td style="text-align: right;" class="${userClass}">${approvedScore}(${user.approvedCount || 0})</td>
-                            <td style="text-align: right;" class="${userClass}">${user.reviewScore || 0}(${user.reviewedCount || 0})</td>
-                            <td style="text-align: right;" class="${userClass}">${user.approvalScore || 0}(${user.approvedByCount || 0})</td>
-                            <td style="text-align: right;" class="${rankClass} ${userClass}"><strong>${user.score || 0}</strong></td>
-                        `;
-                        regularTableBody.appendChild(row);
-                    });
-                }
+                // 일반 사관 테이블 채우기 (renderRankings에서 처리)
                 
                 // 정렬을 위한 데이터 저장
                 rankingData = regularOfficers;
+                
+                // 초기 정렬 및 렌더링
+                sortRankings(currentSortColumn, currentSortDirection);
+                renderRankings();
+                
+                // 정렬 기능 설정
+                setupSorting();
                 
             } catch (error) {
                 console.error('Error fetching ranking data:', error);
@@ -854,7 +820,7 @@
                 const approvedScore = (user.approvedCount || 0) * 10;
                 
                 row.innerHTML = `
-                    <td class="${rankClass} ${userClass}">${user.rank || (index + 1)}</td>
+                    <td class="${rankClass} ${userClass}">${index + 1}</td>
                     <td class="${userClass}">${user.username}${isCurrentUser ? ' 👑' : ''}</td>
                     <td class="${userClass}">${getDetailedPosition(user.score || 0)}</td>
                     <td style="text-align: right;" class="${userClass}">${submittedScore}(${user.totalCount || 0})</td>
