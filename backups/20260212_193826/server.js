@@ -691,7 +691,7 @@ app.delete('/api/countries/:name', verifyAdmin, async (req, res) => {
 // ----------------------------------------------------
 
 // GET: 모든 왕 정보 반환 (변경 없음)
-app.get('/api/kings', verifyToken, async (req, res) => {
+app.get('/api/kings', async (req, res) => {
      try {
         const kings = await collections.kings.find({}).toArray();
         res.json(kings);
@@ -1735,6 +1735,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     return res.status(401).json({ message: "사용자 이름 또는 비밀번호가 잘못되었습니다." });
                 }
 
+                // 🚩 [수정] 비밀번호 필드가 없는 경우 방어 처리
+                if (!user.password) {
+                    return res.status(401).json({ message: "사용자 이름 또는 비밀번호가 잘못되었습니다." });
+                }
+
                 const isMatch = await bcrypt.compare(password, user.password);
                 if (!isMatch) {
                     return res.status(401).json({ message: "사용자 이름 또는 비밀번호가 잘못되었습니다." });
@@ -2484,79 +2489,133 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             try {
                 console.log('🏆 [랭킹 조회] 시작');
                 
-                const rankings = await collections.contributions.aggregate([
+                // 🚩 [수정] users 컬렉션 기반으로 랭킹 계산 (승인만 한 사용자도 포함)
+                const rankings = await collections.users.aggregate([
                     {
-                        $group: {
-                            _id: "$userId",
-                            username: { $first: "$username" },
-                            totalCount: { $sum: 1 }, // 핀 저장 (1점)
-                            approvedCount: {
-                                $sum: {
-                                    $cond: [{ $eq: ["$status", "approved"] }, 1, 0]
+                        $lookup: {
+                            from: "contributions",
+                            let: { userId: "$_id" },
+                            pipeline: [
+                                {
+                                    $match: {
+                                        $expr: { $eq: ["$userId", "$$userId"] }
+                                    }
+                                },
+                                {
+                                    $group: {
+                                        _id: null,
+                                        totalCount: { $sum: 1 },
+                                        approvedCount: {
+                                            $sum: {
+                                                $cond: [{ $eq: ["$status", "approved"] }, 1, 0]
+                                            }
+                                        },
+                                        totalVotes: { $sum: "$votes" }
+                                    }
                                 }
-                            }, // 승인됨 (5점)
-                            totalVotes: { $sum: "$votes" } // 추천 (1점)
+                            ],
+                            as: "contributionStats"
                         }
                     },
                     {
                         $lookup: {
-                            from: "users",
-                            localField: "_id",
-                            foreignField: "_id",
-                            as: "userInfo"
+                            from: "contributions",
+                            let: { userId: "$_id" },
+                            pipeline: [
+                                {
+                                    $match: {
+                                        $expr: { $eq: ["$reviewerId", "$$userId"] }
+                                    }
+                                },
+                                {
+                                    $count: "reviewedCount"
+                                }
+                            ],
+                            as: "reviewStats"
+                        }
+                    },
+                    {
+                        $lookup: {
+                            from: "contributions",
+                            let: { userId: "$_id" },
+                            pipeline: [
+                                {
+                                    $match: {
+                                        $expr: { $eq: ["$approverId", "$$userId"] }
+                                    }
+                                },
+                                {
+                                    $count: "approvedByCount"
+                                }
+                            ],
+                            as: "approvalStats"
                         }
                     },
                     {
                         $unwind: {
-                            path: "$userInfo",
+                            path: "$contributionStats",
+                            preserveNullAndEmptyArrays: true
+                        }
+                    },
+                    {
+                        $unwind: {
+                            path: "$reviewStats",
+                            preserveNullAndEmptyArrays: true
+                        }
+                    },
+                    {
+                        $unwind: {
+                            path: "$approvalStats",
                             preserveNullAndEmptyArrays: true
                         }
                     },
                     {
                         $project: {
                             username: 1,
-                            totalCount: 1,
-                            approvedCount: 1,
-                            totalVotes: 1,
+                            totalCount: { $ifNull: ["$contributionStats.totalCount", 0] },
+                            approvedCount: { $ifNull: ["$contributionStats.approvedCount", 0] },
+                            totalVotes: { $ifNull: ["$contributionStats.totalVotes", 0] },
+                            reviewedCount: { $ifNull: ["$reviewStats.reviewedCount", 0] },
+                            approvedByCount: { $ifNull: ["$approvalStats.approvedByCount", 0] },
+                            reviewScore: { $ifNull: ["$reviewScore", 0] },
+                            approvalScore: { $ifNull: ["$approvalScore", 0] },
                             position: {
                                 $switch: {
                                     branches: [
                                         // 고려 사관 통합 18단계 직급표 (정3품~종9품, 재상급은 순위별 후처리)
-                                        // 정3품~종4품 (상급 사관)
-                                        { case: { $gte: [{ $add: [{ $multiply: ["$totalCount", 3] }, { $multiply: ["$approvedCount", 10] }, "$totalVotes", { $ifNull: ["$userInfo.reviewScore", 0] }, { $ifNull: ["$userInfo.approvalScore", 0] }] }, 2600] }, then: "수찬관" },
-                                        { case: { $gte: [{ $add: [{ $multiply: ["$totalCount", 3] }, { $multiply: ["$approvedCount", 10] }, "$totalVotes", { $ifNull: ["$userInfo.reviewScore", 0] }, { $ifNull: ["$userInfo.approvalScore", 0] }] }, 2100] }, then: "직수찬관" },
-                                        { case: { $gte: [{ $add: [{ $multiply: ["$totalCount", 3] }, { $multiply: ["$approvedCount", 10] }, "$totalVotes", { $ifNull: ["$userInfo.reviewScore", 0] }, { $ifNull: ["$userInfo.approvalScore", 0] }] }, 1700] }, then: "사관수찬" },
-                                        { case: { $gte: [{ $add: [{ $multiply: ["$totalCount", 3] }, { $multiply: ["$approvedCount", 10] }, "$totalVotes", { $ifNull: ["$userInfo.reviewScore", 0] }, { $ifNull: ["$userInfo.approvalScore", 0] }] }, 1400] }, then: "시강학사" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 2600] }, then: "수찬관" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 2100] }, then: "직수찬관" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 1700] }, then: "사관수찬" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 1400] }, then: "시강학사" },
                                         // 정5품~종6품 (중급 사관)
-                                        { case: { $gte: [{ $add: [{ $multiply: ["$totalCount", 3] }, { $multiply: ["$approvedCount", 10] }, "$totalVotes", { $ifNull: ["$userInfo.reviewScore", 0] }, { $ifNull: ["$userInfo.approvalScore", 0] }] }, 1100] }, then: "기거주" },
-                                        { case: { $gte: [{ $add: [{ $multiply: ["$totalCount", 3] }, { $multiply: ["$approvedCount", 10] }, "$totalVotes", { $ifNull: ["$userInfo.reviewScore", 0] }, { $ifNull: ["$userInfo.approvalScore", 0] }] }, 850] }, then: "기거사" },
-                                        { case: { $gte: [{ $add: [{ $multiply: ["$totalCount", 3] }, { $multiply: ["$approvedCount", 10] }, "$totalVotes", { $ifNull: ["$userInfo.reviewScore", 0] }, { $ifNull: ["$userInfo.approvalScore", 0] }] }, 650] }, then: "기거랑" },
-                                        { case: { $gte: [{ $add: [{ $multiply: ["$totalCount", 3] }, { $multiply: ["$approvedCount", 10] }, "$totalVotes", { $ifNull: ["$userInfo.reviewScore", 0] }, { $ifNull: ["$userInfo.approvalScore", 0] }] }, 450] }, then: "기거도위" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 1100] }, then: "기거주" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 850] }, then: "기거사" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 650] }, then: "기거랑" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 450] }, then: "기거도위" },
                                         // 정7품~종9품 (하급 사관)
-                                        { case: { $gte: [{ $add: [{ $multiply: ["$totalCount", 3] }, { $multiply: ["$approvedCount", 10] }, "$totalVotes", { $ifNull: ["$userInfo.reviewScore", 0] }, { $ifNull: ["$userInfo.approvalScore", 0] }] }, 300] }, then: "수찬" },
-                                        { case: { $gte: [{ $add: [{ $multiply: ["$totalCount", 3] }, { $multiply: ["$approvedCount", 10] }, "$totalVotes", { $ifNull: ["$userInfo.reviewScore", 0] }, { $ifNull: ["$userInfo.approvalScore", 0] }] }, 200] }, then: "직문한" },
-                                        { case: { $gte: [{ $add: [{ $multiply: ["$totalCount", 3] }, { $multiply: ["$approvedCount", 10] }, "$totalVotes", { $ifNull: ["$userInfo.reviewScore", 0] }, { $ifNull: ["$userInfo.approvalScore", 0] }] }, 120] }, then: "주서" },
-                                        { case: { $gte: [{ $add: [{ $multiply: ["$totalCount", 3] }, { $multiply: ["$approvedCount", 10] }, "$totalVotes", { $ifNull: ["$userInfo.reviewScore", 0] }, { $ifNull: ["$userInfo.approvalScore", 0] }] }, 60] }, then: "검열" },
-                                        { case: { $gte: [{ $add: [{ $multiply: ["$totalCount", 3] }, { $multiply: ["$approvedCount", 10] }, "$totalVotes", { $ifNull: ["$userInfo.reviewScore", 0] }, { $ifNull: ["$userInfo.approvalScore", 0] }] }, 30] }, then: "정자" }
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 300] }, then: "수찬" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 200] }, then: "직문한" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 120] }, then: "주서" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 60] }, then: "검열" },
+                                        { case: { $gte: [{ $add: [{ $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] }, { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] }, { $ifNull: ["$contributionStats.totalVotes", 0] }, { $ifNull: ["$reviewScore", 0] }, { $ifNull: ["$approvalScore", 0] }] }, 30] }, then: "정자" }
                                     ],
                                     default: "수분권지"
                                 }
                             },
-                            reviewScore: { $ifNull: ["$userInfo.reviewScore", 0] },
-                            approvalScore: { $ifNull: ["$userInfo.approvalScore", 0] },
                             score: {
                                 $add: [
-                                    { $multiply: ["$totalCount", 3] }, // 사료 제출: 3점
-                                    { $multiply: ["$approvedCount", 10] }, // 승인: 10점
-                                    "$totalVotes", // 추천: 1점
-                                    { $ifNull: ["$userInfo.reviewScore", 0] }, // 검토 점수
-                                    { $ifNull: ["$userInfo.approvalScore", 0] } // 승인 점수
+                                    { $multiply: [{ $ifNull: ["$contributionStats.totalCount", 0] }, 3] },
+                                    { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] },
+                                    { $ifNull: ["$contributionStats.totalVotes", 0] },
+                                    { $ifNull: ["$reviewScore", 0] },
+                                    { $ifNull: ["$approvalScore", 0] }
                                 ]
                             }
                         }
                     },
-                    { $sort: { score: -1 } },
-                    { $limit: 100 }  // 더 많이 가져와서 순위 계산
+                    // { $match: { score: { $gt: 0 } } },  // 점수가 0인 사용자도 포함
+                    { $sort: { score: -1 } }
+                    // { $limit: 100 }  // 제한 제거 - 모든 사용자 표시
                 ]).toArray();
 
                 console.log(`🏆 [랭킹 조회] ${rankings.length}명 조회 완료`);
@@ -2586,10 +2645,71 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     user.rank = rank;  // 순위 추가
                 });
 
-                // 상위 20명만 반환
-                res.json(rankings.slice(0, 20));
+                // 모든 사용자 반환
+                res.json(rankings);
             } catch (error) {
                 res.status(500).json({ message: "랭킹 조회 실패", error: error.message });
+            }
+        });
+
+        // 🚩 [추가] 점수 재계산 API (관리자용)
+        app.post('/api/admin/recalculate-scores', verifyToken, async (req, res) => {
+            try {
+                // 관리자 권한 확인
+                const userId = req.user.userId;
+                const user = await collections.users.findOne({ _id: toObjectId(userId) });
+                if (!user || user.role !== 'admin') {
+                    return res.status(403).json({ message: "관리자 권한이 필요합니다." });
+                }
+
+                console.log('🔄 점수 재계산 시작...');
+
+                // 모든 사용자 조회
+                const allUsers = await collections.users.find({}).toArray();
+                let updatedCount = 0;
+
+                for (const user of allUsers) {
+                    // 실제 검토 횟수 계산 (승인된 기여물을 검토한 횟수)
+                    const actualReviewedCount = await collections.contributions.countDocuments({
+                        reviewerId: user._id,
+                        status: 'approved'
+                    });
+
+                    // 실제 승인 횟수 계산
+                    const actualApprovedCount = await collections.contributions.countDocuments({
+                        approverId: user._id,
+                        status: 'approved'
+                    });
+
+                    // 점수 계산
+                    const correctReviewScore = actualReviewedCount * 5;
+                    const correctApprovalScore = actualApprovedCount * 5;
+
+                    // 점수 업데이트
+                    await collections.users.updateOne(
+                        { _id: user._id },
+                        {
+                            $set: {
+                                reviewScore: correctReviewScore,
+                                approvalScore: correctApprovalScore
+                            }
+                        }
+                    );
+
+                    if (user.reviewScore !== correctReviewScore || user.approvalScore !== correctApprovalScore) {
+                        updatedCount++;
+                    }
+                }
+
+                console.log(`🎯 점수 재계산 완료: ${updatedCount}명의 점수 수정됨`);
+                res.json({
+                    message: `점수 재계산 완료: ${updatedCount}명의 점수 수정됨`,
+                    updatedUsers: updatedCount
+                });
+
+            } catch (error) {
+                console.error('점수 재계산 오류:', error);
+                res.status(500).json({ message: "점수 재계산 실패", error: error.message });
             }
         });
 
@@ -2876,7 +2996,42 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
             );
         }
 
-        res.json({ message: "기여가 최종 승인되었습니다. 성 마커로 변환됩니다." });
+        // 🚩 [핵심 추가] 승인된 기여를 Castle로 자동 변환
+        if (contribution.category !== 'historical_record' && contribution.lat && contribution.lng) {
+            try {
+                const newCastle = {
+                    name: contribution.name,
+                    lat: contribution.lat,
+                    lng: contribution.lng,
+                    description: contribution.description || '',
+                    built_year: contribution.year || null,
+                    country_id: contribution.countryId || null,
+                    is_label: contribution.category === 'place_label' || false,
+                    label_type: contribution.category === 'place_label' ? 'place' : null,
+                    created_by: contribution.username || 'unknown',
+                    created_from_contribution: contribution._id,
+                    created_at: new Date()
+                };
+
+                const insertResult = await collections.castles.insertOne(newCastle);
+                console.log(`✅ [Castle 생성] 승인된 기여 "${contribution.name}"를 Castle로 변환 완료 (ID: ${insertResult.insertedId})`);
+                
+                // 기여자에게도 추가 보상 (승인 완료 시)
+                if (contribution.userId) {
+                    await collections.users.updateOne(
+                        { _id: contribution.userId },
+                        { $inc: { approvedCount: 1 } }  // 승인된 기여 카운트 증가
+                    );
+                }
+            } catch (castleError) {
+                console.error('❌ [Castle 생성 실패]', castleError);
+                // Castle 생성 실패해도 승인은 완료된 상태 유지
+            }
+        } else {
+            console.log(`ℹ️ [Castle 변환 스킵] 사관 기록이거나 좌표 없음: category=${contribution.category}, lat=${contribution.lat}, lng=${contribution.lng}`);
+        }
+
+        res.json({ message: "기여가 최종 승인되었습니다. 성 마커로 변환되었습니다." });
     } catch (error) {
         res.status(500).json({ message: "승인 실패", error: error.message });
     }

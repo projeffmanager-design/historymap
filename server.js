@@ -2024,10 +2024,36 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             try {
                 const users = await collections.users.find({}, { projection: { password: 0 } }).toArray(); // 비밀번호 제외
                 
-                // 🚩 [추가] 각 사용자의 로그인 횟수 집계
+                // 🚩 [추가] 각 사용자의 로그인 횟수 및 점수 집계
                 const usersWithStats = await Promise.all(users.map(async (user) => {
                     const loginCount = await collections.loginLogs.countDocuments({ userId: user._id });
-                    return { ...user, loginCount };
+                    
+                    // 기여도 통계 계산
+                    const contributionStats = await collections.contributions.aggregate([
+                        { $match: { userId: user._id } },
+                        {
+                            $group: {
+                                _id: null,
+                                totalCount: { $sum: 1 },
+                                approvedCount: { $sum: { $cond: [{ $eq: ["$status", "approved"] }, 1, 0] } },
+                                totalVotes: { $sum: "$votes" }
+                            }
+                        }
+                    ]).toArray();
+                    
+                    const stats = contributionStats[0] || { totalCount: 0, approvedCount: 0, totalVotes: 0 };
+                    
+                    // 점수 계산: 제출 개수 × 3 + 승인 개수 × 10 + 투표 수 + 검토 점수 + 승인 점수
+                    const score = (stats.totalCount * 3) + (stats.approvedCount * 10) + stats.totalVotes + (user.reviewScore || 0) + (user.approvalScore || 0);
+                    
+                    return { 
+                        ...user, 
+                        loginCount,
+                        score,
+                        totalCount: stats.totalCount,
+                        approvedCount: stats.approvedCount,
+                        totalVotes: stats.totalVotes
+                    };
                 }));
 
                 res.json(usersWithStats);

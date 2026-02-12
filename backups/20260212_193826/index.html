@@ -1,3 +1,19 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>고려만리지도 (高麗萬里地圖)</title>
+    <link rel="icon" type="image/jpg" href="https://github.com/projeffmanager-design/historymap/blob/main/2I63ySQI9qG-97MMKptL_n5FJhNOWE2DLt-ZKOcLL5TKeV4xxTfCN06j0lhGg5YMDH0ade2X99P-pzcKInnlOg.png?raw=true">
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap" rel="stylesheet">
+    
 <style>
     /* 🚩 그리기 폼 위치 강제 설정 - 우측 하단 (최우선 순위) */
     div#drawingForm[style],
@@ -32,21 +48,39 @@
     .leaflet-popup-pane {
         z-index: 10000 !important;
     }
+    
+    /* 🎯 콤팩트 팝업 스타일 (자연 지형지물용) */
+    .compact-popup .leaflet-popup-content-wrapper {
+        padding: 4px 8px !important;
+        margin: 0 !important;
+    }
+    .compact-popup .leaflet-popup-content {
+        margin: 0 !important;
+        padding: 0 !important;
+        line-height: 1.2 !important;
+    }
+    .compact-popup .leaflet-popup-tip-container {
+        margin-top: -1px !important;
+    }
+
 </style>
 <script>
-// 🚀 [캐시 버스팅] 버전 체크 및 강제 새로고침
+// 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
-    const CURRENT_VERSION = '2.0.6';  // 초기 로딩 화면에 랜덤 메시지 + 기존 패널 제거
-    const storedVersion = localStorage.getItem('app_version');
+    const CONFIG = {
+        APP_VERSION: '2.2.2',           // UI/로직 수정 시마다 변경 (왕 패널 활성화)
+        DATA_SCHEMA_VERSION: '2.0.0'    // 데이터 구조 변경 시에만 변경
+    };
     
-    if (storedVersion !== CURRENT_VERSION) {
-        console.log(`🔄 버전 업데이트: ${storedVersion || '없음'} → ${CURRENT_VERSION}`);
+    const storedAppVersion = localStorage.getItem('app_version');
+    const storedSchemaVersion = localStorage.getItem('data_schema_version');
+    
+    // 1️⃣ 데이터 구조가 변경된 경우에만 IndexedDB 삭제
+    if (storedSchemaVersion !== CONFIG.DATA_SCHEMA_VERSION) {
+        console.log(`�️ 데이터 구조 변경 감지: ${storedSchemaVersion || '없음'} → ${CONFIG.DATA_SCHEMA_VERSION}`);
+        console.log('📦 IndexedDB 초기화 중... (영토/성 데이터 재다운로드 필요)');
         
-        // 모든 localStorage 클리어
-        localStorage.clear();
-        localStorage.setItem('app_version', CURRENT_VERSION);
-        
-        // IndexedDB 클리어
+        // IndexedDB만 선택적 삭제
         if (window.indexedDB) {
             indexedDB.databases().then(dbs => {
                 dbs.forEach(db => {
@@ -56,7 +90,16 @@
             }).catch(e => console.warn('IndexedDB 클리어 실패:', e));
         }
         
-        // Service Worker 캐시 클리어
+        localStorage.setItem('data_schema_version', CONFIG.DATA_SCHEMA_VERSION);
+    } else {
+        console.log(`♻️ 기존 캐시 데이터 사용 가능 (스키마 버전: ${CONFIG.DATA_SCHEMA_VERSION})`);
+    }
+    
+    // 2️⃣ 앱 버전이 변경된 경우 (UI/로직 수정)
+    if (storedAppVersion !== CONFIG.APP_VERSION) {
+        console.log(`🔄 앱 버전 업데이트: ${storedAppVersion || '없음'} → ${CONFIG.APP_VERSION}`);
+        
+        // Service Worker 캐시만 클리어 (HTML/CSS/JS 최신화)
         if ('caches' in window) {
             caches.keys().then(names => {
                 names.forEach(name => {
@@ -66,15 +109,17 @@
             });
         }
         
+        localStorage.setItem('app_version', CONFIG.APP_VERSION);
+        
         // 강제 리로드 (캐시 무시)
         if (!window.location.hash.includes('reloaded')) {
-            console.log('🔄 강제 리로드 실행...');
-            window.location.href = window.location.pathname + '?v=' + CURRENT_VERSION + '&t=' + Date.now() + '#reloaded';
+            console.log('🔄 강제 리로드 실행 (데이터는 보존)...');
+            window.location.href = window.location.pathname + '?v=' + CONFIG.APP_VERSION + '&t=' + Date.now() + '#reloaded';
             return;
         }
     }
     
-    console.log(`✅ 버전 확인 완료: ${CURRENT_VERSION}`);
+    console.log(`✅ 버전 확인 완료: 앱 ${CONFIG.APP_VERSION} / 데이터 ${CONFIG.DATA_SCHEMA_VERSION}`);
 })();
 
 // (removed duplicate/conflicting menu toggle logic)
@@ -2590,9 +2635,6 @@ function enableFormDrag(formId) {
     </style>
   </div>
 
-      }
-    </style>
-  </div>
   
   <!-- �🚩 [수정] 헤더를 최상단 바와 제목 컨테이너로 분리 -->
   <div id="top-bar-container">
@@ -2601,7 +2643,7 @@ function enableFormDrag(formId) {
           <a href="https://www.youtube.com/@%EC%9D%B4%EC%9A%A9%ED%9B%88%EB%B0%95%EC%82%AC%EC%9D%98%EC%B0%90%EC%82%BC%EA%B5%AD%EC%82%AC" target="_blank" rel="noopener noreferrer" title="찐삼국사"><img style="width: 26px; height: 26px; border-radius: 50%;" src="https://yt3.googleusercontent.com/adIg0ayz8Thp44XkOP7Wscn4cebPYCNhr2I_ZVuMEGPMdfXRZZTRI-qBiCh68BpHZa_ZmcH9YZ8=s160-c-k-c0x00ffffff-no-rj"></a>
           <a href="https://www.youtube.com/@Ourhistory2023" target="_blank" rel="noopener noreferrer" title="우리역사"><img style="width: 26px; height: 26px; border-radius: 50%;" src="https://yt3.googleusercontent.com/90aOk5qirQI3Ug5MZGEtOSonAKL3AYWZSeYXnYTtQpC8XDWdbYOEr4D5V5Dy-V_ADN6fdhwV=s160-c-k-c0x00ffffff-no-rj"></a>
         </div>
-    <h1 id="main-title" style="font-family: 'Noto Serif KR', serif; margin: 0; display: inline-block; color: #f5e9d2; text-shadow: 2px 2px 4px #000;">고려만리지도 <span class="hanja-title">(高麗萬里地圖)</span></h1>
+    <h1 id="main-title" style="font-family: 'Noto Serif KR', serif; margin: 0; display: inline-block; color: #f5e9d2; text-shadow: 2px 2px 4px #000;"><img src="https://github.com/projeffmanager-design/historymap/blob/main/2I63ySQI9qG-97MMKptL_n5FJhNOWE2DLt-ZKOcLL5TKeV4xxTfCN06j0lhGg5YMDH0ade2X99P-pzcKInnlOg.png?raw=true" width="25" height="25"> 고려만리지도 <span class="hanja-title">(高麗萬里地圖)</span></h1>
 
         <div id="top-right-auth">
 
@@ -3751,6 +3793,7 @@ function enableFormDrag(formId) {
     let naturalFeatures = []; // 🌊 [추가] 자연 지형지물 (강, 산맥 등) 데이터 저장소
     let contributions = []; // 🚩 [추가] 유저 기여 데이터
     let markers = [];
+    let allCastleMarkers = []; // 🚩 [추가] 모든 성 마커 저장소
     let currentOpenPopup = null; // 🚩 [추가] 현재 열린 팝업 추적
     let isInitializing = true; // 🚀 [최적화] 초기 로딩 플래그
 
@@ -3812,8 +3855,8 @@ function enableFormDrag(formId) {
     // 🚩 [추가] 레이어 가시성 상태
     let layerVisibility = {
         city: false,        // 🔄 [변경] 성/도시 초기 ON
-        placeLabel: false, // 🔄 [최적화] 지명 초기 OFF
-        countryLabel: false, // ✨ [최적화] 국가명 라벨 우선 표시
+        placeLabel: true,  // 🔄 [수정] 지명 초기 ON (초보산 등 지명 표시)
+        countryLabel: true, // ✨ [수정] 국가명 라벨 초기 ON
         ethnicLabel: false, // ✨ [신규] 민족 거주지
         military: false,   // 🔄 [최적화] 군대 초기 OFF
         battle: false,     // 🔄 [최적화] 전장 초기 OFF
@@ -3822,7 +3865,7 @@ function enableFormDrag(formId) {
         rivers: false,    // 🌊 [추가] 강 레이어 가시성
         event: false,      // 📖 [최적화] 이벤트 초기 OFF
         timeline: true,   // 🚩 [추가] 연대표 가시성
-        kingPanel: false,  // 🚩 [수정] 왕목록 패널 초기값 off
+        kingPanel: true,  // 🚩 [수정] 왕목록 패널 초기값 ON (왕 정보 표시)
         historyPanel: false, // 🚩 [수정] 역사기록 패널 초기값 on (되돌림)
         userContributions: false, // 🚩 [추가] 유저 기여 레이어
         // 🔄 [호환성] 기존 'label'은 placeLabel로 매핑
@@ -4360,6 +4403,7 @@ function getKingByYear(countryName, year, month) {
 
     /** 현재 연도와 월의 왕 정보를 패널에 업데이트합니다. */
     function updateKingLabel(year, month) {
+      console.log(`🔍 [왕 패널] updateKingLabel 호출: ${year}년 ${month}월, kings 개수: ${Object.keys(kings).length}`);
       let html = "";
       countries.forEach(country => { // 🚩 [수정] 불필요한 괄호 제거
         const king = getKingByYear(country.name, year, month); // <-- THIS LINE WAS MISSING OR MISPLACED
@@ -4390,11 +4434,15 @@ function getKingByYear(countryName, year, month) {
         }
     });
     const kingContent = html || "해당 연도 왕 정보 없음";
+    console.log(`🔍 [왕 패널] kingContent 길이: ${kingContent.length}, 내용 미리보기: ${kingContent.substring(0, 100)}`);
     // document.getElementById('kingList').innerHTML = kingContent; // 오른쪽 패널 제거로 비활성화
     // 🚩 [수정] 지도 내 왕 목록 패널만 업데이트
     const mapKingList = document.getElementById('map-king-list');
     if (mapKingList) {
         mapKingList.innerHTML = kingContent;
+        console.log(`✅ [왕 패널] map-king-list 업데이트 완료`);
+    } else {
+        console.warn('⚠️ [왕 패널] map-king-list 요소를 찾을 수 없습니다');
     }
 }
     
@@ -4617,7 +4665,18 @@ function getKingByYear(countryName, year, month) {
 
     // 🚩 [추가] 특정 영토 폴리곤의 지배 국가 계산 (최적화됨)
     function calculateDominantCountry(territory, year, month) {
-        // 🚩 [수정] territory.geojson 또는 territory.type/coordinates 지원
+        // � [v2.1.1] 영토 데이터에 country_id가 직접 있으면 우선 사용 (castles 없어도 렌더링 가능)
+        if (territory.properties && territory.properties.country_id) {
+            const countryId = territory.properties.country_id;
+            // 국가가 실제로 존재하는지 확인
+            const countryInfo = getCountryInfoById(countryId);
+            if (countryInfo) {
+                return countryId;
+            }
+        }
+        
+        // 🚩 [기존 로직] castles 기반 지배 국가 계산
+        // castles가 비어있으면 이 로직도 null 반환
         let geometry;
         if (territory.geojson && territory.geojson.geometry) {
             geometry = territory.geojson.geometry;
@@ -4887,7 +4946,105 @@ function getKingByYear(countryName, year, month) {
         console.log(`  ✅ 새 라벨 추가 완료`);
     }
 
-    // 🎨 [추가] 새로운 라벨 추가 (라벨 생성 시)
+    // � [v2.0.6] 자연 지형지물 개별 업데이트
+    function updateSingleNaturalFeature(oldCastle, newCastle, year, month) {
+        if (!map || !map._loaded) return;
+        
+        console.log(`🌳 자연 지형지물 업데이트: ${oldCastle.name} → ${newCastle.name}`);
+        
+        // 기존 마커 제거
+        let removedCount = 0;
+        for (let i = allCastleMarkers.length - 1; i >= 0; i--) {
+            const marker = allCastleMarkers[i];
+            const castleData = marker._castleData;
+            if (castleData && (castleData._id === oldCastle._id || castleData.name === oldCastle.name)) {
+                if (map.hasLayer(marker)) {
+                    map.removeLayer(marker);
+                }
+                allCastleMarkers.splice(i, 1);
+                removedCount++;
+            }
+        }
+        console.log(`  📖 기존 마커 ${removedCount}개 제거`);
+        
+        // 시간 범위 체크
+        const startYear = newCastle.start_year || newCastle.built_year || -Infinity;
+        const endYear = newCastle.end_year || newCastle.destroyed_year || Infinity;
+        const isWithinDuration = startYear <= year && endYear >= year;
+        
+        if (!isWithinDuration || !layerVisibility.natural) {
+            console.log(`  ⏭️ 현재 시간대(${year}) 또는 레이어 비활성화로 표시 안 함`);
+            return;
+        }
+        
+        // 새 마커 생성
+        let marker;
+        const castleName = newCastle.name;
+        
+        if (newCastle.custom_icon) {
+            const iconWidth = newCastle.icon_width || 32;
+            const iconHeight = newCastle.icon_height || 32;
+            const customIconHtml = `<img src="${newCastle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+            const featureIcon = L.divIcon({
+                className: 'custom-icon-marker',
+                html: customIconHtml,
+                iconSize: [iconWidth, iconHeight],
+                iconAnchor: [iconWidth / 2, iconHeight],
+                popupAnchor: [0, -iconHeight]
+            });
+            marker = L.marker([newCastle.lat, newCastle.lng], { icon: featureIcon });
+        } else {
+            const featureType = newCastle.natural_feature_type || 'other';
+            let iconInfo = getNaturalFeatureIcon(featureType);
+            if (!iconInfo) {
+                iconInfo = getNaturalFeatureIcon('other');
+            }
+            const iconClass = iconInfo?.className || 'feature-other';
+            const iconSymbol = iconInfo?.symbol || '❖';
+            
+            const featureIcon = L.divIcon({
+                className: `natural-feature-marker ${iconClass}`,
+                html: `<div>${iconSymbol}</div><div class="feature-name">${castleName}</div>`,
+                iconSize: [60, 40],
+                iconAnchor: [30, 40],
+                popupAnchor: [6, -30]
+            });
+            marker = L.marker([newCastle.lat, newCastle.lng], { icon: featureIcon });
+        }
+        
+        // 팝업 추가
+        const editorInfoHtml = newCastle.lastModifiedBy 
+            ? `<br><small>마지막 수정: ${newCastle.lastModifiedBy}</small>` 
+            : (newCastle.createdBy ? `<br><small>생성자: ${newCastle.createdBy}</small>` : '');
+        
+        const popupHtml = `<div style="padding:0;margin:0;line-height:1.4;"><b style="font-size:14px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;">${newCastle.desc}</span>` : ''}${newCastle.photo ? `<br><img src="${newCastle.photo}" style="max-width:150px;max-height:100px;object-fit:cover;margin-top:4px;">` : ''}${editorInfoHtml}</div>`;
+        
+        marker.bindPopup(popupHtml, {
+            className: 'compact-popup',
+            maxWidth: 200,
+            minWidth: 100
+        });
+        
+        marker.on('click', function () {
+            if (this && typeof this.openPopup === 'function') this.openPopup();
+        });
+        
+        // 마커 저장 및 추가
+        marker._castleData = newCastle;
+        allCastleMarkers.push(marker);
+        markers.push(marker); // 🎯 markers 배열에도 추가
+        
+        // 🎯 [핵심] castleLayerGroup에 추가 (자연 지형지물의 올바른 레이어)
+        if (castleLayerGroup) {
+            marker.addTo(castleLayerGroup);
+        } else {
+            marker.addTo(map);
+        }
+        
+        console.log(`  ✅ 새 자연 지형지물 마커 추가 완료 (레이어: ${castleLayerGroup ? 'castleLayerGroup' : 'map'})`);
+    }
+
+    // �🎨 [추가] 새로운 라벨 추가 (라벨 생성 시)
     function addSingleLabel(newCastle, year, month) {
         if (!map || !map._loaded) return;
         
@@ -5171,8 +5328,16 @@ function renderImmediateCountryLabels(year, month) {
 // 🔄 [무한 루프 방지] updateMap 디바운싱
 let updateMapTimer = null;
 let lastUpdateMapCall = { year: null, month: null, cacheOnly: null };
+let pendingUpdateMapRAF = null; // 🚀 [v2.0.9] requestAnimationFrame ID
 
 function updateMap(year, month, cacheOnly = false) {
+        // 🚀 [v2.0.9] requestAnimationFrame으로 렌더링 최적화 (초기 로딩 시에만)
+        if (!isInitializing && pendingUpdateMapRAF) {
+            // 이미 예약된 렌더링이 있으면 취소하고 새로 예약
+            cancelAnimationFrame(pendingUpdateMapRAF);
+            pendingUpdateMapRAF = null;
+        }
+        
         // 🛡️ [중복 호출 차단] 동일한 파라미터로 300ms 이내 재호출 시 무시
         const now = Date.now();
         if (lastUpdateMapCall.year === year && 
@@ -5195,9 +5360,17 @@ function updateMap(year, month, cacheOnly = false) {
         
         // 🎯 [핵심] 빈 데이터로 캐시 데이터 덮어쓰기 방지
         // castles가 0개인데 territories가 있다면, 이전에 렌더링된 캐시 보호
-        if (castles.length === 0 && territories.length > 0) {
-            console.log('⚠️ [밥상 보호] castles 없이 territories만 있음. 서버 데이터 대기 중... 기존 렌더링 유지');
-            return; // 🛡️ 밥상을 엎지 못하게 막음!
+        // 단, 초기 로딩 직후에는 territories만 있어도 렌더링 허용 (빈 지도 방지)
+        const isInitialLoad = (castles.length === 0 && territories.length > 0 && !isInitializing);
+        
+        if (isInitialLoad) {
+            // 🚀 [v2.0.9] 초기 로딩 직후: territories만 먼저 표시 (castles 백그라운드 대기 중)
+            console.log('🗺️ [초기 로딩] territories만 먼저 렌더링 (castles 백그라운드 로딩 중...)');
+            // 렌더링 계속 진행
+        } else if (castles.length === 0 && territories.length > 0 && isInitializing) {
+            // 초기화 중에 호출되면 스킵
+            console.log('⏭️ [초기화 중] updateMap 스킵 (isInitializing=true)');
+            return;
         }
         
         // 둘 다 비어있으면 렌더링 불가
@@ -5365,9 +5538,13 @@ function updateMap(year, month, cacheOnly = false) {
                         smoothFactor: 1
                     });
                     
-                    // 팝업 추가 (한국어/영어 이름)
-                    const popupContent = `<b>${feature.name}</b><br>${feature.name_en}`;
-                    riverLine.bindPopup(popupContent);
+                    // 팝업 추가 (콤팩트 버전)
+                    const popupContent = `<div style="padding:2px;margin:0;line-height:1.3;"><b style="font-size:13px;">${feature.name}</b><br><span style="font-size:11px;color:#666;">${feature.name_en}</span></div>`;
+                    riverLine.bindPopup(popupContent, {
+                        className: 'compact-popup',
+                        maxWidth: 200,
+                        minWidth: 100
+                    });
                     
                     territoryLayerGroup.addLayer(riverLine);
                     riverRenderedCount++;
@@ -5386,12 +5563,22 @@ function updateMap(year, month, cacheOnly = false) {
             
             contributionLayerGroup.clearLayers();
 
+            console.log(`🔍 [사관 마커] 전체 contributions: ${contributions.length}개`);
+            const pendingContribs = contributions.filter(c => c.status === 'pending' || c.status === 'reviewed');
+            console.log(`🔍 [사관 마커] pending/reviewed 상태: ${pendingContribs.length}개`);
+            pendingContribs.forEach(c => console.log(`  - ${c.name} (${c.status}) lat:${c.lat}, lng:${c.lng}, category:${c.category}`));
+
             contributions.forEach(contrib => {
                 // 🚩 [수정] '유저복원' 레이어에는 '대기 중(pending)'과 '1차 검토 완료(reviewed)' 기여만 표시 (최종 승인된 것은 정식 오브젝트가 됨)
                 if (contrib.status !== 'pending' && contrib.status !== 'reviewed') return;
 
                 // 🚩 [추가] 사관 기록의 경우 좌표가 없으므로 지도에 표시하지 않음
-                if (contrib.category === 'historical_record' || !contrib.lat || !contrib.lng) return;
+                if (contrib.category === 'historical_record' || !contrib.lat || !contrib.lng) {
+                    console.log(`🚫 [사관 마커 스킵] ${contrib.name} - category:${contrib.category}, lat:${contrib.lat}, lng:${contrib.lng}`);
+                    return;
+                }
+
+                console.log(`✅ [사관 마커 렌더링] ${contrib.name} at [${contrib.lat}, ${contrib.lng}]`);
 
                 // 자신의 기여인지 확인
                 const isMyContribution = currentUser && contrib.userId && (
@@ -5518,7 +5705,7 @@ function updateMap(year, month, cacheOnly = false) {
                 }
 
                 const popupContent = `<div style="min-width: 200px; line-height: 1.4; font-size: 13px; white-space: normal;">
-                        <h4 style="margin: 0 0 6px 0; color: #e67e22; border-bottom: 1px solid rgba(0,0,0,0.2); padding-bottom: 4px;">🚩 ${contrib.name}${currentUser && contrib.userId === currentUser.id ? ' 👤' : ''}</h4>
+                        <h4 style="margin: 0 0 6px 0; color: #000000; border-bottom: 1px solid rgba(0,0,0,0.2); padding-bottom: 4px;">📜 ${contrib.name}${currentUser && contrib.userId === currentUser.id ? ' 👤' : ''}</h4>
                         <p style="margin: 0 0 8px 0; font-size: 12px; white-space: pre-wrap; word-wrap: break-word; max-height: 150px; overflow-y: auto;">${contrib.description}</p>
                         <div style="font-size: 11px; color: #000000; display: flex; flex-direction: column; gap: 3px; border-top: 1px solid rgba(0,0,0,0.2); padding-top: 6px;">
                             <div style="display: flex; justify-content: space-between;"><span>복원자:</span> <b>${contrib.username}${currentUser && contrib.userId === currentUser.id ? ' (나)' : ''}</b></div>
@@ -5528,6 +5715,7 @@ function updateMap(year, month, cacheOnly = false) {
                             <div style="display: flex; justify-content: space-between;"><span>추천수:</span> <span id="vote-count-${contrib._id}">${contrib.votes || 0}</span></div>
                         </div>
                         <div style="margin-top: 8px; text-align: right; display: flex; justify-content: flex-end; gap: 5px;">
+                            ${isMyContribution && contrib.status !== 'approved' ? `<button onclick="deleteMyContribution('${contrib._id}')" class="button-style" style="padding: 2px 6px; font-size: 11px; background-color: #e74c3c; color: white;">🗑️ 삭제</button>` : ''}
                             ${currentUser && contrib.userId !== currentUser.id && !(contrib.votedBy && contrib.votedBy.includes(currentUser.username)) ? `<button onclick="voteContribution('${contrib._id}')" class="button-style" style="padding: 2px 6px; font-size: 11px;">👍 추천</button>` : ''}
                             ${adminControls}
                         </div>
@@ -5972,15 +6160,14 @@ function updateMap(year, month, cacheOnly = false) {
                     ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
                     : (castle.createdBy ? `<br><small>생성자: ${castle.createdBy}</small>` : '');
                 
-                // 🚩 [수정] 팝업 HTML에 사진 URL을 포함하도록 추가합니다.
-                popupHtml = `
-                    ${castleName}</b><br>
-                    ${castle.desc ?? ''}
-                    ${castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ""}
-                    ${editorInfoHtml}
-                `;
+                // 🚩 [v2.0.6] 콤팩트 팝업 - 공백 완전 제거 (한 줄로)
+                popupHtml = `<div style="padding:0;margin:0;line-height:1.4;"><b style="font-size:14px;">${castleName}</b>${castle.desc ? `<br><span style="font-size:12px;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px;max-height:100px;object-fit:cover;margin-top:4px;">` : ''}${editorInfoHtml}</div>`;
                                 
-                marker.bindPopup(popupHtml);
+                marker.bindPopup(popupHtml, {
+                    className: 'compact-popup',
+                    maxWidth: 200,
+                    minWidth: 100
+                });
                 // 🚩 [수정] 마우스 오버 팝업을 제거하고, 클릭 시에만 팝업이 나타나도록 수정
                 // Use a normal function so `this` is bound to the marker instance
                 marker.on('click', function (e) { 
@@ -6728,6 +6915,24 @@ function getCountryInfoById(id) {
     const CASTLES_STORE_NAME = 'castles';
     const CASTLES_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
 
+    // 🚀 [IndexedDB] Events 캐싱 시스템
+    const EVENTS_DB_NAME = 'EventsDB';
+    const EVENTS_DB_VERSION = 1;
+    const EVENTS_STORE_NAME = 'events';
+    const EVENTS_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
+
+    // 🚀 [IndexedDB] Drawings 캐싱 시스템
+    const DRAWINGS_DB_NAME = 'DrawingsDB';
+    const DRAWINGS_DB_VERSION = 1;
+    const DRAWINGS_STORE_NAME = 'drawings';
+    const DRAWINGS_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
+
+    // 🚀 [IndexedDB] Contributions 캐싱 시스템
+    const CONTRIBUTIONS_DB_NAME = 'ContributionsDB';
+    const CONTRIBUTIONS_DB_VERSION = 1;
+    const CONTRIBUTIONS_STORE_NAME = 'contributions';
+    const CONTRIBUTIONS_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
+
     // IndexedDB 초기화 (영토)
     function openTerritoryDB() {
         return new Promise((resolve, reject) => {
@@ -6761,6 +6966,63 @@ function getCountryInfoById(id) {
                     const objectStore = db.createObjectStore(CASTLES_STORE_NAME, { keyPath: 'id' });
                     objectStore.createIndex('timestamp', 'timestamp', { unique: false });
                     console.log('✅ IndexedDB Castles 저장소 생성 완료');
+                }
+            };
+        });
+    }
+
+    // IndexedDB 초기화 (Events)
+    function openEventsDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(EVENTS_DB_NAME, EVENTS_DB_VERSION);
+            
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result);
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(EVENTS_STORE_NAME)) {
+                    const objectStore = db.createObjectStore(EVENTS_STORE_NAME, { keyPath: 'id' });
+                    objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    console.log('✅ IndexedDB Events 저장소 생성 완료');
+                }
+            };
+        });
+    }
+
+    // IndexedDB 초기화 (Drawings)
+    function openDrawingsDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(DRAWINGS_DB_NAME, DRAWINGS_DB_VERSION);
+            
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result);
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(DRAWINGS_STORE_NAME)) {
+                    const objectStore = db.createObjectStore(DRAWINGS_STORE_NAME, { keyPath: 'id' });
+                    objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    console.log('✅ IndexedDB Drawings 저장소 생성 완료');
+                }
+            };
+        });
+    }
+
+    // IndexedDB 초기화 (Contributions)
+    function openContributionsDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(CONTRIBUTIONS_DB_NAME, CONTRIBUTIONS_DB_VERSION);
+            
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result);
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(CONTRIBUTIONS_STORE_NAME)) {
+                    const objectStore = db.createObjectStore(CONTRIBUTIONS_STORE_NAME, { keyPath: 'id' });
+                    objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    console.log('✅ IndexedDB Contributions 저장소 생성 완료');
                 }
             };
         });
@@ -6828,13 +7090,113 @@ function getCountryInfoById(id) {
         }
     }
 
-    // 🚀 [IndexedDB] Castles 데이터 로드
+    // 🚀 [IndexedDB] Castles 데이터 로드 (청크 병합)
     async function loadCastlesFromCache() {
         try {
             const db = await openCastlesDB();
             const transaction = db.transaction([CASTLES_STORE_NAME], 'readonly');
             const objectStore = transaction.objectStore(CASTLES_STORE_NAME);
-            const request = objectStore.get('all_castles');
+            
+            // 메인 청크 먼저 확인
+            const mainRequest = objectStore.get('all_castles');
+            
+            const mainCached = await new Promise((resolve, reject) => {
+                mainRequest.onsuccess = () => resolve(mainRequest.result);
+                mainRequest.onerror = () => reject(mainRequest.error);
+            });
+            
+            if (!mainCached) {
+                return null;
+            }
+            
+            // 캐시 유효성 확인 (24시간)
+            const age = Date.now() - mainCached.timestamp;
+            if (age > CASTLES_CACHE_DURATION) {
+                console.log('⚠️ Castles IndexedDB 캐시 만료 (24시간 초과)');
+                return null;
+            }
+            
+            // 🚀 [v2.0.9] 청크가 있으면 병합
+            let allData = [...mainCached.data];
+            
+            if (mainCached.totalChunks && mainCached.totalChunks > 1) {
+                console.log(`💾 [청크 로드] ${mainCached.totalChunks}개 청크 병합 중...`);
+                
+                for (let i = 1; i < mainCached.totalChunks; i++) {
+                    const chunkRequest = objectStore.get(`castles_chunk_${i}`);
+                    const chunkData = await new Promise((resolve, reject) => {
+                        chunkRequest.onsuccess = () => resolve(chunkRequest.result);
+                        chunkRequest.onerror = () => reject(chunkRequest.error);
+                    });
+                    
+                    if (chunkData && chunkData.data) {
+                        allData = allData.concat(chunkData.data);
+                    }
+                }
+            }
+            
+            console.log(`💾 IndexedDB에서 Castles 데이터 로드: ${allData.length}개 (${(age / 1000 / 60).toFixed(1)}분 전 저장)`);
+            return allData;
+        } catch (error) {
+            console.warn('⚠️ Castles IndexedDB 로드 실패:', error);
+            return null;
+        }
+    }
+
+    // 🚀 [IndexedDB] Castles 데이터 저장 (청크 단위 최적화)
+    async function saveCastlesCache(castlesData) {
+        try {
+            const db = await openCastlesDB();
+            
+            // 🚀 [v2.0.9] 청크 단위 저장 (1000개씩)으로 메인 스레드 부하 감소
+            const CHUNK_SIZE = 500;
+            const chunks = Math.ceil(castlesData.length / CHUNK_SIZE);
+            
+            console.log(`💾 [청크 저장] ${castlesData.length}개 데이터를 ${chunks}개 청크로 분할 저장...`);
+            
+            for (let i = 0; i < chunks; i++) {
+                const start = i * CHUNK_SIZE;
+                const end = Math.min((i + 1) * CHUNK_SIZE, castlesData.length);
+                const chunkData = castlesData.slice(start, end);
+                
+                const transaction = db.transaction([CASTLES_STORE_NAME], 'readwrite');
+                const objectStore = transaction.objectStore(CASTLES_STORE_NAME);
+                
+                const cacheData = {
+                    id: i === 0 ? 'all_castles' : `castles_chunk_${i}`,
+                    data: chunkData,
+                    timestamp: Date.now(),
+                    isChunk: i > 0,
+                    chunkIndex: i,
+                    totalChunks: chunks
+                };
+                
+                objectStore.put(cacheData);
+                
+                await new Promise((resolve, reject) => {
+                    transaction.oncomplete = () => resolve();
+                    transaction.onerror = () => reject(transaction.error);
+                });
+                
+                // 🚀 다음 청크 저장 전 브라우저에 제어권 반환 (UI 버벅임 방지)
+                if (i < chunks - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+            }
+            
+            console.log(`💾 IndexedDB에 Castles 데이터 저장 완료 (${chunks}개 청크)`);
+        } catch (error) {
+            console.warn('⚠️ Castles IndexedDB 저장 실패:', error);
+        }
+    }
+
+    // 🚀 [IndexedDB] Events 데이터 로드
+    async function loadEventsFromCache() {
+        try {
+            const db = await openEventsDB();
+            const transaction = db.transaction([EVENTS_STORE_NAME], 'readonly');
+            const objectStore = transaction.objectStore(EVENTS_STORE_NAME);
+            const request = objectStore.get('all_events');
             
             return new Promise((resolve, reject) => {
                 request.onsuccess = () => {
@@ -6844,35 +7206,34 @@ function getCountryInfoById(id) {
                         return;
                     }
                     
-                    // 캐시 유효성 확인 (24시간)
                     const age = Date.now() - cached.timestamp;
-                    if (age > CASTLES_CACHE_DURATION) {
-                        console.log('⚠️ Castles IndexedDB 캐시 만료 (24시간 초과)');
+                    if (age > EVENTS_CACHE_DURATION) {
+                        console.log('⏰ Events 캐시 만료됨 (24시간 초과)');
                         resolve(null);
                         return;
                     }
                     
-                    console.log(`💾 IndexedDB에서 Castles 데이터 로드: ${cached.data.length}개 (${(age / 1000 / 60).toFixed(1)}분 전 저장)`);
+                    console.log(`💾 IndexedDB에서 Events 데이터 로드: ${cached.data.length}개 (${(age / 1000 / 60).toFixed(1)}분 전 저장)`);
                     resolve(cached.data);
                 };
                 request.onerror = () => reject(request.error);
             });
         } catch (error) {
-            console.warn('⚠️ Castles IndexedDB 로드 실패:', error);
+            console.warn('⚠️ Events IndexedDB 로드 실패:', error);
             return null;
         }
     }
 
-    // 🚀 [IndexedDB] Castles 데이터 저장
-    async function saveCastlesCache(castlesData) {
+    // 🚀 [IndexedDB] Events 데이터 저장
+    async function saveEventsCache(eventsData) {
         try {
-            const db = await openCastlesDB();
-            const transaction = db.transaction([CASTLES_STORE_NAME], 'readwrite');
-            const objectStore = transaction.objectStore(CASTLES_STORE_NAME);
+            const db = await openEventsDB();
+            const transaction = db.transaction([EVENTS_STORE_NAME], 'readwrite');
+            const objectStore = transaction.objectStore(EVENTS_STORE_NAME);
             
             const cacheData = {
-                id: 'all_castles',
-                data: castlesData,
+                id: 'all_events',
+                data: eventsData,
                 timestamp: Date.now()
             };
             
@@ -6880,13 +7241,135 @@ function getCountryInfoById(id) {
             
             return new Promise((resolve, reject) => {
                 transaction.oncomplete = () => {
-                    console.log('💾 IndexedDB에 Castles 데이터 저장 완료');
+                    console.log(`💾 IndexedDB에 Events 데이터 저장 완료: ${eventsData.length}개`);
                     resolve();
                 };
                 transaction.onerror = () => reject(transaction.error);
             });
         } catch (error) {
-            console.warn('⚠️ Castles IndexedDB 저장 실패:', error);
+            console.warn('⚠️ Events IndexedDB 저장 실패:', error);
+        }
+    }
+
+    // 🚀 [IndexedDB] Drawings 데이터 로드
+    async function loadDrawingsFromCache() {
+        try {
+            const db = await openDrawingsDB();
+            const transaction = db.transaction([DRAWINGS_STORE_NAME], 'readonly');
+            const objectStore = transaction.objectStore(DRAWINGS_STORE_NAME);
+            const request = objectStore.get('all_drawings');
+            
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => {
+                    const cached = request.result;
+                    if (!cached) {
+                        resolve(null);
+                        return;
+                    }
+                    
+                    const age = Date.now() - cached.timestamp;
+                    if (age > DRAWINGS_CACHE_DURATION) {
+                        console.log('⏰ Drawings 캐시 만료됨 (24시간 초과)');
+                        resolve(null);
+                        return;
+                    }
+                    
+                    console.log(`💾 IndexedDB에서 Drawings 데이터 로드: ${cached.data.length}개 (${(age / 1000 / 60).toFixed(1)}분 전 저장)`);
+                    resolve(cached.data);
+                };
+                request.onerror = () => reject(request.error);
+            });
+        } catch (error) {
+            console.warn('⚠️ Drawings IndexedDB 로드 실패:', error);
+            return null;
+        }
+    }
+
+    // 🚀 [IndexedDB] Drawings 데이터 저장
+    async function saveDrawingsCache(drawingsData) {
+        try {
+            const db = await openDrawingsDB();
+            const transaction = db.transaction([DRAWINGS_STORE_NAME], 'readwrite');
+            const objectStore = transaction.objectStore(DRAWINGS_STORE_NAME);
+            
+            const cacheData = {
+                id: 'all_drawings',
+                data: drawingsData,
+                timestamp: Date.now()
+            };
+            
+            objectStore.put(cacheData);
+            
+            return new Promise((resolve, reject) => {
+                transaction.oncomplete = () => {
+                    console.log(`💾 IndexedDB에 Drawings 데이터 저장 완료: ${drawingsData.length}개`);
+                    resolve();
+                };
+                transaction.onerror = () => reject(transaction.error);
+            });
+        } catch (error) {
+            console.warn('⚠️ Drawings IndexedDB 저장 실패:', error);
+        }
+    }
+
+    // 🚀 [IndexedDB] Contributions 데이터 로드
+    async function loadContributionsFromCache() {
+        try {
+            const db = await openContributionsDB();
+            const transaction = db.transaction([CONTRIBUTIONS_STORE_NAME], 'readonly');
+            const objectStore = transaction.objectStore(CONTRIBUTIONS_STORE_NAME);
+            const request = objectStore.get('all_contributions');
+            
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => {
+                    const cached = request.result;
+                    if (!cached) {
+                        resolve(null);
+                        return;
+                    }
+                    
+                    const age = Date.now() - cached.timestamp;
+                    if (age > CONTRIBUTIONS_CACHE_DURATION) {
+                        console.log('⏰ Contributions 캐시 만료됨 (24시간 초과)');
+                        resolve(null);
+                        return;
+                    }
+                    
+                    console.log(`💾 IndexedDB에서 Contributions 데이터 로드: ${cached.data.length}개 (${(age / 1000 / 60).toFixed(1)}분 전 저장)`);
+                    resolve(cached.data);
+                };
+                request.onerror = () => reject(request.error);
+            });
+        } catch (error) {
+            console.warn('⚠️ Contributions IndexedDB 로드 실패:', error);
+            return null;
+        }
+    }
+
+    // 🚀 [IndexedDB] Contributions 데이터 저장
+    async function saveContributionsCache(contributionsData) {
+        try {
+            const db = await openContributionsDB();
+            const transaction = db.transaction([CONTRIBUTIONS_STORE_NAME], 'readwrite');
+            const objectStore = transaction.objectStore(CONTRIBUTIONS_STORE_NAME);
+            
+            const cacheData = {
+                id: 'all_contributions',
+                data: contributionsData,
+                timestamp: Date.now()
+            };
+            
+            objectStore.put(cacheData);
+            
+            return new Promise((resolve, reject) => {
+                transaction.oncomplete = () => {
+                    console.log(`💾 IndexedDB에 Contributions 데이터 저장 완료: ${contributionsData.length}개`);
+                    resolve();
+                };
+                transaction.onerror = () => reject(transaction.error);
+            });
+        } catch (error) {
+            console.warn('⚠️ Contributions IndexedDB 저장 실패:', error);
         }
     }
     
@@ -6917,7 +7400,10 @@ function getCountryInfoById(id) {
         '왕조의 흥망성쇠를 기록하는 중...',
         '전장의 자취를 더듬는 중...',
         '옛 도읍지를 찾는 중...',
-        '강역의 변천을 추적하는 중...'
+        '강역의 변천을 추적하는 중...',
+        '대륙의 영토를 복원하는 중...',
+        '한반도의 경계를 그리는 중...',
+        '역사의 지도가 펼쳐지고 있습니다...'
     ];
     
     function showLoadingStatus(message, percent) {
@@ -6959,11 +7445,17 @@ function getCountryInfoById(id) {
       const cachedCountries = localStorage.getItem('countries_cache');
       const territoriesPromise = loadTerritoriesFromCache();
       const castlesPromise = loadCastlesFromCache();
+      const eventsPromise = loadEventsFromCache();
+      const drawingsPromise = loadDrawingsFromCache();
+      const contributionsPromise = loadContributionsFromCache();
       
       // 병렬 대기
-      const [cachedTerritories, cachedCastles] = await Promise.all([
+      const [cachedTerritories, cachedCastles, cachedEvents, cachedDrawings, cachedContributions] = await Promise.all([
           territoriesPromise,
-          castlesPromise
+          castlesPromise,
+          eventsPromise,
+          drawingsPromise,
+          contributionsPromise
       ]);
       
       // 🎯 [핵심] 캐시가 없는 데이터만 초기화 (캐시 데이터 보호!)
@@ -6971,7 +7463,7 @@ function getCountryInfoById(id) {
           castles = [];
           console.log('📦 castles 초기화 (캐시 없음)');
       } else {
-          console.log('� castles 캐시 보존 (초기화 생략)');
+          console.log('💾 castles 캐시 보존 (초기화 생략)');
       }
       
       if (!cachedTerritories || cachedTerritories.length === 0) {
@@ -6979,6 +7471,30 @@ function getCountryInfoById(id) {
           console.log('📦 territories 초기화 (캐시 없음)');
       } else {
           console.log('💾 territories 캐시 보존 (초기화 생략)');
+      }
+      
+      if (!cachedEvents || cachedEvents.length === 0) {
+          events = [];
+          console.log('📦 events 초기화 (캐시 없음)');
+      } else {
+          events = cachedEvents;
+          console.log(`💾 events 캐시 사용: ${events.length}개 (초기화 생략)`);
+      }
+      
+      if (!cachedDrawings || cachedDrawings.length === 0) {
+          drawings = [];
+          console.log('📦 drawings 초기화 (캐시 없음)');
+      } else {
+          drawings = cachedDrawings;
+          console.log(`💾 drawings 캐시 사용: ${drawings.length}개 (초기화 생략)`);
+      }
+      
+      if (!cachedContributions || cachedContributions.length === 0) {
+          contributions = [];
+          console.log('📦 contributions 초기화 (캐시 없음)');
+      } else {
+          contributions = cachedContributions;
+          console.log(`💾 contributions 캐시 사용: ${contributions.length}개 (초기화 생략)`);
       }
       
       // 나머지는 항상 초기화
@@ -7086,7 +7602,7 @@ function getCountryInfoById(id) {
           // 🎯 [최적화] 레이어 설정에 따라 로딩할 데이터 결정
           // 🚀 [최적화] history, castles 제외 - 지도 렌더링 후 백그라운드 로드
           
-          // 🚀 [최적화 v2.0.5] countries 캐시가 있으면 네트워크 요청 스킵!
+          // 🚀 [최적화 v2.1.2] countries 캐시가 있으면 네트워크 요청 스킵!
           const countriesAlreadyLoaded = countries.length > 0;
           
           const loadPromises = {
@@ -7094,9 +7610,9 @@ function getCountryInfoById(id) {
               countries: countriesAlreadyLoaded 
                   ? Promise.resolve(countries).then(d => { console.log('⚡ [초고속] countries 캐시 사용 (네트워크 스킵)'); return d; })
                   : fetchData('countries'),
-              events: layerVisibility.event ? fetchData('events') : Promise.resolve([]),
-              // history: 제외 - 2,221개로 가장 무거움, 지도에 직접 영향 없음
-              // castles: 제외 - 1,168개, 11초 소요, 백그라운드 로드로 전환
+              // ❌ events: 제외 - 연대표 전용, 지도 렌더링에 불필요 (백그라운드 로드로 전환)
+              // ❌ history: 제외 - 2,221개로 가장 무거움, 지도에 직접 영향 없음
+              // ❌ castles: 제외 - 1,168개, 11초 소요, 백그라운드 로드로 전환
           };
           
           // 진행률 표시를 위한 개별 완료 추적
@@ -7148,7 +7664,32 @@ function getCountryInfoById(id) {
           // 결과 할당
           const dataMap = Object.fromEntries(results);
           countries = dataMap.countries || [];
-          events = dataMap.events || [];
+          
+          // 🚀 [백그라운드 로딩] events는 연대표 전용으로 비동기 로딩 (캐시 우선)
+          if (events.length === 0 && layerVisibility.event) {
+              console.log('📅 [백그라운드] events 데이터 로딩 시작 (캐시 없음)...');
+              fetchData('events').then(data => {
+                  events = data || [];
+                  console.log(`✅ [백그라운드] events ${events.length}개 네트워크에서 로드 완료`);
+                  
+                  // IndexedDB에 캐싱
+                  saveEventsCache(events).then(() => {
+                      console.log('💾 [백그라운드] events IndexedDB 캐싱 완료');
+                  });
+                  
+                  // 연대표 UI가 있다면 여기서 업데이트
+                  if (typeof updateTimeline === 'function') {
+                      updateTimeline();
+                  }
+              }).catch(err => {
+                  console.error('❌ [백그라운드] events 로드 실패:', err);
+                  events = [];
+              });
+          } else if (events.length > 0) {
+              console.log(`♻️ [백그라운드] events 캐시 사용: ${events.length}개 (네트워크 스킵)`);
+          } else {
+              console.log('⏭️ 연대표 레이어 비활성화 → events 로드 스킵');
+          }
           
           // 🎯 [핵심] castles와 history는 캐시가 없을 때만 초기화 (캐시 데이터 보호!)
           if (castles.length === 0) {
@@ -7168,32 +7709,40 @@ function getCountryInfoById(id) {
           
           showLoadingStatus('강역을 검증하고 있습니다...', 75);
           
-          // 🚀 [최적화] 영토 데이터는 백그라운드 로딩으로 전환
+          // 🚀 [v2.0.8] 영토 데이터를 필수 로딩으로 변경 (빈 지도 현상 방지)
           if (layerVisibility.territoryPolygon) {
-              // 캐시가 있으면 백그라운드 로딩 스킵
-              if (territories.length > 0) {
-                  console.log('✅ 영토 데이터 이미 로드됨 (캐시 사용):', territories.length, '개');
-              } else {
-                  console.log('🗺️ 영토 데이터 백그라운드 로딩 예약...');
-                  setTimeout(async () => {
-                      try {
-                          console.log('🌍 영토 데이터 백그라운드 로딩 시작...');
-                          await loadTerritoryTiles();
-                          console.log('✅ 영토 데이터 백그라운드 로딩 완료');
-                          
-                          // 🎯 [IndexedDB] 로드한 영토 데이터를 캐시에 저장
-                          if (territories.length > 0) {
-                              await saveTerritoriesCache(territories);
-                          }
-                          
-                          // 🎯 [핵심] 영토 로딩 완료 즉시 자동으로 지도 업데이트
-                          const { year, month } = getCurrentYearMonth();
-                          updateMap(year, month);
-                          console.log('🗺️ 영토 추가 렌더링 완료 (백그라운드)');
-                      } catch (error) {
-                          console.error('❌ 영토 백그라운드 로딩 실패:', error);
+              // 캐시가 없으면 필수 로딩
+              if (territories.length === 0) {
+                  console.log('🗺️ 영토 데이터 필수 로딩 시작... (빈 지도 방지)');
+                  const territoryStartTime = performance.now();
+                  try {
+                      showLoadingStatus('대륙의 강역을 복원하는 중입니다...', 77);
+                      await loadTerritoryTiles();
+                      const territoryLoadTime = ((performance.now() - territoryStartTime) / 1000).toFixed(2);
+                      console.log(`✅ 영토 데이터 로딩 완료: ${territories.length}개 (${territoryLoadTime}초)`);
+                      
+                      // 🎯 [IndexedDB] 로드한 영토 데이터를 캐시에 저장
+                      if (territories.length > 0) {
+                          await saveTerritoriesCache(territories);
+                          console.log('💾 영토 데이터 IndexedDB 캐시 저장 완료');
                       }
-                  }, 50); // 50ms로 단축 (빠른 렌더링)
+                      
+                      // 🚀 [v2.0.9] 영토 로딩 완료 → 초기화 플래그 해제 및 즉시 렌더링
+                      isInitializing = false;
+                      console.log('🔓 [초기화 완료] isInitializing = false (영토 로딩 완료)');
+                      
+                      const { year, month } = getCurrentYearMonth();
+                      updateMap(year, month);
+                      console.log('🗺️ [즉시 렌더링] 영토 데이터로 지도 렌더링 완료');
+                  } catch (error) {
+                      console.error('❌ 영토 데이터 로딩 실패:', error);
+                      isInitializing = false; // 오류 시에도 해제
+                  }
+              } else {
+                  console.log('✅ 영토 데이터 이미 로드됨 (캐시 사용):', territories.length, '개');
+                  // 캐시 사용 시에도 플래그 해제
+                  isInitializing = false;
+                  console.log('🔓 [초기화 완료] isInitializing = false (캐시 사용)');
               }
           } else {
               console.log('⏭️ 영토 레이어 비활성화 → 로드 스킵');
@@ -7213,21 +7762,14 @@ function getCountryInfoById(id) {
               additionalLoadPromises.kings = Promise.resolve([]);
           }
           
-          // 그리기 데이터 (항상 로드)
-          additionalLoadPromises.drawings = fetchData('drawings');
+          // ❌ drawings: 제거 - 사용자 그리기 데이터, 백그라운드 로드로 전환 (21초 병목 제거)
+          // ❌ contributions: 제거 - 사용자 기여 데이터, 백그라운드 로드로 전환 (4초 병목 제거)
           
           // 자연 지형지물 (natural 레이어가 켜져있을 때만)
           if (layerVisibility.natural || layerVisibility.rivers) {
               additionalLoadPromises.naturalFeatures = fetchData('natural-features');
           } else {
               additionalLoadPromises.naturalFeatures = Promise.resolve([]);
-          }
-          
-          // 유저 기여 (userContributions 레이어가 켜져있을 때만)
-          if (layerVisibility.userContributions) {
-              additionalLoadPromises.contributions = fetchData('contributions');
-          } else {
-              additionalLoadPromises.contributions = Promise.resolve([]);
           }
           
           // 🚀 병렬 실행
@@ -7259,19 +7801,67 @@ function getCountryInfoById(id) {
           // 왕 데이터 처리
           kings = {};
           if (layerVisibility.kingPanel && Array.isArray(additionalData.kings)) {
+              let totalKings = 0;
               additionalData.kings.forEach(item => {
                   if (item.country_id && Array.isArray(item.kings)) {
                       kings[item.country_id] = item.kings;
+                      totalKings += item.kings.length;
                   }
               });
-              console.log(`✅ 왕 데이터 로드 완료`);
+              console.log(`✅ 왕 데이터 로드 완료: ${Object.keys(kings).length}개 국가, 총 ${totalKings}명 왕`);
           } else {
               console.log('⏭️ 왕 패널 비활성화 → 로드 스킵');
           }
           
-          // 그리기 데이터
-          drawings = additionalData.drawings || [];
-          console.log(`✅ 그리기 데이터: ${drawings.length}개`);
+          // 🚀 [백그라운드 로딩] drawings는 사용자 그리기 전용으로 비동기 로딩 (캐시 우선)
+          if (drawings.length === 0) {
+              console.log('✏️ [백그라운드] drawings 데이터 로딩 시작 (캐시 없음)...');
+              fetchData('drawings').then(data => {
+                  drawings = data || [];
+                  console.log(`✅ [백그라운드] drawings ${drawings.length}개 네트워크에서 로드 완료`);
+                  
+                  // IndexedDB에 캐싱
+                  saveDrawingsCache(drawings).then(() => {
+                      console.log('💾 [백그라운드] drawings IndexedDB 캐싱 완료');
+                  });
+                  
+                  // 지도에 drawings 반영
+                  const { year, month } = getCurrentYearMonth();
+                  updateMap(year, month);
+                  console.log('🗺️ [백그라운드] drawings 데이터 지도 반영 완료');
+              }).catch(err => {
+                  console.error('❌ [백그라운드] drawings 로드 실패:', err);
+                  drawings = [];
+              });
+          } else {
+              console.log(`♻️ [백그라운드] drawings 캐시 사용: ${drawings.length}개 (네트워크 스킵)`);
+          }
+          
+          // 🚀 [백그라운드 로딩] contributions는 사용자 기여 전용으로 비동기 로딩 (항상 최신 데이터 로드)
+          if (layerVisibility.userContributions) {
+              console.log('👥 [백그라운드] contributions 데이터 로딩 시작 (캐시:', contributions.length, '개)...');
+              fetchData('contributions').then(data => {
+                  contributions = data || [];
+                  console.log(`✅ [백그라운드] contributions ${contributions.length}개 네트워크에서 로드 완료`);
+                  
+                  // IndexedDB에 캐싱
+                  saveContributionsCache(contributions).then(() => {
+                      console.log('💾 [백그라운드] contributions IndexedDB 캐싱 완료');
+                  });
+                  
+                  // 지도에 contributions 반영
+                  const { year, month } = getCurrentYearMonth();
+                  updateMap(year, month);
+                  console.log('🗺️ [백그라운드] contributions 데이터 지도 반영 완료');
+              }).catch(err => {
+                  console.error('❌ [백그라운드] contributions 로드 실패:', err);
+                  contributions = [];
+              });
+          } else if (contributions.length > 0) {
+              console.log(`♻️ [백그라운드] contributions 캐시 사용: ${contributions.length}개 (레이어 비활성화)`);
+          } else {
+              console.log('⏭️ 유저 기여 레이어 비활성화 → contributions 로드 스킵');
+          }
           
           // 자연 지형지물
           naturalFeatures = additionalData.naturalFeatures || [];
@@ -7281,25 +7871,17 @@ function getCountryInfoById(id) {
               console.log('⏭️ 자연 지형지물 레이어 비활성화 → 로드 스킵');
           }
           
-          // 유저 기여
-          contributions = additionalData.contributions || [];
-          if (layerVisibility.userContributions) {
-              console.log(`✅ 유저 기여: ${contributions.length}개`);
-          } else {
-              console.log('⏭️ 유저 기여 레이어 비활성화 → 로드 스킵');
-          }
-          
           console.log('✅ 추가 데이터 병렬 로딩 완료');
           
           // ===== 최종 지도 업데이트 (추가 데이터 반영) =====
           console.log('🗺️ 추가 데이터 지도 반영 시작...');
           console.log(`  📊 데이터 현황: countries ${countries.length}, castles ${castles.length}, territories ${territories.length}, history (지연 로딩 중), events ${events.length}`);
           
-          // 🚀 [최적화] 초기화 완료 플래그 해제
-          isInitializing = false;
+          // 🚀 [v2.0.9] 초기화 플래그는 영토 로딩 후 이미 해제됨 (중복 제거)
+          // isInitializing은 영토 로딩 완료 시점에 false로 변경됨
           
           // 🎯 [최적화] 추가 데이터(drawings, naturalFeatures 등) 반영
-          // 🎯 [핵심] castles/territories가 있을 때만 updateMap 호출 (빈 데이터 덮어쓰기 방지)
+          // 🎯 [핵심] territories가 있으면 updateMap 호출 (castles는 백그라운드 대기 중)
           if (castles.length > 0 || territories.length > 0) {
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
@@ -7444,11 +8026,28 @@ function getCountryInfoById(id) {
               console.log('⏭️ castles 로딩 스킵 (city, territoryPolygon 모두 비활성화)');
           }
           
-          // 🎯 로딩 완료 - 패널 숨김
-          showLoadingStatus('검증된 역사만이 지도에 남았습니다.', 100);
-          setTimeout(() => {
-              hideLoadingStatus();
-          }, 500); // 0.5초 후 패널 숨김
+          // 🎯 [v2.1.1] 로딩 완료 조건 개선: 최소 1개 영토 렌더링 확인 후 화면 표시
+          showLoadingStatus('역사의 전장이 준비되었습니다!', 100);
+          
+          // 🎯 영토 렌더링 확인 함수
+          const checkTerritoriesRendered = () => {
+              // territoryLayerGroup에 실제로 추가된 레이어 수 확인
+              const renderedCount = territoryLayerGroup ? territoryLayerGroup.getLayers().length : 0;
+              
+              if (renderedCount > 0) {
+                  console.log(`✅ 영토 렌더링 확인: ${renderedCount}개 폴리곤 표시됨`);
+                  setTimeout(() => {
+                      hideLoadingStatus();
+                  }, 500); // 0.5초 후 로딩 화면 제거
+              } else {
+                  console.log('⏳ 영토 렌더링 대기 중... (재시도)');
+                  // 0.5초 후 재확인 (최대 3초 대기)
+                  setTimeout(checkTerritoriesRendered, 500);
+              }
+          };
+          
+          // 1초 후 첫 확인 (렌더링 완료 대기)
+          setTimeout(checkTerritoriesRendered, 1000);
           
       } catch (error) {
           console.error('❌ 초기화 오류:', error);
@@ -7516,12 +8115,17 @@ function getCountryInfoById(id) {
               const timestamp = new Date().getTime();
               const origin = window.location.origin; // 절대 경로 생성
               
-              let tilesBasePath = '/tiles';
-              let indexUrl = `${origin}/tiles/index.json?v=${timestamp}`;
+              // 🚀 [v2.0.9] 환경 자동 감지 (404 에러 방지, 2.4초 단축)
+              const isLocal = origin.includes('localhost') || origin.includes('127.0.0.1');
+              const primaryPath = isLocal ? '/public/tiles' : '/tiles';
+              const fallbackPath = isLocal ? '/tiles' : '/public/tiles';
               
-              console.log('📡 시도 중인 절대 경로:', indexUrl);
+              let tilesBasePath = primaryPath;
+              let indexUrl = `${origin}${primaryPath}/index.json?v=${timestamp}`;
               
-              // 먼저 /tiles/ 시도 (Vercel 방식) + 캐시 무효화 헤더
+              console.log(`📡 [환경 감지] ${isLocal ? '로컬' : '배포'} 모드, 우선 경로: ${indexUrl}`);
+              
+              // 우선 경로 시도 + 캐시 무효화 헤더
               let indexResponse = await fetch(indexUrl, {
                   method: 'GET',
                   headers: {
@@ -7531,11 +8135,11 @@ function getCountryInfoById(id) {
                   }
               });
               
-              // 404면 /public/tiles/ 시도 (로컬 개발)
+              // 404면 폴백 경로 시도
               if (!indexResponse.ok) {
-                  console.log('🔄 /tiles/ 실패, /public/tiles/ 시도...');
-                  tilesBasePath = '/public/tiles';
-                  indexUrl = `${origin}/public/tiles/index.json?v=${timestamp}`;
+                  console.log(`🔄 ${primaryPath} 실패, ${fallbackPath} 시도...`);
+                  tilesBasePath = fallbackPath;
+                  indexUrl = `${origin}${fallbackPath}/index.json?v=${timestamp}`;
                   indexResponse = await fetch(indexUrl, {
                       method: 'GET',
                       headers: {
@@ -7754,7 +8358,22 @@ function getCountryInfoById(id) {
                           console.error('❌ 라벨 업데이트 실패, 전체 맵 갱신:', labelError);
                           updateMap(year, month);
                       }
-                  } else {
+                  } 
+                  // 🌳 [v2.0.7] 자연 지형지물인 경우 개별 업데이트 + 캐시 업데이트
+                  else if (updatedCastle.is_natural_feature) {
+                      console.log('🌳 자연 지형지물 개별 업데이트 시작...');
+                      try {
+                          updateSingleNaturalFeature(oldCastle, updatedCastle);
+                          // IndexedDB 캐시 업데이트
+                          await saveCastlesToCache();
+                          console.log('💾 자연 지형지물 캐시 업데이트 완료');
+                      } catch (error) {
+                          console.error('❌ 자연 지형지물 개별 업데이트 실패, 전체 맵 갱신:', error);
+                          const { year, month } = getCurrentYearMonth();
+                          updateMap(year, month);
+                      }
+                  }
+                  else {
                       // 일반 성/전장은 전체 맵 갱신
                       const { year, month } = getCurrentYearMonth();
                       updateMap(year, month);
@@ -13376,6 +13995,71 @@ kingSelect.addEventListener('change', () => {
             }
         };
 
+        // 🚩 [추가] 본인 사료 삭제 함수
+        window.deleteMyContribution = async (id) => {
+            if (!confirm('정말로 이 사료를 삭제하시겠습니까?\n이 작업은 취소할 수 없습니다.')) return;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/contributions/${id}/my`, {
+                    method: 'DELETE',
+                    headers: { 
+                        'Authorization': `Bearer ${token}` 
+                    }
+                });
+                
+                const data = await response.json();
+                if (response.ok) {
+                    alert(data.message);
+                    
+                    // 전역 contributions 배열에서 삭제
+                    const contributionIndex = contributions.findIndex(c => c._id === id);
+                    if (contributionIndex !== -1) {
+                        contributions.splice(contributionIndex, 1);
+                        console.log(`✅ [삭제 완료] Contribution 메모리에서 제거: ${id}`);
+                    }
+                    
+                    // 마커 즉시 제거
+                    if (map.getSource('userContributions')) {
+                        const geojsonData = {
+                            type: 'FeatureCollection',
+                            features: contributions
+                                .filter(c => ['pending', 'reviewed'].includes(c.status) && c.lat && c.lng && c.type !== 'historical_record')
+                                .map(c => {
+                                    const isMyContribution = c.created_by_username === currentUser?.username;
+                                    const isReviewed = c.status === 'reviewed';
+                                    let iconColor = isReviewed ? '#27ae60' : (isMyContribution ? '#3498db' : '#e67e22');
+                                    
+                                    return {
+                                        type: 'Feature',
+                                        geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
+                                        properties: {
+                                            id: c._id,
+                                            name: c.name,
+                                            type: c.type,
+                                            status: c.status,
+                                            created_by: c.created_by_username,
+                                            iconColor: iconColor,
+                                            isMyContribution: isMyContribution,
+                                            isReviewed: isReviewed
+                                        }
+                                    };
+                                })
+                        };
+                        map.getSource('userContributions').setData(geojsonData);
+                        console.log(`✅ [삭제 완료] 마커 제거됨`);
+                    }
+                    
+                    // 팝업 닫기
+                    map.closePopup();
+                } else {
+                    alert(data.message || '삭제 실패');
+                }
+            } catch (error) {
+                console.error('deleteMyContribution error:', error);
+                alert('오류 발생');
+            }
+        };
+
         // 🚩 [추가] 승인 함수
         // 🚩 [수정] 최종 승인 함수 (수국사 이상 가능 - 새 API 사용, 승인 후 마커 변환)
         window.approveContribution = async (id) => {
@@ -13511,13 +14195,111 @@ kingSelect.addEventListener('change', () => {
                 const data = await response.json();
                 if (response.ok) {
                     alert(data.message);
-                    // 모달 닫기 및 페이지 새로고침
+                    // 모달 닫기
                     document.getElementById('contributionDetailModal').style.display = 'none';
-                    location.reload();
+                    
+                    // 🟢 실시간 업데이트: 마커 색상 즉시 변경
+                    if (status === 'reviewed') {
+                        // 전역 contributions 배열에서 해당 contribution 찾아서 상태 업데이트
+                        const contribution = contributions.find(c => c._id === id);
+                        if (contribution) {
+                            contribution.status = 'reviewed';
+                            console.log(`✅ [실시간 업데이트] ${contribution.name}의 상태를 'reviewed'로 변경`);
+                        }
+                        
+                        // userContributions 레이어의 모든 마커 다시 렌더링
+                        if (map.getSource('userContributions')) {
+                            console.log('🔄 [실시간 업데이트] 사관 마커 다시 렌더링 중...');
+                            
+                            const geojsonData = {
+                                type: 'FeatureCollection',
+                                features: []
+                            };
+
+                            contributions.forEach(c => {
+                                // pending 또는 reviewed 상태만 표시
+                                if (!['pending', 'reviewed'].includes(c.status)) return;
+                                if (!c.lat || !c.lng) return;
+                                if (c.type === 'historical_record') return;
+
+                                const isMyContribution = c.created_by_username === currentUser?.username;
+                                const isReviewed = c.status === 'reviewed';
+
+                                let iconColor;
+                                if (isReviewed) {
+                                    iconColor = '#27ae60'; // 🟢 초록색: 1차 검토 완료
+                                } else if (isMyContribution) {
+                                    iconColor = '#3498db'; // 🔵 파란색: 내가 제출한 사료
+                                } else {
+                                    iconColor = '#e67e22'; // 🟠 주황색: 다른 사람의 사료
+                                }
+
+                                geojsonData.features.push({
+                                    type: 'Feature',
+                                    geometry: {
+                                        type: 'Point',
+                                        coordinates: [c.lng, c.lat]
+                                    },
+                                    properties: {
+                                        id: c._id,
+                                        name: c.name,
+                                        type: c.type,
+                                        status: c.status,
+                                        created_by: c.created_by_username,
+                                        iconColor: iconColor,
+                                        isMyContribution: isMyContribution,
+                                        isReviewed: isReviewed
+                                    }
+                                });
+                            });
+
+                            map.getSource('userContributions').setData(geojsonData);
+                            console.log(`✅ [실시간 업데이트] ${geojsonData.features.length}개 마커 렌더링 완료`);
+                        }
+                    } else if (status === 'approved') {
+                        // approved된 경우 마커 제거 (정식 Castle로 전환됨)
+                        const contributionIndex = contributions.findIndex(c => c._id === id);
+                        if (contributionIndex !== -1) {
+                            console.log(`✅ [실시간 업데이트] ${contributions[contributionIndex].name} 승인됨 - 마커 제거`);
+                            contributions.splice(contributionIndex, 1);
+                            
+                            // 마커 다시 렌더링 (approved된 것 제외)
+                            if (map.getSource('userContributions')) {
+                                const geojsonData = {
+                                    type: 'FeatureCollection',
+                                    features: contributions
+                                        .filter(c => ['pending', 'reviewed'].includes(c.status) && c.lat && c.lng && c.type !== 'historical_record')
+                                        .map(c => {
+                                            const isMyContribution = c.created_by_username === currentUser?.username;
+                                            const isReviewed = c.status === 'reviewed';
+                                            let iconColor = isReviewed ? '#27ae60' : (isMyContribution ? '#3498db' : '#e67e22');
+                                            
+                                            return {
+                                                type: 'Feature',
+                                                geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
+                                                properties: {
+                                                    id: c._id,
+                                                    name: c.name,
+                                                    type: c.type,
+                                                    status: c.status,
+                                                    created_by: c.created_by_username,
+                                                    iconColor: iconColor,
+                                                    isMyContribution: isMyContribution,
+                                                    isReviewed: isReviewed
+                                                }
+                                            };
+                                        })
+                                };
+                                map.getSource('userContributions').setData(geojsonData);
+                                console.log(`✅ [실시간 업데이트] 승인된 마커 제거 완료`);
+                            }
+                        }
+                    }
                 } else {
                     alert(data.message || '검토 실패');
                 }
             } catch (error) {
+                console.error('검토 처리 오류:', error);
                 alert('오류 발생');
             }
         };
@@ -13550,7 +14332,17 @@ kingSelect.addEventListener('change', () => {
 
         async function displayRanking() {
             try {
-                const response = await fetch('/api/rankings');
+                // 🚩 [추가] 캐시 우회를 위한 타임스탬프 파라미터
+                const timestamp = Date.now();
+                const response = await fetch(`/api/rankings?_t=${timestamp}`, {
+                    cache: 'no-cache',
+                    headers: {
+                        'Cache-Control': 'no-cache'
+                    }
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 const users = await response.json();
                 
                 // 🚩 [수정] 모달이 제거되었으므로 좌측 패널만 업데이트
@@ -13564,7 +14356,7 @@ kingSelect.addEventListener('change', () => {
                 const currentUser = parseJwt(token);
                 const currentUsername = currentUser?.username;
 
-                if (users.length === 0) {
+                if (!Array.isArray(users) || users.length === 0) {
                     rankingDisplay.innerHTML = '<div style="color: #95a5a6;">랭킹 정보가 없습니다.</div>';
                     return;
                 }
@@ -13919,16 +14711,16 @@ kingSelect.addEventListener('change', () => {
   <script>
   // 🚩 [추가] 사관 모집 팝업 관련 스크립트
   (function() {
-    const POPUP_STORAGE_KEY = 'welcomePopupHideUntil';
+    const POPUP_STORAGE_KEY = 'welcomePopupDontShowToday';
     
     // 팝업을 보여줄지 확인
     function shouldShowPopup() {
-      const hideUntil = localStorage.getItem(POPUP_STORAGE_KEY);
-      if (!hideUntil) return true;
+      const dontShowDate = localStorage.getItem(POPUP_STORAGE_KEY);
+      if (!dontShowDate) return true;
       
-      const hideUntilDate = new Date(hideUntil);
-      const now = new Date();
-      return now >= hideUntilDate;
+      // 오늘 날짜 (YYYY-MM-DD 형식)
+      const today = new Date().toISOString().split('T')[0];
+      return dontShowDate !== today;
     }
     
     // 팝업 표시
@@ -13946,10 +14738,9 @@ kingSelect.addEventListener('change', () => {
       const checkbox = document.getElementById('dontShowTodayCheckbox');
       
       if (checkbox && checkbox.checked) {
-        // 오늘 하루 보지 않기 - 자정까지 숨김
-        const tomorrow = new Date();
-        tomorrow.setHours(24, 0, 0, 0);
-        localStorage.setItem(POPUP_STORAGE_KEY, tomorrow.toISOString());
+        // 오늘 하루 보지 않기 - 오늘 날짜 저장
+        const today = new Date().toISOString().split('T')[0];
+        localStorage.setItem(POPUP_STORAGE_KEY, today);
       }
       
       if (popup) {
@@ -13994,6 +14785,66 @@ kingSelect.addEventListener('change', () => {
       if (fullRankBtn) {
         fullRankBtn.addEventListener('click', showFullRankInfo);
       }
+      
+      // 🟢 [추가] ranking.html에서 검토 완료 메시지 받아서 실시간 업데이트
+      window.addEventListener('message', async (event) => {
+        console.log('📨 [메시지 수신] event.data:', event.data);
+        
+        if (event.data.type === 'contributionReviewed') {
+          const { contributionId, newStatus } = event.data;
+          console.log(`📨 [메시지 수신] ${contributionId} → ${newStatus}`);
+          console.log('🗺️ [디버그] map 존재:', !!map);
+          console.log('🗺️ [디버그] userContributions 소스 존재:', map ? !!map.getSource('userContributions') : 'map 없음');
+          console.log('📊 [디버그] 현재 contributions 개수:', contributions.length);
+          
+          // 🔄 서버에서 최신 contributions 데이터 다시 불러오기
+          try {
+            console.log('🔄 [실시간 업데이트] 서버에서 최신 데이터 불러오는 중...');
+            const freshContributions = await fetchData('contributions');
+            console.log('📥 [실시간 업데이트] 받은 데이터:', freshContributions ? freshContributions.length : 'null');
+            
+            if (freshContributions && freshContributions.length > 0) {
+              contributions = freshContributions;
+              console.log(`✅ [실시간 업데이트] Contributions 데이터 갱신 완료: ${contributions.length}개`);
+              
+              // userContributions 레이어 다시 렌더링
+              if (map.getSource('userContributions')) {
+                const geojsonData = {
+                  type: 'FeatureCollection',
+                  features: contributions
+                    .filter(c => ['pending', 'reviewed'].includes(c.status) && c.lat && c.lng && c.type !== 'historical_record')
+                    .map(c => {
+                      const isMyContribution = c.created_by_username === currentUser?.username;
+                      const isReviewed = c.status === 'reviewed';
+                      let iconColor = isReviewed ? '#27ae60' : (isMyContribution ? '#3498db' : '#e67e22');
+                      
+                      return {
+                        type: 'Feature',
+                        geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
+                        properties: {
+                          id: c._id,
+                          name: c.name,
+                          type: c.type,
+                          status: c.status,
+                          created_by: c.created_by_username,
+                          iconColor: iconColor,
+                          isMyContribution: isMyContribution,
+                          isReviewed: isReviewed
+                        }
+                      };
+                    })
+                };
+                map.getSource('userContributions').setData(geojsonData);
+                console.log(`✅ [실시간 업데이트] 마커 ${geojsonData.features.length}개 렌더링 완료`);
+              } else {
+                console.warn('⚠️ [실시간 업데이트] userContributions 소스를 찾을 수 없습니다');
+              }
+            }
+          } catch (error) {
+            console.error('❌ [실시간 업데이트] Contributions 갱신 실패:', error);
+          }
+        }
+      });
     });
   })();
   </script>
