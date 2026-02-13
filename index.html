@@ -4067,6 +4067,7 @@ function enableFormDrag(formId) {
     let castleLayerGroup = L.layerGroup().addTo(map); 
     let territoryLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 영토 폴리곤 레이어 그룹
     let contributionLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 기여 레이어 그룹
+    let labelLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 라벨 레이어 그룹
     map.addLayer(drawnItems); // 🚩 [추가] 그린 도형을 담을 레이어 그룹 추가
     const combinedSlider = document.getElementById('combinedSlider'); // 🚩 [추가] 슬라이더 DOM 요소
     const eraLabel = document.getElementById('eraLabel'); // 🚩 [추가] B.C./A.D. 표시 라벨
@@ -5256,14 +5257,14 @@ function renderImmediateCountryLabels(year, month) {
         // 🚀 [v2.0.5] 초기 로딩 시 중요 라벨 강제 표시
         // importance가 3 이상인 라벨은 레이어 설정과 무관하게 표시
         const importance = label.importance || 0;
-        const forceShow = isInitial && (importance >= 3 || labelType === 'country');
+        const forceShow = false; // 초기 로딩 시에도 토글 버튼으로 제어
         
         if (labelType === 'country') {
-            shouldRender = shouldRenderCountry || forceShow;
+            shouldRender = shouldRenderCountry;
         } else if (labelType === 'ethnic') {
-            shouldRender = shouldRenderEthnic || forceShow;
+            shouldRender = shouldRenderEthnic;
         } else {
-            shouldRender = shouldRenderPlace || forceShow; // place, city, mountain, river 등
+            shouldRender = shouldRenderPlace; // place, city, mountain, river 등
         }
         
         if (!shouldRender) return;
@@ -5309,7 +5310,7 @@ function renderImmediateCountryLabels(year, month) {
             pane: 'labelPane'
         });
         
-        marker.addTo(map);
+        marker.addTo(labelLayerGroup);
         marker._castleData = label;
         marker._isImmediateLabel = true; // 즉시 렌더링된 라벨 표시
         marker._forceShown = forceShow; // 강제 표시 여부 기록
@@ -5330,7 +5331,7 @@ let updateMapTimer = null;
 let lastUpdateMapCall = { year: null, month: null, cacheOnly: null };
 let pendingUpdateMapRAF = null; // 🚀 [v2.0.9] requestAnimationFrame ID
 
-function updateMap(year, month, cacheOnly = false) {
+function updateMap(year, month, cacheOnly = false, force = false) {
         // 🚀 [v2.0.9] requestAnimationFrame으로 렌더링 최적화 (초기 로딩 시에만)
         if (!isInitializing && pendingUpdateMapRAF) {
             // 이미 예약된 렌더링이 있으면 취소하고 새로 예약
@@ -5338,9 +5339,9 @@ function updateMap(year, month, cacheOnly = false) {
             pendingUpdateMapRAF = null;
         }
         
-        // 🛡️ [중복 호출 차단] 동일한 파라미터로 300ms 이내 재호출 시 무시
+        // 🛡️ [중복 호출 차단] 동일한 파라미터로 300ms 이내 재호출 시 무시 (force가 true면 스킵)
         const now = Date.now();
-        if (lastUpdateMapCall.year === year && 
+        if (!force && lastUpdateMapCall.year === year && 
             lastUpdateMapCall.month === month && 
             lastUpdateMapCall.cacheOnly === cacheOnly &&
             lastUpdateMapCall.timestamp && 
@@ -5953,6 +5954,7 @@ function updateMap(year, month, cacheOnly = false) {
         let renderedCastleCount = 0;
         let marker;
         
+        labelLayerGroup.clearLayers(); // 🚩 [추가] 라벨 레이어 클리어
         castleLayerGroup.clearLayers();
         castles.forEach(castle => {
             const baseCountryId = castle.country_id || castle.countryId || (Array.isArray(castle.history) && castle.history.length > 0 ? castle.history[0]?.country_id : null);
@@ -6086,7 +6088,7 @@ function updateMap(year, month, cacheOnly = false) {
                 
                 marker._castleData = castle;
                 markers.push(marker);
-                marker.addTo(castleLayerGroup);
+                marker.addTo(labelLayerGroup); // 🚩 [수정] 라벨은 labelLayerGroup에 추가
                 return; // 라벨 처리 완료, 다음 castle로
             }
             
@@ -12959,6 +12961,9 @@ kingSelect.addEventListener('change', () => {
                         const { year, month } = getCurrentYearMonth();
                         updateMap(year, month);
                     }
+                    
+                    // 🚩 [수정] PC 토글 버튼 상태 동기화
+                    applyLayerSettingsToUI(layerVisibility);
                 });
             });
         }
@@ -13272,6 +13277,12 @@ kingSelect.addEventListener('change', () => {
                 } else {
                     const { year, month } = getCurrentYearMonth();
                     updateMap(year, month);
+                }
+                
+                // 🚩 [수정] 모바일 체크박스 상태 동기화
+                const mobileCheckbox = document.querySelector(`#mobile-layer-menu input[data-layer="${layerType}"]`);
+                if (mobileCheckbox) {
+                    mobileCheckbox.checked = layerVisibility[layerType];
                 }
             }
         });
@@ -14097,6 +14108,10 @@ kingSelect.addEventListener('change', () => {
                     if (confirm('승인이 완료되었습니다.\n지금 마커로 변환하시겠습니까?')) {
                         convertContribution(id);
                     }
+                    
+                    // 🚩 [추가] 승인 후 지도 즉시 업데이트 (새 마커 표시)
+                    const { year, month } = getCurrentYearMonth();
+                    updateMap(year, month, false, true); // force 모드로 호출
                 } else {
                     alert(data.message || '승인 실패');
                 }
