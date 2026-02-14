@@ -611,7 +611,7 @@
     </div>
 
     <script>
-        const API_BASE_URL = 'http://localhost:3000/api';
+        const API_BASE_URL = '/api'; // 로컬: localhost:3000/api, Vercel: historymap-psi.vercel.app/api
 
         // 탭 전환
         document.querySelectorAll('.tab-button').forEach(button => {
@@ -666,7 +666,23 @@
         async function loadRankings() {
             try {
                 console.log('Loading rankings...');
-                const response = await fetch(`${API_BASE_URL}/rankings`);
+                
+                // 모바일 환경에서의 타임아웃 설정 (10초)
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                
+                const response = await fetch(`${API_BASE_URL}/rankings`, {
+                    signal: controller.signal,
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+                    }
+                });
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
                 const allUsers = await response.json();
                 console.log('API response:', allUsers);
                 
@@ -724,10 +740,30 @@
                 
             } catch (error) {
                 console.error('Error fetching ranking data:', error);
+                
+                // 모바일 환경에서의 상세한 에러 정보
+                let errorMessage = '랭킹 데이터를 불러오는데 실패했습니다.';
+                if (error.name === 'AbortError') {
+                    errorMessage = '네트워크 요청이 시간 초과되었습니다. 인터넷 연결을 확인해주세요.';
+                } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+                    errorMessage = '네트워크 연결에 문제가 있습니다. 인터넷 연결을 확인해주세요.';
+                } else if (error.message.includes('401') || error.message.includes('403')) {
+                    errorMessage = '인증이 만료되었습니다. 다시 로그인해주세요.';
+                }
+                
                 const ministersTableBody = document.getElementById('ministersTableBody');
                 const regularTableBody = document.getElementById('rankingTableBody');
-                ministersTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #e74c3c;">재상급 사관 데이터를 불러오는데 실패했습니다.</td></tr>';
-                regularTableBody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: #e74c3c;">일반 사관 데이터를 불러오는데 실패했습니다.</td></tr>';
+                ministersTableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #e74c3c;">${errorMessage}</td></tr>`;
+                regularTableBody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: #e74c3c;">${errorMessage}</td></tr>`;
+                
+                // 모바일 디버깅을 위한 추가 정보 표시
+                if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+                    console.log('📱 모바일 환경에서 에러 발생:', {
+                        userAgent: navigator.userAgent,
+                        error: error.message,
+                        apiUrl: `${API_BASE_URL}/rankings`
+                    });
+                }
             }
         }
 
