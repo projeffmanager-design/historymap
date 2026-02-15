@@ -1735,6 +1735,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     return res.status(401).json({ message: "사용자 이름 또는 비밀번호가 잘못되었습니다." });
                 }
 
+                // 🚩 [수정] 비밀번호 필드가 없는 경우 방어 처리
+                if (!user.password) {
+                    return res.status(401).json({ message: "사용자 이름 또는 비밀번호가 잘못되었습니다." });
+                }
+
                 const isMatch = await bcrypt.compare(password, user.password);
                 if (!isMatch) {
                     return res.status(401).json({ message: "사용자 이름 또는 비밀번호가 잘못되었습니다." });
@@ -1751,6 +1756,23 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     timestamp: new Date()
                 });
 
+                // 🚩 [추가] 출석 포인트 처리 (하루에 1회 1점)
+                const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD 형식
+                let attendancePoints = 0;
+                
+                if (!user.lastAttendanceDate || user.lastAttendanceDate !== today) {
+                    // 출석하지 않은 경우 1점 지급
+                    attendancePoints = 1;
+                    await collections.users.updateOne(
+                        { _id: user._id },
+                        { 
+                            $set: { lastAttendanceDate: today },
+                            $inc: { attendancePoints: 1 } // 출석 포인트 누적
+                        }
+                    );
+                    console.log(`출석 포인트 지급: ${user.username} (+1점)`);
+                }
+
                 // 🚩 [추가] 마지막 로그인 시간 업데이트
                 await collections.users.updateOne(
                     { _id: user._id },
@@ -1760,9 +1782,12 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 // 🚩 [추가] 사용자 공적 점수 계산 및 직급 부여
                 let score = 0;
                 try {
-                    // 간단하게 contributions 개수만 계산
+                    // 기여도 점수 계산
                     const contributionCount = await collections.contributions.countDocuments({ userId: user._id });
                     score = contributionCount * 3; // 기본 점수: 제출 개수 × 3
+                    
+                    // 출석 포인트 추가 (누적)
+                    score += attendancePoints;
                 } catch (error) {
                     console.error('점수 계산 에러:', error);
                     score = 0;
@@ -2019,10 +2044,36 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             try {
                 const users = await collections.users.find({}, { projection: { password: 0 } }).toArray(); // 비밀번호 제외
                 
-                // 🚩 [추가] 각 사용자의 로그인 횟수 집계
+                // 🚩 [추가] 각 사용자의 로그인 횟수 및 점수 집계
                 const usersWithStats = await Promise.all(users.map(async (user) => {
                     const loginCount = await collections.loginLogs.countDocuments({ userId: user._id });
-                    return { ...user, loginCount };
+                    
+                    // 기여도 통계 계산
+                    const contributionStats = await collections.contributions.aggregate([
+                        { $match: { userId: user._id } },
+                        {
+                            $group: {
+                                _id: null,
+                                totalCount: { $sum: 1 },
+                                approvedCount: { $sum: { $cond: [{ $eq: ["$status", "approved"] }, 1, 0] } },
+                                totalVotes: { $sum: "$votes" }
+                            }
+                        }
+                    ]).toArray();
+                    
+                    const stats = contributionStats[0] || { totalCount: 0, approvedCount: 0, totalVotes: 0 };
+                    
+                    // 점수 계산: 제출 개수 × 3 + 승인 개수 × 10 + 투표 수 + 검토 점수 + 승인 점수 + 출석 포인트
+                    const score = (stats.totalCount * 3) + (stats.approvedCount * 10) + stats.totalVotes + (user.reviewScore || 0) + (user.approvalScore || 0) + (user.attendancePoints || 0);
+                    
+                    return { 
+                        ...user, 
+                        loginCount,
+                        score,
+                        totalCount: stats.totalCount,
+                        approvedCount: stats.approvedCount,
+                        totalVotes: stats.totalVotes
+                    };
                 }));
 
                 res.json(usersWithStats);
@@ -2574,6 +2625,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                             approvedByCount: { $ifNull: ["$approvalStats.approvedByCount", 0] },
                             reviewScore: { $ifNull: ["$reviewScore", 0] },
                             approvalScore: { $ifNull: ["$approvalScore", 0] },
+                            attendancePoints: { $ifNull: ["$attendancePoints", 0] },
                             position: {
                                 $switch: {
                                     branches: [
@@ -2603,14 +2655,15 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                                     { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, 10] },
                                     { $ifNull: ["$contributionStats.totalVotes", 0] },
                                     { $ifNull: ["$reviewScore", 0] },
-                                    { $ifNull: ["$approvalScore", 0] }
+                                    { $ifNull: ["$approvalScore", 0] },
+                                    { $ifNull: ["$attendancePoints", 0] }
                                 ]
                             }
                         }
                     },
-                    { $match: { score: { $gt: 0 } } },  // 점수가 0보다 큰 사용자만
-                    { $sort: { score: -1 } },
-                    { $limit: 100 }
+                    // { $match: { score: { $gt: 0 } } },  // 점수가 0인 사용자도 포함
+                    { $sort: { score: -1 } }
+                    // { $limit: 100 }  // 제한 제거 - 모든 사용자 표시
                 ]).toArray();
 
                 console.log(`🏆 [랭킹 조회] ${rankings.length}명 조회 완료`);
@@ -2640,8 +2693,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     user.rank = rank;  // 순위 추가
                 });
 
-                // 상위 20명만 반환
-                res.json(rankings.slice(0, 20));
+                // 모든 사용자 반환
+                res.json(rankings);
             } catch (error) {
                 res.status(500).json({ message: "랭킹 조회 실패", error: error.message });
             }

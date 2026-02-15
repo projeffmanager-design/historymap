@@ -390,7 +390,7 @@
                     <th class="sortable" data-sort-by="loginCount">로그인 횟수</th>
                     <th class="sortable" data-sort-by="role">역할</th>
                     <th class="sortable" data-sort-by="position">직급</th>
-                    <th class="sortable" data-sort-by="createdAt">가입일</th>
+                    <th class="sortable" data-sort-by="score">포인트</th>
                     <th>작업</th>
                 </tr>
             </thead>
@@ -604,6 +604,28 @@
             return `${date.getMonth() + 1}/${date.getDate()}`;
         };
 
+        // 🚩 [추가] 직급명을 구체적으로 표시하는 함수
+        function getDetailedPosition(score) {
+            if (score >= 2600) return '정1품 감수국사';
+            if (score >= 2100) return '종1품 수국사';
+            if (score >= 1700) return '정2품 판사관사';
+            if (score >= 1600) return '종2품 동수국사';
+            if (score >= 1400) return '정3품 수찬관';
+            if (score >= 1250) return '종3품 직수찬관';
+            if (score >= 1100) return '정4품 좌·우사간';
+            if (score >= 450) return '종4품 시강학사';
+            if (score >= 300) return '정5품 사천감';
+            if (score >= 200) return '종5품 기거주';
+            if (score >= 120) return '정6품 낭중';
+            if (score >= 60) return '종6품 직사관';
+            if (score >= 30) return '정7품 태학박사';
+            if (score >= 10) return '종7품 사천승';
+            if (score >= 5) return '정8품 지제고';
+            if (score >= 2) return '종8품 기주관';
+            if (score >= 1) return '정9품 학유';
+            return '종9품 수분권지';
+        }
+
         let allUsers = []; // 🚩 [추가] 사용자 목록을 저장할 전역 변수
         // 🚩 [추가] 정렬 상태를 저장할 전역 변수
         let currentSort = {
@@ -682,8 +704,9 @@
                 const createdAt = user.createdAt 
                     ? new Date(user.createdAt).toLocaleString() 
                     : '알 수 없음';
-                const position = user.position || '수분권지';
-                console.log(`사용자 ${user.username} 직급:`, position);
+                const score = user.score || 0;
+                const position = getDetailedPosition(score);
+                console.log(`사용자 ${user.username} 직급:`, position, '포인트:', score);
                 tr.innerHTML = ` 
                     <td>${user.username}</td>
                     <td>${user.email || '미입력'}</td>
@@ -691,7 +714,7 @@
                     <td>${user.loginCount || 0}회</td>
                     <td>${user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'N/A'}</td>
                     <td>${position}</td>
-                    <td>${createdAt}</td>
+                    <td>${score}</td>
                     <td>
                         <button class="button lock-btn" onclick="toggleLockStatus(this, '${user._id}', ${user.isLocked || false})">${user.isLocked ? '잠금 해제' : '계정 잠금'}</button>
                         <button class="primary" onclick="openEditUserModal('${user._id}')">수정</button>
@@ -1124,7 +1147,7 @@
                     const dateA = valA ? new Date(valA).getTime() : 0;
                     const dateB = valB ? new Date(valB).getTime() : 0;
                     return (dateA - dateB) * direction;
-                } else if (key === 'loginCount') {
+                } else if (key === 'loginCount' || key === 'score') {
                     const numA = Number(valA) || 0;
                     const numB = Number(valB) || 0;
                     return (numA - numB) * direction;

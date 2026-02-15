@@ -1432,6 +1432,31 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // 🌊 POST: 자연 지형지물 추가
+        app.post('/api/natural-features', verifyToken, async (req, res) => {
+            try {
+                const newFeature = req.body;
+                if (newFeature._id) delete newFeature._id;
+                
+                // Validation
+                if (!newFeature.name || !newFeature.coordinates) {
+                    return res.status(400).json({ message: "자연 지형지물 이름과 좌표가 필요합니다." });
+                }
+                
+                const result = await collections.naturalFeatures.insertOne(newFeature);
+                
+                logCRUD('CREATE', 'NaturalFeature', newFeature.name, `(ID: ${result.insertedId})`);
+                res.status(201).json({ 
+                    message: "자연 지형지물이 성공적으로 생성되었습니다.", 
+                    id: result.insertedId.toString()
+                });
+            } catch (error) {
+                console.error("자연 지형지물 생성 중 오류:", error);
+                logCRUD('ERROR', 'NaturalFeature', 'POST', error.message);
+                res.status(500).json({ message: "자연 지형지물 생성 실패", error: error.message });
+            }
+        });
+
         // POST: 영토 캐시 재계산 (관리자 전용 - 특정 연도 범위)
         app.post('/api/territory-cache/recalculate', verifyAdmin, async (req, res) => {
             try {
@@ -3061,7 +3086,7 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
                     created_at: new Date()
                 };
 
-                const insertResult = await collections.castles.insertOne(newCastle);
+                const insertResult = await collections.castle.insertOne(newCastle);
                 console.log(`✅ [Castle 생성] 승인된 기여 "${contribution.name}"를 Castle로 변환 완료 (ID: ${insertResult.insertedId})`);
                 
                 // 기여자에게도 추가 보상 (승인 완료 시)

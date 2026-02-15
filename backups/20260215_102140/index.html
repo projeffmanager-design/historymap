@@ -3435,6 +3435,14 @@ function enableFormDrag(formId) {
             <option value="construction">건설 ⚒️</option>
         </select>
       </div>
+      <div class="form-row" id="naturalFeatureTimeRange">
+        <label>시간 범위:</label>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <input type="number" id="naturalFeatureStartYear" placeholder="시작 연도 (선택)" style="width: 100px;">
+          <span>~</span>
+          <input type="number" id="naturalFeatureEndYear" placeholder="종료 연도 (선택)" style="width: 100px;">
+        </div>
+      </div>
      <div id="militaryFlagDetails" style="border-top: 0px solid #ccc; padding-top: 5px; margin-top: 10px;">
     <div class="form-row">
         <label for="militaryCountryNameInput">소속 국가:</label>
@@ -3793,6 +3801,7 @@ function enableFormDrag(formId) {
     let naturalFeatures = []; // 🌊 [추가] 자연 지형지물 (강, 산맥 등) 데이터 저장소
     let contributions = []; // 🚩 [추가] 유저 기여 데이터
     let markers = [];
+    let allCastleMarkers = []; // 🚩 [추가] 모든 성 마커 저장소
     let currentOpenPopup = null; // 🚩 [추가] 현재 열린 팝업 추적
     let isInitializing = true; // 🚀 [최적화] 초기 로딩 플래그
 
@@ -4035,6 +4044,8 @@ function enableFormDrag(formId) {
             updateInterval: 200, // 🚩 [추가] 타일 업데이트 주기(ms)를 설정하여 과도한 요청 방지
             unloadInvisibleTiles: true, // 🚩 [추가] 보이지 않는 타일을 메모리에서 제거하여 성능 향상
             fadeAnimation: false // 타일 로딩 시 페이드 효과 제거
+        }).on('tileerror', function(e) {
+            console.warn('🗺️ [지도 타일 오류] 위성 타일 로딩 실패:', e);
         }),
    //     '다크': L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png', { maxZoom: 20 }),
         '일반': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -4044,6 +4055,8 @@ function enableFormDrag(formId) {
             updateInterval: 200, // 🚩 [추가] 타일 업데이트 주기(ms)를 설정하여 과도한 요청 방지
             unloadInvisibleTiles: true, // 🚩 [추가] 보이지 않는 타일을 메모리에서 제거하여 성능 향상
             fadeAnimation: false // 타일 로딩 시 페이드 효과 제거
+        }).on('tileerror', function(e) {
+            console.warn('🗺️ [지도 타일 오류] 일반 타일 로딩 실패:', e);
         })
     };
     let currentTileLayer = tileLayers['위성']; // 🚩 [수정] 기본 레이어를 위성 지도로 변경
@@ -4066,6 +4079,7 @@ function enableFormDrag(formId) {
     let castleLayerGroup = L.layerGroup().addTo(map); 
     let territoryLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 영토 폴리곤 레이어 그룹
     let contributionLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 기여 레이어 그룹
+    let labelLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 라벨 레이어 그룹
     map.addLayer(drawnItems); // 🚩 [추가] 그린 도형을 담을 레이어 그룹 추가
     const combinedSlider = document.getElementById('combinedSlider'); // 🚩 [추가] 슬라이더 DOM 요소
     const eraLabel = document.getElementById('eraLabel'); // 🚩 [추가] B.C./A.D. 표시 라벨
@@ -5255,14 +5269,14 @@ function renderImmediateCountryLabels(year, month) {
         // 🚀 [v2.0.5] 초기 로딩 시 중요 라벨 강제 표시
         // importance가 3 이상인 라벨은 레이어 설정과 무관하게 표시
         const importance = label.importance || 0;
-        const forceShow = isInitial && (importance >= 3 || labelType === 'country');
+        const forceShow = false; // 초기 로딩 시에도 토글 버튼으로 제어
         
         if (labelType === 'country') {
-            shouldRender = shouldRenderCountry || forceShow;
+            shouldRender = shouldRenderCountry;
         } else if (labelType === 'ethnic') {
-            shouldRender = shouldRenderEthnic || forceShow;
+            shouldRender = shouldRenderEthnic;
         } else {
-            shouldRender = shouldRenderPlace || forceShow; // place, city, mountain, river 등
+            shouldRender = shouldRenderPlace; // place, city, mountain, river 등
         }
         
         if (!shouldRender) return;
@@ -5308,7 +5322,7 @@ function renderImmediateCountryLabels(year, month) {
             pane: 'labelPane'
         });
         
-        marker.addTo(map);
+        marker.addTo(labelLayerGroup);
         marker._castleData = label;
         marker._isImmediateLabel = true; // 즉시 렌더링된 라벨 표시
         marker._forceShown = forceShow; // 강제 표시 여부 기록
@@ -5329,7 +5343,7 @@ let updateMapTimer = null;
 let lastUpdateMapCall = { year: null, month: null, cacheOnly: null };
 let pendingUpdateMapRAF = null; // 🚀 [v2.0.9] requestAnimationFrame ID
 
-function updateMap(year, month, cacheOnly = false) {
+function updateMap(year, month, cacheOnly = false, force = false) {
         // 🚀 [v2.0.9] requestAnimationFrame으로 렌더링 최적화 (초기 로딩 시에만)
         if (!isInitializing && pendingUpdateMapRAF) {
             // 이미 예약된 렌더링이 있으면 취소하고 새로 예약
@@ -5337,9 +5351,9 @@ function updateMap(year, month, cacheOnly = false) {
             pendingUpdateMapRAF = null;
         }
         
-        // 🛡️ [중복 호출 차단] 동일한 파라미터로 300ms 이내 재호출 시 무시
+        // 🛡️ [중복 호출 차단] 동일한 파라미터로 300ms 이내 재호출 시 무시 (force가 true면 스킵)
         const now = Date.now();
-        if (lastUpdateMapCall.year === year && 
+        if (!force && lastUpdateMapCall.year === year && 
             lastUpdateMapCall.month === month && 
             lastUpdateMapCall.cacheOnly === cacheOnly &&
             lastUpdateMapCall.timestamp && 
@@ -5952,6 +5966,7 @@ function updateMap(year, month, cacheOnly = false) {
         let renderedCastleCount = 0;
         let marker;
         
+        labelLayerGroup.clearLayers(); // 🚩 [추가] 라벨 레이어 클리어
         castleLayerGroup.clearLayers();
         castles.forEach(castle => {
             const baseCountryId = castle.country_id || castle.countryId || (Array.isArray(castle.history) && castle.history.length > 0 ? castle.history[0]?.country_id : null);
@@ -6085,7 +6100,7 @@ function updateMap(year, month, cacheOnly = false) {
                 
                 marker._castleData = castle;
                 markers.push(marker);
-                marker.addTo(castleLayerGroup);
+                marker.addTo(labelLayerGroup); // 🚩 [수정] 라벨은 labelLayerGroup에 추가
                 return; // 라벨 처리 완료, 다음 castle로
             }
             
@@ -6094,13 +6109,13 @@ function updateMap(year, month, cacheOnly = false) {
         // 🚩 [핵심 수정] 현재 시간에 맞는 역사 기록 찾기
         const activeHistoryInfo = getActiveHistoryInfo(castle.history, currentTotalMonths);
 
-        // 🚩 [수정] 유효한 역사 기록이 없으면 이 성을 렌더링하지 않음
-        if (!activeHistoryInfo) return;
+        // 🚩 [수정] 유효한 역사 기록이 없으면 이 성을 렌더링하지 않음 (자연 지형지물 제외)
+        if (!activeHistoryInfo && !castle.is_natural_feature) return;
 
-        const { record: activeHistoryRecord, startYear: recordStartYear, startMonth: recordStartMonth, endYear: recordEndYear, endMonth: recordEndMonth } = activeHistoryInfo;
+        const { record: activeHistoryRecord, startYear: recordStartYear, startMonth: recordStartMonth, endYear: recordEndYear, endMonth: recordEndMonth } = activeHistoryInfo || {};
 
-    const castleName = activeHistoryRecord.name || castle.name;
-    const countryId = activeHistoryRecord.country_id || castle.country_id || castle.countryId;
+    const castleName = activeHistoryRecord?.name || castle.name;
+    const countryId = activeHistoryRecord?.country_id || castle.country_id || castle.countryId;
         const countryInfo = getCountryInfoById(countryId);
         const countryName = countryInfo ? countryInfo.name : '알 수 없음';
         const dotColor = countryInfo ? countryInfo.color : 'white';
@@ -6112,7 +6127,9 @@ function updateMap(year, month, cacheOnly = false) {
             }
         }
 
-        const isWithinDuration = true; // activeHistoryRecord가 있으면 항상 유효 기간 내에 있음
+        const isWithinDuration = activeHistoryInfo ? true : (castle.is_natural_feature ? 
+            ((castle.start_year || -Infinity) <= year && (castle.end_year || Infinity) >= year) : 
+            false); // 자연 지형지물은 start_year/end_year에 따라 표시
         const builtText = `${recordStartYear}년 ${recordStartMonth}월`;
         const destroyedText = recordEndYear === null ? '현재' : `${recordEndYear}년 ${recordEndMonth}월`;
         
@@ -6121,7 +6138,8 @@ function updateMap(year, month, cacheOnly = false) {
             // 🚩 1. 자연 지물 마커 (NEW)
             if (castle.is_natural_feature) { 
                 if (!layerVisibility.natural) return;
-                if (!isWithinDuration) return;
+                // 🚩 [수정] 자연 지형지물도 시간 범위 체크 (역사 기록이 있으면 그에 따라, 없으면 항상 표시)
+                if (activeHistoryInfo && !isWithinDuration) return;
 
                 // 🚩 [추가] 커스텀 아이콘이 있으면 사용
                 if (castle.custom_icon) {
@@ -10280,6 +10298,7 @@ function getCountryInfoById(id) {
       militaryFlagDetails.style.display = 'none';
       
       naturalFeatureDetails.style.display = 'none';
+      naturalFeatureTimeRange.style.display = 'none';
 
       // 🚩 마커 타입 선택기 '일반'으로 초기화
       setActiveMarkerType('normal');
@@ -10539,6 +10558,7 @@ function getCountryInfoById(id) {
 
         // 자연 전용 필드
         naturalFeatureDetails.style.display = isNatural ? 'flex' : 'none';
+        naturalFeatureTimeRange.style.display = isNatural ? 'flex' : 'none';
 
         // 지명 전용 필드
         document.getElementById('labelColorRow').style.display = isLabel ? 'flex' : 'none';
@@ -10796,6 +10816,8 @@ function getCountryInfoById(id) {
         label_color: document.getElementById('labelColor').value,
         label_size: document.getElementById('labelSize').value,
         natural_feature_type: selectedType === 'natural' ? document.getElementById('naturalFeatureType').value : null,
+        start_year: selectedType === 'natural' ? (document.getElementById('naturalFeatureStartYear').value ? parseInt(document.getElementById('naturalFeatureStartYear').value) : null) : null,
+        end_year: selectedType === 'natural' ? (document.getElementById('naturalFeatureEndYear').value ? parseInt(document.getElementById('naturalFeatureEndYear').value) : null) : null,
         custom_icon: document.getElementById('customIcon').value || null, // 🚩 [추가] 커스텀 아이콘
         icon_width: document.getElementById('iconWidth').value ? parseInt(document.getElementById('iconWidth').value) : null, // 🚩 [추가] 아이콘 너비
         icon_height: document.getElementById('iconHeight').value ? parseInt(document.getElementById('iconHeight').value) : null, // 🚩 [추가] 아이콘 높이
@@ -12958,6 +12980,9 @@ kingSelect.addEventListener('change', () => {
                         const { year, month } = getCurrentYearMonth();
                         updateMap(year, month);
                     }
+                    
+                    // 🚩 [수정] PC 토글 버튼 상태 동기화
+                    applyLayerSettingsToUI(layerVisibility);
                 });
             });
         }
@@ -13271,6 +13296,12 @@ kingSelect.addEventListener('change', () => {
                 } else {
                     const { year, month } = getCurrentYearMonth();
                     updateMap(year, month);
+                }
+                
+                // 🚩 [수정] 모바일 체크박스 상태 동기화
+                const mobileCheckbox = document.querySelector(`#mobile-layer-menu input[data-layer="${layerType}"]`);
+                if (mobileCheckbox) {
+                    mobileCheckbox.checked = layerVisibility[layerType];
                 }
             }
         });
@@ -14096,6 +14127,10 @@ kingSelect.addEventListener('change', () => {
                     if (confirm('승인이 완료되었습니다.\n지금 마커로 변환하시겠습니까?')) {
                         convertContribution(id);
                     }
+                    
+                    // 🚩 [추가] 승인 후 지도 즉시 업데이트 (새 마커 표시)
+                    const { year, month } = getCurrentYearMonth();
+                    updateMap(year, month, false, true); // force 모드로 호출
                 } else {
                     alert(data.message || '승인 실패');
                 }

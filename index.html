@@ -3421,8 +3421,9 @@ function enableFormDrag(formId) {
 
          <hr style="margin: 15px 0;">
       <div class="form-row" id="naturalFeatureDetails">
-    <label for="naturalFeatureType">지물 종류:</label>
-        <select id="naturalFeatureType">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <label for="naturalFeatureType" style="margin: 0; white-space: nowrap;">지물 종류:</label>
+          <select id="naturalFeatureType" style="flex: 1; min-width: 150px;">
             <option value="mountain">산/숲</option>
             <option value="sea">바다/호수</option>
             <option value="river">강/내륙</option>
@@ -3431,9 +3432,10 @@ function enableFormDrag(formId) {
             <option value="buffalo">물소</option>
             <option value="mongky">원숭이</option>
             <option value="camel">낙타</option>
-                                    <option value="hunting">사냥터 🏹</option>
+            <option value="hunting">사냥터 🏹</option>
             <option value="construction">건설 ⚒️</option>
-        </select>
+          </select>
+        </div>
       </div>
      <div id="militaryFlagDetails" style="border-top: 0px solid #ccc; padding-top: 5px; margin-top: 10px;">
     <div class="form-row">
@@ -5222,6 +5224,92 @@ function getKingByYear(countryName, year, month) {
         console.log(`  ✅ 새 라벨 추가: ${addedCount}개`);
     }
 
+    // 🌳 [v2.0.7] 자연 지형지물 개별 추가
+    function addSingleNaturalFeature(newCastle, year, month) {
+        if (!map || !map._loaded) return;
+        
+        console.log(`🌳 새 자연 지형지물 생성: ${newCastle.name}`);
+        
+        // 자연 지형지물 레이어 가시성 체크
+        if (!layerVisibility.natural) {
+            console.log(`  ⏭️ 자연 지형지물 레이어가 꺼져있어 표시 안 함`);
+            return;
+        }
+        
+        // 시간 범위 체크
+        const startYear = newCastle.start_year || newCastle.built_year || -Infinity;
+        const endYear = newCastle.end_year || newCastle.destroyed_year || Infinity;
+        const isWithinDuration = startYear <= year && endYear >= year;
+        
+        if (!isWithinDuration) {
+            console.log(`  ⏭️ 시간 범위 벗어남 (${startYear} ~ ${endYear}), 현재 ${year}년`);
+            return;
+        }
+        
+        const castleName = newCastle.name;
+        let marker;
+        
+        // 커스텀 아이콘이 있으면 사용
+        if (newCastle.custom_icon) {
+            const iconWidth = newCastle.icon_width || 32;
+            const iconHeight = newCastle.icon_height || 32;
+            const customIconHtml = `<img src="${newCastle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+            const featureIcon = L.divIcon({
+                className: 'custom-icon-marker',
+                html: customIconHtml,
+                iconSize: [iconWidth, iconHeight],
+                iconAnchor: [iconWidth / 2, iconHeight],
+                popupAnchor: [0, -iconHeight]
+            });
+            marker = L.marker([newCastle.lat, newCastle.lng], { icon: featureIcon });
+        } else {
+            // 자연 지형지물 타입에 따른 기본 아이콘
+            const featureType = newCastle.natural_feature_type || 'other';
+            let iconInfo = getNaturalFeatureIcon(featureType);
+            if (!iconInfo) {
+                iconInfo = getNaturalFeatureIcon('other');
+            }
+            const iconClass = iconInfo?.className || 'feature-other';
+            const iconSymbol = iconInfo?.symbol || '❖';
+            
+            const featureIcon = L.divIcon({
+                className: `natural-feature-marker ${iconClass}`,
+                html: `<div>${iconSymbol}</div><div class="feature-name">${castleName}</div>`,
+                iconSize: [60, 40],
+                iconAnchor: [30, 40],
+                popupAnchor: [6, -30]
+            });
+            marker = L.marker([newCastle.lat, newCastle.lng], { icon: featureIcon });
+        }
+        
+        // 팝업 설정
+        const editorInfoHtml = newCastle.lastModifiedBy 
+            ? `<br><small>마지막 수정: ${newCastle.lastModifiedBy}</small>` 
+            : (newCastle.createdBy ? `<br><small>생성자: ${newCastle.createdBy}</small>` : '');
+        
+        const popupHtml = `<div style="padding:0;margin:0;line-height:1.4;"><b style="font-size:14px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;">${newCastle.desc}</span>` : ''}${newCastle.photo ? `<br><img src="${newCastle.photo}" style="max-width:150px;max-height:100px;object-fit:cover;margin-top:4px;">` : ''}${editorInfoHtml}</div>`;
+        
+        marker.bindPopup(popupHtml, {
+            className: 'compact-popup',
+            maxWidth: 200,
+            minWidth: 100
+        });
+        
+        // 클릭 이벤트
+        marker.on('click', function (e) { 
+            if (this && typeof this.openPopup === 'function') this.openPopup();
+            map.flyTo(e.latlng, 10);
+            if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) openCastleForm(newCastle._id); 
+        });
+        
+        // 마커를 castleLayerGroup에 추가
+        marker._castleData = newCastle;
+        allCastleMarkers.push(marker);
+        marker.addTo(castleLayerGroup);
+        
+        console.log(`  ✅ 새 자연 지형지물 추가: ${castleName}`);
+    }
+
 // 🚀 [초고속 라벨] 모든 라벨 즉시 렌더링 (영토 계산 기다리지 않음)
 function renderImmediateCountryLabels(year, month) {
     if (!map || !castles || castles.length === 0) {
@@ -5387,6 +5475,11 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         console.log(`🗺️ updateMap 호출: year=${year}, month=${month}, cacheOnly=${cacheOnly}`);
         console.log(`  📊 지도 상태: map=${!!map}, map._loaded=${map?._loaded}`);
         console.log(`  📦 데이터 현황: castles=${castles.length}, territories=${territories.length}, countries=${countries.length}`);
+        
+        // castle 데이터 구조 확인
+        if (castles.length > 0) {
+            console.log(`  🔍 castle 데이터 샘플:`, castles.slice(0, 2).map(c => ({name: c.name, lat: c.lat, lng: c.lng, deleted: c.deleted})));
+        }
         
         // Leaflet.heat 초기화는 지도 load 이후에만 안전하게 진행 가능하므로, 아직 로드되지 않았다면 다시 호출을 예약합니다.
         if (!map || !map._loaded) {
@@ -5955,6 +6048,12 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             return;
         }
         
+        // 🚨 [제거] city 레이어가 꺼져있으면 강제로 켜는 디버그 코드 제거
+        // if (!layerVisibility.city) {
+        //     console.warn('⚠️ city 레이어가 꺼져있음! 강제로 켜서 디버깅합니다.');
+        //     layerVisibility.city = true;
+        // }
+        
         let renderedCastleCount = 0;
         let marker;
         
@@ -6101,13 +6200,13 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         // 🚩 [핵심 수정] 현재 시간에 맞는 역사 기록 찾기
         const activeHistoryInfo = getActiveHistoryInfo(castle.history, currentTotalMonths);
 
-        // 🚩 [수정] 유효한 역사 기록이 없으면 이 성을 렌더링하지 않음
-        if (!activeHistoryInfo) return;
+        // 🚩 [수정] 유효한 역사 기록이 없으면 이 성을 렌더링하지 않음 (자연 지형지물 제외)
+        if (!activeHistoryInfo && !castle.is_natural_feature) return;
 
-        const { record: activeHistoryRecord, startYear: recordStartYear, startMonth: recordStartMonth, endYear: recordEndYear, endMonth: recordEndMonth } = activeHistoryInfo;
+        const { record: activeHistoryRecord, startYear: recordStartYear, startMonth: recordStartMonth, endYear: recordEndYear, endMonth: recordEndMonth } = activeHistoryInfo || {};
 
-    const castleName = activeHistoryRecord.name || castle.name;
-    const countryId = activeHistoryRecord.country_id || castle.country_id || castle.countryId;
+    const castleName = activeHistoryRecord?.name || castle.name;
+    const countryId = activeHistoryRecord?.country_id || castle.country_id || castle.countryId;
         const countryInfo = getCountryInfoById(countryId);
         const countryName = countryInfo ? countryInfo.name : '알 수 없음';
         const dotColor = countryInfo ? countryInfo.color : 'white';
@@ -6119,7 +6218,12 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             }
         }
 
-        const isWithinDuration = true; // activeHistoryRecord가 있으면 항상 유효 기간 내에 있음
+        const isWithinDuration = activeHistoryInfo ? true : (castle.is_natural_feature ?
+            (castle.built_year && castle.destroyed_year) ?
+                ((castle.built_year || -Infinity) <= year && (castle.destroyed_year || Infinity) >= year) :
+                true : // built_year와 destroyed_year가 모두 설정되지 않은 자연지물은 항상 표시
+            false); // 자연 지형지물은 built_year/destroyed_year에 따라 표시
+        console.log(`⏱️ [시간 필터링] ${castle.name} - is_natural_feature: ${castle.is_natural_feature}, year: ${year}, built_year: ${castle.built_year}, destroyed_year: ${castle.destroyed_year}, isWithinDuration: ${isWithinDuration}`);
         const builtText = `${recordStartYear}년 ${recordStartMonth}월`;
         const destroyedText = recordEndYear === null ? '현재' : `${recordEndYear}년 ${recordEndMonth}월`;
         
@@ -6127,8 +6231,17 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
             // 🚩 1. 자연 지물 마커 (NEW)
             if (castle.is_natural_feature) { 
-                if (!layerVisibility.natural) return;
-                if (!isWithinDuration) return;
+                console.log(`🌊 [자연지물 처리 시작] ${castle.name} - is_natural_feature: ${castle.is_natural_feature}, layerVisibility.natural: ${layerVisibility.natural}`);
+                if (!layerVisibility.natural) {
+                    console.log(`🌊 [자연지물 레이어 꺼짐] ${castle.name} 건너뜀`);
+                    return;
+                }
+                // 🚩 [수정] 자연 지형지물 시간 범위 체크
+                if (!isWithinDuration) {
+                    console.log(`⏰ [자연지물 필터링] ${castle.name} 표시되지 않음 (year: ${year}, built_year: ${castle.built_year}, destroyed_year: ${castle.destroyed_year})`);
+                    return;
+                }
+                console.log(`🌊 [자연지물 표시] ${castle.name} (year: ${year}, built_year: ${castle.built_year}, destroyed_year: ${castle.destroyed_year})`);
 
                 // 🚩 [추가] 커스텀 아이콘이 있으면 사용
                 if (castle.custom_icon) {
@@ -6482,8 +6595,15 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         }
         
         // 5. 일반 성/도시 마커 (기존 로직 유지)
-        if (!layerVisibility.city) return;
-        if (!isWithinDuration) return;
+        console.log(`🏰 [도시 마커 처리] ${castle.name} - is_natural_feature: ${castle.is_natural_feature}, layerVisibility.city: ${layerVisibility.city}, isWithinDuration: ${isWithinDuration}`);
+        if (!layerVisibility.city) {
+            console.log(`🏰 [도시 레이어 꺼짐] ${castle.name} 건너뜀`);
+            return;
+        }
+        if (!isWithinDuration) {
+            console.log(`🏰 [시간 범위 벗어남] ${castle.name} 건너뜀`);
+            return;
+        }
         
         const currentCountry = countryInfo; // ⬅️ 이미 위에서 정의한 countryInfo 사용
         if (!currentCountry) return;
@@ -6642,6 +6762,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         });
         
         console.log(`✅ 성/도시 렌더링 완료: 마커 ${markers.length}개 추가됨`);
+        console.log(`  📍 castleLayerGroup 레이어 수: ${castleLayerGroup ? castleLayerGroup.getLayers().length : 'N/A'}`);
     }
 
 function getCountryInfoById(id) {
@@ -7939,9 +8060,16 @@ function getCountryInfoById(id) {
                   setTimeout(async () => {
                       try {
                           const castleLoadStart = performance.now();
+                          console.log('📡 castle 데이터 fetch 시작...');
                           const allCastlesData = await fetchData('castle');
                           const castleLoadTime = ((performance.now() - castleLoadStart) / 1000).toFixed(2);
                           console.log(`✅ castles 백그라운드 로드 완료: ${allCastlesData.length}개 (${castleLoadTime}초)`);
+                          
+                          if (allCastlesData.length === 0) {
+                              console.warn('⚠️ castle 데이터가 비어있음! API에서 데이터를 가져오지 못했습니다.');
+                          } else {
+                              console.log('📊 castle 데이터 샘플:', allCastlesData.slice(0, 3).map(c => `${c.name}(${c.lat},${c.lng})`));
+                          }
                           
                           // 🚀 [최적화] 국가명 → ID 매핑 캐시 (countries.find() 반복 방지)
                           const countryNameMap = new Map();
@@ -8360,6 +8488,11 @@ function getCountryInfoById(id) {
                       const { year, month } = getCurrentYearMonth();
                       try {
                           updateSingleLabel(oldCastle, updatedCastle, year, month);
+                          // IndexedDB 캐시 업데이트
+                          if (typeof saveCastlesCache === 'function') {
+                              await saveCastlesCache(castles);
+                          }
+                          console.log('💾 라벨 캐시 업데이트 완료');
                       } catch (labelError) {
                           console.error('❌ 라벨 업데이트 실패, 전체 맵 갱신:', labelError);
                           updateMap(year, month);
@@ -8370,8 +8503,10 @@ function getCountryInfoById(id) {
                       console.log('🌳 자연 지형지물 개별 업데이트 시작...');
                       try {
                           updateSingleNaturalFeature(oldCastle, updatedCastle);
-                          // IndexedDB 캐시 업데이트
-                          await saveCastlesToCache();
+                          // IndexedDB 캐시 업데이트 (함수명 수정 및 castles 배열 전달)
+                          if (typeof saveCastlesCache === 'function') {
+                              await saveCastlesCache(castles);
+                          }
                           console.log('💾 자연 지형지물 캐시 업데이트 완료');
                       } catch (error) {
                           console.error('❌ 자연 지형지물 개별 업데이트 실패, 전체 맵 갱신:', error);
@@ -8380,20 +8515,33 @@ function getCountryInfoById(id) {
                       }
                   }
                   else {
-                      // 일반 성/전장은 전체 맵 갱신
+                      // 일반 성/전장은 전체 맵 갱신 + 캐시 업데이트
                       const { year, month } = getCurrentYearMonth();
                       updateMap(year, month);
+                      // IndexedDB 캐시 업데이트 (일반 성 수정 시에도 필요)
+                      if (typeof saveCastlesCache === 'function') {
+                          await saveCastlesCache(castles);
+                      }
+                      console.log('💾 일반 성 캐시 업데이트 완료');
                   }
               } else {
                   console.warn(`⚠️ 메모리에서 찾을 수 없음: ${castleKey}. 전체 맵 갱신`);
                   const { year, month } = getCurrentYearMonth();
                   updateMap(year, month);
+                  // 🚩 [추가] 메모리에서 찾을 수 없는 경우에도 캐시 갱신 시도
+                  if (typeof saveCastlesCache === 'function') {
+                      saveCastlesCache(castles).then(() => console.log('💾 IndexedDB 캐시 동기화 시도'));
+                  }
               }
           } catch (error) {
               console.error(`❌ 성/전장 동기화 실패: ${castleKey}`, error);
               // 실패 시에도 전체 맵 갱신 시도
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
+              // 🚩 [추가] 실패 시에도 캐시 갱신 시도
+              if (typeof saveCastlesCache === 'function') {
+                  saveCastlesCache(castles).then(() => console.log('💾 IndexedDB 캐시 동기화 시도'));
+              }
           }
       };
       
@@ -8428,7 +8576,30 @@ function getCountryInfoById(id) {
                   console.log(`   📅 표시 기간: ${startYear}년 ~ ${endYear === Infinity ? '현재' : endYear + '년'}`);
                   alert(`라벨 "${newCastle.name}"이 추가되었지만, 현재 시간대(${year}년)에는 표시되지 않습니다.\n표시 기간: ${startYear}년 ~ ${endYear === Infinity ? '현재' : endYear + '년'}`);
               }
-          } else {
+          } 
+          // 🌳 [추가] 자연 지형지물인 경우 개별 추가
+          else if (newCastle.is_natural_feature) {
+              const startYear = newCastle.start_year || newCastle.built_year || -Infinity;
+              const endYear = newCastle.end_year || newCastle.destroyed_year || Infinity;
+              const isWithinDuration = startYear <= year && endYear >= year;
+              
+              console.log(`   🌳 자연 지형지물 감지! 시간 체크: ${startYear} <= ${year} <= ${endYear} = ${isWithinDuration}`);
+              
+              if (isWithinDuration) {
+                  console.log(`🌳 자연 지형지물 추가: ${newCastle.name} (현재 ${year}년)`);
+                  try {
+                      addSingleNaturalFeature(newCastle, year, month);
+                  } catch (error) {
+                      console.error('❌ 자연 지형지물 추가 실패, 전체 맵 갱신:', error);
+                      updateMap(year, month);
+                  }
+              } else {
+                  console.log(`⏭️ 자연 지형지물 "${newCastle.name}"은 현재 시간대(${year}년)에 표시되지 않습니다.`);
+                  console.log(`   📅 표시 기간: ${startYear}년 ~ ${endYear === Infinity ? '현재' : endYear + '년'}`);
+                  alert(`자연 지형지물 "${newCastle.name}"이 추가되었지만, 현재 시간대(${year}년)에는 표시되지 않습니다.\n표시 기간: ${startYear}년 ~ ${endYear === Infinity ? '현재' : endYear + '년'}`);
+              }
+          }
+          else {
               // 일반 성/전장은 전체 맵 갱신
               updateMap(year, month);
           }
@@ -10391,6 +10562,7 @@ function getCountryInfoById(id) {
         } else if (castle.is_label) {
             currentType = 'label';
         }
+        console.log('🏰 Castle 폼 열기 - castle.is_natural_feature:', castle.is_natural_feature, '결정된 타입:', currentType); // 🚩 [디버그] 타입 결정 과정 확인
         document.getElementById('labelSize').value = castle.label_size || 'medium'; // 🚩 [추가] 글자 크기 로드
         setActiveMarkerType(currentType);
 
@@ -10785,6 +10957,7 @@ function getCountryInfoById(id) {
       const method = isUpdate ? 'PUT' : 'POST';
 
       const selectedType = markerTypeSelector.querySelector('button.active')?.dataset.type || 'normal'; // 🚩 [수정] 'capital' 타입 조건 제거
+      console.log('🛠️ Castle 수정 - 선택된 타입:', selectedType); // 🚩 [디버그] 선택된 타입 확인
 // 🚩 [필수 수정]: country 필드를 삭제하고 country_id를 추가합니다.
       // 🚩 [수정] 역사 기록 데이터를 수집합니다.
 
@@ -10803,11 +10976,14 @@ function getCountryInfoById(id) {
         label_color: document.getElementById('labelColor').value,
         label_size: document.getElementById('labelSize').value,
         natural_feature_type: selectedType === 'natural' ? document.getElementById('naturalFeatureType').value : null,
+        built_year: selectedType === 'natural' ? (document.getElementById('simpleStartYear').value ? parseInt(document.getElementById('simpleStartYear').value) : null) : null,
+        destroyed_year: selectedType === 'natural' ? (document.getElementById('simpleEndYear').value ? parseInt(document.getElementById('simpleEndYear').value) : null) : null,
         custom_icon: document.getElementById('customIcon').value || null, // 🚩 [추가] 커스텀 아이콘
         icon_width: document.getElementById('iconWidth').value ? parseInt(document.getElementById('iconWidth').value) : null, // 🚩 [추가] 아이콘 너비
         icon_height: document.getElementById('iconHeight').value ? parseInt(document.getElementById('iconHeight').value) : null, // 🚩 [추가] 아이콘 높이
         originContributionId: document.getElementById('originContributionId').value || null // 🚩 [추가] 원본 기여 ID 저장
       };
+      console.log('📤 Castle 수정 - 전송 데이터:', JSON.stringify(data, null, 2)); // 🚩 [디버그] 전송 데이터 확인
 
       if (selectedType === 'normal' || selectedType === 'battle') { // 🚩 [수정] 전장 타입도 역사 기록 사용
           const historyRows = document.querySelectorAll('#castleHistoryList .history-record-row');
@@ -10957,9 +11133,15 @@ function getCountryInfoById(id) {
               }
           }
           
-          // 맵 업데이트 (기여 핀 제거 및 새 오브젝트 표시)
-          const { year, month } = getCurrentYearMonth();
-          updateMap(year, month);
+          // 🚩 [수정] 자연 지형지물인 경우 updateCastleInMemory에서 이미 개별 업데이트했으므로 전체 맵 갱신 생략
+          const isNaturalFeature = responseData.castle && responseData.castle.is_natural_feature;
+          if (!isNaturalFeature) {
+              // 맵 업데이트 (기여 핀 제거 및 새 오브젝트 표시)
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } else {
+              console.log('🌳 자연 지형지물 업데이트 완료, 전체 맵 갱신 생략');
+          }
       } catch (error) {
         console.error("Castle 저장 중 오류:", error);
         alert(`Castle 저장 실패: ${error.message}`);
