@@ -639,39 +639,20 @@
         function getDetailedPosition(score, rank = null) {
             // 동일한 기준을 server.js / index.html의 calculateRealtimePosition과 맞춥니다.
             // 정1품~종2품(재상급)은 순위와 결합되어 결정되므로 여기서는 점수 기준만 적용된 이름을 반환합니다.
-            if (score >= 2600) return '정3품 수찬관(修撰官)';
-            if (score >= 2100) return '종3품 직수찬관(直修撰官)';
-            if (score >= 1700) return '정4품 사관수찬(史館修撰)';
-            if (score >= 1400) return '종4품 시강학사(侍講學士)';
-            if (score >= 1100) return '정5품 기거주(起居注)';
-            if (score >= 850)  return '종5품 기거사(起居舍)';
-            if (score >= 650)  return '정6품 기거랑(起居郞)';
-            if (score >= 450)  return '종6품 기거도위(起居都尉)';
-            if (score >= 300)  return '정7품 수찬(修撰)';
-            if (score >= 200)  return '종7품 직문한(直文翰)';
-            if (score >= 120)  return '정8품 주서(注書)';
-            if (score >= 60)   return '종8품 검열(檢閱)';
-            if (score >= 30)   return '정9품 정자(正字)';
-            return '종9품 수분권지(修分權知)';
-        }
-
-        // DB에 구 형식(품계 없음)으로 저장된 직급에 품계를 붙여주는 함수
-        const POSITION_RANK_MAP = {
-            '감수국사': '정1품 감수국사', '판사관사': '종1품 판사관사',
-            '수국사': '정2품 수국사',     '동수국사': '종2품 동수국사',
-            '수찬관': '정3품 수찬관',     '직수찬관': '종3품 직수찬관',
-            '사관수찬': '정4품 사관수찬', '시강학사': '종4품 시강학사',
-            '기거주': '정5품 기거주',     '기거사': '종5품 기거사',
-            '기거랑': '정6품 기거랑',     '기거도위': '종6품 기거도위',
-            '수찬': '정7품 수찬',         '직문한': '종7품 직문한',
-            '주서': '정8품 주서',         '검열': '종8품 검열',
-            '정자': '정9품 정자',         '수분권지': '종9품 수분권지',
-            '백성': '백성'
-        };
-        function normalizePosition(pos) {
-            if (!pos) return '종9품 수분권지';
-            if (/^(정|종)[0-9]품/.test(pos)) return pos;
-            return POSITION_RANK_MAP[pos] || pos;
+            if (score >= 2600) return '수찬관(修撰官)';                      // 정3품
+            if (score >= 2100) return '직수찬관(直修撰官)';                    // 종3품
+            if (score >= 1700) return '사관수찬(史館修撰)';                    // 정4품
+            if (score >= 1400) return '시강학사(侍講學士)';                    // 종4품
+            if (score >= 1100) return '기거주(起居注)';                      // 정5품
+            if (score >= 850)  return '기거사(起居舍)';                      // 종5품
+            if (score >= 650)  return '기거랑(起居郞)';                      // 정6품
+            if (score >= 450)  return '기거도위(起居都尉)';                    // 종6품
+            if (score >= 300)  return '수찬(修撰)';                        // 정7품
+            if (score >= 200)  return '직문한(直文翰)';                      // 종7품
+            if (score >= 120)  return '주서(注書)';                        // 정8품
+            if (score >= 60)   return '검열(檢閱)';                        // 종8품
+            if (score >= 30)   return '정자(正字)';                        // 정9품
+            return '수분권지(修分權知)';                                       // 종9품 또는 미달
         }
 
         // 재상급 사관인지 확인하는 함수 (정1품 ~ 종2품)
@@ -734,7 +715,7 @@
                         row.innerHTML = `
                             <td style="font-weight: bold; color: #f1c40f;">${user.rank || (index + 1)}</td>
                             <td style="font-weight: bold; ${isCurrentUser ? 'color: #f1c40f;' : ''}">${user.username}${isCurrentUser ? ' 👑' : ''}</td>
-                            <td style="font-weight: bold; color: #e67e22;">${normalizePosition(user.position) || getDetailedPosition(user.score || 0)}</td>
+                            <td style="font-weight: bold; color: #e67e22;">${user.position || getDetailedPosition(user.score || 0)}</td>
                             <td style="text-align: right; font-weight: bold; color: #f1c40f;">${user.score || 0}</td>
                             <td style="text-align: right;">${user.totalCount || 0}</td>
                             <td style="text-align: right;">${user.approvedCount || 0}</td>
@@ -872,7 +853,7 @@
                 const isCurrentUser = currentUsername && user.username === currentUsername;
                 const userClass = isCurrentUser ? 'current-user' : '';
                 const displayRank = user.rank || (index + 1);
-                const displayPosition = normalizePosition(user.position) || getDetailedPosition(user.score || 0);
+                const displayPosition = user.position || getDetailedPosition(user.score || 0);
 
                 // 점수 계산
                 const submittedScore = (user.totalCount || 0) * 3;
