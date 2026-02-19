@@ -2480,7 +2480,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         app.post('/api/contributions', verifyToken, async (req, res) => {
             try {
                 const { name, lat, lng, description, category, evidence, year, source, content,
-                        placeType, is_natural_feature, natural_feature_type, country_id, start_year, end_year } = req.body;
+                        placeType, is_natural_feature, natural_feature_type, country_id, start_year, end_year, is_capital, new_country_name } = req.body;
                 
                 // 🚩 [검증] 성/도시인 경우 연도와 국가 필수
                 if (!is_natural_feature && category !== 'historical_record') {
@@ -2519,6 +2519,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         country_id: country_id || null,
                         start_year: is_natural_feature ? -5000 : (start_year != null ? parseInt(start_year) : null),
                         end_year: is_natural_feature ? null : (end_year != null ? parseInt(end_year) : null),
+                        is_capital: is_natural_feature ? false : (!!is_capital),
+                        new_country_name: (!is_natural_feature && new_country_name) ? new_country_name.trim() : null,
                         status: 'pending',
                         votes: 0,
                         votedBy: [],
@@ -3332,9 +3334,34 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
         if (contribution.category !== 'historical_record' && contribution.lat && contribution.lng) {
             try {
                 const isNatural = !!contribution.is_natural_feature;
+                const isCapital = !isNatural && !!contribution.is_capital;
                 const startYear = isNatural ? -5000 : (contribution.start_year != null ? contribution.start_year : (contribution.year || -5000));
                 const endYear = isNatural ? null : (contribution.end_year != null ? contribution.end_year : null);
-                const countryId = contribution.country_id || contribution.countryId || null;
+                let countryId = contribution.country_id || contribution.countryId || null;
+
+                // 🚩 [추가] 새 국가 자동 생성 (new_country_name이 있고 country_id가 없을 때)
+                if (!isNatural && !countryId && contribution.new_country_name) {
+                    const newCountryName = contribution.new_country_name.trim();
+                    // 이미 같은 이름의 국가가 있는지 확인
+                    const existing = await collections.countries.findOne({ name: newCountryName });
+                    if (existing) {
+                        countryId = existing._id.toString();
+                        console.log(`🔍 [국가 재사용] "${newCountryName}" 기존 국가 ID: ${countryId}`);
+                    } else {
+                        const newCountry = {
+                            name: newCountryName,
+                            color: '#aaaaaa',
+                            start: startYear,
+                            end: endYear,
+                            is_main_dynasty: false,
+                            auto_created: true,
+                            createdFrom: contribution._id.toString()
+                        };
+                        const countryResult = await collections.countries.insertOne(newCountry);
+                        countryId = countryResult.insertedId.toString();
+                        console.log(`✅ [국가 자동 생성] "${newCountryName}" ID: ${countryId}`);
+                    }
+                }
                 
                 // history 배열 구성 (자연지물은 빈 배열)
                 const history = [];
@@ -3346,7 +3373,7 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
                         start_month: 1,
                         end_year: endYear,
                         end_month: endYear ? 12 : null,
-                        is_capital: false,
+                        is_capital: isCapital,
                         is_battle: false
                     });
                 }
@@ -3357,7 +3384,7 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
                     lng: contribution.lng,
                     photo: null,
                     desc: contribution.description || '',
-                    is_capital: false,
+                    is_capital: isCapital,
                     is_battle: false,
                     is_military_flag: false,
                     is_natural_feature: isNatural,
