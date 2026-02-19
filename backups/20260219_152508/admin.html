@@ -514,11 +514,9 @@
                         </select>
                     </div>
                     <div class="form-row">
-                        <label for="editPosition">직급 강제 지정 (정3품~종9품, 재상급 제외)</label>
+                        <label for="editPosition">직급</label>
                         <select id="editPosition">
-                            <!-- 자동(점수 기반) / 강제 지정 해제 -->
-                            <option value="">자동 (점수 기반)</option>
-                            <!-- 정3품~종9품 -->
+                            <!-- 🚩 고려 사관 통합 18단계 직급표 (종9품→정1품) -->
                             <option value="수분권지">수분권지 (종9품)</option>
                             <option value="정자">정자 (정9품)</option>
                             <option value="검열">검열 (종8품)</option>
@@ -533,17 +531,10 @@
                             <option value="사관수찬">사관수찬 (정4품)</option>
                             <option value="직수찬관">직수찬관 (종3품)</option>
                             <option value="수찬관">수찬관 (정3품)</option>
-                        </select>
-                        <small style="color:#95a5a6;">※ 재상급(정1~종2품)은 아래 '재상급 지정'을 사용하세요. '자동'으로 설정하면 점수 기반 직급이 적용되며 순위에 포함됩니다.</small>
-                    </div>
-                    <div class="form-row">
-                        <label for="editDesignatedRank">재상급 지정 (관리자 수동 지정)</label>
-                        <select id="editDesignatedRank">
-                            <option value="">지정 없음 (자동/점수 기준)</option>
-                            <option value="1">1위 — 정1품 감수국사</option>
-                            <option value="2">2위 — 종1품 판사관사</option>
-                            <option value="3">3위 — 정2품 수국사</option>
-                            <option value="4">4위 — 종2품 동수국사</option>
+                            <option value="동수국사">동수국사 (종2품)</option>
+                            <option value="수국사">수국사 (정2품)</option>
+                            <option value="판사관사">판사관사 (종1품)</option>
+                            <option value="감수국사">감수국사 (정1품)</option>
                         </select>
                     </div>
                     <div style="text-align: right; display: flex; gap: 10px; justify-content: flex-end; margin-top: 15px;">
@@ -613,21 +604,25 @@
             return `${date.getMonth() + 1}/${date.getDate()}`;
         };
 
-        // 🚩 [추가] 직급명을 구체적으로 표시하는 함수 (점수 기반, server.js/ranking.html과 동일 기준)
+        // 🚩 [추가] 직급명을 구체적으로 표시하는 함수
         function getDetailedPosition(score) {
-            if (score >= 2600) return '정3품 수찬관';
-            if (score >= 2100) return '종3품 직수찬관';
-            if (score >= 1700) return '정4품 사관수찬';
-            if (score >= 1400) return '종4품 시강학사';
-            if (score >= 1100) return '정5품 기거주';
-            if (score >= 850)  return '종5품 기거사';
-            if (score >= 650)  return '정6품 기거랑';
-            if (score >= 450)  return '종6품 기거도위';
-            if (score >= 300)  return '정7품 수찬';
-            if (score >= 200)  return '종7품 직문한';
-            if (score >= 120)  return '정8품 주서';
-            if (score >= 60)   return '종8품 검열';
-            if (score >= 30)   return '정9품 정자';
+            if (score >= 2600) return '정1품 감수국사';
+            if (score >= 2100) return '종1품 수국사';
+            if (score >= 1700) return '정2품 판사관사';
+            if (score >= 1600) return '종2품 동수국사';
+            if (score >= 1400) return '정3품 수찬관';
+            if (score >= 1250) return '종3품 직수찬관';
+            if (score >= 1100) return '정4품 좌·우사간';
+            if (score >= 450) return '종4품 시강학사';
+            if (score >= 300) return '정5품 사천감';
+            if (score >= 200) return '종5품 기거주';
+            if (score >= 120) return '정6품 낭중';
+            if (score >= 60) return '종6품 직사관';
+            if (score >= 30) return '정7품 태학박사';
+            if (score >= 10) return '종7품 사천승';
+            if (score >= 5) return '정8품 지제고';
+            if (score >= 2) return '종8품 기주관';
+            if (score >= 1) return '정9품 학유';
             return '종9품 수분권지';
         }
 
@@ -712,21 +707,13 @@
                 const score = user.score || 0;
                 const position = getDetailedPosition(score);
                 console.log(`사용자 ${user.username} 직급:`, position, '포인트:', score);
-                const drNames = { 1: '정1품★', 2: '종1품★', 3: '정2품★', 4: '종2품★' };
-                const drBadge = user.designated_rank != null
-                    ? `<span style="font-size:9px;background:#c0392b;color:#fff;border-radius:3px;padding:0 3px;margin-left:3px;" title="관리자 지정 재상급">${drNames[user.designated_rank] || '지정'}</span>`
-                    : '';
-                const isAdminRole = user.role === 'admin' || user.role === 'superuser';
-                const adminBadge = isAdminRole
-                    ? `<span style="font-size:9px;background:#8e44ad;color:#fff;border-radius:3px;padding:0 3px;margin-left:3px;">관리자</span>`
-                    : '';
                 tr.innerHTML = ` 
                     <td>${user.username}</td>
                     <td>${user.email || '미입력'}</td>
                     <td>${lastLogin}</td>
                     <td>${user.loginCount || 0}회</td>
-                    <td>${user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'N/A'}${adminBadge}</td>
-                    <td>${position}${drBadge}</td>
+                    <td>${user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'N/A'}</td>
+                    <td>${position}</td>
                     <td>${score}</td>
                     <td>
                         <button class="button lock-btn" onclick="toggleLockStatus(this, '${user._id}', ${user.isLocked || false})">${user.isLocked ? '잠금 해제' : '계정 잠금'}</button>
@@ -1258,9 +1245,7 @@
             document.getElementById('editUsername').value = user.username;
             document.getElementById('editEmail').value = user.email;
             document.getElementById('editRole').value = user.role;
-            // designated_position이 있으면 그 값으로, 없으면 빈값(자동)
-            document.getElementById('editPosition').value = user.designated_position || '';
-            document.getElementById('editDesignatedRank').value = user.designated_rank != null ? String(user.designated_rank) : '';
+            document.getElementById('editPosition').value = user.position || '수분권지';
             document.getElementById('editPassword').value = ''; // 비밀번호 필드는 항상 비움
 
             editUserModal.style.display = 'block';
@@ -1279,7 +1264,7 @@
                 username: document.getElementById('editUsername').value,
                 email: document.getElementById('editEmail').value,
                 role: document.getElementById('editRole').value,
-                // position은 designated_position API로 별도 처리 — 여기서는 전송 안 함
+                position: document.getElementById('editPosition').value,
             };
 
             const password = document.getElementById('editPassword').value;
@@ -1300,32 +1285,6 @@
                 if (!response.ok) {
                     const errorData = await response.json();
                     throw new Error(errorData.message || '사용자 정보 수정에 실패했습니다.');
-                }
-
-                // 직급 강제 지정 별도 API 호출 (빈값이면 null → 해제)
-                const posVal = document.getElementById('editPosition').value;
-                const designatedPosition = posVal === '' ? null : posVal;
-                const dpResponse = await fetch(`${API_BASE_URL}/users/${userId}/designated-position`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ designated_position: designatedPosition })
-                });
-                if (!dpResponse.ok) {
-                    const dpError = await dpResponse.json();
-                    throw new Error(dpError.message || '직급 지정 업데이트 실패');
-                }
-
-                // 재상급 지정 별도 API 호출
-                const drVal = document.getElementById('editDesignatedRank').value;
-                const designatedRank = drVal === '' ? null : parseInt(drVal, 10);
-                const drResponse = await fetch(`${API_BASE_URL}/users/${userId}/designated-rank`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ designated_rank: designatedRank })
-                });
-                if (!drResponse.ok) {
-                    const drError = await drResponse.json();
-                    throw new Error(drError.message || '재상급 지정 업데이트 실패');
                 }
 
                 showToast('사용자 정보가 성공적으로 수정되었습니다.');

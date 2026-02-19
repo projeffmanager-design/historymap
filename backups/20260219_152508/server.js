@@ -89,14 +89,8 @@ const getPosition = (score) => {
     return RANK_CONFIG.tiers[RANK_CONFIG.tiers.length - 1].fullName;
 };
 
-// RANK_CONFIG 헬퍼: 점수 + 순위 + 지정직급 → 실시간 직급 name 반환
-// designatedRank: admin이 직접 지정한 재상급 rank 번호 (1~4), 우선 적용
-const getRealtimePosition = (score, rank, designatedRank = null) => {
-    // admin 지정 재상급이 있으면 점수 무관하게 우선 적용
-    if (designatedRank) {
-        const mt = RANK_CONFIG.ministerTiers.find(t => t.rank === designatedRank);
-        if (mt) return mt.name;
-    }
+// RANK_CONFIG 헬퍼: 점수 + 순위 → 실시간 직급 name 반환
+const getRealtimePosition = (score, rank) => {
     for (const mt of RANK_CONFIG.ministerTiers) {
         if (rank === mt.rank && score >= mt.minScore) return mt.name;
     }
@@ -2228,9 +2222,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     return res.status(400).json({ message: "잘못된 ID 형식입니다." });
                 }
 
-                const { username, email, role, password } = req.body;
-                const updateData = { username, email, role };
-                // position은 /designated-position API로 별도 처리
+                const { username, email, role, password, position } = req.body;
+                const updateData = { username, email, role, position };
 
                 // 사용자 이름 중복 확인 (자신 제외)
                 const existingUser = await collections.users.findOne({ username, _id: { $ne: _id } });
@@ -2304,73 +2297,6 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 res.json({ message: "사용자 역할이 성공적으로 업데이트되었습니다." });
             } catch (error) {
                 res.status(500).json({ message: "사용자 역할 업데이트 실패", error: error.message });
-            }
-        });
-
-        // 🚩 [추가] admin 직급 강제 지정/해제 API (정3품~종9품만, 재상급 제외)
-        app.put('/api/users/:id/designated-position', verifyAdmin, async (req, res) => {
-            try {
-                const { id } = req.params;
-                const { designated_position } = req.body; // 직급명 문자열 또는 null(해제)
-                const _id = toObjectId(id);
-                if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
-
-                const validPositions = [
-                    '수찬관', '직수찬관', '사관수찬', '시강학사',
-                    '기거주', '기거사', '기거랑', '기거도위',
-                    '수찬', '직문한', '주서', '검열', '정자', '수분권지'
-                ];
-                if (designated_position !== null && !validPositions.includes(designated_position)) {
-                    return res.status(400).json({ message: "유효하지 않은 직급입니다." });
-                }
-
-                const result = await collections.users.updateOne(
-                    { _id },
-                    designated_position === null
-                        ? { $unset: { designated_position: '' } }
-                        : { $set: { designated_position } }
-                );
-                if (result.matchedCount === 0) return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
-
-                res.json({
-                    message: designated_position === null
-                        ? '직급 강제 지정이 해제되었습니다.'
-                        : `직급이 [${designated_position}](으)로 강제 지정되었습니다.`
-                });
-            } catch (error) {
-                res.status(500).json({ message: "직급 지정 실패", error: error.message });
-            }
-        });
-
-        // 🚩 [추가] admin 재상급 직급 지정/해제 API
-        app.put('/api/users/:id/designated-rank', verifyAdmin, async (req, res) => {
-            try {
-                const { id } = req.params;
-                const { designated_rank } = req.body; // 1~4 숫자, 또는 null(해제)
-                const _id = toObjectId(id);
-
-                if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
-                if (designated_rank !== null && ![1,2,3,4].includes(designated_rank)) {
-                    return res.status(400).json({ message: "재상급 순위는 1~4 또는 null이어야 합니다." });
-                }
-
-                const result = await collections.users.updateOne(
-                    { _id },
-                    designated_rank === null
-                        ? { $unset: { designated_rank: '' } }
-                        : { $set: { designated_rank } }
-                );
-
-                if (result.matchedCount === 0) return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
-
-                const rankNames = { 1: '정1품 감수국사', 2: '종1품 판사관사', 3: '정2품 수국사', 4: '종2품 동수국사' };
-                res.json({
-                    message: designated_rank === null
-                        ? '재상급 지정이 해제되었습니다.'
-                        : `${rankNames[designated_rank]}(으)로 지정되었습니다.`
-                });
-            } catch (error) {
-                res.status(500).json({ message: "재상급 지정 실패", error: error.message });
             }
         });
 
@@ -2824,14 +2750,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             try {
                 console.log('🏆 [랭킹 조회] 시작');
                 
-                // 랭킹에서 숨길 계정 (관리용 계정 등 비회원)
-                const RANKING_HIDDEN_USERS = ['송나라 사신 서긍'];
-
                 // 🚩 [수정] users 컬렉션 기반으로 랭킹 계산 (승인만 한 사용자도 포함)
                 const rankings = await collections.users.aggregate([
-                    {
-                        $match: { username: { $nin: RANKING_HIDDEN_USERS } }
-                    },
                     {
                         $lookup: {
                             from: "contributions",
@@ -2913,9 +2833,6 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     {
                         $project: {
                             username: 1,
-                            role: 1,
-                            designated_rank: 1,
-                            designated_position: 1,
                             totalCount: { $ifNull: ["$contributionStats.totalCount", 0] },
                             approvedCount: { $ifNull: ["$contributionStats.approvedCount", 0] },
                             totalVotes: { $ifNull: ["$contributionStats.totalVotes", 0] },
@@ -2955,45 +2872,16 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     });
                 }
 
-                // 🚩 재상급 직급 - admin 지정 우선 + 점수 순위로 나머지 채움
-                // 1단계: admin이 designated_rank를 부여한 사용자 먼저 처리
-                const designatedSlots = new Set(); // 이미 지정된 재상급 slot
-                rankings.forEach((user) => {
-                    // 일반 직급 강제 지정 처리 (재상급 제외, 점수 순위에서도 제외)
-                    if (user.designated_position) {
-                        user.position = user.designated_position;
-                        user.isDesignatedPosition = true;
-                    }
-                    if (user.designated_rank) {
-                        const mt = RANK_CONFIG.ministerTiers.find(t => t.rank === user.designated_rank);
-                        if (mt) {
-                            user.position = mt.name;
-                            user.isMinister = true;
-                            user.isDesignated = true;
-                            designatedSlots.add(user.designated_rank);
-                        }
-                    }
-                    // admin/superuser 자동 직급 부여 없음 — designated_rank로만 재상급 받음
-                });
-
-                // 2단계: 지정되지 않은 재상급 자리는 점수 순위로 채움
-                let competitiveRank = 1;
+                // 🚩 [추가] 재상급 직급 - 순위 기반으로 부여 (RANK_CONFIG.ministerTiers)
                 rankings.forEach((user, index) => {
-                    if (user.isDesignated) return; // designated_rank 부여된 사용자는 이미 처리됨
-                    if (user.isDesignatedPosition) return; // 직급 강제 지정된 사용자도 점수 순위에서 제외
-                    // 지정으로 채워진 slot은 건너뜀
-                    while (designatedSlots.has(competitiveRank)) competitiveRank++;
-                    const mt = RANK_CONFIG.ministerTiers.find(t => t.rank === competitiveRank);
+                    const rank = index + 1;
+                    const mt = RANK_CONFIG.ministerTiers.find(t => t.rank === rank);
                     if (mt && user.score >= mt.minScore) {
                         user.position = mt.name;
-                        user.isMinister = true;
-                        competitiveRank++;
+                        user.isMinister = true;  // 재상급 표시
                     }
-                    user.rank = index + 1;
+                    user.rank = rank;  // 순위 추가
                 });
-
-                // rank 최종 정리
-                rankings.forEach((user, index) => { user.rank = index + 1; });
 
                 // 모든 사용자 반환
                 res.json(rankings);

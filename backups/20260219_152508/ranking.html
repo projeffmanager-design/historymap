@@ -520,10 +520,9 @@
                                 <th>순위</th>
                                 <th>사관명</th>
                                 <th>직급</th>
-                                <th style="text-align: right;">승인건수</th>
-                                <th style="text-align: right;">승인점수</th>
-                                <th style="text-align: right;">사료외</th>
                                 <th style="text-align: right;">공적</th>
+                                <th style="text-align: right;">사료제출</th>
+                                <th style="text-align: right;">승인건수</th>
                             </tr>
                         </thead>
                         <tbody id="ministersTableBody">
@@ -547,6 +546,7 @@
                                 <th class="sortable" data-sort="recommended_count" style="text-align: right;">추천받은수 (×1)</th>
                                 <th class="sortable" data-sort="approved_count" style="text-align: right;">승인된건수 (×10)</th>
                                 <th class="sortable" data-sort="reviewed_count" style="text-align: right;">검토 (×5)</th>
+                                <th class="sortable" data-sort="approved_by_count" style="text-align: right;">승인 (×5)</th>
                                 <th class="sortable" data-sort="attendance_count" style="text-align: right;">출석 (×1)</th>
                                 <th class="sortable" data-sort="score" style="text-align: right;">공적</th>
                             </tr>
@@ -674,15 +674,10 @@
             return POSITION_RANK_MAP[pos] || pos;
         }
 
-        // 재상급 사관인지 확인하는 함수 — 서버 isMinister/designated_rank 우선, 보조로 점수 판별
-        function isMinister(user) {
-            if (user.isMinister) return true;
-            if (user.designated_rank != null) return true;
-            return (user.score || 0) >= 1100; // 종2품 동수국사 점수 기준 (fallback)
+        // 재상급 사관인지 확인하는 함수 (정1품 ~ 종2품)
+        function isMinister(score) {
+            return score >= 1100; // 종2품 동수국사 이상
         }
-
-        // 숨길 계정 목록 (관리용 계정 등 비회원)
-        const HIDDEN_USERNAMES = new Set(['송나라 사신 서긍']);
 
         // 랭킹 데이터 로드
         async function loadRankings() {
@@ -708,13 +703,13 @@
                 const allUsers = await response.json();
                 console.log('API response:', allUsers);
                 
-                // 공적이 0인 사용자들도 포함해서 모든 사용자 표시 (숨김 계정 제외)
-                const users = (allUsers.length > 0 ? allUsers : []).filter(u => !HIDDEN_USERNAMES.has(u.username));
+                // 공적이 0인 사용자들도 포함해서 모든 사용자 표시
+                const users = allUsers.length > 0 ? allUsers : [];
                 console.log('Total users:', users.length);
                 
-                // 재상급 사관과 일반 사관 분리 (isMinister는 서버 플래그 + 점수 모두 반영)
-                const ministers = users.filter(user => isMinister(user));
-                const regularOfficers = users.filter(user => !isMinister(user));
+                // 재상급 사관과 일반 사관 분리
+                const ministers = users.filter(user => isMinister(user.score || 0));
+                const regularOfficers = users.filter(user => !isMinister(user.score || 0));
                 console.log('Ministers:', ministers.length, 'Regular officers:', regularOfficers.length);
                 
                 // 재상급 사관 테이블 채우기
@@ -724,7 +719,7 @@
                 if (ministers.length === 0) {
                     const row = document.createElement('tr');
                     const cell = document.createElement('td');
-                    cell.colSpan = 7;
+                    cell.colSpan = 6;
                     cell.textContent = '재상급 사관이 없습니다.';
                     cell.style.textAlign = 'center';
                     cell.style.color = '#95a5a6';
@@ -735,30 +730,14 @@
                         const row = document.createElement('tr');
                         const currentUsername = localStorage.getItem('username');
                         const isCurrentUser = currentUsername && user.username === currentUsername;
-                        const isAdmin = user.role === 'admin' || user.role === 'superuser';
-                        const isDesignated = !isAdmin && user.designated_rank != null;
-                        const badge = isAdmin
-                            ? '<span style="font-size:9px;background:#8e44ad;color:#fff;border-radius:3px;padding:0 3px;margin-left:4px;">관리자</span>'
-                            : isDesignated
-                                ? '<span style="font-size:9px;background:#c0392b;color:#fff;border-radius:3px;padding:0 3px;margin-left:4px;">지정</span>'
-                                : '';
-
-                        const submittedScore = (user.totalCount || 0) * 3;
-                        const approvedScore = (user.approvedCount || 0) * 10;
-                        // 사료외: 출석 + 추천 + 승인된건수(×10) + 검토 점수의 합 (승인한 점수 제외 — 별도 승인건수 컬럼)
-                        const nonSubmitScore = (user.approvedCount || 0) * 10
-                            + (user.totalVotes || 0)
-                            + (user.reviewScore || 0)
-                            + (user.attendancePoints || 0);
-
+                        
                         row.innerHTML = `
                             <td style="font-weight: bold; color: #f1c40f;">${user.rank || (index + 1)}</td>
-                            <td style="font-weight: bold; ${isCurrentUser ? 'color: #f1c40f;' : ''}">${user.username}${isCurrentUser ? ' 👑' : ''}${badge}</td>
+                            <td style="font-weight: bold; ${isCurrentUser ? 'color: #f1c40f;' : ''}">${user.username}${isCurrentUser ? ' 👑' : ''}</td>
                             <td style="font-weight: bold; color: #e67e22;">${normalizePosition(user.position) || getDetailedPosition(user.score || 0)}</td>
-                            <td style="text-align: right;">${user.approvedByCount || 0}</td>
-                            <td style="text-align: right;">${user.approvalScore || 0}</td>
-                            <td style="text-align: right;">${nonSubmitScore}</td>
                             <td style="text-align: right; font-weight: bold; color: #f1c40f;">${user.score || 0}</td>
+                            <td style="text-align: right;">${user.totalCount || 0}</td>
+                            <td style="text-align: right;">${user.approvedCount || 0}</td>
                         `;
                         ministersTableBody.appendChild(row);
                     });
@@ -791,8 +770,8 @@
                 
                 const ministersTableBody = document.getElementById('ministersTableBody');
                 const regularTableBody = document.getElementById('rankingTableBody');
-                ministersTableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #e74c3c;">${errorMessage}</td></tr>`;
-                regularTableBody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #e74c3c;">${errorMessage}</td></tr>`;
+                ministersTableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #e74c3c;">${errorMessage}</td></tr>`;
+                regularTableBody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: #e74c3c;">${errorMessage}</td></tr>`;
                 
                 // 모바일 디버깅을 위한 추가 정보 표시
                 if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
@@ -875,7 +854,7 @@
             if (rankingData.length === 0) {
                 const row = document.createElement('tr');
                 const cell = document.createElement('td');
-                cell.colSpan = 8;
+                cell.colSpan = 9;
                 cell.textContent = '일반 사관이 없습니다.';
                 cell.style.textAlign = 'center';
                 cell.style.color = '#95a5a6';
@@ -894,7 +873,6 @@
                 const userClass = isCurrentUser ? 'current-user' : '';
                 const displayRank = user.rank || (index + 1);
                 const displayPosition = normalizePosition(user.position) || getDetailedPosition(user.score || 0);
-                // 일반 사관 테이블: 배지 없음 (관리자/지정 배지 표시 안 함)
 
                 // 점수 계산
                 const submittedScore = (user.totalCount || 0) * 3;
@@ -910,6 +888,7 @@
                     <td style="text-align: right;" class="${userClass}">${votesScore}(${user.totalVotes || 0})</td>
                     <td style="text-align: right;" class="${userClass}">${approvedScore}(${user.approvedCount || 0})</td>
                     <td style="text-align: right;" class="${userClass}">${user.reviewScore || 0}(${user.reviewedCount || 0})</td>
+                    <td style="text-align: right;" class="${userClass}">${user.approvalScore || 0}(${user.approvedByCount || 0})</td>
                     <td style="text-align: right;" class="${userClass}">${attendanceScore}(${user.attendancePoints || 0})</td>
                     <td style="text-align: right;" class="${rankClass} ${userClass}"><strong>${user.score || 0}</strong></td>
                 `;

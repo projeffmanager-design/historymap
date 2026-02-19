@@ -5011,7 +5011,7 @@ body.force-mobile .marker-type-selector button {
 
     // 🚩 [과제1 구현] 거시 모드 국가명 레이어 (zoom < 7 에서 사용)
     let macroCountryLayer = L.layerGroup();
-    let currentMacroMode = -1; // -1=초기화 전, 0=거시, 1=중간, 2=미시
+    let currentMacroMode = false; // 현재 거시 모드 여부 추적
 
     // 🚀 [최적화] 영토가 실제 렌더링된 국가만 추적 (거시 모드 국가명 표시용)
     let _renderedCountryIds = new Set();           // updateMap 영토 루프에서 수집
@@ -5025,27 +5025,30 @@ body.force-mobile .marker-type-selector button {
 
     /**
      * [과제1 핵심] 줌 레벨 기반 거시/미시 모드 전환 (LOD)
-     * zoom < 7:   거시 모드(0) — 국가명만 표시
-     * zoom 7~<8:  중간 모드(1) — 국가명 + 수도만 표시
-     * zoom >= 8:  미시 모드(2) — 국가명 + 수도 + 모든 성 표시
+     * zoom < 7:      거시 모드  — 국가명만 표시
+     * zoom 7~7:      중간 모드  — 국가명 + 수도만 표시
+     * zoom >= 8:     미시 모드  — 국가명 + 수도 + 모든 성 표시
      */
     function applyLODMode() {
         if (!map) return;
         const zoom = map.getZoom();
+        // 0=거시, 1=중간, 2=미시
         const newMode = zoom < 7 ? 0 : zoom < 8 ? 1 : 2;
+        const prevMode = currentMacroMode === true ? 0 : currentMacroMode === false ? 2 : currentMacroMode;
 
         // 모드 변경이 없으면 스킵
-        if (newMode === currentMacroMode) return;
-        currentMacroMode = newMode;
+        if (newMode === prevMode) return;
+        currentMacroMode = newMode === 0 ? true : newMode === 1 ? 1 : false;
 
         console.log(`🔭 [LOD] 모드 전환: ${['거시(국가명만)','중간(수도)','미시(전체)'][newMode]} (zoom=${zoom})`);
 
         if (newMode === 0) {
-            // 거시 모드: 세부 마커 모두 숨김
+            // === 거시 모드: 세부 마커 모두 숨김 ===
             if (map.hasLayer(castleLayerGroup)) map.removeLayer(castleLayerGroup);
             if (map.hasLayer(labelLayerGroup)) map.removeLayer(labelLayerGroup);
+            console.log('  📍 거시 모드: 세부 마커 숨김');
         } else {
-            // 중간/미시 모드: 세부 마커 복원 후 재렌더링
+            // === 중간/미시 모드: 세부 마커 복원 후 재렌더링 ===
             if (!map.hasLayer(castleLayerGroup)) castleLayerGroup.addTo(map);
             if (!map.hasLayer(labelLayerGroup)) labelLayerGroup.addTo(map);
 
@@ -5053,6 +5056,8 @@ body.force-mobile .marker-type-selector button {
                 ? getCurrentYearMonth()
                 : { year: parseInt(yearInput?.value || 400), month: 1 };
             updateMap(curYear, curMonth, false, true);
+
+            console.log(`  📍 ${newMode === 1 ? '중간' : '미시'} 모드: 마커 재렌더링`);
         }
     }
 
@@ -5157,21 +5162,10 @@ body.force-mobile .marker-type-selector button {
     // 🚩 [과제1] zoomend 이벤트에 LOD 모드 전환 연결
     map.on('zoomend', applyLODMode);
 
-    // 🚩 [추가] zoomend 시 국가명 크기 재렌더링 + 같은 모드 내 줌 변경 시 마커 재렌더링
+    // 🚩 [추가] zoomend 시 국가명 크기 재렌더링
     map.on('zoomend', () => {
         if (layerVisibility.countryLabel) {
             renderMacroCountryNames();
-        }
-        // 같은 LOD 모드 안에서 줌이 바뀌면 applyLODMode가 스킵되므로
-        // 미시/중간 모드에서 뷰포트가 바뀐 마커를 직접 재렌더링
-        if (currentMacroMode !== 0) {
-            clearTimeout(window._zoomendMarkerTimer);
-            window._zoomendMarkerTimer = setTimeout(() => {
-                const { year, month } = typeof getCurrentYearMonth === 'function'
-                    ? getCurrentYearMonth()
-                    : { year: parseInt(yearInput?.value || 400), month: 1 };
-                updateMap(year, month, false, true);
-            }, 200);
         }
     });
 
@@ -6869,7 +6863,6 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         // 🚀 [깜빡임 방지] 새 레이어가 모두 그려진 뒤 다음 프레임에서 기존 레이어 제거
         requestAnimationFrame(() => {
             if (oldTerritoryLayerGroup) {
-                oldTerritoryLayerGroup.clearLayers(); // 🔧 [메모리 누수 수정] GeoJSON 하위 레이어 해제
                 map.removeLayer(oldTerritoryLayerGroup);
             }
             oldRenderers.forEach(r => { try { map.removeLayer(r); } catch(e) {} });
@@ -6946,12 +6939,12 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         adminControls += `<button onclick="showReviewModal('${contrib._id}')" class="button-style" style="padding: 2px 6px; font-size: 11px; margin-left: 5px; background-color: #f39c12;">🔍 검토</button>`;
                     }
                     
-                    // 🚩 [수정] 승인 버튼 (동수국사 이상) — approveContribution으로 서버 자동 처리
+                    // 🚩 [수정] 승인 버튼 (동수국사 이상)
                     if (approverPositions.includes(userPosition) && (contrib.status === 'reviewed' || contrib.status === 'pending')) {
-                        adminControls += `<button onclick="approveContribution('${contrib._id}')" class="button-style primary" style="padding: 2px 6px; font-size: 11px; margin-left: 5px; background-color: #27ae60;">✅ 최종 승인</button>`;
+                        adminControls += `<button onclick="convertContribution('${contrib._id}')" class="button-style primary" style="padding: 2px 6px; font-size: 11px; margin-left: 5px; background-color: #27ae60;">✅ 최종 승인</button>`;
                     }
                     
-                    // 🚩 [수정] 마커 변환 버튼 (동수국사 이상 또는 관리자) - approved 상태에서 castle이 없을 때 수동 변환용
+                    // 🚩 [수정] 마커 변환 버튼 (동수국사 이상 또는 관리자) - approved 상태에서만 표시
                     if ((approverPositions.includes(userPosition) || popupCurrentUser.role === 'admin' || popupCurrentUser.role === 'superuser') && contrib.status === 'approved') {
                         adminControls += `<button onclick="convertContribution('${contrib._id}')" class="button-style primary" style="padding: 2px 6px; font-size: 11px; margin-left: 5px;">🏰 마커 변환</button>`;
                     }
@@ -7012,8 +7005,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 marker.on('popupopen', function (e) {
                     const popup = e.popup;
                     if (popup && popup._container) {
-                        popup._container.addEventListener('mouseenter', () => clearTimeout(popupTimeout), { once: true });
-                        popup._container.addEventListener('mouseleave', () => this.closePopup(), { once: true });
+                        popup._container.addEventListener('mouseenter', () => clearTimeout(popupTimeout));
+                        popup._container.addEventListener('mouseleave', () => this.closePopup());
                         
                         // 팝업이 열릴 때 추천 버튼 상태 업데이트
                         const voteBtn = popup._container.querySelector(`button[onclick="voteContribution('${contrib._id}')"]`);
@@ -7221,19 +7214,16 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         castleLayerGroup.clearLayers(); // 마커 레이어는 기존처럼 클리어 후 다시 추가
         markers = [];
 
-        // � [메모리 최적화] 마커 렌더링 시 현재 padded bounds 기록 (moveend 재렌더링 판단용)
-        window._lastMarkerRenderBounds = map.getBounds().pad(1.0);
-
-        // �🚩 국가명 텍스트 항상 갱신 (줌 레벨 무관)
+        // 🚩 국가명 텍스트 항상 갱신 (줌 레벨 무관)
         renderMacroCountryNames();
         if (!map.hasLayer(macroCountryLayer)) macroCountryLayer.addTo(map);
 
         // 🚩 [과제1] 거시 모드(zoom < 7)에서는 자연지물/라벨만 렌더링
-        if (currentMacroMode === 0) {
+        if (currentMacroMode === true || currentMacroMode === 0) {
             console.log('🔭 [LOD] 거시 모드 → 자연지물/라벨 렌더링');
             allCastleMarkers = [];
         } else if (currentMacroMode === 1) {
-            console.log('🔍 [LOD] 중간 모드 → 수도+자연지물/라벨 렌더링');
+            console.log('� [LOD] 중간 모드 → 수도+자연지물/라벨 렌더링');
         }
         
         console.log(`🏰 성/도시 렌더링 시작: castles=${castles.length}, layerVisibility.city=${layerVisibility.city}`);
@@ -7254,7 +7244,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         
         // 🚀 [최적화] 뷰포트 밖 마커 스킵을 위한 현재 화면 범위 캐싱
         const _viewBounds = map.getBounds();
-        const _viewPadded = _viewBounds.pad(1.5); // 150% 여유 — 줌/이동 후 성 누락 방지
+        const _viewPadded = _viewBounds.pad(0.3); // 30% 여유를 두어 스크롤 시 깜빡임 방지
         
         labelLayerGroup.clearLayers(); // 🚩 [추가] 라벨 레이어 클리어
         castleLayerGroup.clearLayers();
@@ -7264,7 +7254,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             // 거시 모드(zoom<7): 자연지물/라벨만
             // 중간 모드(zoom 7~8): 자연지물/라벨/수도만
             // 미시 모드(zoom>=8): 전체
-            const _isMacro = currentMacroMode === 0;
+            const _isMacro = currentMacroMode === true || currentMacroMode === 0;
             const _isMid   = currentMacroMode === 1;
             // is_capital: castle 최상위 or history 레코드 중 하나라도 true면 수도로 간주
             const _isCapital = castle.is_capital ||
@@ -7377,12 +7367,12 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     if (popup && popup._container) {
                         popup._container.addEventListener('mouseenter', function() {
                             clearTimeout(popupTimeout);
-                        }, { once: true });
+                        });
                         popup._container.addEventListener('mouseleave', function() {
                             if (marker && marker.closePopup) {
                                 marker.closePopup();
                             }
-                        }, { once: true });
+                        });
                     }
                 });
                 
@@ -7600,10 +7590,10 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         if (popup && popup._container) {
                             popup._container.addEventListener('mouseenter', function() {
                                 clearTimeout(popupTimeout);
-                            }, { once: true });
+                            });
                             popup._container.addEventListener('mouseleave', function() {
                                 marker.closePopup();
-                            }, { once: true });
+                            });
                         }
                     });
                     
@@ -7698,10 +7688,10 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     if (popup && popup._container) {
                         popup._container.addEventListener('mouseenter', function() {
                             clearTimeout(popupTimeout);
-                        }, { once: true });
+                        });
                         popup._container.addEventListener('mouseleave', function() {
                             marker.closePopup();
-                        }, { once: true });
+                        });
                     }
                 });
                 
@@ -7793,7 +7783,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 if (popup && popup._container) {
                     popup._container.addEventListener('mouseenter', function() {
                         clearTimeout(popupTimeout);
-                    }, { once: true });
+                    });
                     popup._container.addEventListener('mouseleave', function() {
                         if (marker && marker.closePopup) {
                             marker.closePopup();
@@ -7946,7 +7936,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 if (popup && popup._container) {
                     popup._container.addEventListener('mouseenter', function() {
                         clearTimeout(popupTimeout);
-                    }, { once: true });
+                    });
                     popup._container.addEventListener('mouseleave', function() {
                         if (marker && marker.closePopup) {
                             marker.closePopup();
@@ -8296,7 +8286,7 @@ function invalidateCountryLookupCache() {
 
     // 🚀 [IndexedDB] Castles 캐싱 시스템
     const CASTLES_DB_NAME = 'CastlesDB';
-    const CASTLES_DB_VERSION = 3;  // 🚩 [수정] 캐시 무효화를 위해 버전 업 (아유디아 castle 추가)
+    const CASTLES_DB_VERSION = 2;  // 🚩 [수정] 캐시 무효화를 위해 버전 업
     const CASTLES_STORE_NAME = 'castles';
     const CASTLES_CACHE_DURATION = 3 * 60 * 60 * 1000; // 3시간 (24시간 → 3시간 단축)
 
@@ -9922,12 +9912,6 @@ function invalidateCountryLookupCache() {
                   // 🚩 [핵심 수정] 캐시 강제 무효화 — 이름 변경이 즉시 반영되도록
                   invalidateCountryLookupCache();
                   
-                  // 🚩 [수정] localStorage 캐시도 즉시 갱신 (재로그인 후에도 보이도록)
-                  try {
-                      localStorage.setItem('countries_cache', JSON.stringify(countries));
-                      localStorage.setItem('countries_cache_time', Date.now().toString());
-                  } catch(e) { console.warn('countries_cache 저장 실패', e); }
-                  
                   console.log(`✅ 국가 DB 동기화 완료: ${originalNameOrId} → ${updatedCountry.name}`, updatedCountry);
                   
                   // 🚩 [수정] 전체 맵 갱신 (영토 국가명, 수도명, 라벨 등 모두 반영)
@@ -9949,11 +9933,6 @@ function invalidateCountryLookupCache() {
       window.addCountryInMemory = (newCountry) => {
           countries.push(newCountry);
           invalidateCountryLookupCache();
-          // 🚩 [수정] localStorage 캐시도 즉시 갱신 (재로그인 후에도 보이도록)
-          try {
-              localStorage.setItem('countries_cache', JSON.stringify(countries));
-              localStorage.setItem('countries_cache_time', Date.now().toString());
-          } catch(e) { console.warn('countries_cache 저장 실패', e); }
           console.log(`✅ 국가 메모리 추가: ${newCountry.name} (ID: ${newCountry._id})`);
           const { year, month } = getCurrentYearMonth();
           updateMap(year, month);
@@ -9966,11 +9945,6 @@ function invalidateCountryLookupCache() {
           if (index !== -1) {
               countries.splice(index, 1);
               invalidateCountryLookupCache();
-              // 🚩 [수정] localStorage 캐시도 즉시 갱신 (재로그인 후에도 반영되도록)
-              try {
-                  localStorage.setItem('countries_cache', JSON.stringify(countries));
-                  localStorage.setItem('countries_cache_time', Date.now().toString());
-              } catch(e) { console.warn('countries_cache 저장 실패', e); }
               console.log(`✅ 국가 메모리 삭제: ${countryName}`);
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
@@ -10447,21 +10421,15 @@ function invalidateCountryLookupCache() {
               }
           }, 500);
 
-          // 🔧 [메모리 최적화] moveend 마커 재렌더링: pad(1.5) 여유로 대부분 커버되므로
-          // 뷰 중심이 이전 렌더링 bounds를 실제로 벗어난 경우에만 재렌더링
-          if (currentMacroMode !== 0) {
+          // 지도 이동 후 마커(수도/성) 재렌더링 — 뷰포트 밖 마커 스킵 보정
+          if (currentMacroMode !== true && currentMacroMode !== 0) {
               clearTimeout(window._moveendMarkerTimer);
               window._moveendMarkerTimer = setTimeout(() => {
-                  // 마지막 렌더링 시 padded bounds를 기록해뒀다가 벗어날 때만 실행
-                  const center = map.getCenter();
-                  const lastBounds = window._lastMarkerRenderBounds;
-                  if (lastBounds && lastBounds.contains(center)) return; // 아직 bounds 안 → 스킵
                   const { year, month } = typeof getCurrentYearMonth === 'function'
                       ? getCurrentYearMonth()
                       : { year: parseInt(yearInput?.value || 400), month: 1 };
-                  window._lastMarkerRenderBounds = map.getBounds().pad(1.0);
                   updateMap(year, month, false, true);
-              }, 600); // 디바운스 300 → 600ms
+              }, 300);
           }
       });
       
@@ -14387,10 +14355,8 @@ kingSelect.addEventListener('change', () => {
         
         // 🚩 [수정] 실시간 직급 계산 함수 (재상급 포함 - 순위 기반)
         // 재상급(상위 4명)은 순위 기반, 학관급은 점수 기반 자동 진급
-        function calculateRealtimePosition(userData, rank = null, designatedRank = null) {
+        function calculateRealtimePosition(userData, rank = null) {
             if (!userData) return '수분권지';
-            
-            // admin/superuser 자동 직급 없음 — designated_rank로만 재상급 받음
             
             const totalCount = userData.totalCount || 0;
             const approvedCount = userData.approvedCount || 0;
@@ -14401,16 +14367,7 @@ kingSelect.addEventListener('change', () => {
             const score = (totalCount * 3) + (approvedCount * 10) + totalVotes + reviewScore + approvalScore;
             
             // 🚩 고려 사관 통합 18단계 직급표
-            // 정1품~종2품 (재상급 - admin 지정 또는 순위 + 최소 점수 기준)
-            
-            // admin 지정 재상급 우선 적용
-            const _dr = designatedRank || userData.designated_rank || null;
-            if (_dr === 1) return '정1품 감수국사';
-            if (_dr === 2) return '종1품 판사관사';
-            if (_dr === 3) return '정2품 수국사';
-            if (_dr === 4) return '종2품 동수국사';
-            
-            // 점수+순위 기반 재상급
+            // 정1품~종2품 (재상급 - 순위 + 최소 점수 기준)
             if (rank === 1 && score >= 5000) return '정1품 감수국사';      // 정1품 - 사관의 최고 수장
             if (rank === 2 && score >= 4300) return '종1품 판사관사';      // 종1품 - 대사 기록 최종 승인
             if (rank === 3 && score >= 3700) return '정2품 수국사';        // 정2품 - 실록 편찬 총괄
@@ -16681,8 +16638,7 @@ kingSelect.addEventListener('change', () => {
                 const data = await response.json();
                 if (response.ok) {
                     // 모달 닫기 및 목록 새로고침
-                    const modal = document.getElementById('contributionDetailModal');
-                    if (modal) modal.style.display = 'none';
+                    document.getElementById('contributionDetailModal').style.display = 'none';
                     loadContributions();
                     
                     // contributions 배열에서 해당 항목 업데이트
@@ -16713,11 +16669,6 @@ kingSelect.addEventListener('change', () => {
                         alert(`${data.message}\n\n새 마커: ${c.name}`);
                     } else {
                         alert(data.message);
-                    }
-                    
-                    // 🚩 [핵심] 승인 후 IndexedDB 캐시 갱신 (재로그인 후에도 보이도록)
-                    if (typeof saveCastlesCache === 'function') {
-                        saveCastlesCache(castles).then(() => console.log('💾 [승인] IndexedDB 캐시 갱신 완료'));
                     }
                     
                     // 🚩 승인 후 지도 즉시 업데이트 (새 마커 표시)
@@ -16995,15 +16946,8 @@ kingSelect.addEventListener('change', () => {
                         const medal = rank === 1 ? '👑' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '🏅';
                         const isMe = user.username === currentUsername;
                         const pos = normalizePosition(user.position || '');
-                        const isAdmin = user.role === 'admin' || user.role === 'superuser';
-                        const isDesignated = !isAdmin && user.designated_rank != null;
-                        const badge = isAdmin
-                            ? '<span style="font-size:9px; background:#8e44ad; color:#fff; border-radius:3px; padding:0 3px; margin-left:3px;">관리자</span>'
-                            : isDesignated
-                                ? '<span style="font-size:9px; background:#c0392b; color:#fff; border-radius:3px; padding:0 3px; margin-left:3px;">지정</span>'
-                                : '';
                         return `<div style="margin-bottom: 3px; font-size: 11px; ${isMe ? 'color: #3498db; font-weight: bold;' : 'color: #ecf0f1;'}">`
-                            + `${medal} ${user.username}${isMe ? ' 👤' : ''}${badge}`
+                            + `${medal} ${user.username}${isMe ? ' 👤' : ''}`
                             + `<span style="color: #f39c12; font-size: 10px; margin-left: 4px;">${pos}</span>`
                             + `<span style="color: #95a5a6; font-size: 10px; margin-left: 4px;">(${user.score || 0}P)</span>`
                             + `</div>`;
