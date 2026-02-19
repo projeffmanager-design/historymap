@@ -1603,6 +1603,41 @@ body.force-mobile .marker-type-selector button {
         box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
     }
 
+    /* 타임슬라이더 눈금 바 */
+    #slider-ticks-bar {
+        overflow: visible;
+    }
+    .slider-tick {
+        position: absolute;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        transform: translateX(-50%);
+        pointer-events: none;
+    }
+    .slider-tick-line {
+        width: 1px;
+        background: rgba(255, 255, 255, 0.35);
+        margin-top: 2px;
+    }
+    .slider-tick-line.major {
+        background: rgba(255, 255, 255, 0.7);
+        width: 1.5px;
+    }
+    .slider-tick-label {
+        font-size: 9px;
+        color: rgba(255, 255, 255, 0.55);
+        white-space: nowrap;
+        font-family: 'Inter', -apple-system, sans-serif;
+        letter-spacing: 0;
+        line-height: 1;
+    }
+    .slider-tick-label.major {
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.85);
+        font-weight: 500;
+    }
+
     /* 🚩 [수정] 통합 타임라인 컨테이너 */
     #timeline-container {
         position: relative;
@@ -3649,6 +3684,9 @@ body.force-mobile .marker-type-selector button {
 
             <!-- 슬라이더 -->
             <input type="range" id="combinedSlider" min="-60000" max="24359" step="1" value="4800" style="width: 100%; background: transparent; cursor: pointer;">
+
+            <!-- 눈금 바 -->
+            <div id="slider-ticks-bar" style="position: relative; width: 100%; height: 22px; pointer-events: none; margin-top: 1px;"></div>
           </div>
     
           <!-- event-sidebar removed (per user request) -->
@@ -10731,22 +10769,62 @@ function invalidateCountryLookupCache() {
 
         // 🚩 [추가] 슬라이더 눈금을 동적으로 생성하는 함수
     function createSliderTicks() {
+        // ── 1. 슬라이더 위 독립 눈금 바 (항상 표시) ──────────────────────────────
+        const ticksBar = document.getElementById('slider-ticks-bar');
+        if (ticksBar) {
+            ticksBar.innerHTML = '';
+            const sliderMin = parseInt(combinedSlider.min);   // -60000
+            const sliderMax = parseInt(combinedSlider.max);   //  24359
+            const totalRange = sliderMax - sliderMin;
+
+            // 전체 연도 범위를 커버하는 눈금 간격 결정
+            // major: 500년, minor: 100년
+            const MAJOR = 500, MINOR = 100;
+
+            // 눈금을 찍을 연도 목록 (major 기준으로 시작, minor 포함)
+            const startYear = Math.ceil(-5000 / MINOR) * MINOR;
+            const endYear   = Math.floor(2500  / MINOR) * MINOR;
+
+            for (let y = startYear; y <= endYear; y += MINOR) {
+                const tm = yearMonthToTotalMonths(y, 1);
+                if (tm < sliderMin || tm > sliderMax) continue;
+                const pct = ((tm - sliderMin) / totalRange) * 100;
+                const isMajor = (y % MAJOR === 0);
+
+                const tick = document.createElement('div');
+                tick.className = 'slider-tick';
+                tick.style.left = pct + '%';
+
+                if (isMajor) {
+                    const lbl = document.createElement('div');
+                    lbl.className = 'slider-tick-label major';
+                    lbl.textContent = y < 0 ? `${Math.abs(y)}BC` : `${y}`;
+                    tick.appendChild(lbl);
+                }
+
+                const line = document.createElement('div');
+                line.className = 'slider-tick-line' + (isMajor ? ' major' : '');
+                line.style.height = isMajor ? '10px' : '6px';
+
+                tick.appendChild(line);
+                ticksBar.appendChild(tick);
+            }
+        }
+
+        // ── 2. timeline-content 안 눈금 (연대표 활성화 시에만) ────────────────────
         const timelineContent = document.getElementById('timeline-content');
         const existingTicks = timelineContent ? timelineContent.querySelector('.slider-ticks-container') : null;
-        if (existingTicks) existingTicks.remove(); // 기존 눈금 컨테이너가 있다면 먼저 제거합니다.
+        if (existingTicks) existingTicks.remove();
 
-        // 🚩 [핵심 수정] 연대표가 비활성화 상태이면 눈금을 생성하지 않고 함수를 종료합니다.
         if (!layerVisibility.timeline || !timelineContent) {
             return;
         }
 
         const ticksContainer = document.createElement('div');
-        // 🚩 [수정] 연대표 위에 표시되도록 스타일 변경
         ticksContainer.className = 'slider-ticks-container';
         ticksContainer.style.cssText = "width: 100%; height: 30px; display: flex; font-size: 11px; font-family: 'Nanum Myeongjo', serif; color: #f5e9d2; position: absolute; top: -32px; left: 0; z-index: 1000; pointer-events: none;";
 
         const sliderMin = parseInt(combinedSlider.min);
-        // 데이터 범위 기준 사용 (createDynastyTimeline이 계산한 값)
         const displayMin = (timelineDataMin !== null) ? timelineDataMin : sliderMin;
         const displayMax = (timelineDataMax !== null) ? timelineDataMax : parseInt(combinedSlider.max);
         const totalSliderMonths = displayMax - displayMin;
