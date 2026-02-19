@@ -1,853 +1,798 @@
-# 🗺️ Korea History Map - 시스템 명세서
+# 역사지도 프로젝트 시스템 명세서
 
-## 📋 프로젝트 개요
-
-**프로젝트명**: Korea History Map (역사 지도 시각화 시스템)  
-**목적**: 한국 및 동아시아 역사의 영토, 국가, 도시, 인물을 시간 기반으로 시각화하는 인터랙티브 웹 애플리케이션  
-**배포**: Vercel (프론트엔드), MongoDB Atlas (데이터베이스)  
-**버전**: 2026.01 (최신 업데이트)
+**버전**: v4.0.0  
+**최종 업데이트**: 2026년 2월 20일  
+**데이터베이스**: MongoDB Atlas — `realhistory`  
+**배포 플랫폼**: Vercel (프론트엔드 + API 통합)
 
 ---
 
-## 🏗️ 시스템 아키텍처
+## 목차
 
-### 기술 스택
-
-#### Frontend
-- **HTML5/CSS3/JavaScript (Vanilla)**
-- **Leaflet.js** - 지도 라이브러리
-- **Chart.js** - 통계 차트
-- **D3.js** (부분 사용) - 데이터 시각화
-
-#### Backend
-- **Node.js** (v18+)
-- **Express.js** - RESTful API 서버
-- **MongoDB** - NoSQL 데이터베이스 (MongoDB Atlas)
-
-#### 인증 & 보안
-- **JWT (JSON Web Token)** - 사용자 인증
-- **bcrypt** - 비밀번호 암호화
-- **CORS** - Cross-Origin 리소스 공유
-
-#### 배포 & 호스팅
-- **Vercel** - 프론트엔드 & API 호스팅
-- **MongoDB Atlas** - 클라우드 데이터베이스
-- **GitHub** - 버전 관리 & CI/CD
+1. [프로젝트 개요](#1-프로젝트-개요)
+2. [기술 스택](#2-기술-스택)
+3. [파일 구조](#3-파일-구조)
+4. [데이터베이스 스키마](#4-데이터베이스-스키마)
+5. [API 엔드포인트 명세](#5-api-엔드포인트-명세)
+6. [인증 및 권한 시스템](#6-인증-및-권한-시스템)
+7. [직급 체계 (RANK_CONFIG)](#7-직급-체계-rank_config)
+8. [프론트엔드 UI 기능](#8-프론트엔드-ui-기능)
+9. [지도 레이어 시스템](#9-지도-레이어-시스템)
+10. [사료 기여 워크플로우](#10-사료-기여-워크플로우)
+11. [타임라인 & 슬라이더 시스템](#11-타임라인--슬라이더-시스템)
+12. [영토 관리 시스템](#12-영토-관리-시스템)
+13. [성능 최적화](#13-성능-최적화)
+14. [배포 및 운영](#14-배포-및-운영)
 
 ---
 
-## 📊 데이터베이스 명세 (MongoDB)
+## 1. 프로젝트 개요
 
-### 데이터베이스명: `realhistory`
+역사지도는 한국·동아시아 역사를 인터랙티브 지도로 탐색하고, 사용자 기여(사료 제출·검토·승인)를 통해 집단지성으로 역사 데이터를 축적하는 플랫폼입니다.
 
-### 컬렉션 구조
+### 핵심 기능 요약
 
-#### 1. `castle` (성/도시)
-도시, 성, 수도, 전투지, 자연 지형지물을 저장하는 메인 컬렉션
+| 기능 | 설명 |
+|------|------|
+| 역사 지도 뷰어 | Leaflet.js 기반 동아시아 역사지도, 타임슬라이더로 연도별 탐색 |
+| 국가·성·인물 관리 | 국가/성/장수/왕 정보 CRUD, 관리자 전용 |
+| 사료 기여 시스템 | 일반 사용자 사료 제출 → 검토자 검토 → 고위직 최종 승인 → Castle 자동 변환 |
+| 직급 체계 | 점수 기반 자동 진급 (수습~정3품), 관리자 지정 재상급 (종2품~정1품) |
+| 사료 목록 페이지 | 사료 투표·댓글·검색·필터 기능 (ranking.html) |
+| 영토 폴리곤 관리 | OSM/GeoJSON 기반 영토 데이터, LOD(Level of Detail) 캐시 |
+| 랭킹 시스템 | 사용자 점수·직급·기여 통계 공개 랭킹 |
+| 관리자 패널 | 사용자 관리, 레이어 설정, 통계 조회, 계정 잠금 등 |
+
+---
+
+## 2. 기술 스택
+
+### 백엔드
+- **런타임**: Node.js
+- **프레임워크**: Express.js
+- **데이터베이스**: MongoDB Atlas (MongoDB 드라이버 직접 사용)
+- **인증**: JWT (`jsonwebtoken`) — 유효기간 365일
+- **비밀번호 암호화**: `bcryptjs` (rounds: 10)
+- **응답 압축**: `compression` 미들웨어
+- **CORS**: `cors` (개발 환경: 전체 허용)
+- **요청 크기 제한**: `50mb` (GeoJSON 지원)
+
+### 프론트엔드
+- **HTML5 / CSS3 / Vanilla JavaScript**
+- **지도 라이브러리**: Leaflet.js
+- **차트**: Chart.js
+- **아이콘**: 커스텀 SVG + PNG 이미지
+
+### 환경 변수 (`.env`)
+
+| 변수명 | 설명 |
+|--------|------|
+| `MONGO_URI` | MongoDB Atlas 연결 문자열 |
+| `JWT_SECRET` | JWT 서명 비밀키 |
+
+---
+
+## 3. 파일 구조
+
+```
+/
+├── server.js               # Express API 서버 (메인 진입점)
+├── db.js                   # MongoDB 연결 및 컬렉션 초기화
+├── index.html              # 메인 지도 뷰어 (17,700+ 줄)
+├── admin.html              # 관리자 패널
+├── ranking.html            # 사료 목록 / 랭킹 페이지
+├── account.html            # 사용자 계정 관리
+├── login.html              # 로그인 페이지
+├── register.html           # 회원가입 페이지
+├── territory_manager.html  # 영토 관리자 페이지
+├── rank_info.html          # 직급 안내 페이지
+├── recruit.html            # 사관 모집 페이지
+├── vercel.json             # Vercel 배포 설정
+├── package.json            # Node.js 의존성
+├── data/                   # GeoJSON 지역 데이터
+│   ├── asia.json
+│   └── natural_earth/
+├── public/tiles/           # 영토 타일 파일
+├── scripts/                # 유지보수 스크립트 모음
+├── backups/                # 날짜별 자동 백업 (YYYYMMDD_HHMMSS/)
+└── *.json                  # 국가/지역 경계 GeoJSON
+    ├── korea-provinces.json
+    ├── world-countries.json
+    ├── china-provinces.json
+    ├── mongolia-aimags.json
+    └── russia-regions.json
+```
+
+---
+
+## 4. 데이터베이스 스키마
+
+### 4.1 `castle` 컬렉션 — 성/도시/지명 마커
 
 ```javascript
 {
-  "_id": ObjectId,
-  "name": String,              // 도시명 (예: "평양", "한양")
-  "lat": Number,               // 위도 (WGS84)
-  "lng": Number,               // 경도 (WGS84)
-  "photo": String | null,      // 사진 URL
-  "desc": String,              // 설명
-  "is_capital": Boolean,       // 수도 여부
-  "is_battle": Boolean,        // 전투지 여부
-  "is_military_flag": Boolean, // 군기 표시 여부
-  "is_natural_feature": Boolean, // 자연 지형지물 여부
-  "is_label": Boolean,         // 라벨 텍스트 여부
-  "label_type": String | null, // 라벨 타입 ("region", "sea", etc.)
-  "label_color": String,       // 라벨 색상 (hex)
-  "label_size": String,        // 라벨 크기 ("small", "medium", "large")
-  "natural_feature_type": String | null, // 자연 지형 타입 ("mountain", "river")
-  "custom_icon": String | null, // 커스텀 아이콘 URL
-  "icon_width": Number | null,  // 아이콘 너비
-  "icon_height": Number | null, // 아이콘 높이
-  "history": Array,            // 시간별 역사 배열
-  [
-    {
-      "name": String,          // 해당 시기 이름
-      "country_id": String,    // 소속 국가 ID
-      "start_year": Number,    // 시작 연도
-      "start_month": Number,   // 시작 월
-      "end_year": Number | null, // 종료 연도 (null = 현재까지)
-      "end_month": Number,     // 종료 월
-      "is_capital": Boolean,   // 해당 시기 수도 여부
-      "is_battle": Boolean     // 해당 시기 전투 여부
-    }
-  ],
-  "country_id": String,        // 기본 소속 국가 ID
-  "built_year": Number,        // 건립 연도
-  "built_month": Number,       // 건립 월
-  "destroyed_year": Number | null, // 파괴 연도
-  "destroyed_month": Number,   // 파괴 월
-  "lastModifiedBy": String,    // 최종 수정자
-  "path_data": Array           // 경로 데이터 (선 표시용)
+  _id: ObjectId,
+  name: String,
+  lat: Number,
+  lng: Number,
+  photo: String | null,
+  desc: String,
+  country_id: ObjectId | null,
+  is_capital: Boolean,
+  is_battle: Boolean,
+  is_military_flag: Boolean,
+  is_natural_feature: Boolean,
+  is_label: Boolean,
+  natural_feature_type: String | null,  // 'river'|'mountain'|'lake'
+  label_type: String | null,            // 'place'|'country'|'ethnic'|'region'
+  label_color: String,                  // 기본: '#ffffff'
+  label_size: String,                   // 'small'|'medium'|'large'
+  built_year: Number | null,
+  built_month: Number | null,
+  destroyed_year: Number | null,
+  destroyed_month: Number | null,
+  custom_icon: String | null,
+  icon_width: Number | null,
+  icon_height: Number | null,
+  history: [{
+    name: String,
+    country_id: String,
+    start_year: Number,
+    start_month: Number,
+    end_year: Number | null,
+    end_month: Number | null,
+    is_capital: Boolean,
+    is_battle: Boolean
+  }],
+  path_data: Array,
+  deleted: Boolean,           // 소프트 삭제 플래그
+  deletedAt: Date | null,
+  originContributionId: String | null,
+  createdBy: String | null
 }
 ```
 
-**인덱스**:
-- `{ name: 1 }`
-- `{ "history.country_id": 1 }`
-- `{ lat: 1, lng: 1 }`
-
-**특징**:
-- 시간에 따라 소속 국가가 변경되는 도시 관리
-- 수도, 전투지, 자연 지형지물 등 다양한 타입 지원
-- 라벨 표시 기능으로 지도 상 텍스트 표현 가능
-
----
-
-#### 2. `countries` (국가)
-역사적 국가 정보를 저장
+### 4.2 `countries` 컬렉션 — 국가/왕조
 
 ```javascript
 {
-  "_id": ObjectId,
-  "name": String,              // 국가명 (예: "고구려", "백제")
-  "name_en": String,           // 영문명
-  "name_cn": String,           // 한자명
-  "color": String,             // 국가 색상 (hex)
-  "start_year": Number,        // 건국 연도
-  "start_month": Number,       // 건국 월
-  "end_year": Number | null,   // 멸망 연도 (null = 현재까지)
-  "end_month": Number,         // 멸망 월
-  "capital": String,           // 수도명
-  "desc": String,              // 설명
-  "flag": String | null,       // 국기 URL
-  "category": String,          // 카테고리 (예: "삼국시대", "고려")
-  "territory_style": Object    // 영토 스타일
-  {
-    "fillColor": String,       // 채우기 색상
-    "fillOpacity": Number,     // 투명도
-    "weight": Number,          // 테두리 두께
-    "color": String            // 테두리 색상
-  }
+  _id: ObjectId,
+  name: String,
+  color: String,              // hex 색상
+  start: Number,
+  end: Number | null,
+  is_main_dynasty: Boolean,
+  capital: String | null,
+  dynasty: String | null,
+  ethnicity: String | null,
+  religion: String | null,
+  description: String | null,
+  sealText: String | null,    // 낙인 글씨 직접 지정 (1~2자)
+                               // null → 국명 자동 추출 (한자 마지막 > 한글 마지막 > '?')
+  auto_created: Boolean,
+  createdFrom: String | null
 }
 ```
 
-**인덱스**:
-- `{ name: 1 }`
-- `{ start_year: 1, end_year: 1 }`
-
-**특징**:
-- 시작/종료 연월로 시간 범위 관리
-- 지도 상 영토 표시 스타일 커스터마이징
-
----
-
-#### 3. `territories` (영토 폴리곤)
-국가별 영토 경계선을 GeoJSON 형식으로 저장
+### 4.3 `users` 컬렉션 — 사용자
 
 ```javascript
 {
-  "_id": ObjectId,
-  "name": String,              // 영토명 (예: "고구려 전성기")
-  "name_en": String,           // 영문명
-  "name_ko": String,           // 한글명
-  "country_id": String,        // 소속 국가 ID
-  "type": String,              // 타입 ("country", "admin_area", "historical")
-  "admin_level": Number,       // 행정 레벨 (1-10)
-  "geometry": Object,          // GeoJSON Geometry
-  {
-    "type": String,            // "Polygon", "MultiPolygon"
-    "coordinates": Array       // [[[lng, lat], ...]]
+  _id: ObjectId,
+  username: String,           // 고유
+  email: String,              // 고유
+  password: String,           // bcrypt (rounds:10)
+  role: String,               // 'user'|'admin'|'superuser'
+  position: String,           // 현재 직급명 (로그인 시 갱신)
+  designated_rank: Number | null,     // 관리자 지정 재상급 번호 (1~4)
+  designated_position: String | null, // 관리자 지정 직급 (강제 적용)
+  reviewScore: Number,
+  approvalScore: Number,
+  attendancePoints: Number,
+  totalCount: Number,
+  approvedCount: Number,
+  dailyVoteCount: Number,
+  lastVoteDate: Date | null,
+  lastAttendanceDate: String | null,  // YYYY-MM-DD
+  isGuest: Boolean,
+  isLocked: Boolean,
+  createdAt: Date,
+  lastLogin: Date | null
+}
+```
+
+### 4.4 `contributions` 컬렉션 — 사료 기여
+
+```javascript
+{
+  _id: ObjectId,
+  userId: ObjectId,
+  username: String,
+  category: String,   // 'city'|'castle'|'natural_feature'|'place_label'|'historical_record'
+  status: String,     // 'pending'|'reviewed'|'approved'|'rejected'
+
+  // 지도 기반 기여
+  name: String,
+  lat: Number,
+  lng: Number,
+  description: String,
+  evidence: String,
+  placeType: String,          // 'city'|'castle'
+  is_natural_feature: Boolean,
+  natural_feature_type: String | null,
+  country_id: String | null,
+  new_country_name: String | null,  // 신규 국가 자동 생성용
+  start_year: Number | null,
+  end_year: Number | null,
+  is_capital: Boolean,
+
+  // 사관 기록 전용
+  year: Number | null,
+  source: String | null,
+  content: String | null,
+
+  votes: Number,
+  votedBy: [String],          // userId 배열
+
+  // 검토
+  reviewerId: ObjectId | null,
+  reviewerUsername: String | null,
+  reviewedAt: Date | null,
+  reviewComment: String | null,
+
+  // 최종 승인
+  approverId: ObjectId | null,
+  approverUsername: String | null,
+  approvedAt: Date | null,
+  approveComment: String | null,
+
+  // 댓글 (embedded)
+  comments: [{
+    _id: ObjectId,
+    author: String,
+    text: String,
+    createdAt: Date
+  }],
+
+  createdAt: Date
+}
+```
+
+### 4.5 `kings` 컬렉션 — 왕/군주
+
+```javascript
+{ _id, name, country_id, start_year, end_year, description, image }
+```
+
+### 4.6 `history` 컬렉션 — 역사 사건
+
+```javascript
+{ _id, name, year, month, country_id, description, type }
+```
+
+### 4.7 `events` 컬렉션 — 이벤트 마커
+
+```javascript
+{ _id, name, lat, lng, year, description, type }
+```
+
+### 4.8 `drawings` 컬렉션 — 지도 그림/주석
+
+```javascript
+{ _id, name, type, coordinates, color, year, description }
+```
+
+### 4.9 `territories` 컬렉션 — 영토 폴리곤
+
+```javascript
+{
+  _id, name, country_id, start_year, end_year,
+  geometry: GeoJSON,      // 2dsphere 인덱스
+  osm_id, bbox: [minLon, minLat, maxLon, maxLat],
+  simplified, area_km2
+}
+```
+
+### 4.10 `territory_tiles` 컬렉션 — 영토 타일 캐시
+
+```javascript
+{ tileKey, zoom, x, y, data: TopoJSON, createdAt }
+```
+
+### 4.11 `natural_features` 컬렉션 — 자연 지형지물
+
+```javascript
+{ _id, name, type, geometry: GeoJSON, description }
+```
+
+### 4.12 `general` 컬렉션 — 장수/인물
+
+```javascript
+{ _id, name, country_id, start_year, end_year, description, image }
+```
+
+### 4.13 `login_logs` 컬렉션
+
+```javascript
+{ _id, userId: ObjectId, timestamp: Date }
+```
+
+### 4.14 `page_views` 컬렉션
+
+```javascript
+{ _id, path, date, count, firstSeenAt }
+```
+
+### 4.15 `layer_settings` 컬렉션
+
+```javascript
+{
+  type: 'default',
+  settings: {
+    city, placeLabel, countryLabel, ethnicLabel, military, natural,
+    event, territoryPolygon, rivers, timeline, kingPanel, historyPanel,
+    userContributions
   },
-  "bbox": Array,               // Bounding Box [minLon, minLat, maxLon, maxLat]
-  "start_year": Number,        // 시작 연도 (기본: -3000)
-  "end_year": Number,          // 종료 연도 (기본: 3000)
-  "start": Number,             // start_year 별칭
-  "end": Number,               // end_year 별칭
-  "properties": Object,        // 추가 속성
-  "code": String | null,       // 코드 (예: "KR", "CN")
-  "population": Number | null, // 인구
-  "area": Number | null,       // 면적 (km²)
-  "osm_id": String | null      // OpenStreetMap ID
+  updatedAt
 }
 ```
 
-**인덱스**:
-- `{ name: 1 }`
-- `{ country_id: 1 }`
-- `{ start_year: 1, end_year: 1 }`
-- `{ bbox: "2dsphere" }` - 지리공간 인덱스
+---
 
-**특징**:
-- GeoJSON 표준 준수
-- bbox 자동 계산으로 빠른 공간 쿼리
-- 대용량 폴리곤 지원 (최대 50MB)
+## 5. API 엔드포인트 명세
+
+### 5.1 인증 미들웨어
+
+| 미들웨어 | 설명 |
+|----------|------|
+| `verifyToken` | JWT 검증 (일반 사용자 이상) |
+| `verifyAdmin` | admin + superuser |
+| `verifyAdminOnly` | admin 만 |
+| `verifySuperuser` | superuser 만 |
+| `verifyApprover` | 정2품 수국사 이상 + admin/superuser |
+
+### 5.2 성/도시 (Castle) API
+
+| 메서드 | 경로 | 권한 | 설명 |
+|--------|------|------|------|
+| GET | `/api/castle` | verifyToken | 전체 조회 (`?label_type=`) |
+| GET | `/api/castle/:id` | verifyToken | 단일 조회 |
+| POST | `/api/castle` | verifyToken | 생성 |
+| PUT | `/api/castle/:id` | verifyToken | 수정 |
+| DELETE | `/api/castle/:id` | verifyAdmin | 소프트 삭제 |
+| PUT | `/api/castle/:id/restore` | verifyAdmin | 복구 |
+| DELETE | `/api/castle/:id/permanent` | verifyAdmin | 영구 삭제 |
+| GET | `/api/castle/trash` | verifyAdmin | 휴지통 목록 |
+
+### 5.3 국가 (Countries) API
+
+| 메서드 | 경로 | 권한 | 설명 |
+|--------|------|------|------|
+| GET | `/api/countries` | verifyToken | 전체 조회 |
+| GET | `/api/countries/:name` | verifyToken | 이름으로 조회 |
+| POST | `/api/countries` | verifyAdmin | 생성 |
+| PUT | `/api/countries/:name` | verifyAdmin | 수정 (`sealText` 포함) |
+| DELETE | `/api/countries/:name` | verifyAdmin | 삭제 |
+
+### 5.4 왕 (Kings) API
+
+| 메서드 | 경로 | 권한 | 설명 |
+|--------|------|------|------|
+| GET | `/api/kings` | 없음 | 전체 조회 |
+| GET | `/api/kings/:id` | verifyToken | 단일 조회 |
+| POST | `/api/kings` | verifyAdmin | 생성 |
+| PUT | `/api/kings/:id` | verifyAdmin | 수정 |
+| DELETE | `/api/kings/:id` | verifyAdmin | 삭제 |
+
+### 5.5 역사 사건 (History) API
+
+| 메서드 | 경로 | 권한 |
+|--------|------|------|
+| GET | `/api/history` | verifyToken |
+| POST | `/api/history` | verifyAdmin |
+| PUT | `/api/history/:id` | verifyAdmin |
+| DELETE | `/api/history/:id` | verifyAdmin |
+
+### 5.6 이벤트 마커 (Events) API
+
+| 메서드 | 경로 | 권한 |
+|--------|------|------|
+| GET | `/api/events` | verifyToken |
+| GET | `/api/events/:id` | verifyToken |
+| POST | `/api/events` | verifyAdmin |
+| PUT | `/api/events/:id` | verifyAdmin |
+| DELETE | `/api/events/:id` | verifyAdmin |
+
+### 5.7 그림/주석 (Drawings) API
+
+| 메서드 | 경로 | 권한 |
+|--------|------|------|
+| GET | `/api/drawings` | verifyToken |
+| GET | `/api/drawings/:id` | verifyToken |
+| POST | `/api/drawings` | verifyAdmin |
+| PUT | `/api/drawings/:id` | verifyAdmin |
+| DELETE | `/api/drawings/:id` | verifyAdmin |
+
+### 5.8 장수/인물 (General) API
+
+| 메서드 | 경로 | 권한 |
+|--------|------|------|
+| GET | `/api/general` | verifyToken |
+| POST | `/api/general` | verifyAdmin |
+| PUT | `/api/general/:id` | verifyAdmin |
+| DELETE | `/api/general/:id` | verifyAdmin |
+
+### 5.9 영토 (Territories) API
+
+| 메서드 | 경로 | 권한 | 설명 |
+|--------|------|------|------|
+| GET | `/api/territories` | 없음 | 영토 폴리곤 조회 |
+| POST | `/api/territories` | verifyAdmin | 생성 |
+| PUT | `/api/territories/:id` | verifyAdmin | 수정 |
+| DELETE | `/api/territories/:id` | verifyAdmin | 삭제 |
+| DELETE | `/api/territories/by-osm/:osm` | verifyAdmin | OSM ID로 삭제 |
+| GET | `/api/territory-tiles` | verifyToken | 타일 캐시 조회 |
+| GET | `/api/territory-cache` | 없음 | 캐시 조회 |
+| DELETE | `/api/territory-cache` | verifyAdmin | 캐시 초기화 |
+| POST | `/api/territory-cache/recalculate` | verifyAdmin | 캐시 재계산 |
+
+### 5.10 자연 지형지물 (Natural Features) API
+
+| 메서드 | 경로 | 권한 |
+|--------|------|------|
+| GET | `/api/natural-features` | 없음 |
+| POST | `/api/natural-features` | verifyToken |
+
+### 5.11 인증 (Auth) API
+
+| 메서드 | 경로 | 권한 | 설명 |
+|--------|------|------|------|
+| POST | `/api/auth/signup` | 없음 | 공개 회원가입 |
+| POST | `/api/auth/register` | verifyAdminOnly | 관리자용 등록 (역할·직급 지정) |
+| POST | `/api/auth/login` | 없음 | 로그인 → JWT 발급 (365일) |
+| POST | `/api/auth/guest-login` | 없음 | 게스트 로그인 (24일 토큰) |
+| PUT | `/api/auth/change-password` | verifyToken | 비밀번호 변경 |
+
+**로그인 부가 동작**: 계정 잠금 확인 → 로그인 로그 기록 → 오늘 첫 로그인 시 attendancePoints +1 → JWT 발급
+
+### 5.12 사용자 관리 (Users) API
+
+| 메서드 | 경로 | 권한 | 설명 |
+|--------|------|------|------|
+| GET | `/api/users` | verifyAdminOnly | 전체 목록 |
+| GET | `/api/user/me` | verifyToken | 내 정보 |
+| PUT | `/api/users/:id` | verifyAdminOnly | 정보 수정 |
+| DELETE | `/api/users/:id` | verifyAdminOnly | 삭제 |
+| PUT | `/api/users/:id/role` | verifyAdmin | 역할 변경 |
+| PUT | `/api/users/:id/designated-position` | verifyAdmin | 직급 강제 지정 |
+| PUT | `/api/users/:id/designated-rank` | verifyAdmin | 재상급 번호 지정 (1~4) |
+| PUT | `/api/users/:id/lock` | verifyAdmin | 계정 잠금/해제 |
+| POST | `/api/admin/switch-user/:userId` | verifyAdmin | 해당 사용자 JWT 발급 |
+
+### 5.13 사료 기여 (Contributions) API
+
+| 메서드 | 경로 | 권한 | 설명 |
+|--------|------|------|------|
+| GET | `/api/contributions` | 없음 | 목록 조회 (`?status=&userId=`) |
+| POST | `/api/contributions` | verifyToken | 사료 제출 |
+| PUT | `/api/contributions/:id/vote` | verifyToken | 추천 (일일 10회 제한) |
+| PUT | `/api/contributions/:id/review` | verifyToken | 검토 (시강학사 이상) |
+| PUT | `/api/contributions/:id/status` | verifyApprover | 상태 변경 → Castle 자동 생성 |
+| PUT | `/api/contributions/:id/approve` | verifyToken | 최종 승인 (동수국사 이상) → Castle 자동 생성 |
+| DELETE | `/api/contributions/:id/my` | verifyToken | 본인 삭제 (승인 전만) |
+| DELETE | `/api/contributions/:id` | verifyAdmin | 관리자 삭제 (점수 역산) |
+| GET | `/api/contributions/:id/comments` | 없음 | 댓글 목록 |
+| POST | `/api/contributions/:id/comments` | verifyToken | 댓글 작성 |
+| DELETE | `/api/contributions/:id/comments/:commentId` | verifyToken | 댓글 삭제 (본인/관리자) |
+
+### 5.14 랭킹 & 관리 API
+
+| 메서드 | 경로 | 권한 | 설명 |
+|--------|------|------|------|
+| GET | `/api/rankings` | 없음 | 전체 사용자 랭킹 |
+| POST | `/api/admin/recalculate-scores` | verifyToken (admin) | 점수 재계산 |
+
+**랭킹 점수** = (제출수 × 3) + (승인수 × 10) + 추천수 + reviewScore + approvalScore + attendancePoints
+
+### 5.15 통계 (Stats) API
+
+| 메서드 | 경로 | 권한 | 설명 |
+|--------|------|------|------|
+| GET | `/api/stats/daily-logins` | verifyAdminOnly | 최근 7일 일일 접속자 |
+| GET | `/api/stats/page-views` | verifyAdminOnly | 페이지별 조회수 |
+
+### 5.16 레이어 설정 API
+
+| 메서드 | 경로 | 권한 |
+|--------|------|------|
+| GET | `/api/layer-settings` | 없음 |
+| PUT | `/api/layer-settings` | verifyAdmin |
 
 ---
 
-#### 4. `kings` (왕/군주)
-역사적 군주 정보
+## 6. 인증 및 권한 시스템
+
+### 역할 (Role)
+
+| role | 설명 |
+|------|------|
+| `user` | 일반 사용자: 지도 열람, 사료 제출, 투표, 댓글 |
+| `admin` | 관리자: 모든 CRUD, 사용자 관리, 레이어 설정 |
+| `superuser` | 최상위 관리자: 시스템 전체 권한 |
+
+### JWT 페이로드
 
 ```javascript
 {
-  "_id": ObjectId,
-  "name": String,              // 이름 (예: "태조 왕건")
-  "country_id": String,        // 소속 국가 ID
-  "start_year": Number,        // 즉위 연도
-  "start_month": Number,       // 즉위 월
-  "end_year": Number | null,   // 퇴위 연도
-  "end_month": Number,         // 퇴위 월
-  "birth_year": Number | null, // 출생 연도
-  "death_year": Number | null, // 사망 연도
-  "temple_name": String,       // 묘호 (예: "태조")
-  "posthumous_name": String,   // 시호
-  "desc": String,              // 설명
-  "achievements": Array,       // 업적 목록
-  "photo": String | null       // 초상화 URL
+  userId: String,
+  username: String,
+  role: String,
+  position: String,
+  isGuest: Boolean,   // 게스트만
+  iat, exp            // 발급/만료 (365일)
 }
 ```
 
-**인덱스**:
-- `{ country_id: 1 }`
-- `{ start_year: 1 }`
+---
+
+## 7. 직급 체계 (RANK_CONFIG)
+
+### 점수 가중치
+
+| 활동 | 점수 |
+|------|------|
+| 사료 제출 1건 | +3 |
+| 사료 승인 1건 | +10 |
+| 추천 받기 | +1/회 |
+| 검토 보너스 | +5/건 |
+| 승인 보너스 | +5/건 |
+| 최종 승인 보너스 | +10/건 |
+| 매일 출석 | +1 |
+| 일일 추천 한도 | 10회/일 |
+
+### 자동 진급 직급 (점수 기반)
+
+| 직급명 | 등급 | 최소 점수 |
+|--------|------|----------|
+| 수찬관(修撰官) | 정3품 | 2,600 |
+| 직수찬관(直修撰官) | 종3품 | 2,100 |
+| 사관수찬(史館修撰) | 정4품 | 1,700 |
+| 시강학사(侍講學士) | 종4품 | 1,400 |
+| 기거주(起居注)/낭중(郞中) | 정5품 | 1,100 |
+| 기거사(起居舍)/원외랑(員外郞) | 종5품 | 850 |
+| 기거랑(起居郞)/직사관(直史館) | 정6품 | 650 |
+| 기거도위(起居都尉) | 종6품 | 450 |
+| 수찬(修撰) | 정7품 | 300 |
+| 직문한(直文翰) | 종7품 | 200 |
+| 주서(注書) | 정8품 | 120 |
+| 검열(檢閱) | 종8품 | 60 |
+| 정자(正字) | 정9품 | 30 |
+| 수분권지(修分權知) | 수습 | 0 |
+
+### 재상급 직급 (순위 + 최소 점수 기반)
+
+| 순위 | 직급명 | 등급 | 최소 점수 |
+|------|--------|------|----------|
+| 1위 | 감수국사(監修國史) | 정1품 | 5,000 |
+| 2위 | 판사관사(判史館事) | 종1품 | 4,300 |
+| 3위 | 수국사(修國史) | 정2품 | 3,700 |
+| 4위 | 동수국사(同修國史) | 종2품 | 3,100 |
+
+관리자 `designated_rank` 지정 시 점수·순위 무관 강제 적용.
+
+### 검토/승인 권한
+
+| 기능 | 최소 직급 |
+|------|----------|
+| 사료 검토 (`/review`) | 시강학사 (종4품) |
+| 최종 승인 (`/approve`) | 동수국사 (종2품) |
+| API 승인 (`/status`) | 수국사 (정2품) |
 
 ---
 
-#### 5. `general` (장군/인물)
-역사적 인물 정보
+## 8. 프론트엔드 UI 기능
+
+### 8.1 메인 지도 (`index.html`)
+
+- **지도 엔진**: Leaflet.js (OSM 타일)
+- **마커 분류**: 성/수도/전투지/자연지물/레이블 등
+- **국가 낙인 마커**: 수도 위치에 인감 스타일 표시
+  - `countries.sealText` 우선 → 국명 자동 추출 (한자 > 한글 > `?`)
+- **마커 팝업**: 이름, 국가, 기간, 💬 댓글 수 표시
+- **영토 폴리곤**: 타임슬라이더 연도 기준 국가 색상 오버레이
+- **LOD**: 줌 레벨 기반 마커 밀도 자동 조절
+
+### 8.2 국가 편집 폼
+
+- 이름(자동완성), 색상, 건국/멸망 연도, 수도, 민족, 종교, 설명
+- **낙인 글씨 필드** (`#countrySealText`): 1~2자 직접 입력, 비워두면 자동 추출
+
+### 8.3 타임슬라이더 (`#combinedSlider`)
+
+- 범위: `min=-60000` ~ `max=24359` (총 개월 단위), `step=1`
+- **핸들 디자인**:
+  - 크기 24×24px, 배경색 `#1e2a38`, 금색 테두리 `2px solid #DAA520`
+  - 중앙 낙관 PNG 이미지 (`background-size: 80% 80%`)
+  - 모양 `border-radius: 3px 3px 12px 12px`
+  - hover: scale(1.1) / active: scale(0.95)
+
+### 8.4 눈금 바 (`#slider-ticks-bar`)
+
+슬라이더 바로 아래 위치 (`margin-top: 1px`), 높이 22px, `pointer-events: none`
+
+| 눈금 종류 | 간격 | 표시 |
+|----------|------|------|
+| Major | 500년 | 레이블(10px) + 10px 선 |
+| Minor | 100년 | 6px 선만 |
+
+CSS:
+- `.slider-tick`: `position: absolute; display: flex; flex-direction: column; align-items: center; transform: translateX(-50%)`
+- `.slider-tick-line.major`: `background: rgba(255,255,255,0.7); width: 1.5px`
+- `.slider-tick-label.major`: `font-size: 10px; color: rgba(255,255,255,0.85); font-weight: 500`
+
+### 8.5 탑바
+
+배경색: `rgba(30, 42, 56, 0.95)` (`#1e2a38`). 로그인/로그아웃, 연도 표시, 직급 표시, 레이어 토글.
+
+### 8.6 연대표 / 왕 패널 / 역사 패널
+
+타임슬라이더와 연동하여 해당 연도의 국가 존속 기간, 재위 왕, 역사 사건 표시.
+
+### 8.7 사료 목록 페이지 (`ranking.html`)
+
+- 사료 목록: 검색·필터·정렬 (상태별: pending/reviewed/approved/rejected)
+- 사료별 투표 버튼 + 💬 댓글 수 표시 및 댓글 작성
+- 사용자 랭킹 테이블 (점수·직급·기여통계)
+
+---
+
+## 9. 지도 레이어 시스템
+
+| 레이어 키 | 설명 | 기본값 |
+|-----------|------|--------|
+| `city` | 성/도시 마커 | true |
+| `placeLabel` | 지명 레이블 | false |
+| `countryLabel` | 국가명 레이블 | true |
+| `ethnicLabel` | 민족 레이블 | false |
+| `military` | 군사 마커 | false |
+| `natural` | 자연 지형 마커 | true |
+| `event` | 이벤트 마커 | false |
+| `territoryPolygon` | 영토 폴리곤 | true |
+| `rivers` | 강 레이어 | false |
+| `timeline` | 연대표 패널 | true |
+| `kingPanel` | 왕 패널 | false |
+| `historyPanel` | 역사 패널 | false |
+| `userContributions` | 기여 마커 | true |
+
+`layer_settings` 컬렉션에서 관리자가 기본값 설정 가능.
+
+---
+
+## 10. 사료 기여 워크플로우
+
+### 제출 카테고리
+
+| category | 설명 |
+|----------|------|
+| `city` | 도시 추가 제안 |
+| `castle` | 성/요새 추가 제안 |
+| `natural_feature` | 자연 지형지물 제안 |
+| `place_label` | 지명 레이블 제안 |
+| `historical_record` | 사관 기록 (텍스트, 지도 미반영) |
+
+### 워크플로우
+
+```
+제출 → 검토자 자동 배정 (assignable 직급 중 랜덤, 본인 제외)
+  ↓ (pending)
+시강학사~수찬관: /review → reviewed 또는 rejected (+5점)
+  ↓ (reviewed)
+동수국사 이상: /approve → approved (+10점, 검토자 +5점, 기여자 approvedCount+1)
+  → Castle 자동 생성 (지도 기반 기여만)
+    → new_country_name 있으면 국가 자동 생성
+```
+
+### 투표 제한
+
+일일 10회 (`users.dailyVoteCount` + `users.lastVoteDate`로 관리, 날짜 변경 시 리셋)
+
+---
+
+## 11. 타임라인 & 슬라이더 시스템
+
+### 시간 변환
 
 ```javascript
-{
-  "_id": ObjectId,
-  "name": String,              // 이름
-  "country_id": String,        // 소속 국가 ID
-  "birth_year": Number | null, // 출생 연도
-  "death_year": Number | null, // 사망 연도
-  "role": String,              // 역할 ("general", "scholar", "politician")
-  "desc": String,              // 설명
-  "major_battles": Array,      // 주요 전투 목록
-  "photo": String | null       // 초상화 URL
-}
+yearMonthToTotalMonths(year, month) = (year + 60000) * 12 + (month - 1)
+totalMonthsToYearMonth(n) = { year: floor(n/12) - 60000, month: n%12 + 1 }
 ```
 
----
+### 슬라이더 범위
 
-#### 6. `events` (역사 이벤트)
-특정 시점의 역사적 사건
+| min | max | step | 기본값 |
+|-----|-----|------|--------|
+| -60000 | 24359 | 1 | 4800 |
 
-```javascript
-{
-  "_id": ObjectId,
-  "title": String,             // 사건명 (예: "삼국통일")
-  "year": Number,              // 발생 연도
-  "month": Number,             // 발생 월
-  "day": Number | null,        // 발생 일
-  "desc": String,              // 설명
-  "related_countries": Array,  // 관련 국가 ID 배열
-  "related_castles": Array,    // 관련 도시 ID 배열
-  "category": String,          // 카테고리 ("battle", "treaty", "reform")
-  "importance": Number         // 중요도 (1-5)
-}
-```
+### 눈금 생성 (`createSliderTicks()`)
 
-**인덱스**:
-- `{ year: 1, month: 1 }`
-- `{ category: 1 }`
+- 범위: -5000년 ~ 2500년
+- Major 500년 간격 (레이블 먼저, 라인 나중)
+- Minor 100년 간격 (라인만)
+- 슬라이더 너비 대비 비례 배치, 초기화·리사이즈 시 재생성
 
 ---
 
-#### 7. `history` (통합 역사 타임라인)
-시간순 역사 기록 (복합 컬렉션)
+## 12. 영토 관리 시스템
 
-```javascript
-{
-  "_id": ObjectId,
-  "type": String,              // 타입 ("castle", "country", "event", "king")
-  "ref_id": String,            // 참조 문서 ID
-  "year": Number,              // 연도
-  "month": Number,             // 월
-  "action": String,            // 행동 ("created", "updated", "destroyed")
-  "desc": String,              // 설명
-  "country_id": String | null  // 관련 국가 ID
-}
-```
-
-**인덱스**:
-- `{ year: 1, month: 1 }`
-- `{ type: 1, ref_id: 1 }`
+- 데이터 소스: OSM (`test_osm_import.js`), GeoJSON 파일 (`scripts/add_*.js`)
+- 2dsphere 인덱스: `territories.geometry`, `natural_features.geometry`, `castle.location`
+- 캐시: `territory_cache` 컬렉션, `/api/territory-cache/recalculate`로 재계산
 
 ---
 
-#### 8. `users` (사용자)
-회원 정보 및 권한 관리
+## 13. 성능 최적화
 
-```javascript
-{
-  "_id": ObjectId,
-  "username": String,          // 사용자명 (고유)
-  "email": String,             // 이메일 (고유)
-  "password": String,          // bcrypt 해시 비밀번호
-  "role": String,              // 역할 ("user", "admin", "superuser")
-  "created_at": Date,          // 가입일
-  "last_login": Date | null,   // 최근 로그인
-  "is_active": Boolean         // 활성 상태
-}
-```
+### 서버
+- `compression()` gzip 압축
+- `express.json({ limit: '50mb' })` 대용량 GeoJSON 지원
+- MongoDB 2dsphere 인덱스
+- `castle` 조회 시 `deleted: false` 자동 필터
 
-**인덱스**:
-- `{ username: 1 }` (unique)
-- `{ email: 1 }` (unique)
-
-**권한 레벨**:
-- `user`: 일반 사용자 (읽기 전용)
-- `admin`: 관리자 (편집 가능, 회원 관리)
-- `superuser`: 최고 관리자 (모든 권한)
+### 클라이언트
+- LOD: 줌 레벨 기반 마커/레이어 on/off
+- 타임슬라이더 throttle
+- 눈금 바 `pointer-events: none`
 
 ---
 
-#### 9. `drawings` (그림 경로)
-사용자가 지도에 그린 선/도형
+## 14. 배포 및 운영
 
-```javascript
-{
-  "_id": ObjectId,
-  "user_id": String,           // 작성자 ID
-  "name": String,              // 그림 이름
-  "type": String,              // 타입 ("line", "polygon", "circle")
-  "coordinates": Array,        // 좌표 배열
-  "color": String,             // 색상
-  "weight": Number,            // 두께
-  "created_at": Date,          // 생성일
-  "is_public": Boolean         // 공개 여부
-}
-```
+### Vercel 배포
 
----
+- 정적 파일 루트 디렉토리 서빙
+- API → `server.js` 함수 라우팅
+- 환경 변수: `MONGO_URI`, `JWT_SECRET`
 
-#### 10. `natural_features` (자연 지형지물)
-산맥, 강, 호수 등
+### 로컬 개발
 
-```javascript
-{
-  "_id": ObjectId,
-  "name": String,              // 이름 (예: "한강", "백두산")
-  "name_en": String,           // 영문명
-  "type": String,              // 타입 ("mountain", "river", "lake", "sea")
-  "geometry": Object,          // GeoJSON Geometry (LineString for rivers, Point for mountains)
-  "elevation": Number | null,  // 고도 (m)
-  "length": Number | null,     // 길이 (km, for rivers)
-  "area": Number | null,       // 면적 (km², for lakes)
-  "desc": String,              // 설명
-  "historical_significance": String // 역사적 의의
-}
-```
-
----
-
-#### 11. `login_logs` (로그인 로그)
-사용자 로그인 기록
-
-```javascript
-{
-  "_id": ObjectId,
-  "user_id": String,           // 사용자 ID
-  "username": String,          // 사용자명
-  "date": Date,                // 로그인 날짜 (UTC, 날짜만)
-  "count": Number,             // 해당 날짜 로그인 횟수
-  "last_login_time": Date      // 마지막 로그인 시간
-}
-```
-
-**인덱스**:
-- `{ user_id: 1, date: 1 }` (unique)
-
----
-
-#### 12. `page_views` (페이지 조회)
-페이지별 조회수 통계
-
-```javascript
-{
-  "_id": ObjectId,
-  "path": String,              // 페이지 경로 (예: "/index.html")
-  "date": Date,                // 날짜 (UTC, 날짜만)
-  "count": Number              // 조회수
-}
-```
-
-**인덱스**:
-- `{ path: 1, date: 1 }` (unique)
-- `{ date: 1 }`
-
----
-
-#### 13. `territory_cache` (영토 캐시)
-영토 폴리곤 캐시 (성능 최적화)
-
-```javascript
-{
-  "_id": ObjectId,
-  "cache_key": String,         // 캐시 키 (예: "territories_all")
-  "data": Object,              // 캐시된 데이터
-  "created_at": Date,          // 생성일
-  "expires_at": Date           // 만료일
-}
-```
-
-**인덱스**:
-- `{ cache_key: 1 }` (unique)
-- `{ expires_at: 1 }` (TTL 인덱스)
-
----
-
-#### 14. `territory_tiles` (영토 타일)
-TopoJSON으로 압축된 영토 데이터 (미래 확장용)
-
-```javascript
-{
-  "_id": ObjectId,
-  "tile_id": String,           // 타일 ID (예: "z5_x10_y20")
-  "topojson": Object,          // TopoJSON 데이터
-  "bbox": Array,               // Bounding Box
-  "zoom_level": Number,        // 줌 레벨
-  "created_at": Date
-}
-```
-
----
-
-## 🚀 애플리케이션 기능 명세
-
-### 1. 메인 지도 뷰어 (`index.html`)
-
-#### 1.1 시간 컨트롤
-- **연대표 슬라이더**: -3000년 ~ 현재까지 연도 선택
-- **월 선택**: 1-12월 세부 제어
-- **재생 기능**: 자동 연도 진행 (속도 조절 가능)
-- **즐겨찾기**: 특정 시점 저장 및 빠른 이동
-
-#### 1.2 지도 표시
-- **영토 폴리곤**: GeoJSON 기반 국가별 경계선 표시
-  - 지배 국가 자동 계산 (폴리곤 내 마커 기반, 수도=가중치 3, 일반 도시=1)
-  - 국가별 색상/스타일 자동 적용 (fillOpacity: 0.3, weight: 2)
-  - 뷰포트 기반 렌더링으로 성능 최적화
-  - 중복 렌더링 방지 (Set 기반 추적)
-  - 시간대별 영토 변화 표시 (start_year, end_year)
-  
-- **도시/성 마커**: 클릭 시 상세 정보 팝업
-  - 수도: 왕성 마커 (국기 + 도시명 라벨)
-  - 일반 도시: 점 마커
-  - 전투지: 검 아이콘 (⚔️)
-  - 군기: 깃발 마커 (장수명, 병력, 국기 표시)
-  - 줌 레벨에 따른 마커 크기 자동 조절 (transform: scale)
-  
-- **자연 지형지물**: 레이어 토글로 표시/숨김
-  - 강: 파란색 LineString (color: #3498db, weight: 2)
-  - 산맥: 갈색 점선 (color: #A0522D, dashArray: '5, 10')
-  - 자연 지형 마커: 산(🏔️), 강(🌊), 바다(🌊), 뻘(🟤) 아이콘
-  
-- **라벨 텍스트**: 지역명, 바다명 텍스트 마커
-  - 배경 투명, 텍스트 그림자 효과
-  - 크기: small/medium/large 선택 가능
-  - 색상: 커스터마이징 지원 (hex)
-  - 타입: region, sea, river 등
-  
-- **사용자 그리기**: 시간대별 표시/숨김
-  - 성곽: '凹' 텍스트 반복 패턴 (white, font-size: 12)
-  - 강: 파란색 선 (weight: 6, opacity: 0.7)
-  - 산맥: 갈색 점선 (weight: 9, opacity: 0.5)
-  - 화살표: Polyline Decorator 플러그인 사용
-  - 일반 도형: 사용자 지정 색상 (Circle, Polygon, LineString 등)
-
-#### 1.3 레이어 컨트롤
-- **국가 선택**: 특정 국가만 표시/숨김
-- **카테고리 필터**: 도시/전투지/자연지형 토글
-- **투명도 조절**: 영토 폴리곤 투명도 설정
-- **베이스맵 변경**: OpenStreetMap, 위성 지도 등
-
-#### 1.4 검색 기능
-- **도시 검색**: 이름으로 도시 찾기
-- **국가 검색**: 국가명으로 필터링
-- **인물 검색**: 왕/장군 검색 후 관련 지역 표시
-
-#### 1.5 편집 모드 (관리자 전용)
-- **도시 추가/편집/삭제**
-  - 지도 클릭으로 위치 설정
-  - 시간별 역사 관리
-  - 다중 소속 국가 지원
-- **국가 추가/편집/삭제**
-  - 색상/스타일 설정
-  - 시작/종료 연월 설정
-- **영토 폴리곤 편집**
-  - GeoJSON 업로드
-  - 경계선 그리기
-- **자연 지형 추가**
-  - 산맥/강 경로 그리기
-  - 아이콘 커스터마이징
-
-#### 1.6 사용자 기능
-- **그리기 도구**: 선/도형 그리기 및 저장
-- **스크린샷**: 현재 지도 화면 캡처
-- **공유**: URL로 특정 시점 공유
-
----
-
-### 2. 회원 관리 시스템
-
-#### 2.1 회원가입 (`register.html`)
-- 사용자명, 이메일, 비밀번호 입력
-- 이메일 중복 확인
-- 비밀번호 암호화 (bcrypt)
-
-#### 2.2 로그인 (`login.html`)
-- 사용자명/이메일 + 비밀번호 인증
-- JWT 토큰 발급 (유효기간: 1년)
-- 세션 유지 (localStorage/sessionStorage)
-- 로그인 로그 자동 기록
-
-#### 2.3 계정 관리 (`account.html`)
-- 프로필 정보 조회
-- 비밀번호 변경
-- 내 그림 목록 조회
-- 로그인 기록 확인
-
----
-
-### 3. 관리자 페이지 (`admin.html`)
-
-#### 3.1 회원 관리
-- **회원 목록**: 전체 사용자 조회
-- **역할 변경**: user ↔ admin 권한 변경
-- **회원 정보 수정**: 이메일, 비밀번호 수정
-- **회원 삭제**: 사용자 계정 삭제
-- **검색 기능**: 이름/이메일로 검색
-
-#### 3.2 통계 대시보드
-- **일별 로그인 통계**: 최근 7/30일 로그인 추이 (라인 차트)
-- **페이지뷰 통계**: 페이지별 조회수 (차트 + 테이블)
-  - 최근 7/30일 필터
-  - 상위 10개 페이지 표시
-  - 일별 추이 시각화
-
-#### 3.3 회원 가입
-- **관리자 전용 회원 가입**: admin 권한으로만 신규 회원 생성
-
----
-
-### 4. 영토 관리 시스템 (`territory_manager.html`)
-
-#### 4.1 영토 추가 방법
-1. **GeoJSON 직접 입력**: JSON 데이터 붙여넣기
-2. **OpenStreetMap ID**: OSM Relation ID로 자동 가져오기
-3. **외부 URL**: GeoJSON 파일 URL 입력
-
-#### 4.2 자동 처리 기능
-- **bbox 자동 계산**: Geometry로부터 경계 박스 생성
-- **시간 필드 자동 설정**: start_year(-3000), end_year(3000) 기본값
-- **필수 필드 검증**: name, geometry.coordinates 확인
-- **대용량 지원**: 최대 50MB GeoJSON 파일
-
-#### 4.3 편의 기능
-- **실시간 로깅**: 처리 과정 단계별 표시
-- **검증 전용 모드**: 저장하지 않고 검증만 수행
-- **JSON 내보내기**: 입력한 데이터 다운로드
-- **환경 자동 감지**: 로컬/프로덕션 API 자동 선택
-
----
-
-## 🔒 보안 및 인증
-
-### JWT 인증 흐름
-1. 로그인 → 서버에서 JWT 토큰 발급
-2. 클라이언트에서 localStorage에 저장
-3. API 요청 시 `Authorization: Bearer <token>` 헤더 첨부
-4. 서버에서 토큰 검증 및 권한 확인
-
-### 권한 미들웨어
-- `verifyToken`: 로그인한 사용자
-- `verifyAdmin`: admin 또는 superuser
-- `verifyAdminOnly`: admin만 (회원 관리용)
-- `verifySuperuser`: superuser만 (최고 관리자)
-
-### 비밀번호 보안
-- bcrypt 해싱 (salt rounds: 10)
-- 평문 비밀번호 절대 저장 안 함
-
----
-
-## 📡 API 명세
-
-### 인증 API
-
-#### POST `/api/auth/register`
-- **권한**: verifyAdminOnly (admin만 가능)
-- **Body**: `{ username, email, password, role }`
-- **Response**: `{ message, user }`
-
-#### POST `/api/auth/login`
-- **권한**: 없음 (공개)
-- **Body**: `{ username, password }`
-- **Response**: `{ token, user }`
-
-#### PUT `/api/auth/change-password`
-- **권한**: verifyToken
-- **Body**: `{ currentPassword, newPassword }`
-- **Response**: `{ message }`
-
----
-
-### 도시/성 API
-
-#### GET `/api/castle`
-- **권한**: verifyToken
-- **Query**: `?country=<국가명>&year=<연도>`
-- **Response**: `[ { castle documents } ]`
-
-#### POST `/api/castle`
-- **권한**: verifyAdmin
-- **Body**: `{ name, lat, lng, history, ... }`
-- **Response**: `{ message, castle }`
-
-#### PUT `/api/castle/:id`
-- **권한**: verifyAdmin
-- **Body**: `{ name, lat, lng, ... }`
-- **Response**: `{ message, castle }`
-
-#### DELETE `/api/castle/:id`
-- **권한**: verifyAdmin
-- **Response**: `{ message }`
-
----
-
-### 국가 API
-
-#### GET `/api/countries`
-- **권한**: verifyToken
-- **Response**: `[ { country documents } ]`
-
-#### POST `/api/countries`
-- **권한**: verifyAdmin
-- **Body**: `{ name, color, start_year, end_year, ... }`
-- **Response**: `{ message, country }`
-
-#### GET `/api/countries/:name`
-- **권한**: verifyToken
-- **Response**: `{ country document }`
-
-#### PUT `/api/countries/:name`
-- **권한**: verifyAdmin
-- **Body**: `{ name, color, ... }`
-- **Response**: `{ message, country }`
-
-#### DELETE `/api/countries/:name`
-- **권한**: verifyAdmin
-- **Response**: `{ message }`
-
----
-
-### 영토 API
-
-#### GET `/api/territories`
-- **권한**: verifyToken
-- **Query**: `?country=<국가명>&year=<연도>&month=<월>`
-- **Response**: `[ { territory documents } ]`
-
-#### POST `/api/territories`
-- **권한**: verifyAdmin
-- **Body**: `{ name, geometry, bbox, start_year, end_year, ... }`
-- **Response**: `{ message, count, ids }`
-- **특징**: 배치 삽입 지원, 자동 bbox 계산, 자동 시간 필드 설정
-
-#### PUT `/api/territories/:id`
-- **권한**: verifyAdmin
-- **Body**: `{ name, geometry, ... }`
-- **Response**: `{ message, territory }`
-
-#### DELETE `/api/territories/:id`
-- **권한**: verifyAdmin
-- **Response**: `{ message }`
-
----
-
-### 사용자 관리 API
-
-#### GET `/api/users`
-- **권한**: verifyAdminOnly
-- **Response**: `[ { username, email, role, created_at } ]`
-
-#### PUT `/api/users/:id`
-- **권한**: verifyAdminOnly
-- **Body**: `{ username, email, role, password? }`
-- **Response**: `{ message }`
-
-#### DELETE `/api/users/:id`
-- **권한**: verifyAdminOnly
-- **Response**: `{ message }`
-
----
-
-### 통계 API
-
-#### GET `/api/stats/daily-logins`
-- **권한**: verifyAdminOnly
-- **Query**: `?days=<일수>&top=<상위N명>`
-- **Response**: `{ labels, datasets, totals }`
-
-#### GET `/api/stats/page-views`
-- **권한**: verifyAdminOnly
-- **Query**: `?days=<일수>&top=<상위N페이지>`
-- **Response**: `{ labels, datasets, totals }`
-
----
-
-## 🎨 UI/UX 특징
-
-### 1. 반응형 디자인
-- 모바일/태블릿/데스크톱 대응
-- 터치 제스처 지원
-- 가로/세로 모드 자동 조정
-
-### 2. 다크 모드
-- 배경: `#0c0d15`
-- 카드: `#2c3e50`
-- 텍스트: `#ecf0f1`
-- 지도 위 가독성 최적화
-
-### 3. 애니메이션
-- 연도 전환 시 부드러운 페이드
-- 마커 클릭 시 펄스 효과
-- 팝업 슬라이드 인/아웃
-
-### 4. 접근성
-- ARIA 레이블
-- 키보드 네비게이션
-- 고대비 모드 지원
-
----
-
-## ⚡ 성능 최적화
-
-### 1. 영토 로딩
-- **백그라운드 로딩**: 연대표는 즉시 사용 가능, 영토는 백그라운드에서 로드
-- **지리공간 인덱스**: bbox 기반 빠른 쿼리
-- **압축**: gzip/compression 미들웨어
-
-### 2. 데이터 캐싱
-- 브라우저 localStorage: 영토 데이터
-- MongoDB 캐시: 자주 조회되는 쿼리 결과
-- HTTP 캐시 헤더
-
-### 3. 이미지 최적화
-- WebP 포맷 사용
-- Lazy loading
-- CDN 활용
-
----
-
-## 🐛 디버깅 & 로깅
-
-### 서버 로그
-- `📥 서버 수신 데이터`: 요청 body 전체 출력
-- `✅ DB 업데이트 결과`: MongoDB 작업 결과
-- `🔍 [verifyAdmin]`: JWT 검증 과정
-- `❌ [ERROR]`: 오류 상세 정보
-
-### 클라이언트 로그
-- `console.log`: 일반 정보
-- `console.warn`: 경고
-- `console.error`: 오류
-- Territory Manager: 실시간 로그 패널
-
----
-
-## 📦 배포 프로세스
-
-### 1. 개발 환경
 ```bash
 npm install
-npm start  # localhost:3000
+node server.js        # http://localhost:3000
 ```
 
-### 2. 프로덕션 배포
-```bash
-git add .
-git commit -m "메시지"
-git push origin main
-```
+### 유지보수 스크립트
 
-### 3. 자동 배포 (Vercel)
-- GitHub push 감지
-- 자동 빌드 & 배포
-- 환경 변수 자동 주입
+| 스크립트 | 역할 |
+|----------|------|
+| `scripts/check_and_fix_indexes.js` | MongoDB 인덱스 점검 |
+| `scripts/analyze_mongodb_performance.js` | 성능 분석 |
+| `recalculate_scores.js` | 점수 재계산 |
+| `backupdb.sh` | DB 백업 |
+| `backupapp.sh` | 앱 + DB 백업 |
+| `restart_server.sh` | 서버 재시작 |
+
+### 페이지 조회 자동 추적
+
+모든 `.html` 요청을 `page_views` 컬렉션에 날짜별 누적 기록. `/api/stats/page-views`로 조회.
 
 ---
 
-## 🔧 환경 변수 (`.env`)
+## 부록: 주요 설계 결정 사항
 
-```env
-# MongoDB
-MONGODB_URI=mongodb+srv://...
-MONGO_URI=mongodb+srv://...  # 별칭
+### 소프트 삭제 (Castle)
+`castle` 컬렉션은 하드 삭제 대신 `deleted: true` 플래그 방식. 관리자 패널 trash 뷰에서 복구·영구 삭제 가능.
 
-# JWT Secret
-JWT_SECRET=your_secret_key
+### 직급 이중 검증
+검토/승인 API에서 JWT `position`과 DB 실시간 직급 모두 확인. 재로그인 없이도 직급 변경 즉시 반영.
 
-# Server
-PORT=3000
-NODE_ENV=production
-```
+### 기여→Castle 자동 변환
+최종 승인 시 `contributions` 문서를 `castle` 문서로 자동 변환. Castle 변환 실패해도 승인 상태 유지 (롤백 없음). `originContributionId`로 원본 연계.
 
----
+### 검토자 자동 배정
+사료 제출 시 `RANK_CONFIG.roles.assignable` 직급 보유자 중 랜덤 배정 (본인 제외). 없으면 관리자가 직접 승인.
 
-## 📚 주요 파일 구조
+### 낙인(Seal) 글씨
+`countries.sealText` 직접 지정 우선. 없으면 국명 자동 추출: 한자 마지막 글자 → 한글 마지막 글자 → `?`.
 
-```
-KoreaHistory/
-├── index.html              # 메인 지도 뷰어
-├── login.html              # 로그인
-├── register.html           # 회원가입
-├── account.html            # 계정 관리
-├── admin.html              # 관리자 페이지
-├── territory_manager.html  # 영토 관리 도구
-├── server.js               # Express API 서버
-├── db.js                   # MongoDB 연결 및 컬렉션 초기화
-├── package.json            # npm 의존성
-├── vercel.json             # Vercel 배포 설정
-├── .env                    # 환경 변수 (gitignore)
-├── scripts/                # DB 관리 스크립트
-│   ├── import_*.js         # 데이터 임포트
-│   ├── add_*.js            # 데이터 추가
-│   └── check_*.js          # 데이터 검증
-└── README.md               # 프로젝트 설명
-```
-
----
-
-## 🚀 향후 개발 계획
-
-### Phase 1 (완료)
-- ✅ 기본 지도 뷰어
-- ✅ 회원 시스템
-- ✅ 영토 폴리곤 지원
-- ✅ 관리자 페이지
-- ✅ 영토 자동화 도구
-
-### Phase 2 (진행 중)
-- 🔄 모바일 앱 (React Native)
-- 🔄 다국어 지원 (한/영/중/일)
-- 🔄 3D 지도 뷰
-
-### Phase 3 (계획)
-- ⏳ AI 추천 시스템
-- ⏳ 소셜 기능 (댓글, 공유)
-- ⏳ VR/AR 지원
-
----
-
-## 📞 문의 및 지원
-
-- **GitHub**: [projeffmanager-design/historymap](https://github.com/projeffmanager-design/historymap)
-- **Issues**: GitHub Issues 페이지
-- **문서**: `README.md`, `DEBUG_GUIDE.md`, `TERRITORY_MANAGER_GUIDE.md`
-
----
-
-**마지막 업데이트**: 2026년 1월 14일  
-**버전**: 2.0.0  
-**작성자**: Korea History Map Team
+### 게스트 계정
+`/api/auth/guest-login` → '송나라 사신 서긍' 계정 24일 JWT. 계정 없으면 자동 생성. 랭킹 제외(`RANKING_HIDDEN_USERS`).
