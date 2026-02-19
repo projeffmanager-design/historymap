@@ -710,12 +710,22 @@
                     ? new Date(user.createdAt).toLocaleString() 
                     : '알 수 없음';
                 const score = user.score || 0;
-                const position = getDetailedPosition(score);
-                console.log(`사용자 ${user.username} 직급:`, position, '포인트:', score);
                 const drNames = { 1: '정1품★', 2: '종1품★', 3: '정2품★', 4: '종2품★' };
-                const drBadge = user.designated_rank != null
-                    ? `<span style="font-size:9px;background:#c0392b;color:#fff;border-radius:3px;padding:0 3px;margin-left:3px;" title="관리자 지정 재상급">${drNames[user.designated_rank] || '지정'}</span>`
-                    : '';
+                const drFullNames = { 1: '감수국사', 2: '판사관사', 3: '수국사', 4: '동수국사' };
+
+                // 직급 결정: designated_rank > designated_position > 점수 기반 순
+                let position, positionBadge = '';
+                if (user.designated_rank != null && drFullNames[user.designated_rank]) {
+                    position = drFullNames[user.designated_rank];
+                    positionBadge = `<span style="font-size:9px;background:#c0392b;color:#fff;border-radius:3px;padding:0 3px;margin-left:3px;" title="관리자 지정 재상급">재상지정</span>`;
+                } else if (user.designated_position) {
+                    position = user.designated_position;
+                    positionBadge = `<span style="font-size:9px;background:#e67e22;color:#fff;border-radius:3px;padding:0 3px;margin-left:3px;" title="관리자 지정 직급">직급지정</span>`;
+                } else {
+                    position = getDetailedPosition(score);
+                }
+
+                console.log(`사용자 ${user.username} 직급:`, position, '포인트:', score);
                 const isAdminRole = user.role === 'admin' || user.role === 'superuser';
                 const adminBadge = isAdminRole
                     ? `<span style="font-size:9px;background:#8e44ad;color:#fff;border-radius:3px;padding:0 3px;margin-left:3px;">관리자</span>`
@@ -726,7 +736,7 @@
                     <td>${lastLogin}</td>
                     <td>${user.loginCount || 0}회</td>
                     <td>${user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'N/A'}${adminBadge}</td>
-                    <td>${position}${drBadge}</td>
+                    <td>${position}${positionBadge}</td>
                     <td>${score}</td>
                     <td>
                         <button class="button lock-btn" onclick="toggleLockStatus(this, '${user._id}', ${user.isLocked || false})">${user.isLocked ? '잠금 해제' : '계정 잠금'}</button>

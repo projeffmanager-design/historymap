@@ -68,8 +68,7 @@ const RANK_CONFIG = {
         { minScore: 200,  name: '직문한',   fullName: '직문한(直文翰)',              grade: '종7품' },
         { minScore: 120,  name: '주서',     fullName: '주서(注書)',                  grade: '정8품' },
         { minScore: 60,   name: '검열',     fullName: '검열(檢閱)',                  grade: '종8품' },
-        { minScore: 30,   name: '학유',     fullName: '학유',                        grade: '정9품' },
-        { minScore: 10,   name: '정자',     fullName: '정자(正字)',                  grade: '종9품' },
+        { minScore: 30,   name: '정자',     fullName: '정자(正字)',                  grade: '정9품' },
         { minScore: 0,    name: '수분권지', fullName: '수분권지(修分權知)',          grade: '수습'  },
     ],
     // 권한 그룹 (name 기준으로 비교)
