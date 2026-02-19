@@ -1586,7 +1586,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     try {
                         // DB 연결 확인 및 collections 재확인
                         await connectToDatabase();
-                        if (!collections || !collections.castles) {
+                        if (!collections || !collections.castle) {
                             console.error('❌ collections가 초기화되지 않았습니다.');
                             return;
                         }
@@ -1627,20 +1627,19 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             console.log(`\n📅 ${year}년 ${month ? month + '월' : ''} 계산 중...`);
 
             // 해당 시기의 모든 성 데이터 가져오기
-            // castle 데이터는 built/destroyed 필드 사용
             const query = month 
                 ? { 
-                    built: { $lte: year }, 
-                    destroyed: { $gte: year },
-                    built_month: { $lte: month }, 
-                    destroyed_month: { $gte: month } 
+                    built_year: { $lte: year }, 
+                    $or: [{ destroyed_year: null }, { destroyed_year: { $gte: year } }],
+                    built_month: { $lte: month },
+                    $or: [{ destroyed_month: null }, { destroyed_month: { $gte: month } }]
                   }
                 : { 
-                    built: { $lte: year }, 
-                    destroyed: { $gte: year } 
+                    built_year: { $lte: year }, 
+                    $or: [{ destroyed_year: null }, { destroyed_year: { $gte: year } }]
                   };
             
-            const castles = await collectionsRef.castles.find(query).toArray();
+            const castles = await collectionsRef.castle.find(query).toArray();
             const territories = await collectionsRef.territories.find({}).toArray();
             
             // 국가 정보 조회 (한 번만)
@@ -1650,7 +1649,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             // 🔍 디버깅
             console.log(`  🔍 성 개수: ${castles.length}, 영토 개수: ${territories.length}, 국가 개수: ${countries.length}`);
             if (castles.length > 0) {
-                console.log(`  🔍 첫 번째 성 샘플:`, castles[0].name, `(${castles[0].built}~${castles[0].destroyed})`);
+                console.log(`  🔍 첫 번째 성 샘플:`, castles[0].name, `(${castles[0].built_year}~${castles[0].destroyed_year})`);
             }
 
             const bulkOps = [];
