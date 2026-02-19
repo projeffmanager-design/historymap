@@ -13,7 +13,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=East+Sea+Dokdo&family=Nanum+Myeongjo:wght@700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=East+Sea+Dokdo&family=Nanum+Myeongjo:wght@700&family=Yeon+Sung&display=swap" rel="stylesheet">
     
 <style>
     /* 🚩 그리기 폼 위치 강제 설정 - 우측 하단 (최우선 순위) */
@@ -228,12 +228,7 @@
         text-align: center;
         line-height: 1;
         letter-spacing: 3px;
-        text-shadow:
-            -1px -1px 0 #000,
-             1px -1px 0 #000,
-            -1px  1px 0 #000,
-             1px  1px 0 #000,
-             0px  0px 2px #000;
+        text-shadow: -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000, 1px 1px 2px #000, 0px 0px 3px #000;
     }
 
     .macro-country-label-icon { pointer-events: none; }
@@ -1648,31 +1643,45 @@ body.force-mobile .marker-type-selector button {
 /* ------------------- 왕성 마커 CSS 추가 ------------------- */
     .capital-marker {
         display: flex;
-        flex-direction: column;
+        flex-direction: row;
         align-items: center;
-        font-size: 20px; /* 왕관 크기 */
-        color: gold; /* 황금색 */
-        font-weight: bold;
-        text-shadow: 1px 1px 2px #000;
         line-height: 1;
-        /* 🚩 [추가] 줌 레벨에 따른 크기 조절 */
         transform: scale(var(--marker-scale, 1));
+        padding: 3px 8px 3px 3px;
     }
-    /* 🚩 [수정] 왕성 및 일반성 이름표 배경 이미지 및 스타일 적용 */
+    /* 낙관(도장) 스타일 */
+    .capital-marker .capital-seal {
+        width: 16px;
+        height: 16px;
+        background-color: #c0392b;
+        border: 1.5px solid #922b21;
+        color: #ffffff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 900;
+        margin-right: 6px;
+        border-radius: 2px;
+        transform: rotate(-3deg);
+        flex-shrink: 0;
+        text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+        box-shadow: 0 0 4px rgba(192,57,43,0.7), 0 3px 6px rgba(0,0,0,0.85);
+    }
+    /* 왕성 이름 텍스트 */
     .capital-marker .city-name {
-        font-size: 12px;
-        color: #ffffff; /* 밝은 텍스트 */
-        background-image: url('https://github.com/projeffmanager-design/img/blob/main/%E1%84%89%E1%85%A5%E1%86%AB.png?raw=true');
-        background-size: 100% 100%;
-        background-repeat: no-repeat;
-        padding: 4px 12px; /* 🚩 수정: 패딩 조정 */
-        border-radius: 5px;
-        display: inline-block; /* 🚩 수정: 너비가 내용에 맞게 조절되도록 변경 */
-        white-space: nowrap; /* 🚩 수정: 텍스트가 한 줄로 표시되도록 설정 */
-        margin-top: -3px; /* 🚩 수정: 왕관과 텍스트 사이 간격을 더 좁힘 */
-        text-align: center; /* 🚩 [추가] 이름표 내부 텍스트를 중앙 정렬합니다. */
-        text-shadow: -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000, 1px 1px 2px #000, 0px 0px 3px #000; /* 🚩 강화: 텍스트 가독성을 위한 그림자 */
-        transform: scale(var(--marker-scale, 1));
+        font-family: 'Nanum Myeongjo', serif;
+        font-size: 13px;
+        font-weight: 900;
+        color: #fff;
+        letter-spacing: 1px;
+        white-space: nowrap;
+        text-align: left;
+        text-shadow: -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000, 1px 1px 2px #000, 0px 0px 3px #000;
+        background: none;
+        padding: 0;
+        margin: 0;
+        display: inline;
     }
 
     /* 🚩 [추가] 국기 이미지 톤 다운 */
@@ -5016,40 +5025,39 @@ body.force-mobile .marker-type-selector button {
 
     /**
      * [과제1 핵심] 줌 레벨 기반 거시/미시 모드 전환 (LOD)
-     * zoom < 7: 거시 모드 — 세부 마커 숨기고 국가명만 대형 텍스트로 표시
-     * zoom >= 7: 미시 모드 — 국가명 텍스트 비우고, 모든 세부 마커 렌더링
+     * zoom < 7:      거시 모드  — 국가명만 표시
+     * zoom 7~7:      중간 모드  — 국가명 + 수도만 표시
+     * zoom >= 8:     미시 모드  — 국가명 + 수도 + 모든 성 표시
      */
     function applyLODMode() {
         if (!map) return;
         const zoom = map.getZoom();
-        const isMacro = zoom < 7;
+        // 0=거시, 1=중간, 2=미시
+        const newMode = zoom < 7 ? 0 : zoom < 8 ? 1 : 2;
+        const prevMode = currentMacroMode === true ? 0 : currentMacroMode === false ? 2 : currentMacroMode;
 
         // 모드 변경이 없으면 스킵
-        if (isMacro === currentMacroMode) return;
-        currentMacroMode = isMacro;
+        if (newMode === prevMode) return;
+        currentMacroMode = newMode === 0 ? true : newMode === 1 ? 1 : false;
 
-        console.log(`🔭 [LOD] 모드 전환: ${isMacro ? '거시(Macro)' : '미시(Micro)'} 모드 (zoom=${zoom})`);
+        console.log(`🔭 [LOD] 모드 전환: ${['거시(국가명만)','중간(수도)','미시(전체)'][newMode]} (zoom=${zoom})`);
 
-        if (isMacro) {
-            // === 거시 모드 진입 ===
-            // 세부 마커 레이어만 숨기기 (국가명은 항상 유지)
+        if (newMode === 0) {
+            // === 거시 모드: 세부 마커 모두 숨김 ===
             if (map.hasLayer(castleLayerGroup)) map.removeLayer(castleLayerGroup);
             if (map.hasLayer(labelLayerGroup)) map.removeLayer(labelLayerGroup);
-
             console.log('  📍 거시 모드: 세부 마커 숨김');
         } else {
-            // === 미시 모드 진입 ===
-            // 세부 마커 레이어 복원 (국가명은 항상 유지)
+            // === 중간/미시 모드: 세부 마커 복원 후 재렌더링 ===
             if (!map.hasLayer(castleLayerGroup)) castleLayerGroup.addTo(map);
             if (!map.hasLayer(labelLayerGroup)) labelLayerGroup.addTo(map);
 
-            // 미시 모드 진입 시 마커 재렌더링 (castleLayerGroup이 비어있으므로)
-            const { year: curYear, month: curMonth } = typeof getCurrentYearMonth === 'function' 
-                ? getCurrentYearMonth() 
+            const { year: curYear, month: curMonth } = typeof getCurrentYearMonth === 'function'
+                ? getCurrentYearMonth()
                 : { year: parseInt(yearInput?.value || 400), month: 1 };
             updateMap(curYear, curMonth, false, true);
 
-            console.log('  📍 미시 모드: 세부 마커 복원');
+            console.log(`  📍 ${newMode === 1 ? '중간' : '미시'} 모드: 마커 재렌더링`);
         }
     }
 
@@ -5080,7 +5088,7 @@ body.force-mobile .marker-type-selector button {
         else if (zoom === 6) countryFontSize = 12;
         else if (zoom === 7) countryFontSize = 14;
         else if (zoom === 8) countryFontSize = 15;
-        else                 countryFontSize = 16; // zoom 9+: 원래 크기
+        else                 countryFontSize = 16; // zoom 9+
 
         // 렌더링된 국가별 라벨 위치 결정
         // 우선순위: ① 수도 좌표 → ② 영토 중심점(centroid)
@@ -5129,9 +5137,12 @@ body.force-mobile .marker-type-selector button {
             if (!labelLat || !labelLng) return;
 
             const countryColor = country.color || '#ffffff';
+            const flagHtmlMacro = country.flag
+                ? `<img src="${country.flag}" class="country-flag-img" style="width:18px;height:12px;margin-right:4px;vertical-align:middle;border:0.5px solid rgba(255,255,255,0.3);">`
+                : '';
             const icon = L.divIcon({
                 className: 'macro-country-label-icon',
-                html: `<div class="macro-country-name" style="color: ${countryColor}; font-size: ${countryFontSize}px;">${country.name}</div>`,
+                html: `<div class="macro-country-name" style="color: ${countryColor}; font-size: ${countryFontSize}px; display:flex; align-items:center;">${flagHtmlMacro}${country.name}</div>`,
                 iconSize: [200, 40],
                 iconAnchor: [100, 20]
             });
@@ -7208,10 +7219,11 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         if (!map.hasLayer(macroCountryLayer)) macroCountryLayer.addTo(map);
 
         // 🚩 [과제1] 거시 모드(zoom < 7)에서는 자연지물/라벨만 렌더링
-        if (currentMacroMode) {
+        if (currentMacroMode === true || currentMacroMode === 0) {
             console.log('🔭 [LOD] 거시 모드 → 자연지물/라벨 렌더링');
             allCastleMarkers = [];
-            // 🚩 [수정] 거시 모드에서도 자연지물/라벨은 렌더링 (아래 castle loop에서 필터링)
+        } else if (currentMacroMode === 1) {
+            console.log('� [LOD] 중간 모드 → 수도+자연지물/라벨 렌더링');
         }
         
         console.log(`🏰 성/도시 렌더링 시작: castles=${castles.length}, layerVisibility.city=${layerVisibility.city}`);
@@ -7238,10 +7250,17 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         castleLayerGroup.clearLayers();
         allCastleMarkers = []; // 🚀 [최적화] 매 렌더링 시 마커 트래킹 배열 초기화
         castles.forEach(castle => {
-            // 🚩 [수정] 거시 모드에서는 자연지물/라벨/수도만 렌더링
-            if (currentMacroMode && !castle.is_natural_feature && !castle.is_label && !castle.is_capital) {
-                return;
-            }
+            // 🚩 LOD 필터링
+            // 거시 모드(zoom<7): 자연지물/라벨만
+            // 중간 모드(zoom 7~8): 자연지물/라벨/수도만
+            // 미시 모드(zoom>=8): 전체
+            const _isMacro = currentMacroMode === true || currentMacroMode === 0;
+            const _isMid   = currentMacroMode === 1;
+            // is_capital: castle 최상위 or history 레코드 중 하나라도 true면 수도로 간주
+            const _isCapital = castle.is_capital ||
+                (Array.isArray(castle.history) && castle.history.some(h => h.is_capital));
+            if (_isMacro && !castle.is_natural_feature && !castle.is_label) return;
+            if (_isMid   && !castle.is_natural_feature && !castle.is_label && !_isCapital) return;
             
             const baseCountryId = castle.country_id || castle.countryId || (Array.isArray(castle.history) && castle.history.length > 0 ? castle.history[0]?.country_id : null);
 
@@ -7254,7 +7273,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             if (typeof castle.lat !== "number" || isNaN(castle.lat) || typeof castle.lng !== "number" || isNaN(castle.lng)) return;
             
             // 🚀 [최적화] 뷰포트 밖의 마커는 렌더링 스킵 (수도는 항상 렌더링)
-            if (!castle.is_capital && !_viewPadded.contains(L.latLng(castle.lat, castle.lng))) {
+            if (!_isCapital && !_viewPadded.contains(L.latLng(castle.lat, castle.lng))) {
                 return;
             }
             
@@ -7850,11 +7869,12 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 marker = L.marker([castle.lat, castle.lng], { icon: customIcon, zIndexOffset: activeHistoryRecord.is_capital ? 1000 : 0 });
             } else if (currentCountry.flag && !activeHistoryRecord.is_capital) { // 🚩 [수정] activeHistoryRecord 사용
               // ... 기존 깃발 + 이름 마커 로직 유지 ...
-          // 🚩 [수정] 이름표 배경 이미지 적용
+          // 🚩 [수정] 국기 제거 후 일반 성과 동일한 스타일로 통일
+          const dotColorF = currentCountry.color || 'white';
           const flagAndNameIconHtml = `
-            <div style="display: flex; align-items: center; gap: 3px; transform: scale(var(--marker-scale, 1));">
-              <img src="${currentCountry.flag}" class="country-flag-img" style="width: 18px; height: 12px; border: 1px solid #fff;">
-              <span class="city-name" style="color:${currentCountry.color || 'white'}; font-weight: bold; font-size: 10px; white-space: nowrap; text-shadow: -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000, 1px 1px 2px #000, 0px 0px 3px #000, 0px 0px 5px #000;">${castleName}</span>
+            <div style="position: relative; display: flex; flex-direction: column; align-items: center; transform: scale(var(--marker-scale, 1));">
+              <div style="color:${dotColorF}; font-size:10px; line-height:1; filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.8)); text-shadow: -1px -1px 1px #000, 1px 1px 1px #000;">▼</div>
+              <div style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); color:${dotColorF}; font-family:'Nanum Myeongjo',serif; font-weight:700; font-size:10px; white-space:nowrap; border-bottom: 1.5px solid ${dotColorF}; padding-bottom:1px; text-shadow: -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000, 1px 1px 2px #000, 0px 0px 3px #000;">${castleName}</div>
             </div>
               `;
               const customIcon = L.divIcon({
@@ -7865,34 +7885,25 @@ function updateMap(year, month, cacheOnly = false, force = false) {
               marker = L.marker([castle.lat, castle.lng], { icon: customIcon });
             } else if (activeHistoryRecord.is_capital) { // 🚩 [제거] 전장 체크는 이미 위에서(국가 체크 전에) 처리되었으므로 여기서는 수도/일반 성만 처리
               // ... 기존 왕성 마커 로직 유지 ...
-              if (currentCountry.flag) {
-            const capitalWithFlagIconHtml = `<div class="capital-marker" style="display: flex; flex-direction: column; align-items: center;">
-                <img src="${currentCountry.flag}" class="country-flag-img" style="width: 30px; height: 20px; border: 1px solid #fff; margin-bottom: 5px;">
-                <span class="city-name">${currentCountry.name} 수도<br>${castleName}</span>
+              // 국기 유무 관계없이 낙관 스타일로 통일
+            const sealChar = (()=>{ const n=currentCountry.name||''; const hanja=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hanja.length) return hanja.slice(-1)[0]; const hangul=(n.match(/[가-힣]/g)||[]); return hangul.length ? hangul.slice(-1)[0] : '?'; })();
+            const sealColor = currentCountry.color || '#c0392b';
+            const capitalIconHtml = `<div class="capital-marker">
+                <div class="capital-seal" style="background-color:${sealColor}; border-color: ${sealColor}; filter: brightness(0.75);">${sealChar}</div>
+                <span class="city-name">${castleName}</span>
             </div>`;
                 const customIcon = L.divIcon({
                   className: 'custom-capital-flag-marker',
-                  html: capitalWithFlagIconHtml,
-                  iconAnchor: [6, -2] 
+                  html: capitalIconHtml,
+                  iconAnchor: [6, -2]
                 });
                 marker = L.marker([castle.lat, castle.lng], { icon: customIcon, zIndexOffset: 1000 });
-              } else { 
-            const capitalIcon = L.divIcon({
-              className: 'capital-marker',
-              html: `
-                <span style="color:${currentCountry.color || 'white'};">▣</span><span class="city-name">${currentCountry.name} 수도<br>${castleName}</span>
-                  `,
-                  iconSize: [50, 50],
-                  iconAnchor: [25, 4]
-                });
-                marker = L.marker([castle.lat, castle.lng], { icon: capitalIcon, zIndexOffset: 1000 });
-              }
             } else { 
               // ... 기존 일반 성/도시 마커 로직 유지 ...
           // 🚩 [핵심 수정] 일반성 마커를 원(dot)에서 역삼각형(▼)으로 변경합니다.
           const dotColor = currentCountry.color || 'white'; 
               const markerHtml = `<div style="position: relative; display: flex; flex-direction: column; align-items: center; transform: scale(var(--marker-scale, 1));">
-                                    <div style="width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 10px solid ${dotColor}; filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.8));"></div><div class="city-marker-text" style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); color:${dotColor}; font-weight: bold; font-size: 10px; white-space: nowrap; text-shadow: -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000, 1px 1px 2px #000, 0px 0px 3px #000, 0px 0px 5px #000;">${castleName}</div>
+                                    <div style="color:${dotColor}; font-size:10px; line-height:1; filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.8)); text-shadow: -1px -1px 1px #000, 1px 1px 1px #000;">▼</div><div class="city-marker-text" style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); color:${dotColor}; font-family:'Nanum Myeongjo',serif; font-weight:700; font-size:10px; white-space:nowrap; border-bottom: 1.5px solid ${dotColor}; padding-bottom:1px; text-shadow: -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000, 1px 1px 2px #000, 0px 0px 3px #000;">${castleName}</div>
                                   </div>`;
               const customIcon = L.divIcon({
                 className: 'custom-city-marker',
@@ -10409,6 +10420,17 @@ function invalidateCountryLookupCache() {
                   updateVisibleTerritories();
               }
           }, 500);
+
+          // 지도 이동 후 마커(수도/성) 재렌더링 — 뷰포트 밖 마커 스킵 보정
+          if (currentMacroMode !== true && currentMacroMode !== 0) {
+              clearTimeout(window._moveendMarkerTimer);
+              window._moveendMarkerTimer = setTimeout(() => {
+                  const { year, month } = typeof getCurrentYearMonth === 'function'
+                      ? getCurrentYearMonth()
+                      : { year: parseInt(yearInput?.value || 400), month: 1 };
+                  updateMap(year, month, false, true);
+              }, 300);
+          }
       });
       
       // 🗺️ [v3.2] 보이는 영역의 영토만 증분 업데이트 (국가별 병합)
