@@ -2466,6 +2466,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         }
                     }
                     
+                    // 💬 댓글 수 추가
+                    result.commentCount = (contrib.comments || []).length;
+                    
                     return result;
                 }));
                 
