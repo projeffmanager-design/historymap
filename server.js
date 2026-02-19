@@ -3250,7 +3250,75 @@ app.put('/api/contributions/:id/review', verifyToken, async (req, res) => {
     }
 });
 
-// 🚩 [추가] 최종 승인 API (동수국사 이상만 가능)
+// � [추가] 사료 의견 조회 API (누구나 읽기 가능)
+app.get('/api/contributions/:id/comments', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const contribution = await collections.contributions.findOne(
+            { _id: toObjectId(id) },
+            { projection: { comments: 1 } }
+        );
+        if (!contribution) return res.status(404).json({ message: '사료를 찾을 수 없습니다.' });
+        res.json(contribution.comments || []);
+    } catch (error) {
+        res.status(500).json({ message: '의견 조회 실패', error: error.message });
+    }
+});
+
+// 💬 [추가] 사료 의견 작성 API (로그인 필요)
+app.post('/api/contributions/:id/comments', verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { text } = req.body;
+        if (!text || !text.trim()) return res.status(400).json({ message: '의견 내용을 입력하세요.' });
+
+        const comment = {
+            _id: new (require('mongodb').ObjectId)(),
+            author: req.user.username,
+            text: text.trim(),
+            createdAt: new Date()
+        };
+
+        const result = await collections.contributions.updateOne(
+            { _id: toObjectId(id) },
+            { $push: { comments: comment } }
+        );
+
+        if (result.matchedCount === 0) return res.status(404).json({ message: '사료를 찾을 수 없습니다.' });
+        res.json(comment);
+    } catch (error) {
+        res.status(500).json({ message: '의견 작성 실패', error: error.message });
+    }
+});
+
+// 💬 [추가] 사료 의견 삭제 API (본인 또는 관리자)
+app.delete('/api/contributions/:id/comments/:commentId', verifyToken, async (req, res) => {
+    try {
+        const { id, commentId } = req.params;
+        const { username, role } = req.user;
+        const isAdmin = role === 'admin' || role === 'superuser';
+
+        // 본인 댓글인지 확인 (관리자는 무조건 가능)
+        if (!isAdmin) {
+            const contribution = await collections.contributions.findOne(
+                { _id: toObjectId(id), 'comments._id': new (require('mongodb').ObjectId)(commentId) },
+                { projection: { 'comments.$': 1 } }
+            );
+            if (!contribution || !contribution.comments?.[0]) return res.status(404).json({ message: '의견을 찾을 수 없습니다.' });
+            if (contribution.comments[0].author !== username) return res.status(403).json({ message: '삭제 권한이 없습니다.' });
+        }
+
+        await collections.contributions.updateOne(
+            { _id: toObjectId(id) },
+            { $pull: { comments: { _id: new (require('mongodb').ObjectId)(commentId) } } }
+        );
+        res.json({ message: '의견이 삭제되었습니다.' });
+    } catch (error) {
+        res.status(500).json({ message: '의견 삭제 실패', error: error.message });
+    }
+});
+
+// �🚩 [추가] 최종 승인 API (동수국사 이상만 가능)
 app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
     try {
         const { id } = req.params;

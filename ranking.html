@@ -1305,8 +1305,31 @@
                             </div>
                         </div>
                         ` : ''}
+
+                        <!-- 💬 의견 섹션 -->
+                        <div style="margin-top: 30px; border-top: 1px solid #5d7185; padding-top: 25px;">
+                            <div style="color: #f1c40f; font-weight: 700; margin-bottom: 15px; font-size: 15px;">💬 의견</div>
+                            <div id="commentsList-${contributionId}" style="margin-bottom: 15px;">
+                                <div style="color: #95a5a6; font-size: 13px;">의견을 불러오는 중...</div>
+                            </div>
+                            ${currentUsername ? `
+                            <div style="display: flex; gap: 10px; align-items: flex-start;">
+                                <textarea id="commentInput-${contributionId}" placeholder="의견을 남겨주세요..." rows="3"
+                                    style="flex: 1; background: rgba(52, 73, 94, 0.7); color: #ecf0f1; border: 1px solid #5d7185; border-radius: 8px; padding: 10px 12px; font-size: 13px; resize: vertical; outline: none; font-family: inherit;"
+                                    onkeydown="if(event.ctrlKey && event.key==='Enter') submitComment('${contributionId}')"></textarea>
+                                <button onclick="submitComment('${contributionId}')"
+                                    style="background: linear-gradient(135deg, #27ae60 0%, #1e8449 100%); color: white; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 13px; white-space: nowrap; align-self: flex-end;">
+                                    등록
+                                </button>
+                            </div>
+                            <div style="color: #95a5a6; font-size: 11px; margin-top: 5px;">Ctrl+Enter로 빠르게 등록</div>
+                            ` : `<div style="color: #95a5a6; font-size: 13px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 8px; text-align: center;">의견을 작성하려면 로그인하세요.</div>`}
+                        </div>
                     </div>
                 `;
+                
+                // 의견 목록 비동기 로드
+                loadComments('${contributionId}');
                 
                 document.getElementById('contributionDetailModal').style.display = 'block';
             } catch (error) {
@@ -1336,7 +1359,107 @@
             };
         }
 
-        // 🚩 [추가] 사료 추천 함수
+        // � 의견 목록 로드
+        async function loadComments(contributionId) {
+            const container = document.getElementById(`commentsList-${contributionId}`);
+            if (!container) return;
+            try {
+                const response = await fetch(`${API_BASE_URL}/contributions/${contributionId}/comments`);
+                if (!response.ok) throw new Error('조회 실패');
+                const comments = await response.json();
+
+                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                let currentUsername = '';
+                let currentRole = '';
+                if (token) {
+                    try {
+                        const base64Url = token.split('.')[1];
+                        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                        const jsonPayload = decodeURIComponent(atob(base64).split('').map(c =>
+                            '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+                        ).join(''));
+                        const payload = JSON.parse(jsonPayload);
+                        currentUsername = payload.username || '';
+                        currentRole = payload.role || '';
+                    } catch (e) {}
+                }
+                const isAdmin = currentRole === 'admin' || currentRole === 'superuser';
+
+                if (comments.length === 0) {
+                    container.innerHTML = '<div style="color: #95a5a6; font-size: 13px; padding: 10px 0;">아직 의견이 없습니다. 첫 번째 의견을 남겨보세요!</div>';
+                    return;
+                }
+
+                container.innerHTML = comments.map(c => {
+                    const canDelete = isAdmin || c.author === currentUsername;
+                    const dateStr = c.createdAt ? new Date(c.createdAt).toLocaleString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+                    return `
+                    <div style="background: rgba(52, 73, 94, 0.5); border: 1px solid #5d7185; border-radius: 8px; padding: 12px 15px; margin-bottom: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="color: #3498db; font-weight: 600; font-size: 13px;">👤 ${c.author}</span>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="color: #7f8c8d; font-size: 11px;">${dateStr}</span>
+                                ${canDelete ? `<button onclick="deleteComment('${contributionId}', '${c._id}')" style="background: none; border: none; color: #e74c3c; cursor: pointer; font-size: 12px; padding: 2px 6px; border-radius: 4px; hover: opacity: 0.7;" title="삭제">✕</button>` : ''}
+                            </div>
+                        </div>
+                        <div style="color: #bdc3c7; font-size: 13px; line-height: 1.6; white-space: pre-wrap;">${c.text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+                    </div>`;
+                }).join('');
+            } catch (error) {
+                container.innerHTML = '<div style="color: #e74c3c; font-size: 13px;">의견을 불러오지 못했습니다.</div>';
+            }
+        }
+
+        // 💬 의견 등록
+        async function submitComment(contributionId) {
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            if (!token) { alert('로그인이 필요합니다.'); return; }
+            const textarea = document.getElementById(`commentInput-${contributionId}`);
+            if (!textarea) return;
+            const text = textarea.value.trim();
+            if (!text) { alert('의견 내용을 입력하세요.'); return; }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/contributions/${contributionId}/comments`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                if (!response.ok) {
+                    const err = await response.json();
+                    alert(err.message || '의견 등록에 실패했습니다.');
+                    return;
+                }
+                textarea.value = '';
+                await loadComments(contributionId);
+            } catch (error) {
+                alert('의견 등록에 실패했습니다.');
+            }
+        }
+
+        // 💬 의견 삭제
+        async function deleteComment(contributionId, commentId) {
+            if (!confirm('이 의견을 삭제하시겠습니까?')) return;
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            if (!token) { alert('로그인이 필요합니다.'); return; }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/contributions/${contributionId}/comments/${commentId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) {
+                    const err = await response.json();
+                    alert(err.message || '삭제에 실패했습니다.');
+                    return;
+                }
+                await loadComments(contributionId);
+            } catch (error) {
+                alert('삭제에 실패했습니다.');
+            }
+        }
+
+        // �🚩 [추가] 사료 추천 함수
         async function voteContribution(contributionId) {
             try {
                 const token = localStorage.getItem('token') || sessionStorage.getItem('token');
