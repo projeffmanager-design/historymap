@@ -16708,70 +16708,85 @@ kingSelect.addEventListener('change', () => {
 
         // 🚩 [추가] 승인 함수
         // 🚩 [수정] 최종 승인 함수 (수국사 이상 가능 - 새 API 사용, 승인 후 마커 변환)
-        window.approveContribution = async (id) => {
-            if (!confirm('정말로 이 사료를 최종 승인하시겠습니까?\n승인 시 성 마커로 자동 변환됩니다.')) return;
-            
-            try {
-                const comment = document.getElementById('approveComment')?.value || '';
-                const response = await fetch(`${API_BASE_URL}/contributions/${id}/approve`, {
-                    method: 'PUT',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}` 
-                    },
-                    body: JSON.stringify({ comment })
+        window.approveContribution = (id) => {
+            // 기여 데이터 찾기
+            const contrib = (typeof contributions !== 'undefined' && Array.isArray(contributions))
+                ? contributions.find(c => c._id === id)
+                : null;
+            if (!contrib) return alert('기여 데이터를 찾을 수 없습니다.');
+
+            // 기여 상세 모달 닫기
+            const modal = document.getElementById('contributionDetailModal');
+            if (modal) modal.style.display = 'none';
+
+            // editMode 강제 활성화 (관리자는 항상 편집 가능)
+            if (!editMode) {
+                editMode = true;
+                const editBtn = document.getElementById('editModeBtn');
+                if (editBtn) editBtn.classList.add('active');
+            }
+
+            // castleForm을 새 항목 모드로 초기화
+            editingCastleKey = null;
+            closeAllFormsExcept('castleForm');
+            openForm('castleForm');
+            document.getElementById('cloneCastle').style.display = 'none';
+            document.getElementById('deleteCastle').style.display = 'none';
+
+            // 🚩 기여 정보를 hidden input에 세팅 (저장 시 자동 approved 처리)
+            document.getElementById('originContributionId').value = contrib._id;
+            document.getElementById('originContributor').value = contrib.username || '';
+
+            // 기본 필드 채우기
+            document.getElementById('castleName').value = contrib.name || '';
+            document.getElementById('castleLat').value = contrib.lat ?? '';
+            document.getElementById('castleLng').value = contrib.lng ?? '';
+            document.getElementById('castleDesc').value = contrib.description || contrib.desc || '';
+            document.getElementById('castlePhoto').value = contrib.photo || '';
+            document.getElementById('customIcon').value = '';
+            document.getElementById('iconWidth').value = '';
+            document.getElementById('iconHeight').value = '';
+
+            // 마커 타입 결정
+            let markerType = 'normal';
+            if (contrib.category === 'natural') markerType = 'natural';
+            else if (contrib.category === 'label') markerType = 'label';
+            else if (contrib.is_battle) markerType = 'battle';
+            setActiveMarkerType(markerType);
+
+            // 역사 기록 채우기 (normal / battle)
+            if (markerType === 'normal' || markerType === 'battle') {
+                const historyListContainer = document.getElementById('castleHistoryList');
+                historyListContainer.innerHTML = '';
+                addCastleHistoryRow({
+                    name: contrib.name || '',
+                    country_id: contrib.country_id || '',
+                    start_year: contrib.start_year ?? '',
+                    start_month: contrib.start_month ?? 1,
+                    end_year: contrib.end_year ?? '',
+                    end_month: contrib.end_month ?? 12,
+                    is_capital: contrib.is_capital || false,
+                    is_battle: contrib.is_battle || false,
                 });
-                
-                const data = await response.json();
-                if (response.ok) {
-                    // 모달 닫기 및 목록 새로고침
-                    const modal = document.getElementById('contributionDetailModal');
-                    if (modal) modal.style.display = 'none';
-                    loadContributions();
-                    
-                    // contributions 배열에서 해당 항목 업데이트
-                    if (typeof contributions !== 'undefined' && Array.isArray(contributions)) {
-                        const index = contributions.findIndex(c => c._id === id);
-                        if (index !== -1) {
-                            contributions[index].status = 'approved';
-                            contributions[index].approvedAt = new Date().toISOString();
-                            contributions[index].approverUsername = parseJwt(token).username;
-                        }
-                    }
-                    
-                    // 🚩 [핵심] 서버에서 자동 생성된 castle을 castles 배열에 추가
-                    if (data.castle) {
-                        const c = data.castle;
-                        // _id를 문자열로 정규화
-                        if (c._id && typeof c._id === 'object') c._id = c._id.toString();
-                        // country_id도 문자열로 정규화
-                        if (c.country_id && typeof c.country_id === 'object') c.country_id = c.country_id.toString();
-                        // history 배열 내 country_id도 정규화
-                        if (c.history && Array.isArray(c.history)) {
-                            c.history.forEach(h => {
-                                if (h.country_id && typeof h.country_id === 'object') h.country_id = h.country_id.toString();
-                            });
-                        }
-                        castles.push(c);
-                        console.log(`✅ [승인] 새 castle '${c.name}' 추가됨 (is_natural: ${c.is_natural_feature})`);
-                        alert(`${data.message}\n\n새 마커: ${c.name}`);
-                    } else {
-                        alert(data.message);
-                    }
-                    
-                    // 🚩 [핵심] 승인 후 IndexedDB 캐시 갱신 (재로그인 후에도 보이도록)
-                    if (typeof saveCastlesCache === 'function') {
-                        saveCastlesCache(castles).then(() => console.log('💾 [승인] IndexedDB 캐시 갱신 완료'));
-                    }
-                    
-                    // 🚩 승인 후 지도 즉시 업데이트 (새 마커 표시)
-                    const { year, month } = getCurrentYearMonth();
-                    updateMap(year, month, false, true); // force 모드로 호출
-                } else {
-                    alert(data.message || '승인 실패');
-                }
-            } catch (error) {
-                alert('오류 발생: ' + error.message);
+            } else {
+                // 자연/라벨: 단순 기간
+                document.getElementById('simpleStartYear').value = contrib.start_year ?? '';
+                document.getElementById('simpleStartMonth').value = contrib.start_month ?? '';
+                document.getElementById('simpleEndYear').value = contrib.end_year ?? '';
+                document.getElementById('simpleEndMonth').value = contrib.end_month ?? '';
+            }
+
+            // 편집 마커 지도에 추가
+            if (editMarker) map.removeLayer(editMarker);
+            if (contrib.lat && contrib.lng) {
+                editMarker = L.marker([contrib.lat, contrib.lng], { draggable: true }).addTo(map);
+                editMarker.on('dragend', (e) => {
+                    const pos = e.target.getLatLng();
+                    document.getElementById('castleLat').value = pos.lat.toFixed(6);
+                    document.getElementById('castleLng').value = pos.lng.toFixed(6);
+                });
+                editMarker.bindPopup(`📋 기여 검토 중: ${contrib.name}<br>마커를 드래그하여 위치 조정`).openPopup();
+                map.setView([contrib.lat, contrib.lng], Math.max(map.getZoom(), 8));
             }
         };
 
