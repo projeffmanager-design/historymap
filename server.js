@@ -3253,6 +3253,7 @@ app.put('/api/contributions/:id/review', verifyToken, async (req, res) => {
 // � [추가] 사료 의견 조회 API (누구나 읽기 가능)
 app.get('/api/contributions/:id/comments', async (req, res) => {
     try {
+        await setupRoutesAndCollections();
         const { id } = req.params;
         const contribution = await collections.contributions.findOne(
             { _id: toObjectId(id) },
@@ -3268,6 +3269,7 @@ app.get('/api/contributions/:id/comments', async (req, res) => {
 // 💬 [추가] 사료 의견 작성 API (로그인 필요)
 app.post('/api/contributions/:id/comments', verifyToken, async (req, res) => {
     try {
+        await setupRoutesAndCollections();
         const { id } = req.params;
         const { text } = req.body;
         if (!text || !text.trim()) return res.status(400).json({ message: '의견 내용을 입력하세요.' });
@@ -3294,6 +3296,7 @@ app.post('/api/contributions/:id/comments', verifyToken, async (req, res) => {
 // 💬 [추가] 사료 의견 삭제 API (본인 또는 관리자)
 app.delete('/api/contributions/:id/comments/:commentId', verifyToken, async (req, res) => {
     try {
+        await setupRoutesAndCollections();
         const { id, commentId } = req.params;
         const { username, role } = req.user;
         const isAdmin = role === 'admin' || role === 'superuser';
