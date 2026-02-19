@@ -4515,6 +4515,10 @@ body.force-mobile .marker-type-selector button {
             <label for="isMainDynasty">우리 민족:</label>
             <input type="checkbox" id="isMainDynasty" style="width: auto; justify-self: start;">
         </div>
+        <div class="form-row">
+            <label for="countrySealText" style="line-height:1.3;">낙인 글씨:<br><small style="color:#95a5a6; font-weight:400;">수도 마커 낙관에 표시될 글자 (비워두면 국가명에서 자동 추출)</small></label>
+            <input type="text" id="countrySealText" placeholder="예: 漢, 고, ?" maxlength="2" style="width: 60px; flex-grow: 0; text-align: center; font-size: 15px;">
+        </div>
         <hr style="margin: 15px 0;">
         <div class="form-actions" style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
           <button type="button" id="cancelCountryBtn">취소</button>
@@ -7918,7 +7922,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             } else if (activeHistoryRecord.is_capital) { // 🚩 [제거] 전장 체크는 이미 위에서(국가 체크 전에) 처리되었으므로 여기서는 수도/일반 성만 처리
               // ... 기존 왕성 마커 로직 유지 ...
               // 국기 유무 관계없이 낙관 스타일로 통일
-            const sealChar = (()=>{ const n=currentCountry.name||''; const hanja=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hanja.length) return hanja.slice(-1)[0]; const hangul=(n.match(/[가-힣]/g)||[]); return hangul.length ? hangul.slice(-1)[0] : '?'; })();
+            const sealChar = currentCountry.sealText || (()=>{ const n=currentCountry.name||''; const hanja=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hanja.length) return hanja.slice(-1)[0]; const hangul=(n.match(/[가-힣]/g)||[]); return hangul.length ? hangul.slice(-1)[0] : '?'; })();
             const sealColor = currentCountry.color || '#c0392b';
             const capitalIconHtml = `<div class="capital-marker">
                 <div class="capital-seal" style="background-color:${sealColor}; border-color: ${sealColor}; filter: brightness(0.75);">${sealChar}</div>
@@ -13131,6 +13135,7 @@ function invalidateCountryLookupCache() {
         document.getElementById('countryFlag').value = country.flag || '';
         document.getElementById('countryEthnicity').value = country.ethnicity || '';
         document.getElementById('isMainDynasty').checked = country.is_main_dynasty || false;
+        document.getElementById('countrySealText').value = country.sealText || '';
 
         document.getElementById('deleteCountryBtn').style.display = 'inline-block';
         document.getElementById('saveCountryBtn').textContent = '저장';
@@ -13188,7 +13193,8 @@ function invalidateCountryLookupCache() {
             color: document.getElementById('countryColor').value,
             flag: document.getElementById('countryFlag').value || null,
             ethnicity: document.getElementById('countryEthnicity').value || null,
-            is_main_dynasty: document.getElementById('isMainDynasty').checked
+            is_main_dynasty: document.getElementById('isMainDynasty').checked,
+            sealText: document.getElementById('countrySealText').value.trim() || null
         };
         
         if (!data.name || isNaN(data.start) || !data.color) {
@@ -13252,6 +13258,7 @@ function invalidateCountryLookupCache() {
             document.getElementById('saveCountryBtn').textContent = '저장/추가';
             document.getElementById('countryColor').value = '#ffffff'; // 색상 기본값
             document.getElementById('countrySearchForEdit').value = ''; // 검색창 초기화
+            document.getElementById('countrySealText').value = ''; // 낙인 글씨 초기화
 
             // 🚩 [수정] 수정했던 국가를 다시 선택해줍니다.
             document.getElementById('countrySelectForEdit').value = newName;
