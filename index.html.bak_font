@@ -232,8 +232,6 @@
         line-height: 1;
         letter-spacing: 3px;
         text-shadow: -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000, 1px 1px 2px #000, 0px 0px 3px #000;
-        /* --marker-scale 영향 차단: 국가명은 renderMacroCountryNames()의 countryFontSize로만 크기 제어 */
-        transform: scale(1) !important;
     }
 
     .macro-country-label-icon { pointer-events: none; }
@@ -4834,7 +4832,6 @@ body.force-mobile .marker-type-selector button {
     let allCastleMarkers = []; // 🚩 [추가] 모든 성 마커 저장소
     let currentOpenPopup = null; // 🚩 [추가] 현재 열린 팝업 추적
     let isInitializing = true; // 🚀 [최적화] 초기 로딩 플래그
-    window._castleMarkersRendered = false; // 🎯 성/도시 마커 렌더링 완료 신호
 
     // UI 상태 관리 변수 (isLoggedIn 기반으로 초기화)
     let editMode = false;
@@ -4953,8 +4950,7 @@ body.force-mobile .marker-type-selector button {
             const mode = typeof spec === 'string' ? spec : 'country';
 
             const baseOpacity = 0.62;
-            // 🔑 [개선] countryInfo가 null (국가 로딩 중)이면 회색 fallback 표시
-            const baseColor = countryInfo && countryInfo.color ? countryInfo.color : '#888888';
+            const baseColor = countryInfo && countryInfo.color ? countryInfo.color : '#ffffff';
 
             switch (mode) {
                 case 'ethnicity': {
@@ -5054,15 +5050,7 @@ body.force-mobile .marker-type-selector button {
         worldCopyJump: true, // 🚩 [추가] 지도 좌우 롤링(연속 스크롤) 기능 활성화
         attributionControl: false, // 🚩 [추가] leaflet attribution(링크) 숨김
         zoomControl: false, // 🚩 [추가] 기본 줌 컨트롤 비활성화 (수동으로 위치 지정)
-        preferCanvas: true, // 🚀 [최적화] Canvas 렌더링 사용 — SVG보다 수백 개 마커에서 훨씬 빠름
-        // 🎯 [조정] 지도 이동 묵직하게, 스크롤 줌 간섭 최소화
-        inertia: true,               // 드래그 후 관성 이동 유지
-        inertiaDeceleration: 1800,   // 기본 3000 → 낮을수록 천천히 멈춤 (묵직함)
-        inertiaMaxSpeed: 1000,       // 기본 1500 → 최대 속도 제한
-        zoomSnap: 0.5,               // 기본 1 → 줌 단계를 0.5 단위로 부드럽게
-        zoomDelta: 0.5,              // 버튼 클릭/키보드 줌 단위 (기본 1 → 0.5로 세밀하게)
-        wheelPxPerZoomLevel: 120,    // 기본 60 → 두 배로 늘려 스크롤 줌 감도 낮춤
-        wheelDebounceTime: 80        // 기본 40ms → 80ms 로 스크롤 줌 딜레이 추가
+        preferCanvas: true // 🚀 [최적화] Canvas 렌더링 사용 — SVG보다 수백 개 마커에서 훨씬 빠름
     });
     
     // 🚩 [추가] 줌 컨트롤을 왼쪽 하단에 추가
@@ -5231,8 +5219,16 @@ body.force-mobile .marker-type-selector button {
             ? getCurrentYearMonth() 
             : { year: parseInt(yearInput?.value || 400), month: 1 };
 
-        // 국가명 폰트 크기 고정 (줌 레벨 무관)
-        const countryFontSize = 14;
+        // 🚩 [추가] 줌 레벨에 따라 국가명 크기 결정 (줌 아웃 시 겹침 방지)
+        const zoom = map.getZoom();
+        let countryFontSize;
+        if      (zoom <= 3)  countryFontSize = 8;
+        else if (zoom === 4) countryFontSize = 9;
+        else if (zoom === 5) countryFontSize = 10;
+        else if (zoom === 6) countryFontSize = 13;  // 수도 표시 시작 (약 200km)
+        else if (zoom === 7) countryFontSize = 15;  // 모든 성 표시 시작 (약 100km)
+        else if (zoom === 8) countryFontSize = 16;
+        else                 countryFontSize = 17; // zoom 9+
 
         // 렌더링된 국가별 라벨 위치 결정
         // 우선순위: ① 수도 좌표 → ② 영토 중심점(centroid)
@@ -5306,8 +5302,11 @@ body.force-mobile .marker-type-selector button {
     // 🚩 [과제1] zoomend 이벤트에 LOD 모드 전환 연결
     map.on('zoomend', applyLODMode);
 
-    // 🚩 [추가] zoomend 시 같은 모드 내 줌 변경 시 마커 재렌더링 (국가명은 updateMap 내부에서 갱신)
+    // 🚩 [추가] zoomend 시 국가명 크기 재렌더링 + 같은 모드 내 줌 변경 시 마커 재렌더링
     map.on('zoomend', () => {
+        if (layerVisibility.countryLabel) {
+            renderMacroCountryNames();
+        }
         // 같은 LOD 모드 안에서 줌이 바뀌면 applyLODMode가 스킵되므로
         // 미시/중간 모드에서 뷰포트가 바뀐 마커를 직접 재렌더링
         if (currentMacroMode !== 0) {
@@ -5318,9 +5317,6 @@ body.force-mobile .marker-type-selector button {
                     : { year: parseInt(yearInput?.value || 400), month: 1 };
                 updateMap(year, month, false, true);
             }, 200);
-        } else {
-            // 거시 모드: 마커 없이 국가명만 재렌더링 (폰트 크기 변경 반영)
-            if (layerVisibility.countryLabel) renderMacroCountryNames();
         }
     });
 
@@ -5926,16 +5922,9 @@ function getKingByYear(countryName, year, month) {
         // 영토 데이터에 country_id가 직접 있으면 우선 사용 (castles 없어도 렌더링 가능)
         if (territory.properties && territory.properties.country_id) {
             const countryId = territory.properties.country_id;
-            // 🔑 [개선] String/숫자 형식 차이 허용 — 문자열로 통일 후 재시도
-            const countryInfo = getCountryInfoById(countryId)
-                             || getCountryInfoById(String(countryId));
+            const countryInfo = getCountryInfoById(countryId);
             if (countryInfo) {
-                return { countryId: String(countryId), isExclusive: true, countriesInZone: [String(countryId)] };
-            }
-            // countries가 아직 로드되지 않은 경우에도 country_id가 존재하면 통과
-            // (countryInfo=null → countryNotFound 처리. noCountry는 아님)
-            if (countries.length === 0) {
-                return { countryId: String(countryId), isExclusive: true, countriesInZone: [String(countryId)] };
+                return { countryId: countryId, isExclusive: true, countriesInZone: [countryId] };
             }
         }
         
@@ -6007,22 +5996,8 @@ function getKingByYear(countryName, year, month) {
         
         const uniqueCountries = Object.keys(countryCount);
         
-        // 구역 내 도시가 0개면 → castles 미로드 상태일 수 있으므로 properties.country_id로 fallback
-        if (uniqueCountries.length === 0) {
-            if (territory.properties && territory.properties.country_id) {
-                const fallbackId = String(territory.properties.country_id);
-                if (castles.length === 0) {
-                    // castles 로딩 대기 중임을 표시 (과도한 로그 방지: 첫 5개만)
-                    if (typeof calculateDominantCountry._fallbackLogCount === 'undefined') calculateDominantCountry._fallbackLogCount = 0;
-                    if (calculateDominantCountry._fallbackLogCount < 5) {
-                        console.log(`⏳ [성 데이터 로딩 대기 중] territory "${territory.name}" → properties.country_id(${fallbackId}) fallback 사용`);
-                        calculateDominantCountry._fallbackLogCount++;
-                    }
-                }
-                return { countryId: fallbackId, isExclusive: true, countriesInZone: [fallbackId] };
-            }
-            return null;
-        }
+        // 구역 내 도시가 0개면 null
+        if (uniqueCountries.length === 0) return null;
         
         // 단일 국가 → 배타적 점유
         if (uniqueCountries.length === 1) {
@@ -6742,7 +6717,7 @@ function renderImmediateCountryLabels(year, month) {
 
 // 🔄 [무한 루프 방지] updateMap 디바운싱
 let updateMapTimer = null;
-let lastUpdateMapCall = { year: null, month: null, cacheOnly: null, dataFingerprint: null };
+let lastUpdateMapCall = { year: null, month: null, cacheOnly: null };
 let pendingUpdateMapRAF = null; // 🚀 [v2.0.9] requestAnimationFrame ID
 
 function updateMap(year, month, cacheOnly = false, force = false) {
@@ -6753,25 +6728,19 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             pendingUpdateMapRAF = null;
         }
         
-        // 🛡️ [중복 호출 차단] 동일한 파라미터로 300ms 이내 재호출 시 무시 (force가 true면 스킵)
-        // 🔑 [개선] 16ms → 300ms — 초기화 연쇄 호출(4-5회) 차단
-        // 단, 데이터 개수가 변했으면 (새 데이터 도착) 즉시 통과
+        // 🛡️ [중복 호출 차단] 동일한 파라미터로 16ms 이내 재호출 시 무시 (force가 true면 스킵)
         const now = Date.now();
-        const dataFingerprint = `${castles.length}_${territories.length}_${countries.length}`;
         if (!force && lastUpdateMapCall.year === year && 
             lastUpdateMapCall.month === month && 
             lastUpdateMapCall.cacheOnly === cacheOnly &&
-            lastUpdateMapCall.dataFingerprint === dataFingerprint &&
             lastUpdateMapCall.timestamp && 
-            (now - lastUpdateMapCall.timestamp) < 300) {
-            return; // 조용히 스킵 (로그 생략 — 연쇄 호출 시 로그 과다 방지)
+            (now - lastUpdateMapCall.timestamp) < 16) {
+            console.log(`⏭️ updateMap 중복 호출 차단 (${now - lastUpdateMapCall.timestamp}ms 전 실행됨)`);
+            return;
         }
         
         // 호출 정보 기록
-        lastUpdateMapCall = { year, month, cacheOnly, timestamp: now, dataFingerprint };
-        
-        // 🎯 updateMap 실행마다 마커 완료 플래그 리셋 — 이 updateMap의 렌더링이 끝나야 로딩 해제
-        window._castleMarkersRendered = false;
+        lastUpdateMapCall = { year, month, cacheOnly, timestamp: now };
         
         // 🚀 [최적화] 초기 로딩 중에는 실행 차단
         if (isInitializing) {
@@ -6883,17 +6852,10 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 }
                 
                 const dominantCountryId = dominantResult.countryId;
-                let countryInfo = getCountryInfoById(dominantCountryId);
+                const countryInfo = getCountryInfoById(dominantCountryId);
                 if (!countryInfo) {
                     skipReasons.countryNotFound++;
-                    // 🔑 [진단] 매칭 실패 ID를 처음 10개만 출력 (데이터 점검용)
-                    if (!updateMap._loggedMissingIds) updateMap._loggedMissingIds = new Set();
-                    if (updateMap._loggedMissingIds.size < 10 && !updateMap._loggedMissingIds.has(dominantCountryId)) {
-                        console.warn(`⚠️ [국가 매칭 실패] ID: "${dominantCountryId}" (territory: "${territory.name}")`);
-                        updateMap._loggedMissingIds.add(dominantCountryId);
-                    }
-                    // 🔑 [개선] 국가 정보 없어도 회색으로 fallback 렌더링 (빈 지도 방지)
-                    countryInfo = { color: '#888888', name: dominantCountryId };
+                    return;
                 }
                 
                 // 민족 필터링
@@ -7424,8 +7386,6 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         
         if (!Array.isArray(castles) || castles.length === 0) {
             console.warn('⚠️ castles 배열이 비어있거나 배열이 아님');
-            // castles가 없어도 로딩 차단하지 않음 — territories만 있어도 해제 가능
-            window._castleMarkersRendered = true;
             return;
         }
         
@@ -8068,7 +8028,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
           const flagAndNameIconHtml = `
             <div style="position: relative; display: flex; flex-direction: column; align-items: center; transform: scale(var(--marker-scale, 1));">
               <div style="color:${dotColorF}; font-size:10px; line-height:1; filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.4)); text-shadow: -1px -1px 1px rgba(0,0,0,0.45), 1px 1px 1px rgba(0,0,0,0.45);">▼</div>
-              <div style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); color:#f0e6c8; font-family:'Nanum Myeongjo',serif; font-weight:400; font-size:10px; white-space:nowrap; padding-bottom:1px; text-shadow: 0px 0px 2px rgba(0,0,0,0.9), 0px 0px 4px rgba(0,0,0,0.8);">${castleName}</div>
+              <div style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); color:${dotColorF}; font-family:'Nanum Myeongjo',serif; font-weight:700; font-size:10px; white-space:nowrap; border-bottom: 1.5px solid ${dotColorF}; padding-bottom:1px; text-shadow: -1px -1px 2px rgba(0,0,0,0.5), 1px -1px 2px rgba(0,0,0,0.5), -1px 1px 2px rgba(0,0,0,0.5), 1px 1px 2px rgba(0,0,0,0.5), 0px 0px 3px rgba(0,0,0,0.4);">${castleName}</div>
             </div>
               `;
               const customIcon = L.divIcon({
@@ -8097,7 +8057,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
           // 🚩 [핵심 수정] 일반성 마커를 원(dot)에서 역삼각형(▼)으로 변경합니다.
           const dotColor = currentCountry.color || 'white'; 
               const markerHtml = `<div style="position: relative; display: flex; flex-direction: column; align-items: center; transform: scale(var(--marker-scale, 1));">
-                                    <div style="color:${dotColor}; font-size:10px; line-height:1; filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.4)); text-shadow: -1px -1px 1px rgba(0,0,0,0.45), 1px 1px 1px rgba(0,0,0,0.45);">▼</div><div class="city-marker-text" style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); color:#f0e6c8; font-family:'Nanum Myeongjo',serif; font-weight:400; font-size:10px; white-space:nowrap; padding-bottom:1px; text-shadow: 0px 0px 2px rgba(0,0,0,0.9), 0px 0px 4px rgba(0,0,0,0.8);">${castleName}</div>
+                                    <div style="color:${dotColor}; font-size:10px; line-height:1; filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.4)); text-shadow: -1px -1px 1px rgba(0,0,0,0.45), 1px 1px 1px rgba(0,0,0,0.45);">▼</div><div class="city-marker-text" style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); color:${dotColor}; font-family:'Nanum Myeongjo',serif; font-weight:700; font-size:10px; white-space:nowrap; border-bottom: 1.5px solid ${dotColor}; padding-bottom:1px; text-shadow: -1px -1px 2px rgba(0,0,0,0.5), 1px -1px 2px rgba(0,0,0,0.5), -1px 1px 2px rgba(0,0,0,0.5), 1px 1px 2px rgba(0,0,0,0.5), 0px 0px 3px rgba(0,0,0,0.4);">${castleName}</div>
                                   </div>`;
               const customIcon = L.divIcon({
                 className: 'custom-city-marker',
@@ -8175,8 +8135,6 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         });
         
         console.log(`✅ 성/도시 렌더링 완료: 마커 ${markers.length}개 (뷰포트 기준)`);
-        // 🎯 로딩 화면 해제 신호 — checkTerritoriesRendered가 이 플래그를 감지
-        window._castleMarkersRendered = true;
     }
 
 // 🚀 [최적화] getCountryInfoById 캐시 — countries.find() 반복 호출 방지
@@ -8486,12 +8444,6 @@ function invalidateCountryLookupCache() {
     const TERRITORY_STORE_NAME = 'tiles';
     const TERRITORY_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
 
-    // 🚀 [IndexedDB] Castles 캐싱 시스템
-    const CASTLES_DB_NAME = 'CastlesDB';
-    const CASTLES_DB_VERSION = 3;
-    const CASTLES_STORE_NAME = 'castles';
-    const CASTLES_CACHE_DURATION = 3 * 60 * 60 * 1000; // 3시간
-
     // 🚀 [IndexedDB] Events 캐싱 시스템
     const EVENTS_DB_NAME = 'EventsDB';
     const EVENTS_DB_VERSION = 1;
@@ -8525,24 +8477,6 @@ function invalidateCountryLookupCache() {
                     objectStore.createIndex('timestamp', 'timestamp', { unique: false });
                     console.log('✅ IndexedDB 영토 타일 저장소 생성 완료');
                 }
-            };
-        });
-    }
-
-    // IndexedDB 초기화 (Castles)
-    function openCastlesDB() {
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open(CASTLES_DB_NAME, CASTLES_DB_VERSION);
-            request.onerror = () => reject(request.error);
-            request.onsuccess = () => resolve(request.result);
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-                if (db.objectStoreNames.contains(CASTLES_STORE_NAME)) {
-                    db.deleteObjectStore(CASTLES_STORE_NAME);
-                }
-                const objectStore = db.createObjectStore(CASTLES_STORE_NAME, { keyPath: 'id' });
-                objectStore.createIndex('timestamp', 'timestamp', { unique: false });
-                console.log('✅ IndexedDB Castles 저장소 생성 완료');
             };
         });
     }
@@ -8602,71 +8536,6 @@ function invalidateCountryLookupCache() {
                 }
             };
         });
-    }
-
-    // 🚀 [IndexedDB] Castles 캐시 로드
-    async function loadCastlesFromCache() {
-        try {
-            const db = await openCastlesDB();
-            const transaction = db.transaction([CASTLES_STORE_NAME], 'readonly');
-            const objectStore = transaction.objectStore(CASTLES_STORE_NAME);
-            const mainRequest = objectStore.get('all_castles');
-            const mainCached = await new Promise((resolve, reject) => {
-                mainRequest.onsuccess = () => resolve(mainRequest.result);
-                mainRequest.onerror = () => reject(mainRequest.error);
-            });
-            if (!mainCached) return null;
-            const age = Date.now() - mainCached.timestamp;
-            if (age > CASTLES_CACHE_DURATION) {
-                console.log('⚠️ Castles 캐시 만료 (3시간 초과)');
-                return null;
-            }
-            let allData = [...mainCached.data];
-            if (mainCached.totalChunks && mainCached.totalChunks > 1) {
-                for (let i = 1; i < mainCached.totalChunks; i++) {
-                    const chunkRequest = objectStore.get(`castles_chunk_${i}`);
-                    const chunkData = await new Promise((resolve, reject) => {
-                        chunkRequest.onsuccess = () => resolve(chunkRequest.result);
-                        chunkRequest.onerror = () => reject(chunkRequest.error);
-                    });
-                    if (chunkData && chunkData.data) allData = allData.concat(chunkData.data);
-                }
-            }
-            console.log(`💾 Castles 캐시 로드: ${allData.length}개 (${(age/1000/60).toFixed(1)}분 전 저장)`);
-            return allData;
-        } catch (error) {
-            console.warn('⚠️ Castles 캐시 로드 실패:', error);
-            return null;
-        }
-    }
-
-    // 🚀 [IndexedDB] Castles 캐시 저장 (청크 단위)
-    async function saveCastlesCache(castlesData) {
-        try {
-            const db = await openCastlesDB();
-            const CHUNK_SIZE = 500;
-            const chunks = Math.ceil(castlesData.length / CHUNK_SIZE);
-            for (let i = 0; i < chunks; i++) {
-                const chunkData = castlesData.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-                const transaction = db.transaction([CASTLES_STORE_NAME], 'readwrite');
-                const objectStore = transaction.objectStore(CASTLES_STORE_NAME);
-                objectStore.put({
-                    id: i === 0 ? 'all_castles' : `castles_chunk_${i}`,
-                    data: chunkData,
-                    timestamp: Date.now(),
-                    chunkIndex: i,
-                    totalChunks: chunks
-                });
-                await new Promise((resolve, reject) => {
-                    transaction.oncomplete = () => resolve();
-                    transaction.onerror = () => reject(transaction.error);
-                });
-                if (i < chunks - 1) await new Promise(r => setTimeout(r, 0));
-            }
-            console.log(`💾 Castles 캐시 저장 완료 (${chunks}개 청크, ${castlesData.length}개)`);
-        } catch (error) {
-            console.warn('⚠️ Castles 캐시 저장 실패:', error);
-        }
     }
 
     // 캐시에서 영토 데이터 로드
@@ -8954,11 +8823,11 @@ function invalidateCountryLookupCache() {
         // 🚀 [v2.0.6] 초기 로딩 화면 제거
         const initialScreen = document.getElementById('initial-loading-screen');
         if (initialScreen) {
-            initialScreen.style.transition = 'opacity 0.25s ease-out';
             initialScreen.style.opacity = '0';
+            initialScreen.style.transition = 'opacity 0.5s ease-out';
             setTimeout(() => {
                 initialScreen.remove();
-            }, 260);
+            }, 500);
         }
     }
 
@@ -8976,25 +8845,18 @@ function invalidateCountryLookupCache() {
       const eventsPromise = loadEventsFromCache();
       const drawingsPromise = loadDrawingsFromCache();
       const contributionsPromise = loadContributionsFromCache();
-      const castlesPromise = loadCastlesFromCache(); // 🚀 [추가] Castles 캐시 우선 로드
       
-      // 병렬 대기 (castles 포함)
-      const [cachedTerritories, cachedEvents, cachedDrawings, cachedContributions, cachedCastles] = await Promise.all([
+      // 병렬 대기 (castles는 항상 DB에서 직접 로드)
+      const [cachedTerritories, cachedEvents, cachedDrawings, cachedContributions] = await Promise.all([
           territoriesPromise,
           eventsPromise,
           drawingsPromise,
-          contributionsPromise,
-          castlesPromise
+          contributionsPromise
       ]);
       
-      // castles: 캐시가 있으면 바로 사용, 없으면 백그라운드 로드
-      if (cachedCastles && cachedCastles.length > 0) {
-          castles = cachedCastles;
-          console.log(`💾 castles 캐시 사용: ${castles.length}개 (즉시 렌더링 가능)`);
-      } else {
-          castles = [];
-          console.log('🏰 castles: 캐시 없음, 백그라운드 DB 로드 예정');
-      }
+      // castles는 항상 빈 배열로 시작 (매번 DB에서 직접 로드)
+      castles = [];
+      console.log('🏰 castles: 캐시 없이 DB 직접 로드 모드');
       
       if (!cachedTerritories || cachedTerritories.length === 0) {
           territories = [];
@@ -9135,23 +8997,12 @@ function invalidateCountryLookupCache() {
           // 🎯 [핵심 최적화] countries 데이터가 오는 즉시 1차 렌더링 (Promise.all 기다리지 않음)
           loadPromises.countries.then(data => {
               countries = data || [];
-              // 🔑 [핵심] countries 교체 시 lookup 캐시 강제 무효화 (국가없음 매칭 실패 방지)
-              _countryLookupMap = null;
-              // 🔑 [진단] countries 재로드 시 매칭 실패 로그 리셋 (새 데이터로 재진단)
-              if (updateMap._loggedMissingIds) updateMap._loggedMissingIds.clear();
-              console.log(`✅ [즉시 렌더링] countries ${countries.length}개 로드 완료 (lookup 캐시 초기화)`);
+              console.log(`✅ [즉시 렌더링] countries ${countries.length}개 로드 완료`);
               
+              // 🎯 countries 데이터만으로도 1차 지도 렌더링 가능 (국가 라벨 표시)
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
               console.log('🗺️ [즉시 렌더링] countries 데이터로 초기 지도 렌더링 완료 (네트워크 응답 즉시)');
-              
-              // 🔁 territories 캐시 존재 시 updateMap을 한 번 더 호출하여 매칭 재시도
-              if (territories && territories.length > 0) {
-                  requestAnimationFrame(() => {
-                      updateMap(year, month);
-                      console.log('🔁 [매칭 재시도] territories+countries 재렌더링 완료');
-                  });
-              }
           }).catch(err => {
               console.error('❌ countries 즉시 로드 실패:', err);
           });
@@ -9185,8 +9036,6 @@ function invalidateCountryLookupCache() {
           // 결과 할당
           const dataMap = Object.fromEntries(results);
           countries = dataMap.countries || [];
-          // 🔑 [핵심] countries 재할당 시 lookup 캐시 강제 무효화
-          _countryLookupMap = null;
           
           // 🚀 [백그라운드 로딩] events를 항상 비동기 로딩 (연대표/사건목록 공용)
           if (events.length === 0) {
@@ -9454,119 +9303,183 @@ function invalidateCountryLookupCache() {
               }
           }, 100); // 100ms 후 실행 (UI 렌더링 완료 후)
           
-          // 2️⃣ castles 데이터 - 캐시 우선, 없으면 DB 로드 후 캐시 저장
+          // 2️⃣ castles 데이터 - 항상 DB에서 직접 로드 (캐시 없음)
           if (layerVisibility.city || layerVisibility.territoryPolygon) {
-              if (castles.length > 0) {
-                  // 캐시 히트: 이미 위에서 할당됨, 백그라운드에서 DB 재검증만
-                  console.log(`⚡ castles 캐시 사용 (${castles.length}개) → 백그라운드 DB 갱신 예정`);
-                  // 백그라운드에서 최신 데이터 갱신 (캐시가 3시간 이내라면 스킵)
-                  // (이미 loadCastlesFromCache에서 유효성 확인됨, 별도 재요청 불필요)
-              } else {
-                  // 캐시 미스: DB에서 로드
-                  console.log('🏰 castles 캐시 없음 → DB 로딩 시작...');
-                  setTimeout(async () => {
-                      try {
-                          const castleLoadStart = performance.now();
-                          const allCastlesData = await fetchData('castle');
-                          const castleLoadTime = ((performance.now() - castleLoadStart) / 1000).toFixed(2);
-                          console.log(`✅ castles DB 로드 완료: ${allCastlesData.length}개 (${castleLoadTime}초)`);
-                          
-                          const countryNameMap = new Map();
-                          countries.forEach(c => { if (c.name) countryNameMap.set(c.name, c._id); });
-                          
-                          const processStart = performance.now();
-                          castles = allCastlesData.map(castle => {
-                              if (castle.history && Array.isArray(castle.history) && castle.history.length > 0) {
-                                  const firstHistory = castle.history[0];
-                                  if (firstHistory.start_year !== undefined && firstHistory.country_id) return castle;
+              console.log('🏰 castles 데이터 DB에서 직접 로딩 시작...');
+              setTimeout(async () => {
+                  try {
+                      const castleLoadStart = performance.now();
+                      const allCastlesData = await fetchData('castle');
+                      const castleLoadTime = ((performance.now() - castleLoadStart) / 1000).toFixed(2);
+                      console.log(`✅ castles DB 로드 완료: ${allCastlesData.length}개 (${castleLoadTime}초)`);
+                      
+                      // 🚀 [최적화] 국가명 → ID 매핑 캐시 (countries.find() 반복 방지)
+                      const countryNameMap = new Map();
+                      countries.forEach(c => {
+                          if (c.name) countryNameMap.set(c.name, c._id);
+                      });
+                      
+                      // castles 처리 (history 필드 보강)
+                      const processStart = performance.now();
+                      castles = allCastlesData.map(castle => {
+                          // 🚀 history가 이미 정상적으로 구성되어 있으면 그대로 사용
+                          if (castle.history && Array.isArray(castle.history) && castle.history.length > 0) {
+                              const firstHistory = castle.history[0];
+                              if (firstHistory.start_year !== undefined && firstHistory.country_id) {
+                                  return castle;
                               }
-                              let processedHistory;
-                              const hasHistory = castle.history && Array.isArray(castle.history) && castle.history.length > 0;
-                              if (hasHistory) {
-                                  processedHistory = castle.history.map(h => {
-                                      let resolvedCountryId = h.country_id || castle.country_id || '';
-                                      if (typeof resolvedCountryId !== 'string') resolvedCountryId = String(resolvedCountryId);
-                                      if (!resolvedCountryId && h.country) resolvedCountryId = countryNameMap.get(h.country) || '';
-                                      return {
-                                          name: h.name ?? castle.name ?? '',
-                                          country_id: resolvedCountryId,
-                                          start_year: h.start_year ?? castle.built_year ?? -5000,
-                                          start_month: h.start_month ?? castle.built_month ?? 1,
-                                          end_year: h.end_year ?? castle.destroyed_year ?? null,
-                                          end_month: h.end_month ?? castle.destroyed_month ?? 12,
-                                          is_capital: h.is_capital ?? castle.is_capital ?? false,
-                                          is_battle: h.is_battle ?? false
-                                      };
-                                  });
-                              } else {
-                                  processedHistory = [{
-                                      name: castle.name || '',
-                                      country_id: castle.country_id || '',
-                                      start_year: castle.built_year || -5000,
-                                      start_month: castle.built_month || 1,
-                                      end_year: castle.destroyed_year,
-                                      end_month: castle.destroyed_month || 12,
-                                      is_capital: castle.is_capital || false,
-                                      is_battle: castle.is_battle || false
-                                  }];
-                              }
-                              if (castle.is_capital && !processedHistory.some(h => h.is_capital)) {
-                                  processedHistory[0].is_capital = true;
-                              }
-                              return { ...castle, history: processedHistory };
-                          });
-                          
-                          console.log(`✅ castles 처리 완료: ${castles.length}개 (${((performance.now()-processStart)/1000).toFixed(2)}초)`);
-                          
-                          // 🚀 IndexedDB 캐시 저장 (백그라운드)
-                          saveCastlesCache(castles).catch(e => console.warn('⚠️ castles 캐시 저장 실패:', e));
-                          
-                          if (layerVisibility.countryLabel || layerVisibility.placeLabel || layerVisibility.ethnicLabel) {
-                              const { year, month } = getCurrentYearMonth();
-                              renderImmediateCountryLabels(year, month);
                           }
-                          populateCitySelectForEdit();
+                          
+                          // history가 없거나 불완전한 경우에만 처리
+                          let processedHistory;
+                          const hasHistory = castle.history && Array.isArray(castle.history) && castle.history.length > 0;
+
+                          if (hasHistory) {
+                              processedHistory = castle.history.map(h => {
+                                  const parsedStartYear = h.start_year ?? castle.built_year ?? -5000;
+                                  const parsedStartMonth = h.start_month ?? castle.built_month ?? 1;
+                                  const parsedEndYear = h.end_year ?? castle.destroyed_year ?? null;
+                                  const parsedEndMonth = h.end_month ?? castle.destroyed_month ?? 12;
+
+                                  let resolvedCountryId = h.country_id || castle.country_id || '';
+                                  if (typeof resolvedCountryId !== 'string') resolvedCountryId = String(resolvedCountryId);
+                                  if (!resolvedCountryId && h.country) {
+                                      resolvedCountryId = countryNameMap.get(h.country) || '';
+                                  }
+
+                                  return {
+                                      name: h.name ?? castle.name ?? '',
+                                      country_id: resolvedCountryId,
+                                      start_year: parsedStartYear,
+                                      start_month: parsedStartMonth,
+                                      end_year: parsedEndYear,
+                                      end_month: parsedEndMonth,
+                                      is_capital: h.is_capital ?? castle.is_capital ?? false,
+                                      is_battle: h.is_battle ?? false
+                                  };
+                              });
+                          } else {
+                              processedHistory = [{
+                                  name: castle.name || '',
+                                  country_id: castle.country_id || '',
+                                  start_year: castle.built_year || -5000,
+                                  start_month: castle.built_month || 1,
+                                  end_year: castle.destroyed_year,
+                                  end_month: castle.destroyed_month || 12,
+                                  is_capital: castle.is_capital || false,
+                                  is_battle: castle.is_battle || false
+                              }];
+                          }
+
+                          if (castle.is_capital && !processedHistory.some(h => h.is_capital)) {
+                              processedHistory[0].is_capital = true;
+                          }
+
+                          return { ...castle, history: processedHistory };
+                      });
+                      
+                      const processingTime = ((performance.now() - processStart) / 1000).toFixed(2);
+                      console.log(`✅ castles 처리 완료: ${castles.length}개 (${processingTime}초)`);
+                      
+                      // 라벨 렌더링 (castles 로드 완료 후)
+                      if (layerVisibility.countryLabel || layerVisibility.placeLabel || layerVisibility.ethnicLabel) {
                           const { year, month } = getCurrentYearMonth();
-                          updateMap(year, month);
-                          console.log('🗺️ castles 마커 렌더링 완료');
-                      } catch (error) {
-                          console.error('❌ castles DB 로드 실패:', error);
-                          castles = [];
+                          renderImmediateCountryLabels(year, month);
                       }
-                  }, 200);
-              }
+                      
+                      populateCitySelectForEdit();
+                      
+                      // 🎯 castles 로딩 완료 즉시 지도 업데이트
+                      const { year, month } = getCurrentYearMonth();
+                      updateMap(year, month);
+                      console.log('🗺️ castles 마커 렌더링 완료');
+                  } catch (error) {
+                      console.error('❌ castles DB 로드 실패:', error);
+                      castles = [];
+                  }
+              }, 200);
           } else {
               console.log('⏭️ castles 로딩 스킵 (city, territoryPolygon 모두 비활성화)');
           }
+                      castles = allCastlesData.map(castle => {
+                          // 🚀 history가 이미 정상적으로 구성되어 있으면 그대로 사용
+                          if (castle.history && Array.isArray(castle.history) && castle.history.length > 0) {
+                              const firstHistory = castle.history[0];
+                              if (firstHistory.start_year !== undefined && firstHistory.country_id) {
+                                  return castle;
+                              }
+                          }
+                          
+                          // history가 없거나 불완전한 경우에만 처리
+                          let processedHistory;
+                          const hasHistory = castle.history && Array.isArray(castle.history) && castle.history.length > 0;
+
+                          if (hasHistory) {
+                              processedHistory = castle.history.map(h => {
+                                  const parsedStartYear = h.start_year ?? castle.built_year ?? -5000;
+                                  const parsedStartMonth = h.start_month ?? castle.built_month ?? 1;
+                                  const parsedEndYear = h.end_year ?? castle.destroyed_year ?? null;
+                                  const parsedEndMonth = h.end_month ?? castle.destroyed_month ?? 12;
+
+                                  let resolvedCountryId = h.country_id || castle.country_id || '';
+                                  if (typeof resolvedCountryId !== 'string') resolvedCountryId = String(resolvedCountryId);
+                                  if (!resolvedCountryId && h.country) {
+                                      resolvedCountryId = countryNameMap.get(h.country) || '';
+                                  }
+
+                                  return {
+                                      name: h.name ?? castle.name ?? '',
+                                      country_id: resolvedCountryId,
+                                      start_year: parsedStartYear,
+                                      start_month: parsedStartMonth,
+                                      end_year: parsedEndYear,
+                                      end_month: parsedEndMonth,
+                                      is_capital: h.is_capital ?? castle.is_capital ?? false,
+                                      is_battle: h.is_battle ?? false
+                                  };
+                              });
+                          } else {
+                              processedHistory = [{
+                                  name: castle.name || '',
+                                  country_id: castle.country_id || '',
+                                  start_year: castle.built_year || -5000,
+                                  start_month: castle.built_month || 1,
+                                  end_year: castle.destroyed_year,
+                                  end_month: castle.destroyed_month || 12,
+                                  is_capital: castle.is_capital || false,
+                                  is_battle: castle.is_battle || false
+                              }];
+                          }
+
+                          if (castle.is_capital && !processedHistory.some(h => h.is_capital)) {
+                              processedHistory[0].is_capital = true;
+                          }
+
+                          return { ...castle, history: processedHistory };
+                      });
                       
-          // 🎯 [v2.1.2] 로딩 완료 조건 개선
+          // 🎯 [v2.1.1] 로딩 완료 조건 개선: 최소 1개 영토 렌더링 확인 후 화면 표시
           showLoadingStatus('역사의 전장이 준비되었습니다!', 100);
           
-          let _checkRetryCount = 0;
-          const _checkMaxRetries = 10; // 최대 5초 대기 (500ms × 10회)
+          // 🎯 영토 렌더링 확인 함수
           const checkTerritoriesRendered = () => {
-              _checkRetryCount++;
-              // 조건 1: 성/도시 마커 렌더링 완료 신호 (가장 확실한 완료 기준)
-              const castlesReady = window._castleMarkersRendered === true;
-              // 조건 2: Leaflet이 실제로 뭔가 그렸는지 (영토 폴리곤 or 마커)
-              const hasInteractive = document.querySelector('.leaflet-interactive') !== null;
-              // 조건 3: 초기화 플래그 해제됨
-              const isReady = !window.isInitializing && !isInitializing;
-              // 조건 4: 최대 대기 초과
-              const isTimeout = _checkRetryCount >= _checkMaxRetries;
-
-              if (castlesReady || isTimeout) {
-                  const reason = castlesReady ? '성/도시 마커 렌더링 완료' : '최대 대기 초과';
-                  console.log(`✅ 로딩 화면 해제 (${reason}, ${_checkRetryCount}회 시도)`);
-                  setTimeout(() => hideLoadingStatus(), 150);
+              // territoryLayerGroup에 실제로 추가된 레이어 수 확인
+              const renderedCount = territoryLayerGroup ? territoryLayerGroup.getLayers().length : 0;
+              
+              if (renderedCount > 0) {
+                  console.log(`✅ 영토 렌더링 확인: ${renderedCount}개 폴리곤 표시됨`);
+                  setTimeout(() => {
+                      hideLoadingStatus();
+                  }, 500); // 0.5초 후 로딩 화면 제거
               } else {
-                  console.log(`⏳ 로딩 유지 중... (${_checkRetryCount}/${_checkMaxRetries}, castles=${castlesReady}, dom=${hasInteractive}, init=${isReady})`);
+                  console.log('⏳ 영토 렌더링 대기 중... (재시도)');
+                  // 0.5초 후 재확인 (최대 3초 대기)
                   setTimeout(checkTerritoriesRendered, 500);
               }
           };
           
-          // 🚀 territories 캐시 있으면 100ms, 없으면 300ms 후 첫 확인
-          setTimeout(checkTerritoriesRendered, territories.length > 0 ? 100 : 300);
+          // 1초 후 첫 확인 (렌더링 완료 대기)
+          setTimeout(checkTerritoriesRendered, 1000);
           
       } catch (error) {
           console.error('❌ 초기화 오류:', error);
@@ -10529,12 +10442,12 @@ function invalidateCountryLookupCache() {
           const zoom = map.getZoom();
           let scale = 1.0;
 
-          // 줌 레벨에 따라 scale 값 결정 (단조증가 — 역전 없음)
+          // 줌 레벨에 따라 scale 값 결정 (100km 지점에서 폰트 2 정도 키움)
           if (zoom <= 4) scale = 0.5;
           else if (zoom === 5) scale = 0.7;
-          else if (zoom === 6) scale = 0.9;
-          else if (zoom === 7) scale = 1.0;
-          else if (zoom === 8) scale = 1.1;
+          else if (zoom === 6) scale = 0.9;  // 100km 지점 - 폰트 크게
+          else if (zoom === 7) scale = 1.1;  // 100km 지점 - 폰트 크게
+          else if (zoom === 8) scale = 1.0;
           else if (zoom >= 9) scale = 1.2;
 
           // map 컨테이너에 CSS 변수(--marker-scale) 설정
