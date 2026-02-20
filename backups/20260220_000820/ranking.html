@@ -1,0 +1,1691 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <title>사관 랭킹 및 사료 - 고려만리지도</title>
+    <link rel="icon" type="image/jpg" href="https://pds.joongang.co.kr/news/component/htmlphoto_mmdata/200609/htm_20060904073327a000a010-001.JPG">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&family=Yeon+Sung&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #19191b;
+            color: #dbdbdb;
+            font-family: 'Noto Serif KR', serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 10px;
+        }
+        
+        /* 🚩 [추가] 팝업 전용 헤더 */
+        .popup-header {
+            position: sticky;
+            top: 0;
+            background: linear-gradient(135deg, #8e44ad 0%, #6c3483 100%);
+            padding: 15px 20px;
+            margin: -10px -10px 15px -10px;
+            width: calc(100% + 20px);
+            border-radius: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        .popup-header h1 {
+            margin: 0;
+            font-size: 1.6em;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            font-family: 'Yeon Sung', cursive;
+        }
+        
+        #main-title {
+            font-family: 'Yeon Sung', cursive;
+            font-size: 3em;
+            color: #00aaff;
+            text-shadow: 2px 2px 4px #000;
+            cursor: pointer;
+            margin-bottom: 20px;
+            display: none; /* 🚩 팝업에서는 헤더가 대신함 */
+        }
+        #contentContainer {
+            width: 98%;
+            max-width: 100%;
+            background-color: rgba(30, 42, 56, 0.95);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            border: 2px solid #f1c40f;
+        }
+        
+        /* 헤더 */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #5d7185;
+        }
+        .header h1 {
+            color: #f1c40f;
+            margin: 0;
+            font-size: 2em;
+        }
+        .header-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        /* 탭 메뉴 */
+        .tab-menu {
+            display: flex;
+            border-bottom: 2px solid #5d7185;
+            margin-bottom: 20px;
+        }
+        .tab-button {
+            padding: 12px 25px;
+            border: none;
+            background: #5d7185;
+            color: #ecf0f1;
+            cursor: pointer;
+            border-radius: 8px 8px 0 0;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s;
+            font-family: 'Noto Serif KR', serif;
+        }
+        .tab-button.active {
+            background: #3498db;
+            color: white;
+        }
+        .tab-button:hover {
+            background: #7f8c8d;
+        }
+        .tab-button.active:hover {
+            background: #2980b9;
+        }
+        
+        /* 탭 컨텐츠 */
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* 랭킹 테이블 */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #5d7185;
+        }
+        th {
+            background-color: #34495e;
+            color: #f1c40f;
+            font-weight: bold;
+        }
+        th.sortable {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+        }
+        th.sortable:hover {
+            background-color: #3d5466;
+        }
+        th.sortable::after {
+            content: ' ⇅';
+            opacity: 0.5;
+            font-size: 12px;
+        }
+        th.sortable.sort-asc::after {
+            content: ' ↑';
+            opacity: 1;
+        }
+        th.sortable.sort-desc::after {
+            content: ' ↓';
+            opacity: 1;
+        }
+        td {
+            color: #ecf0f1;
+        }
+        tr.current-user {
+            background-color: rgba(241, 196, 15, 0.1);
+            border-left: 3px solid #f1c40f;
+        }
+        tr.current-user td {
+            color: #f1c40f;
+            font-weight: bold;
+        }
+        tr:hover {
+            background-color: rgba(52, 152, 219, 0.1);
+        }
+        .rank-1 { color: #f1c40f; font-weight: bold; }
+        .rank-2 { color: #95a5a6; font-weight: bold; }
+        .rank-3 { color: #cd7f32; font-weight: bold; }
+        
+        /* 랭킹 섹션 */
+        .ranking-section {
+            margin-bottom: 30px;
+        }
+        .ranking-section h3 {
+            margin: 0 0 15px 0;
+            padding: 10px 15px;
+            background: linear-gradient(135deg, rgba(241, 196, 15, 0.1), rgba(52, 152, 219, 0.1));
+            border-radius: 8px;
+            border-left: 4px solid;
+        }
+        
+        /* 재상급 사관 테이블 */
+        .ministers-table-container {
+            background: linear-gradient(135deg, rgba(241, 196, 15, 0.05), rgba(230, 126, 34, 0.05));
+            border: 2px solid rgba(241, 196, 15, 0.3);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .ministers-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(44, 62, 80, 0.8);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .ministers-table th {
+            background: linear-gradient(135deg, #f1c40f, #e67e22);
+            color: #1a1a2e;
+            padding: 12px 15px;
+            text-align: left;
+            font-weight: bold;
+            border-bottom: 2px solid rgba(241, 196, 15, 0.3);
+        }
+        .ministers-table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid rgba(241, 196, 15, 0.2);
+            color: #ecf0f1;
+        }
+        .ministers-table tr:nth-child(even) {
+            background: rgba(241, 196, 15, 0.05);
+        }
+        .ministers-table tr:hover {
+            background: rgba(241, 196, 15, 0.1);
+        }
+        
+        /* 일반 사관 테이블 */
+        .regular-officers-container {
+            background: linear-gradient(135deg, rgba(52, 152, 219, 0.05), rgba(46, 204, 113, 0.05));
+            border: 2px solid rgba(52, 152, 219, 0.3);
+            border-radius: 12px;
+            padding: 15px;
+            max-height: 800px;
+            overflow-y: auto;
+        }
+        .regular-officers-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        .regular-officers-container::-webkit-scrollbar-track {
+            background: rgba(52, 73, 94, 0.3);
+            border-radius: 4px;
+        }
+        .regular-officers-container::-webkit-scrollbar-thumb {
+            background: rgba(52, 152, 219, 0.6);
+            border-radius: 4px;
+        }
+        .regular-officers-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(52, 152, 219, 0.8);
+        }
+        .regular-officers-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(44, 62, 80, 0.8);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .regular-officers-table th {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            padding: 12px 8px;
+            text-align: left;
+            font-weight: bold;
+            border-bottom: 2px solid rgba(52, 152, 219, 0.3);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .regular-officers-table td {
+            padding: 10px 8px;
+            border-bottom: 1px solid rgba(52, 152, 219, 0.2);
+            color: #ecf0f1;
+            font-size: 14px;
+        }
+        .regular-officers-table tr:nth-child(even) {
+            background: rgba(52, 152, 219, 0.03);
+        }
+        .regular-officers-table tr:hover {
+            background: rgba(52, 152, 219, 0.1);
+        }
+        
+        /* 사료 필터 */
+        .filter-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #34495e;
+            border-radius: 8px;
+        }
+        .filter-section label {
+            color: #ecf0f1;
+            margin-right: 10px;
+            font-weight: 600;
+        }
+        .filter-section select {
+            padding: 8px 15px;
+            border: 1px solid #5d7185;
+            border-radius: 6px;
+            background: #2c3e50;
+            color: #ecf0f1;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        
+        /* 사료 리스트 */
+        .contribution-item {
+            background: #34495e;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #3498db;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .contribution-item:hover {
+            background: #3d5466;
+            transform: translateX(5px);
+        }
+        .contribution-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .contribution-title {
+            font-weight: bold;
+            color: #3498db;
+            font-size: 16px;
+        }
+        .contribution-status {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-pending { background: #f39c12; color: #1a1a1a; }
+        .status-approved { background: #27ae60; color: white; }
+        .status-rejected { background: #e74c3c; color: white; }
+        
+        .contribution-details {
+            color: #bdc3c7;
+            font-size: 14px;
+        }
+        
+        /* 버튼 스타일 */
+        button, .button-style {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            font-family: 'Noto Serif KR', serif;
+        }
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+        .btn-secondary {
+            background: #8e44ad;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #9b59b6;
+        }
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+        
+        /* 홈 링크 */
+        #homeLink {
+            display: inline-block;
+            margin-top: 25px;
+            color: #00aaff;
+            text-decoration: none;
+            padding: 12px 25px;
+            border: 2px solid #00aaff;
+            border-radius: 25px;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+        #homeLink:hover {
+            background-color: #00aaff;
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0, 170, 255, 0.4);
+        }
+        
+        /* 오류신고 버튼 */
+        #error-report-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+        #error-report-btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+            color: white;
+            text-decoration: none;
+            padding: 12px 20px;
+            border-radius: 25px;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
+            transition: all 0.3s ease;
+        }
+        #error-report-btn:hover {
+            background: linear-gradient(135deg, #ee5a52, #dc4545);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4);
+        }
+        
+        /* 모달 스타일 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 10000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.7);
+            overflow-y: auto;
+        }
+        .modal-content {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            margin: 5% auto;
+            padding: 30px;
+            border: 3px solid #f1c40f;
+            width: 90%;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #5d7185;
+        }
+        .modal-header h2 {
+            margin: 0;
+            color: #f1c40f;
+        }
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 32px;
+            cursor: pointer;
+            color: #ecf0f1;
+            line-height: 1;
+            padding: 0;
+        }
+        .close-btn:hover {
+            color: #e74c3c;
+        }
+        
+        /* 반응형 */
+        @media (max-width: 768px) {
+            #main-title {
+                font-size: 2em;
+            }
+            #contentContainer {
+                width: 95%;
+                padding: 20px;
+            }
+            .header {
+                flex-direction: column;
+                gap: 15px;
+            }
+            .tab-button {
+                padding: 10px 15px;
+                font-size: 14px;
+            }
+            table {
+                font-size: 12px;
+            }
+            th, td {
+                padding: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 🚩 [추가] 팝업 전용 헤더 -->
+    <div class="popup-header">
+        <h1>📜 사관 랭킹 및 사료</h1>
+    </div>
+    
+    <div id="contentContainer">
+        <div class="header">
+            <div class="header-buttons" style="width: 100%; display: flex; justify-content: flex-end;">
+                <button type="button" id="rankInfoBtn" class="btn-secondary">직급 안내</button>
+            </div>
+        </div>
+        
+        <!-- 탭 메뉴 -->
+        <div class="tab-menu">
+            <button class="tab-button active" data-tab="ranking">🏆 랭킹</button>
+            <button class="tab-button" data-tab="contributions">📚 사료</button>
+        </div>
+        
+        <!-- 랭킹 탭 -->
+        <div id="ranking-tab" class="tab-content active">
+            <!-- 재상급 사관 테이블 -->
+            <div class="ranking-section">
+                <h3 style="color: #f1c40f; margin-bottom: 15px; font-size: 1.4em;">👑 재상급 사관 (정1품 ~ 종2품)</h3>
+                <div class="ministers-table-container">
+                    <table class="ministers-table">
+                        <thead>
+                            <tr>
+                                <th>순위</th>
+                                <th>사관명</th>
+                                <th>직급</th>
+                                <th style="text-align: right;">승인건수</th>
+                                <th style="text-align: right;">승인점수</th>
+                                <th style="text-align: right;">사료외</th>
+                                <th style="text-align: right;">공적</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ministersTableBody">
+                            <!-- 재상급 사관 데이터가 여기에 동적으로 추가됩니다 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- 일반 사관 테이블 -->
+            <div class="ranking-section">
+                <h3 style="color: #3498db; margin: 25px 0 15px 0; font-size: 1.4em;">🎯 일반 사관 랭킹 (정3품 ~ 종9품)</h3>
+                <div class="regular-officers-container">
+                    <table class="regular-officers-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-sort="rank">순위</th>
+                                <th class="sortable" data-sort="username">사관명</th>
+                                <th class="sortable" data-sort="position">직급</th>
+                                <th class="sortable" data-sort="submitted_count" style="text-align: right;">사료제출 (×3)</th>
+                                <th class="sortable" data-sort="recommended_count" style="text-align: right;">추천받은수 (×1)</th>
+                                <th class="sortable" data-sort="approved_count" style="text-align: right;">승인된건수 (×10)</th>
+                                <th class="sortable" data-sort="reviewed_count" style="text-align: right;">검토 (×5)</th>
+                                <th class="sortable" data-sort="attendance_count" style="text-align: right;">출석 (×1)</th>
+                                <th class="sortable" data-sort="score" style="text-align: right;">공적</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rankingTableBody">
+                            <!-- 일반 사관 데이터가 여기에 동적으로 추가됩니다 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 사료 탭 -->
+        <div id="contributions-tab" class="tab-content">
+            <div class="filter-section" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: rgba(52, 73, 94, 0.6); padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #5d7185;">
+                <div class="search-box" style="flex: 2; min-width: 200px; position: relative;">
+                    <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #95a5a6;">🔍</span>
+                    <input type="text" id="searchInput" placeholder="사료명, 내용, 제출자 검색..." style="width: 100%; padding: 10px 10px 10px 35px; border: 1px solid #5d7185; border-radius: 5px; box-sizing: border-box; background: #2c3e50; color: #ecf0f1;">
+                </div>
+                
+                <div class="filter-group" style="flex: 1; min-width: 120px;">
+                    <select id="statusFilter" style="width: 100%; padding: 10px; border: 1px solid #5d7185; border-radius: 5px; background: #2c3e50; color: #ecf0f1; cursor: pointer;">
+                        <option value="all">📊 모든 상태</option>
+                        <option value="pending">⏳ 검토 대기</option>
+                        <option value="reviewed">✅ 1차 검토완료</option>
+                        <option value="approved">⭐ 최종 승인</option>
+                        <option value="rejected">❌ 거부됨</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group" style="flex: 1; min-width: 120px;">
+                    <select id="ownershipFilter" style="width: 100%; padding: 10px; border: 1px solid #5d7185; border-radius: 5px; background: #2c3e50; color: #ecf0f1; cursor: pointer;">
+                        <option value="all" selected>👥 전체 사료</option>
+                        <option value="mine">👤 내 사료만</option>
+                    </select>
+                </div>
+            </div>
+            <div id="contributionsList">
+                <!-- 사료 데이터가 여기에 동적으로 추가됩니다 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 오류신고 버튼 -->
+    <div id="error-report-container">
+        <a href="mailto:projeffmanager@gmail.com?subject=고려만리지도 오류신고&body=발견하신 오류를 자세히 설명해주세요." id="error-report-btn">
+            🐛 오류신고
+        </a>
+    </div>
+
+    <!-- 사료 상세 모달 -->
+    <div id="contributionDetailModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📚 사료 상세 정보</h2>
+                <button class="close-btn" id="closeDetailBtn">&times;</button>
+            </div>
+            <div id="contributionDetailContent">
+                <!-- 상세 내용이 여기에 동적으로 추가됩니다 -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = '/api'; // 로컬: localhost:3000/api, Vercel: historymap-psi.vercel.app/api
+
+        // 탭 전환
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.addEventListener('click', () => {
+                const tabName = button.getAttribute('data-tab');
+                
+                // 모든 탭 버튼과 컨텐츠 비활성화
+                document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+                
+                // 선택된 탭 활성화
+                button.classList.add('active');
+                document.getElementById(`${tabName}-tab`).classList.add('active');
+                
+                // 데이터 로드
+                if (tabName === 'ranking') {
+                    loadRankings();
+                } else if (tabName === 'contributions') {
+                    loadContributions();
+                }
+            });
+        });
+
+        // 직급명을 구체적으로 표시하는 함수
+        function getDetailedPosition(score, rank = null) {
+            // 동일한 기준을 server.js / index.html의 calculateRealtimePosition과 맞춥니다.
+            // 정1품~종2품(재상급)은 순위와 결합되어 결정되므로 여기서는 점수 기준만 적용된 이름을 반환합니다.
+            if (score >= 2600) return '정3품 수찬관(修撰官)';
+            if (score >= 2100) return '종3품 직수찬관(直修撰官)';
+            if (score >= 1700) return '정4품 사관수찬(史館修撰)';
+            if (score >= 1400) return '종4품 시강학사(侍講學士)';
+            if (score >= 1100) return '정5품 기거주(起居注)';
+            if (score >= 850)  return '종5품 기거사(起居舍)';
+            if (score >= 650)  return '정6품 기거랑(起居郞)';
+            if (score >= 450)  return '종6품 기거도위(起居都尉)';
+            if (score >= 300)  return '정7품 수찬(修撰)';
+            if (score >= 200)  return '종7품 직문한(直文翰)';
+            if (score >= 120)  return '정8품 주서(注書)';
+            if (score >= 60)   return '종8품 검열(檢閱)';
+            if (score >= 30)   return '정9품 정자(正字)';
+            return '종9품 수분권지(修分權知)';
+        }
+
+        // DB에 구 형식(품계 없음)으로 저장된 직급에 품계를 붙여주는 함수
+        const POSITION_RANK_MAP = {
+            '감수국사': '정1품 감수국사', '판사관사': '종1품 판사관사',
+            '수국사': '정2품 수국사',     '동수국사': '종2품 동수국사',
+            '수찬관': '정3품 수찬관',     '직수찬관': '종3품 직수찬관',
+            '사관수찬': '정4품 사관수찬', '시강학사': '종4품 시강학사',
+            '기거주': '정5품 기거주',     '기거사': '종5품 기거사',
+            '기거랑': '정6품 기거랑',     '기거도위': '종6품 기거도위',
+            '수찬': '정7품 수찬',         '직문한': '종7품 직문한',
+            '주서': '정8품 주서',         '검열': '종8품 검열',
+            '정자': '정9품 정자',         '수분권지': '종9품 수분권지',
+            '백성': '백성'
+        };
+        function normalizePosition(pos) {
+            if (!pos) return '종9품 수분권지';
+            if (/^(정|종)[0-9]품/.test(pos)) return pos;
+            return POSITION_RANK_MAP[pos] || pos;
+        }
+
+        // 재상급 사관인지 확인하는 함수 — 서버 isMinister/designated_rank 우선, 보조로 점수 판별
+        function isMinister(user) {
+            if (user.isMinister) return true;
+            if (user.designated_rank != null) return true;
+            return (user.score || 0) >= 1100; // 종2품 동수국사 점수 기준 (fallback)
+        }
+
+        // 숨길 계정 목록 (관리용 계정 등 비회원)
+        const HIDDEN_USERNAMES = new Set(['송나라 사신 서긍']);
+
+        // 랭킹 데이터 로드
+        async function loadRankings() {
+            try {
+                console.log('Loading rankings...');
+                
+                // 모바일 환경에서의 타임아웃 설정 (10초)
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                
+                const response = await fetch(`${API_BASE_URL}/rankings`, {
+                    signal: controller.signal,
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+                    }
+                });
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const allUsers = await response.json();
+                console.log('API response:', allUsers);
+                
+                // 공적이 0인 사용자들도 포함해서 모든 사용자 표시 (숨김 계정 제외)
+                const users = (allUsers.length > 0 ? allUsers : []).filter(u => !HIDDEN_USERNAMES.has(u.username));
+                console.log('Total users:', users.length);
+                
+                // 재상급 사관과 일반 사관 분리 (isMinister는 서버 플래그 + 점수 모두 반영)
+                const ministers = users.filter(user => isMinister(user));
+                const regularOfficers = users.filter(user => !isMinister(user));
+                console.log('Ministers:', ministers.length, 'Regular officers:', regularOfficers.length);
+                
+                // 재상급 사관 테이블 채우기
+                const ministersTableBody = document.getElementById('ministersTableBody');
+                ministersTableBody.innerHTML = '';
+                
+                if (ministers.length === 0) {
+                    const row = document.createElement('tr');
+                    const cell = document.createElement('td');
+                    cell.colSpan = 7;
+                    cell.textContent = '재상급 사관이 없습니다.';
+                    cell.style.textAlign = 'center';
+                    cell.style.color = '#95a5a6';
+                    row.appendChild(cell);
+                    ministersTableBody.appendChild(row);
+                } else {
+                    ministers.forEach((user, index) => {
+                        const row = document.createElement('tr');
+                        const currentUsername = localStorage.getItem('username');
+                        const isCurrentUser = currentUsername && user.username === currentUsername;
+                        const isAdmin = user.role === 'admin' || user.role === 'superuser';
+                        const isDesignated = !isAdmin && user.designated_rank != null;
+                        const badge = isAdmin
+                            ? '<span style="font-size:9px;background:#8e44ad;color:#fff;border-radius:3px;padding:0 3px;margin-left:4px;">관리자</span>'
+                            : isDesignated
+                                ? '<span style="font-size:9px;background:#c0392b;color:#fff;border-radius:3px;padding:0 3px;margin-left:4px;">지정</span>'
+                                : '';
+
+                        const submittedScore = (user.totalCount || 0) * 3;
+                        const approvedScore = (user.approvedCount || 0) * 10;
+                        // 사료외: 출석 + 추천 + 승인된건수(×10) + 검토 점수의 합 (승인한 점수 제외 — 별도 승인건수 컬럼)
+                        const nonSubmitScore = (user.approvedCount || 0) * 10
+                            + (user.totalVotes || 0)
+                            + (user.reviewScore || 0)
+                            + (user.attendancePoints || 0);
+
+                        row.innerHTML = `
+                            <td style="font-weight: bold; color: #f1c40f;">${user.rank || (index + 1)}</td>
+                            <td style="font-weight: bold; ${isCurrentUser ? 'color: #f1c40f;' : ''}">${user.username}${isCurrentUser ? ' 👑' : ''}${badge}</td>
+                            <td style="font-weight: bold; color: #e67e22;">${normalizePosition(user.position) || getDetailedPosition(user.score || 0)}</td>
+                            <td style="text-align: right;">${user.approvedByCount || 0}</td>
+                            <td style="text-align: right;">${user.approvalScore || 0}</td>
+                            <td style="text-align: right;">${nonSubmitScore}</td>
+                            <td style="text-align: right; font-weight: bold; color: #f1c40f;">${user.score || 0}</td>
+                        `;
+                        ministersTableBody.appendChild(row);
+                    });
+                }
+                
+                // 일반 사관 테이블 채우기 (renderRankings에서 처리)
+                
+                // 정렬을 위한 데이터 저장
+                rankingData = regularOfficers;
+                
+                // 초기 정렬 및 렌더링
+                sortRankings(currentSortColumn, currentSortDirection);
+                renderRankings();
+                
+                // 정렬 기능 설정
+                setupSorting();
+                
+            } catch (error) {
+                console.error('Error fetching ranking data:', error);
+                
+                // 모바일 환경에서의 상세한 에러 정보
+                let errorMessage = '랭킹 데이터를 불러오는데 실패했습니다.';
+                if (error.name === 'AbortError') {
+                    errorMessage = '네트워크 요청이 시간 초과되었습니다. 인터넷 연결을 확인해주세요.';
+                } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+                    errorMessage = '네트워크 연결에 문제가 있습니다. 인터넷 연결을 확인해주세요.';
+                } else if (error.message.includes('401') || error.message.includes('403')) {
+                    errorMessage = '인증이 만료되었습니다. 다시 로그인해주세요.';
+                }
+                
+                const ministersTableBody = document.getElementById('ministersTableBody');
+                const regularTableBody = document.getElementById('rankingTableBody');
+                ministersTableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #e74c3c;">${errorMessage}</td></tr>`;
+                regularTableBody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #e74c3c;">${errorMessage}</td></tr>`;
+                
+                // 모바일 디버깅을 위한 추가 정보 표시
+                if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+                    console.log('📱 모바일 환경에서 에러 발생:', {
+                        userAgent: navigator.userAgent,
+                        error: error.message,
+                        apiUrl: `${API_BASE_URL}/rankings`
+                    });
+                }
+            }
+        }
+
+        // 랭킹 테이블 정렬 기능
+        let currentSortColumn = 'score';
+        let currentSortDirection = 'desc';
+        let rankingData = [];
+
+        // 정렬 함수
+        function sortRankings(column, direction) {
+            rankingData.sort((a, b) => {
+                let aVal, bVal;
+                
+                switch (column) {
+                    case 'rank':
+                        aVal = a.rank || 999;
+                        bVal = b.rank || 999;
+                        break;
+                    case 'username':
+                        aVal = a.username.toLowerCase();
+                        bVal = b.username.toLowerCase();
+                        break;
+                    case 'position':
+                        aVal = a.position || '';
+                        bVal = b.position || '';
+                        break;
+                    case 'submitted_count':
+                        aVal = a.totalCount || 0;
+                        bVal = b.totalCount || 0;
+                        break;
+                    case 'recommended_count':
+                        aVal = a.totalVotes || 0;
+                        bVal = b.totalVotes || 0;
+                        break;
+                    case 'approved_count':
+                        aVal = a.approvedCount || 0;
+                        bVal = b.approvedCount || 0;
+                        break;
+                    case 'reviewed_count':
+                        aVal = a.reviewedCount || 0;
+                        bVal = b.reviewedCount || 0;
+                        break;
+                    case 'approved_by_count':
+                        aVal = a.approvedByCount || 0;
+                        bVal = b.approvedByCount || 0;
+                        break;
+                    case 'attendance_count':
+                        aVal = a.attendancePoints || 0;
+                        bVal = b.attendancePoints || 0;
+                        break;
+                    case 'score':
+                    default:
+                        aVal = a.score || 0;
+                        bVal = b.score || 0;
+                        break;
+                }
+                
+                if (typeof aVal === 'string') {
+                    return direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+                } else {
+                    return direction === 'asc' ? aVal - bVal : bVal - aVal;
+                }
+            });
+        }
+
+        // 랭킹 테이블 렌더링 함수 (일반 사관만)
+        function renderRankings() {
+            const tableBody = document.getElementById('rankingTableBody');
+            tableBody.innerHTML = '';
+            
+            if (rankingData.length === 0) {
+                const row = document.createElement('tr');
+                const cell = document.createElement('td');
+                cell.colSpan = 8;
+                cell.textContent = '일반 사관이 없습니다.';
+                cell.style.textAlign = 'center';
+                cell.style.color = '#95a5a6';
+                row.appendChild(cell);
+                tableBody.appendChild(row);
+                return;
+            }
+            
+            // 현재 사용자 확인
+            const currentUsername = localStorage.getItem('username');
+            
+            rankingData.forEach((user, index) => {
+                const row = document.createElement('tr');
+                const rankClass = index < 3 ? `rank-${index + 1}` : '';
+                const isCurrentUser = currentUsername && user.username === currentUsername;
+                const userClass = isCurrentUser ? 'current-user' : '';
+                const displayRank = user.rank || (index + 1);
+                const displayPosition = normalizePosition(user.position) || getDetailedPosition(user.score || 0);
+                // 일반 사관 테이블: 배지 없음 (관리자/지정 배지 표시 안 함)
+
+                // 점수 계산
+                const submittedScore = (user.totalCount || 0) * 3;
+                const votesScore = (user.totalVotes || 0) * 1;
+                const approvedScore = (user.approvedCount || 0) * 10;
+                const attendanceScore = (user.attendancePoints || 0) * 1;
+
+                row.innerHTML = `
+                    <td class="${rankClass} ${userClass}">${displayRank}</td>
+                    <td class="${userClass}">${user.username}${isCurrentUser ? ' 👑' : ''}</td>
+                    <td class="${userClass}">${displayPosition}</td>
+                    <td style="text-align: right;" class="${userClass}">${submittedScore}(${user.totalCount || 0})</td>
+                    <td style="text-align: right;" class="${userClass}">${votesScore}(${user.totalVotes || 0})</td>
+                    <td style="text-align: right;" class="${userClass}">${approvedScore}(${user.approvedCount || 0})</td>
+                    <td style="text-align: right;" class="${userClass}">${user.reviewScore || 0}(${user.reviewedCount || 0})</td>
+                    <td style="text-align: right;" class="${userClass}">${attendanceScore}(${user.attendancePoints || 0})</td>
+                    <td style="text-align: right;" class="${rankClass} ${userClass}"><strong>${user.score || 0}</strong></td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        // 헤더 클릭 이벤트 설정
+        let sortingSetup = false;
+        function setupSorting() {
+            if (sortingSetup) return; // 이미 설정되었으면 중복 실행 방지
+            sortingSetup = true;
+            
+            document.querySelectorAll('.sortable').forEach(header => {
+                header.addEventListener('click', () => {
+                    const column = header.dataset.sort;
+                    
+                    console.log('클릭한 컬럼: ' + column + ', 현재: ' + currentSortColumn + ', 방향: ' + currentSortDirection);
+                    
+                    // 기존 정렬 표시 제거
+                    document.querySelectorAll('.sortable').forEach(h => {
+                        h.classList.remove('sort-asc', 'sort-desc');
+                    });
+                    
+                    // 정렬 방향 결정
+                    if (currentSortColumn === column) {
+                        // 같은 컬럼을 다시 클릭하면 방향 토글
+                        currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        // 다른 컬럼을 클릭하면 해당 컬럼으로 변경하고 내림차순으로 시작
+                        currentSortColumn = column;
+                        currentSortDirection = 'desc';
+                    }
+                    
+                    console.log('정렬 실행: ' + column + ' (' + currentSortDirection + ')');
+                    
+                    // 정렬 표시 추가
+                    header.classList.add('sort-' + currentSortDirection);
+                    
+                    // 데이터 정렬 및 렌더링
+                    sortRankings(column, currentSortDirection);
+                    renderRankings();
+                });
+            });
+        }
+
+        // 사료 데이터 로드
+        async function loadContributions() {
+            try {
+                const searchText = document.getElementById('searchInput').value.toLowerCase();
+                const statusFilter = document.getElementById('statusFilter').value;
+                const ownershipFilter = document.getElementById('ownershipFilter').value;
+                
+                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                
+                if (!token) {
+                    document.getElementById('contributionsList').innerHTML = '<p style="text-align: center; color: #e74c3c;">로그인이 필요합니다.</p>';
+                    return;
+                }
+                
+                // 토큰에서 username 추출
+                let currentUsername = null;
+                try {
+                    // UTF-8 디코딩 지원
+                    const base64Url = token.split('.')[1];
+                    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+                        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                    }).join(''));
+                    currentUsername = JSON.parse(jsonPayload).username;
+                } catch (e) {
+                    console.error('토큰 파싱 실패:', e);
+                }
+                
+                // URL 파라미터 확인 (user 파라미터가 있으면 검색어와 내 사료 필터 자동 설정)
+                const urlParams = new URLSearchParams(window.location.search);
+                const userParam = urlParams.get('user');
+                
+                if (userParam && !window.initialFilterApplied) {
+                    document.getElementById('searchInput').value = userParam;
+                    document.getElementById('ownershipFilter').value = 'all';
+                    window.initialFilterApplied = true;
+                    // 재귀 호출로 필터 적용
+                    loadContributions();
+                    return;
+                }
+                
+                console.log('📚 사료 데이터 로딩...');
+                
+                const response = await fetch(`${API_BASE_URL}/contributions`, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('HTTP error! status: ' + response.status);
+                }
+                
+                const contributions = await response.json();
+                
+                // 필터링 로직 (클라이언트 측)
+                let filteredContributions = contributions;
+                
+                // 1. 소유권 필터
+                if (ownershipFilter === 'mine' && currentUsername) {
+                    filteredContributions = filteredContributions.filter(item => item.username === currentUsername || item.submittedBy?.username === currentUsername);
+                }
+                
+                // 2. 상태 필터
+                if (statusFilter !== 'all') {
+                    filteredContributions = filteredContributions.filter(item => item.status === statusFilter);
+                }
+                
+                // 3. 검색어 필터
+                if (searchText) {
+                    filteredContributions = filteredContributions.filter(item => {
+                        const name = (item.name || item.markerName || item.title || '').toLowerCase();
+                        const content = (item.description || item.content || '').toLowerCase();
+                        const submitter = (item.username || item.submittedBy?.username || '').toLowerCase();
+                        return name.includes(searchText) || content.includes(searchText) || submitter.includes(searchText);
+                    });
+                }
+                
+                console.log('📌 필터링 된 사료: ' + filteredContributions.length + '개 (전체: ' + contributions.length + ')');
+                
+                // 전역 변수에 저장하여 상세 보기에서 활용
+                window.loadedContributions = filteredContributions;
+                
+                const listContainer = document.getElementById('contributionsList');
+                listContainer.innerHTML = '';
+                
+                if (filteredContributions.length === 0) {
+                    listContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: #95a5a5;"><div style="font-size: 40px; margin-bottom: 10px;">📭</div>조건에 맞는 사료가 없습니다.</div>';
+                    return;
+                }
+                
+                filteredContributions.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'contribution-item';
+                    div.style.backgroundColor = '#34495e';
+                    div.style.marginBottom = '10px';
+                    div.style.padding = '15px';
+                    div.style.borderRadius = '8px';
+                    div.style.borderLeft = '4px solid #3498db';
+                    div.style.cursor = 'pointer';
+                    div.style.transition = 'all 0.2s ease';
+                    div.onmouseover = () => {
+                        div.style.transform = 'translateX(5px)';
+                        div.style.backgroundColor = '#3d5466';
+                    };
+                    div.onmouseout = () => {
+                        div.style.transform = 'translateX(0)';
+                        div.style.backgroundColor = '#34495e';
+                    };
+                    
+                    div.onclick = () => showContributionDetail(item._id);
+                    
+                    const statusClass = `status-${item.status}`;
+                    const statusText = item.status === 'pending' ? '검토 대기' : 
+                                      item.status === 'reviewed' ? '1차 검토완료' :
+                                      item.status === 'approved' ? '최종 승인됨' : '거부됨';
+                    
+                    const statusBg = item.status === 'pending' ? 'rgba(230, 126, 34, 0.2)' : 
+                                    item.status === 'reviewed' ? 'rgba(39, 174, 96, 0.2)' :
+                                    item.status === 'approved' ? 'rgba(142, 68, 173, 0.2)' : 'rgba(192, 57, 43, 0.2)';
+                    
+                    const statusColor = item.status === 'pending' ? '#f39c12' : 
+                                       item.status === 'reviewed' ? '#2ecc71' :
+                                       item.status === 'approved' ? '#9b59b6' : '#e74c3c';
+                    
+                    // 데이터 안전 처리
+                    const markerName = item.name || item.markerName || item.title || '제목 없음';
+                    const submitter = item.submittedBy?.username || item.username || '알 수 없음';
+                    const date = item.createdAt ? new Date(item.createdAt).toLocaleDateString('ko-KR') : '날짜 없음';
+                    
+                    div.innerHTML = `
+                        <div class="contribution-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span class="contribution-title" style="font-weight: bold; font-size: 16px; color: #3498db;">${markerName}</span>
+                            <span class="contribution-status" style="background: ${statusBg}; color: ${statusColor}; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: bold; border: 1px solid ${statusColor};">${statusText}</span>
+                        </div>
+                        <div class="contribution-details" style="font-size: 13px; color: #bdc3c7; display: flex; gap: 15px; flex-wrap: wrap;">
+                            <div>👤 ${submitter}</div>
+                            <div>📅 ${date}</div>
+                            <div>👍 ${item.votes || (item.votedBy ? item.votedBy.length : 0)}</div>
+                            ${(item.commentCount > 0) ? `<div style="color: #f1c40f;">💬 ${item.commentCount}</div>` : ''}
+                        </div>
+                    `;
+                    listContainer.appendChild(div);
+                });
+            } catch (error) {
+                console.error('❌ 사료 데이터 로딩 실패:', error);
+                document.getElementById('contributionsList').innerHTML = `<p style="text-align: center; color: #e74c3c;">사료 데이터를 불러오는데 실패했습니다.<br>오류: ${error.message}</p>`;
+            }
+        }
+
+        // 사료 상세 보기 - 기존 데이터 활용
+        function showContributionDetail(contributionId) {
+            try {
+                // 이미 로드된 사료 목록에서 해당 사료 찾기
+                const contributionItems = document.querySelectorAll('.contribution-item');
+                let selectedContribution = null;
+                
+                // 전역 변수로 저장된 contributions 배열에서 찾기
+                if (window.loadedContributions) {
+                    selectedContribution = window.loadedContributions.find(c => c._id === contributionId);
+                }
+                
+                if (!selectedContribution) {
+                    alert('사료 정보를 찾을 수 없습니다.');
+                    return;
+                }
+                
+                const detailContent = document.getElementById('contributionDetailContent');
+                
+                const markerName = selectedContribution.name || selectedContribution.markerName || selectedContribution.title || '제목 없음';
+                const statusText = selectedContribution.status === 'pending' ? '검토 대기' : 
+                                  selectedContribution.status === 'approved' ? '승인됨' : '거부됨';
+                const submitter = selectedContribution.submittedBy?.username || selectedContribution.username || '알 수 없음';
+                const lat = selectedContribution.lat || selectedContribution.coordinates?.lat || selectedContribution.latitude;
+                const lng = selectedContribution.lng || selectedContribution.coordinates?.lng || selectedContribution.longitude;
+                const coords = (lat && lng) ? `${lat.toFixed(6)}, ${lng.toFixed(6)}` : 'N/A';
+                const date = selectedContribution.createdAt ? new Date(selectedContribution.createdAt).toLocaleString('ko-KR') : '날짜 없음';
+                
+                // 투표 및 승인 버튼 표시 여부
+                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                let currentUsername = '';
+                let userRole = '';
+                let userPosition = '';
+                
+                if (token) {
+                    try {
+                        // 🚩 [수정] UTF-8 디코딩 지원 (한글 깨짐 방지)
+                        const base64Url = token.split('.')[1];
+                        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+                            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                        }).join(''));
+                        const payload = JSON.parse(jsonPayload);
+                        
+                        currentUsername = payload.username;
+                        userRole = payload.role;
+                        userPosition = payload.position || '';
+                        
+                        console.log('🔍 [토큰 파싱] username:', currentUsername);
+                        console.log('🔍 [토큰 파싱] position:', userPosition);
+                    } catch (e) {
+                        console.error('토큰 파싱 실패:', e);
+                    }
+                }
+                
+                // 🚩 [수정] position 기반 권한 확인
+                // 검토 권한: 시강학사(종4품) ~ 수찬관(정3품) - 상급 사관
+                const reviewerPositions = [
+                    '시강학사', '사관수찬', '직수찬관', '수찬관'  // 종4품~정3품 (상급 사관)
+                ];
+                // 승인 권한: 동수국사(종2품) ~ 감수국사(정1품) - 재상급 (검토 없이 바로 승인 가능)
+                const approverPositions = ['동수국사', '수국사', '판사관사', '감수국사'];
+                
+                // 본인이 작성한 사료가 아니고 승인되지 않은 경우 추천 버튼 표시
+                const isOwnContribution = submitter === currentUsername;
+                console.log('🔍 [ranking.html 권한 체크]');
+                console.log('  - currentUsername:', currentUsername);
+                console.log('  - submitter:', submitter);
+                console.log('  - isOwnContribution:', isOwnContribution);
+                console.log('  - userPosition:', userPosition);
+                console.log('  - status:', selectedContribution.status);
+                console.log('  - reviewerPositions.includes:', reviewerPositions.includes(userPosition));
+                
+                const canVote = !isOwnContribution && selectedContribution.status === 'pending';
+                const canReview = reviewerPositions.includes(userPosition) && selectedContribution.status === 'pending' && !isOwnContribution;
+                const canApprove = approverPositions.includes(userPosition) && selectedContribution.status === 'reviewed' && !isOwnContribution;
+                
+                console.log('  - canVote:', canVote);
+                console.log('  - canReview:', canReview);
+                console.log('  - canApprove:', canApprove);
+                
+                const votedBy = selectedContribution.votedBy || [];
+                const votes = selectedContribution.votes || votedBy.length || 0;
+                
+                // 날짜 포맷팅 함수
+                const formatDate = (dateStr) => {
+                    if (!dateStr) return '정보 없음';
+                    return new Date(dateStr).toLocaleString('ko-KR', {
+                        year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                    });
+                };
+                
+                detailContent.innerHTML = `
+                    <div style="background: linear-gradient(135deg, #8e44ad 0%, #6c3483 100%); color: white; padding: 25px; border-radius: 12px 12px 0 0; margin: -30px -30px 20px -30px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+                        <h2 style="margin: 0 0 15px 0; font-size: 22px; color: #f1c40f; text-shadow: 1px 1px 3px rgba(0,0,0,0.3);">${markerName}</h2>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap; font-size: 13px;">
+                            <span style="background: rgba(0,0,0,0.3); padding: 5px 12px; border-radius: 20px;">📊 ${statusText}</span>
+                            <span style="background: rgba(0,0,0,0.3); padding: 5px 12px; border-radius: 20px;">👤 ${submitter}</span>
+                            <span style="background: rgba(0,0,0,0.3); padding: 5px 12px; border-radius: 20px;">👍 추천 ${votes}명</span>
+                        </div>
+                    </div>
+                    
+                    <div style="padding: 0;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px;">
+                            <div style="background: rgba(52, 152, 219, 0.15); padding: 15px; border-radius: 10px; border-left: 4px solid #3498db;">
+                                <div style="color: #3498db; font-size: 11px; margin-bottom: 5px; font-weight: bold; text-transform: uppercase;">📍 좌표</div>
+                                <div style="color: #ecf0f1; font-weight: 600; font-size: 14px;">${coords}</div>
+                            </div>
+                            <div style="background: rgba(155, 89, 182, 0.15); padding: 15px; border-radius: 10px; border-left: 4px solid #9b59b6;">
+                                <div style="color: #9b59b6; font-size: 11px; margin-bottom: 5px; font-weight: bold; text-transform: uppercase;">📅 제출일</div>
+                                <div style="color: #ecf0f1; font-weight: 600; font-size: 14px;">${date}</div>
+                            </div>
+                            ${selectedContribution.year ? `
+                            <div style="background: rgba(230, 126, 34, 0.15); padding: 15px; border-radius: 10px; border-left: 4px solid #e67e22;">
+                                <div style="color: #e67e22; font-size: 11px; margin-bottom: 5px; font-weight: bold; text-transform: uppercase;">📜 연도</div>
+                                <div style="color: #ecf0f1; font-weight: 600; font-size: 14px;">${selectedContribution.year}</div>
+                            </div>
+                            ` : ''}
+                            ${selectedContribution.category ? `
+                            <div style="background: rgba(22, 160, 133, 0.15); padding: 15px; border-radius: 10px; border-left: 4px solid #16a085;">
+                                <div style="color: #16a085; font-size: 11px; margin-bottom: 5px; font-weight: bold; text-transform: uppercase;">🏷️ 카테고리</div>
+                                <div style="color: #ecf0f1; font-weight: 600; font-size: 14px;">${selectedContribution.category}</div>
+                            </div>
+                            ` : ''}
+                        </div>
+                        
+                        ${selectedContribution.description || selectedContribution.content ? `
+                        <div style="background: rgba(52, 73, 94, 0.6); padding: 20px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #5d7185;">
+                            <div style="color: #f1c40f; font-weight: 700; margin-bottom: 10px; font-size: 15px;">📝 상세 설명</div>
+                            <div style="color: #bdc3c7; line-height: 1.7; font-size: 14px;">${selectedContribution.description || selectedContribution.content}</div>
+                        </div>
+                        ` : ''}
+                        
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                            ${selectedContribution.source ? `
+                            <div style="background: rgba(52, 73, 94, 0.4); padding: 18px; border-radius: 10px; border: 1px solid #5d7185;">
+                                <div style="color: #3498db; font-weight: 700; margin-bottom: 8px; font-size: 14px;">📚 출처</div>
+                                <div style="color: #bdc3c7; line-height: 1.6; font-size: 13px;">${selectedContribution.source}</div>
+                            </div>
+                            ` : ''}
+                            
+                            ${selectedContribution.evidence ? `
+                            <div style="background: rgba(52, 73, 94, 0.4); padding: 18px; border-radius: 10px; border: 1px solid #5d7185;">
+                                <div style="color: #e67e22; font-weight: 700; margin-bottom: 8px; font-size: 14px;">🔍 증거 자료</div>
+                                <div style="color: #bdc3c7; line-height: 1.6; font-size: 13px;">${selectedContribution.evidence}</div>
+                            </div>
+                            ` : ''}
+                        </div>
+                        
+                        <!-- 검토 및 승인 이력 섹션 -->
+                        ${(selectedContribution.reviewerUsername || selectedContribution.approverUsername || selectedContribution.reviewComment || selectedContribution.rejectionReason) ? `
+                        <div style="margin-top: 25px; margin-bottom: 20px;">
+                            <h3 style="color: #f1c40f; font-size: 16px; margin-bottom: 15px; padding-left: 10px; border-left: 4px solid #f1c40f;">📋 사료 처리 이력</h3>
+                            
+                            ${selectedContribution.reviewerUsername ? `
+                            <div style="background: rgba(52, 152, 219, 0.15); padding: 18px; border-radius: 10px; margin-bottom: 12px; border-left: 4px solid #3498db;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 5px;">
+                                    <div style="font-weight: bold; color: #3498db;">✅ 1차 검토 완료</div>
+                                    <div style="color: #95a5a6; font-size: 12px;">${formatDate(selectedContribution.reviewedAt)}</div>
+                                </div>
+                                <div style="color: #ecf0f1; margin-bottom: 5px; font-size: 14px;"><strong style="color: #bdc3c7;">검토자:</strong> ${selectedContribution.reviewerUsername}</div>
+                                ${selectedContribution.reviewComment ? `<div style="color: #bdc3c7; font-size: 13px;"><strong>의견:</strong> ${selectedContribution.reviewComment}</div>` : ''}
+                            </div>
+                            ` : ''}
+
+                            ${selectedContribution.approverUsername ? `
+                            <div style="background: rgba(142, 68, 173, 0.2); padding: 18px; border-radius: 10px; margin-bottom: 12px; border-left: 4px solid #9b59b6;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 5px;">
+                                    <div style="font-weight: bold; color: #9b59b6;">⭐ 최종 승인</div>
+                                    <div style="color: #95a5a6; font-size: 12px;">${formatDate(selectedContribution.approvedAt)}</div>
+                                </div>
+                                <div style="color: #ecf0f1; margin-bottom: 5px; font-size: 14px;"><strong style="color: #bdc3c7;">승인자:</strong> ${selectedContribution.approverUsername}</div>
+                                ${selectedContribution.approvalComment ? `<div style="color: #bdc3c7; font-size: 13px;"><strong>의견:</strong> ${selectedContribution.approvalComment}</div>` : ''}
+                            </div>
+                            ` : ''}
+                            
+                            ${selectedContribution.rejectionReason ? `
+                            <div style="background: rgba(231, 76, 60, 0.2); padding: 18px; border-radius: 10px; margin-bottom: 12px; border-left: 4px solid #e74c3c;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 5px;">
+                                    <div style="font-weight: bold; color: #e74c3c;">❌ 거부됨</div>
+                                    <div style="color: #95a5a6; font-size: 12px;">${formatDate(selectedContribution.reviewedAt || new Date())}</div>
+                                </div>
+                                ${selectedContribution.reviewerUsername ? `<div style="color: #ecf0f1; margin-bottom: 5px; font-size: 14px;"><strong style="color: #bdc3c7;">검토자:</strong> ${selectedContribution.reviewerUsername}</div>` : ''}
+                                <div style="color: #e74c3c; font-size: 13px;"><strong style="color: #bdc3c7;">사유:</strong> ${selectedContribution.rejectionReason}</div>
+                            </div>
+                            ` : ''}
+                        </div>
+                        ` : ''}
+                        
+                        ${(canVote || canReview || canApprove) ? `
+                        <div style="background: rgba(52, 73, 94, 0.5); padding: 20px; border-radius: 10px; margin-top: 25px; border: 1px solid #5d7185;">
+                            <div style="color: #f1c40f; font-weight: 700; margin-bottom: 15px; font-size: 15px;">⚡ 작업 수행</div>
+                            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                                ${canVote ? `<button onclick="voteContribution('${contributionId}')" style="flex: 1; min-width: 130px; background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; box-shadow: 0 4px 10px rgba(52, 152, 219, 0.4); transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 15px rgba(52, 152, 219, 0.5)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 10px rgba(52, 152, 219, 0.4)';">👍 추천하기</button>` : ''}
+                                ${canReview ? `
+                                    <button onclick="reviewContribution('${contributionId}', 'approved')" style="flex: 1; min-width: 130px; background: linear-gradient(135deg, #27ae60 0%, #1e8449 100%); color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; box-shadow: 0 4px 10px rgba(39, 174, 96, 0.4); transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 15px rgba(39, 174, 96, 0.5)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 10px rgba(39, 174, 96, 0.4)';">✅ 검토 승인</button>
+                                    <button onclick="reviewContribution('${contributionId}', 'rejected')" style="flex: 1; min-width: 130px; background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; box-shadow: 0 4px 10px rgba(231, 76, 60, 0.4); transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 15px rgba(231, 76, 60, 0.5)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 10px rgba(231, 76, 60, 0.4)';">❌ 검토 거부</button>
+                                ` : ''}
+                                ${canApprove ? `<button onclick="approveContribution('${contributionId}')" style="flex: 1; min-width: 130px; background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%); color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; box-shadow: 0 4px 10px rgba(155, 89, 182, 0.4); transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 15px rgba(155, 89, 182, 0.5)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 10px rgba(155, 89, 182, 0.4)';">⭐ 최종 승인</button>` : ''}
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        <!-- 💬 의견 섹션 -->
+                        <div style="margin-top: 30px; border-top: 1px solid #5d7185; padding-top: 25px;">
+                            <div style="color: #f1c40f; font-weight: 700; margin-bottom: 15px; font-size: 15px;">💬 의견</div>
+                            <div id="commentsList-${contributionId}" style="margin-bottom: 15px;">
+                                <div style="color: #95a5a6; font-size: 13px;">의견을 불러오는 중...</div>
+                            </div>
+                            ${currentUsername ? `
+                            <div style="display: flex; gap: 10px; align-items: flex-start;">
+                                <textarea id="commentInput-${contributionId}" placeholder="의견을 남겨주세요..." rows="3"
+                                    style="flex: 1; background: rgba(52, 73, 94, 0.7); color: #ecf0f1; border: 1px solid #5d7185; border-radius: 8px; padding: 10px 12px; font-size: 13px; resize: vertical; outline: none; font-family: inherit;"
+                                    onkeydown="if(event.ctrlKey && event.key==='Enter') submitComment('${contributionId}')"></textarea>
+                                <button onclick="submitComment('${contributionId}')"
+                                    style="background: linear-gradient(135deg, #27ae60 0%, #1e8449 100%); color: white; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 13px; white-space: nowrap; align-self: flex-end;">
+                                    등록
+                                </button>
+                            </div>
+                            <div style="color: #95a5a6; font-size: 11px; margin-top: 5px;">Ctrl+Enter로 빠르게 등록</div>
+                            ` : `<div style="color: #95a5a6; font-size: 13px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 8px; text-align: center;">의견을 작성하려면 로그인하세요.</div>`}
+                        </div>
+                    </div>
+                `;
+                
+                // 의견 목록 비동기 로드
+                loadComments(contributionId);
+                
+                document.getElementById('contributionDetailModal').style.display = 'block';
+            } catch (error) {
+                console.error('❌ 사료 상세 보기 실패:', error);
+                alert('사료 상세 정보를 표시하는데 실패했습니다.');
+            }
+        }
+
+        // 필터 변경 이벤트
+        if (document.getElementById('searchInput')) {
+            document.getElementById('searchInput').addEventListener('input', debounce(loadContributions, 300));
+        }
+        if (document.getElementById('statusFilter')) {
+            document.getElementById('statusFilter').addEventListener('change', loadContributions);
+        }
+        if (document.getElementById('ownershipFilter')) {
+            document.getElementById('ownershipFilter').addEventListener('change', loadContributions);
+        }
+        
+        // 디바운스 함수 (검색어 입력 시 과도한 요청 방지)
+        function debounce(func, wait) {
+            let timeout;
+            return function(...args) {
+                const context = this;
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(context, args), wait);
+            };
+        }
+
+        // � 의견 목록 로드
+        async function loadComments(contributionId) {
+            const container = document.getElementById(`commentsList-${contributionId}`);
+            if (!container) return;
+            try {
+                const response = await fetch(`${API_BASE_URL}/contributions/${contributionId}/comments`);
+                if (!response.ok) throw new Error('조회 실패');
+                const comments = await response.json();
+
+                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                let currentUsername = '';
+                let currentRole = '';
+                if (token) {
+                    try {
+                        const base64Url = token.split('.')[1];
+                        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                        const jsonPayload = decodeURIComponent(atob(base64).split('').map(c =>
+                            '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+                        ).join(''));
+                        const payload = JSON.parse(jsonPayload);
+                        currentUsername = payload.username || '';
+                        currentRole = payload.role || '';
+                    } catch (e) {}
+                }
+                const isAdmin = currentRole === 'admin' || currentRole === 'superuser';
+
+                if (comments.length === 0) {
+                    container.innerHTML = '<div style="color: #95a5a6; font-size: 13px; padding: 10px 0;">아직 의견이 없습니다. 첫 번째 의견을 남겨보세요!</div>';
+                    return;
+                }
+
+                container.innerHTML = comments.map(c => {
+                    const canDelete = isAdmin || c.author === currentUsername;
+                    const dateStr = c.createdAt ? new Date(c.createdAt).toLocaleString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+                    return `
+                    <div style="background: rgba(52, 73, 94, 0.5); border: 1px solid #5d7185; border-radius: 8px; padding: 12px 15px; margin-bottom: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="color: #3498db; font-weight: 600; font-size: 13px;">👤 ${c.author}</span>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="color: #7f8c8d; font-size: 11px;">${dateStr}</span>
+                                ${canDelete ? `<button onclick="deleteComment('${contributionId}', '${c._id}')" style="background: none; border: none; color: #e74c3c; cursor: pointer; font-size: 12px; padding: 2px 6px; border-radius: 4px; hover: opacity: 0.7;" title="삭제">✕</button>` : ''}
+                            </div>
+                        </div>
+                        <div style="color: #bdc3c7; font-size: 13px; line-height: 1.6; white-space: pre-wrap;">${c.text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+                    </div>`;
+                }).join('');
+            } catch (error) {
+                container.innerHTML = '<div style="color: #e74c3c; font-size: 13px;">의견을 불러오지 못했습니다.</div>';
+            }
+        }
+
+        // 💬 의견 등록
+        async function submitComment(contributionId) {
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            if (!token) { alert('로그인이 필요합니다.'); return; }
+            const textarea = document.getElementById(`commentInput-${contributionId}`);
+            if (!textarea) return;
+            const text = textarea.value.trim();
+            if (!text) { alert('의견 내용을 입력하세요.'); return; }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/contributions/${contributionId}/comments`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                if (!response.ok) {
+                    const err = await response.json();
+                    alert(err.message || '의견 등록에 실패했습니다.');
+                    return;
+                }
+                textarea.value = '';
+                await loadComments(contributionId);
+            } catch (error) {
+                alert('의견 등록에 실패했습니다.');
+            }
+        }
+
+        // 💬 의견 삭제
+        async function deleteComment(contributionId, commentId) {
+            if (!confirm('이 의견을 삭제하시겠습니까?')) return;
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            if (!token) { alert('로그인이 필요합니다.'); return; }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/contributions/${contributionId}/comments/${commentId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) {
+                    const err = await response.json();
+                    alert(err.message || '삭제에 실패했습니다.');
+                    return;
+                }
+                await loadComments(contributionId);
+            } catch (error) {
+                alert('삭제에 실패했습니다.');
+            }
+        }
+
+        // �🚩 [추가] 사료 추천 함수
+        async function voteContribution(contributionId) {
+            try {
+                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                if (!token) {
+                    alert('로그인이 필요합니다.');
+                    return;
+                }
+                
+                const response = await fetch(`${API_BASE_URL}/contributions/${contributionId}/vote`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    alert('추천되었습니다!');
+                    
+                    // 🚩 [수정] 모달을 닫지 않고 UI만 업데이트
+                    // 추천 버튼 숨기기
+                    const voteBtn = document.querySelector(`button[onclick="voteContribution('${contributionId}')"]`);
+                    if (voteBtn) {
+                        voteBtn.style.display = 'none';
+                    }
+                    
+                    // 추천 수 업데이트
+                    const detailContent = document.getElementById('contributionDetailContent');
+                    if (detailContent && result.votes !== undefined) {
+                        const votesText = detailContent.querySelector('p:has(strong)');
+                        if (votesText && votesText.textContent.includes('추천 수')) {
+                            votesText.innerHTML = `<strong>추천 수:</strong> ${result.votes}명`;
+                        }
+                    }
+                    
+                    // 목록도 새로고침
+                    loadContributions();
+                } else {
+                    alert(result.message || '추천에 실패했습니다.');
+                }
+            } catch (error) {
+                console.error('❌ 추천 실패:', error);
+                alert('추천에 실패했습니다.');
+            }
+        }
+
+        // 🚩 [추가] 사료 검토 함수
+        async function reviewContribution(contributionId, action) {
+            try {
+                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                if (!token) {
+                    alert('로그인이 필요합니다.');
+                    return;
+                }
+                
+                let comment = '';
+                // approved 또는 rejected로 넘어옴
+                if (action === 'rejected' || action === 'reject') {
+                    comment = prompt('거부 사유를 입력하세요:');
+                    if (!comment) return;
+                }
+                
+                // action이 'approve'나 'approved'이면 'approved'로, 'reject'나 'rejected'면 'rejected'로 통일
+                const status = (action === 'approve' || action === 'approved') ? 'approved' : 'rejected';
+                
+                const response = await fetch(`${API_BASE_URL}/contributions/${contributionId}/review`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ status: status, comment })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    alert(status === 'approved' ? '검토 승인되었습니다!' : '검토 거부되었습니다.');
+                    
+                    // � [추가] 부모 창(index.html)에 실시간 업데이트 알림
+                    if (window.opener && !window.opener.closed) {
+                        window.opener.postMessage({
+                            type: 'contributionReviewed',
+                            contributionId: contributionId,
+                            newStatus: status
+                        }, '*');
+                        console.log(`✅ [ranking.html → index.html] 검토 완료 메시지 전송: ${contributionId} → ${status}`);
+                    }
+                    
+                    // �🚩 [수정] 모달을 닫고 목록 새로고침 (상태가 변경되므로)
+                    document.getElementById('contributionDetailModal').style.display = 'none';
+                    loadContributions();
+                } else {
+                    alert(result.message || '검토에 실패했습니다.');
+                }
+            } catch (error) {
+                console.error('❌ 검토 실패:', error);
+                alert('검토에 실패했습니다.');
+            }
+        }
+
+        // 🚩 [추가] 사료 최종 승인 함수
+        async function approveContribution(contributionId) {
+            try {
+                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                if (!token) {
+                    alert('로그인이 필요합니다.');
+                    return;
+                }
+                
+                if (!confirm('이 사료를 최종 승인하시겠습니까?')) {
+                    return;
+                }
+                
+                const response = await fetch(`${API_BASE_URL}/contributions/${contributionId}/approve`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    alert('최종 승인되었습니다!');
+                    
+                    // 🚩 [수정] 모달을 닫고 목록 새로고침 (상태가 변경되므로)
+                    document.getElementById('contributionDetailModal').style.display = 'none';
+                    loadContributions();
+                } else {
+                    alert(result.message || '승인에 실패했습니다.');
+                }
+            } catch (error) {
+                console.error('❌ 승인 실패:', error);
+                alert('승인에 실패했습니다.');
+            }
+        }
+
+        // 모달 닫기
+        document.getElementById('closeDetailBtn').addEventListener('click', () => {
+            document.getElementById('contributionDetailModal').style.display = 'none';
+        });
+
+        document.getElementById('rankInfoBtn').addEventListener('click', () => {
+            // 팝업 창 크기 및 위치 설정
+            const width = 900;
+            const height = 700;
+            const left = (screen.width - width) / 2;
+            const top = (screen.height - height) / 2;
+            
+            window.open(
+                'rank_info.html',
+                'rankInfoWindow',
+                `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+            );
+        });
+
+        // 모달 배경 클릭 시 닫기
+        window.addEventListener('click', (e) => {
+            const detailModal = document.getElementById('contributionDetailModal');
+            if (e.target === detailModal) {
+                detailModal.style.display = 'none';
+            }
+        });
+
+        // 초기 로드
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            loadRankings();
+            
+            // 🚩 [수정] URL 파라미터로 contributionId가 전달된 경우 자동으로 모달 열기
+            const urlParams = new URLSearchParams(window.location.search);
+            const contributionId = urlParams.get('contributionId');
+            if (contributionId) {
+                console.log('🔍 URL에서 contributionId 감지:', contributionId);
+                
+                // 사료 탭으로 전환 (data-tab="contributions" 버튼 클릭)
+                const contributionsTabBtn = document.querySelector('.tab-button[data-tab="contributions"]');
+                if (contributionsTabBtn) {
+                    contributionsTabBtn.click();
+                } else {
+                    console.error('❌ 사료 탭 버튼을 찾을 수 없습니다');
+                }
+                
+                // 사료 데이터 로딩 완료 대기
+                await loadContributions();
+                
+                // 모달 열기
+                setTimeout(() => {
+                    console.log('🔍 사료 상세 모달 열기 시도:', contributionId);
+                    showContributionDetail(contributionId);
+                }, 100);
+            }
+        });
+        
+        // 페이지 로드 시 초기화
+        document.addEventListener('DOMContentLoaded', () => {
+            // 기본 탭 활성화 및 데이터 로드
+            loadRankings();
+            
+            // 기본 정렬 표시 (점수 내림차순)
+            const scoreHeader = document.querySelector('.sortable[data-sort="score"]');
+            if (scoreHeader) {
+                scoreHeader.classList.add('sort-desc');
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const rankInfoBtn = document.getElementById('rankInfoBtn');
+            if (rankInfoBtn) {
+                rankInfoBtn.addEventListener('click', async () => {
+                    try {
+                        console.log('직급 안내 버튼 클릭됨');
+                        await loadRankings();
+                        alert('랭킹 데이터를 성공적으로 불러왔습니다.');
+                    } catch (error) {
+                        console.error('랭킹 데이터를 불러오는 중 오류 발생:', error);
+                        alert('랭킹 데이터를 불러오는 데 실패했습니다. 다시 시도해주세요.');
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>

@@ -64,29 +64,26 @@
         margin-top: -1px !important;
     }
 
-    /* 🚩 [추가] 빈티지/수묵화 스타일 적용 — 타일 레이어에만 */
+    /* 🚩 [추가] 빈티지/수묵화 스타일 적용 */
     #map {
         filter: sepia(0.4) contrast(0.9) brightness(1.1) grayscale(0.15);
         font-family: 'Noto Serif KR', serif;
-    }
-    /* 🚩 [추가] 마커/라벨 레이어는 filter 역보정 → 국가명이 흐릿해지지 않도록 */
-    #map .leaflet-marker-pane,
-    #map .leaflet-tooltip-pane,
-    #map .leaflet-popup-pane {
-        filter: sepia(0) contrast(1.11) brightness(0.91) grayscale(0);
     }
 
     /* 🚩 [추가] 영토 폴리곤 전환 애니메이션 — 슬라이더 이동 시 자연스러운 변화 */
     .leaflet-overlay-pane svg path {
         transition: fill-opacity 0.25s ease, opacity 0.25s ease, stroke-opacity 0.25s ease;
     }
-    /* 슬라이더 드래그 중에는 즉시 전환 (깜빡임 없는 snap) */
+    /* 슬라이더 드래그 중에는 더 빠르게 */
     body.slider-dragging .leaflet-overlay-pane svg path {
-        transition: none;
+        transition: fill-opacity 0.12s ease, opacity 0.12s ease, stroke-opacity 0.12s ease;
     }
-    /* 국가별 SVG 컨테이너(renderer)에도 드래그 중 즉시 전환 */
+    /* 국가별 SVG 컨테이너(renderer)에도 트랜지션 */
+    .leaflet-overlay-pane svg {
+        transition: opacity 0.2s ease;
+    }
     body.slider-dragging .leaflet-overlay-pane svg {
-        transition: none;
+        transition: opacity 0.1s ease;
     }
 
     /* 🚩 [추가] 지도 변경 스위치(레이어 컨트롤) 빈티지 스타일 - 전체 분위기에 맞춤 */
@@ -1645,71 +1642,6 @@ body.force-mobile .marker-type-selector button {
         font-size: 10px;
         color: rgba(255, 255, 255, 0.85);
         font-weight: 500;
-    }
-
-    /* 🚩 [추가] 시대 마커 스타일 */
-    .era-marker {
-        position: absolute;
-        transform: translateX(-50%);
-        display: flex;
-        align-items: center;
-        pointer-events: auto;
-        cursor: pointer;
-        z-index: 10;
-        height: 50%;       /* 전체 높이의 절반씩 점유 */
-    }
-    .era-marker-label {
-        font-size: 9.5px;
-        font-family: 'Noto Serif KR', 'Nanum Myeongjo', serif;
-        font-weight: 700;
-        white-space: nowrap;
-        padding: 1px 4px;
-        border-radius: 3px;
-        letter-spacing: -0.2px;
-        line-height: 1.4;
-        margin-bottom: 2px;
-        transition: transform 0.15s ease, opacity 0.15s ease;
-        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
-    }
-    /* 한국사: 황금색 계열 — 슬라이더 위 전용 바에 배치 */
-    .era-marker.korea {
-        flex-direction: column-reverse; /* 선(위) → 라벨(아래) 순서 — 슬라이더에 선이 닿도록 */
-        bottom: 0;
-        top: auto;
-    }
-    .era-marker.korea .era-marker-label {
-        color: #FFD700;
-        border-top: 1.5px solid rgba(255, 215, 0, 0.7);
-        border-bottom: none;
-        margin-bottom: 0;
-        margin-top: 2px;
-    }
-    .era-marker.korea .era-marker-line {
-        width: 1.5px;
-        background: linear-gradient(to top, rgba(255, 215, 0, 0.9), rgba(255, 215, 0, 0.15));
-        height: 8px;
-    }
-    /* 중국사: 붉은색 계열 — 눈금바 아래쪽에 배치 */
-    .era-marker.china {
-        flex-direction: column-reverse; /* 선 → 라벨 순서 */
-        bottom: 0;
-        top: auto;
-    }
-    .era-marker.china .era-marker-label {
-        color: #FF7F7F;
-        border-top: 1.5px solid rgba(255, 100, 100, 0.7);
-        border-bottom: none;
-        margin-bottom: 0;
-        margin-top: 2px;
-    }
-    .era-marker.china .era-marker-line {
-        width: 1.5px;
-        background: linear-gradient(to top, rgba(255, 100, 100, 0.8), rgba(255, 100, 100, 0.1));
-        height: 8px;
-    }
-    .era-marker:hover .era-marker-label {
-        transform: scale(1.15);
-        opacity: 1 !important;
     }
 
     /* 🚩 [수정] 통합 타임라인 컨테이너 */
@@ -3752,21 +3684,15 @@ body.force-mobile .marker-type-selector button {
         </div>
         
         <!-- 🚩 [수정] 타임슬라이더: 화면 최하단에 배치 (항상 표시) -->
-        <div id="timeline-control" style="position: fixed; bottom: 5px; left: 2%; right: 2%; width: 96%; z-index: 9999; pointer-events: none; background: transparent; border-radius: 4px; padding: 2px;">
+        <div id="timeline-control" style="position: fixed; bottom: 5px; left: 2%; right: 2%; width: 96%; z-index: 9999; pointer-events: none; background: rgba(0, 0, 0, 0.08); backdrop-filter: blur(1px); border-radius: 4px; padding: 2px; box-shadow: 0 -1px 3px rgba(0,0,0,0.1);">
             <!-- 연도 표시 (슬라이더 핸들 위에 따라다님) -->
             <div id="slider-year-tooltip" style="position: absolute; background: rgba(0, 0, 0, 0.9); color: white; padding: 8px 16px; border-radius: 6px; font-size: 18px; font-weight: bold; pointer-events: none; opacity: 0; transition: opacity 0.2s ease; z-index: 10000; bottom: 20px; left: 50%; transform: translateX(-50%); border: 2px solid rgba(255,255,255,0.3); backdrop-filter: blur(5px);"></div>
 
-            <!-- 🚩 한국사 마커 바 (슬라이더 바로 위 — 배경 없음, 지도 위에 투명하게) -->
-            <div id="slider-korea-bar" style="position: relative; width: 100%; height: 20px; pointer-events: none; margin-bottom: 1px;"></div>
+            <!-- 슬라이더 -->
+            <input type="range" id="combinedSlider" min="-60000" max="24359" step="1" value="4800" style="width: 100%; background: transparent; cursor: pointer;">
 
-            <!-- 슬라이더 + 눈금바만 블러 배경 적용 -->
-            <div style="background: rgba(0, 0, 0, 0.08); backdrop-filter: blur(1px); border-radius: 4px; box-shadow: 0 -1px 3px rgba(0,0,0,0.1); padding: 2px 2px 0;">
-                <!-- 슬라이더 -->
-                <input type="range" id="combinedSlider" min="-60000" max="24359" step="1" value="4800" style="width: 100%; background: transparent; cursor: pointer;">
-
-                <!-- 눈금 + 중국사 마커 바 -->
-                <div id="slider-ticks-bar" style="position: relative; width: 100%; height: 26px; pointer-events: none; margin-top: 1px;"></div>
-            </div>
+            <!-- 눈금 바 -->
+            <div id="slider-ticks-bar" style="position: relative; width: 100%; height: 22px; pointer-events: none; margin-top: 1px;"></div>
           </div>
     
           <!-- event-sidebar removed (per user request) -->
@@ -6728,13 +6654,13 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             pendingUpdateMapRAF = null;
         }
         
-        // 🛡️ [중복 호출 차단] 동일한 파라미터로 16ms 이내 재호출 시 무시 (force가 true면 스킵)
+        // 🛡️ [중복 호출 차단] 동일한 파라미터로 300ms 이내 재호출 시 무시 (force가 true면 스킵)
         const now = Date.now();
         if (!force && lastUpdateMapCall.year === year && 
             lastUpdateMapCall.month === month && 
             lastUpdateMapCall.cacheOnly === cacheOnly &&
             lastUpdateMapCall.timestamp && 
-            (now - lastUpdateMapCall.timestamp) < 16) {
+            (now - lastUpdateMapCall.timestamp) < 100) {
             console.log(`⏭️ updateMap 중복 호출 차단 (${now - lastUpdateMapCall.timestamp}ms 전 실행됨)`);
             return;
         }
@@ -10889,76 +10815,6 @@ function invalidateCountryLookupCache() {
                 tick.appendChild(line);
                 ticksBar.appendChild(tick);
             }
-
-            // ── 시대 마커 ──────────────────────────────────────────────────────
-            // 한국사 → slider-korea-bar (슬라이더 바로 위)
-            // 중국사 → slider-ticks-bar (슬라이더 아래 눈금바)
-            const koreaBar = document.getElementById('slider-korea-bar');
-            if (koreaBar) koreaBar.innerHTML = '';
-
-            const koreaMarkers = [
-                { year: -3898, label: '배달국'   },  // 환웅 천황 — 신시(神市) 개천
-                { year: -2333, label: '고조선'   },  // 단군 조선 건국
-                { year: -1400, label: '서국(徐)'  },  // 동이족 서국 — 회수 유역
-                { year:  -200, label: '부 여'    },  // 부여 건국 — 만주 예맥계 왕국
-                { year:   -57, label: '삼국시대'  },
-                { year:   676, label: '통일신라'  },
-                { year:   918, label: '고 려'    },
-                { year:  1392, label: '조 선'    },
-                { year:  1945, label: '대한민국'  },
-            ];
-
-            const chinaMarkers = [
-                { year: -2070, label: '고대 왕조'  },  // 하·상·주
-                { year:  -770, label: '춘추전국'   },  // 주(周) 동천
-                { year:  -221, label: '진·한'      },  // 진(秦) 통일
-                { year:   220, label: '위진남북조'  },  // 후한 멸망
-                { year:   581, label: '수·당'      },  // 수(隋) 재통일
-                { year:   907, label: '오대십국'   },  // 당(唐) 멸망
-                { year:   960, label: '송·원'      },  // 송(宋) 건국
-                { year:  1368, label: '명·청'      },  // 명(明) 건국
-                { year:  1912, label: '현대 중국'  },  // 청(淸) 멸망
-            ];
-
-            const makeMarker = (y, label, type, parentEl) => {
-                const tm = yearMonthToTotalMonths(y, 1);
-                if (tm < sliderMin || tm > sliderMax) return;
-                const pct = ((tm - sliderMin) / totalRange) * 100;
-
-                const marker = document.createElement('div');
-                marker.className = 'era-marker ' + type;
-                marker.style.left = pct + '%';
-                marker.title = `${label} (${y < 0 ? '기원전 ' + Math.abs(y) : y}년) — 클릭하여 이동`;
-                marker.style.pointerEvents = 'auto';
-
-                const lbl = document.createElement('div');
-                lbl.className = 'era-marker-label';
-                lbl.textContent = label;
-                marker.appendChild(lbl);
-
-                const line = document.createElement('div');
-                line.className = 'era-marker-line';
-                marker.appendChild(line);
-
-                marker.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const tm2 = yearMonthToTotalMonths(y, 1);
-                    combinedSlider.value = tm2;
-                    const { year: yr, month: mo } = totalMonthsToYearMonth(tm2);
-                    updateUI(yr, mo);
-                    updateSliderTooltip(yr, mo);
-                    updateMap(yr, mo, false, true);
-                });
-
-                parentEl.appendChild(marker);
-            };
-
-            // 한국사 마커 → koreaBar
-            if (koreaBar) {
-                koreaMarkers.forEach(({ year: y, label }) => makeMarker(y, label, 'korea', koreaBar));
-            }
-            // 중국사 마커 → ticksBar (눈금 아래에 함께)
-            chinaMarkers.forEach(({ year: y, label }) => makeMarker(y, label, 'china', ticksBar));
         }
 
         // ── 2. timeline-content 안 눈금 (연대표 활성화 시에만) ────────────────────
@@ -11847,12 +11703,10 @@ function invalidateCountryLookupCache() {
         });
         
          // 슬라이더 실시간 업데이트 (드래그 중)
-         // 🚩 [개선 v2] rAF 기반으로 매 프레임 최신값 반영 — UI는 즉시, 지도는 rAF 1프레임 후
-         let _sliderRAF = null;
+         // 🚩 [개선] 쓰로틀로 지도 업데이트를 매끄럽게 — UI는 즉시, 지도는 120ms마다
+         let _sliderThrottleTimer = null;
          let _sliderLastMapYear = null;
          let _sliderLastMapMonth = null;
-         let _sliderPendingYear = null;
-         let _sliderPendingMonth = null;
 
          combinedSlider.addEventListener('input', () => {
              // 작동 중에는 현재시간 레이블을 작게 표시(시각적 피드백)
@@ -11861,27 +11715,25 @@ function invalidateCountryLookupCache() {
                  try { document.getElementById('timeLabelDisplay-pc')?.classList.add('compact'); } catch(e){}
                  try { document.getElementById('current-year-display')?.classList.add('compact'); } catch(e){}
              };
+
+             // 드래그 중일 때만 compact 모드 유지
              compactizeTimeLabels();
 
              const totalMonths = parseInt(combinedSlider.value);
              const { year, month } = totalMonthsToYearMonth(totalMonths);
-
-             // UI·툴팁은 즉시 업데이트 (0ms 딜레이)
+             
+             // UI·툴팁은 즉시 업데이트 (라벨 레이아웃 딜레이 없음)
              updateUI(year, month);
              updateSliderTooltip(year, month);
 
-             // 지도 업데이트: rAF로 다음 프레임에 한 번만 실행 (연속 입력 시 마지막 값만)
-             _sliderPendingYear = year;
-             _sliderPendingMonth = month;
-             if (!_sliderRAF) {
-                 _sliderRAF = requestAnimationFrame(() => {
-                     _sliderRAF = null;
-                     // 이전 프레임과 연도/월이 같으면 지도 재렌더링 생략
-                     if (_sliderLastMapYear === _sliderPendingYear && _sliderLastMapMonth === _sliderPendingMonth) return;
-                     _sliderLastMapYear = _sliderPendingYear;
-                     _sliderLastMapMonth = _sliderPendingMonth;
+             // 지도 업데이트는 쓰로틀 (120ms) — 너무 자주 호출하면 깜빡임 발생
+             _sliderLastMapYear = year;
+             _sliderLastMapMonth = month;
+             if (!_sliderThrottleTimer) {
+                 _sliderThrottleTimer = setTimeout(() => {
+                     _sliderThrottleTimer = null;
                      updateMap(_sliderLastMapYear, _sliderLastMapMonth);
-                 });
+                 }, 120);
              }
          });
 
@@ -11892,17 +11744,15 @@ function invalidateCountryLookupCache() {
              try { document.getElementById('current-year-display')?.classList.remove('compact'); } catch(e){}
              // 🚩 slider-dragging 클래스 제거 (트랜지션 원상복구)
              document.body.classList.remove('slider-dragging');
-             // rAF 취소 후 최종값으로 정확하게 지도 업데이트
-             if (_sliderRAF) {
-                 cancelAnimationFrame(_sliderRAF);
-                 _sliderRAF = null;
+             // 쓰로틀 타이머 취소 후 최종값으로 정확하게 지도 업데이트
+             if (_sliderThrottleTimer) {
+                 clearTimeout(_sliderThrottleTimer);
+                 _sliderThrottleTimer = null;
              }
-             if (_sliderPendingYear !== null) {
-                 updateMap(_sliderPendingYear, _sliderPendingMonth, false, true);
-                 _sliderLastMapYear = _sliderPendingYear;
-                 _sliderLastMapMonth = _sliderPendingMonth;
-                 _sliderPendingYear = null;
-                 _sliderPendingMonth = null;
+             if (_sliderLastMapYear !== null) {
+                 updateMap(_sliderLastMapYear, _sliderLastMapMonth, false, true);
+                 _sliderLastMapYear = null;
+                 _sliderLastMapMonth = null;
              }
          };
          combinedSlider.addEventListener('change', removeCompactLabels);
@@ -14598,15 +14448,7 @@ kingSelect.addEventListener('change', () => {
             const oldIndex = positionOrder.indexOf(oldPosition);
             const newIndex = positionOrder.indexOf(newPosition);
             
-            // 🚩 [수정] 이미 이 승급 알림을 표시한 적이 있으면 다시 보여주지 않음 (1회만 표시)
-            const shownKey = `promotionShown_${newPosition}`;
-            if (localStorage.getItem(shownKey)) {
-                return;
-            }
-            
             if (newIndex > oldIndex && oldIndex !== -1) {
-                // 승급 알림을 표시했음을 기록 (1회 표시 보장)
-                localStorage.setItem(shownKey, '1');
                 // 승급 효과 오버레이 생성
                 const overlay = document.createElement('div');
                 overlay.id = 'promotionOverlay';
@@ -14854,8 +14696,7 @@ kingSelect.addEventListener('change', () => {
                         showPromotionEffect(lastKnownPosition, displayPosition);
                     }
                     
-                    // 로컬 스토리지에 현재 직급 저장 (직급이 변경되었거나 처음 저장하는 경우)
-                    // lastKnownPosition이 직급표에 없는 구버전 값이어도 항상 최신 직급으로 갱신
+                    // 로컬 스토리지에 현재 직급 저장
                     localStorage.setItem('lastKnownPosition', displayPosition);
                     
                     // 탑바 업데이트
