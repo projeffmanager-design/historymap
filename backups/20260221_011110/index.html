@@ -16,9 +16,15 @@
     <link href="https://fonts.googleapis.com/css2?family=East+Sea+Dokdo&family=Nanum+Myeongjo:wght@700&family=Yeon+Sung&display=swap" rel="stylesheet">
     
 <style>
-    /* 🚩 그리기 폼 스타일 - 드래그 이동 가능 */
+    /* 🚩 그리기 폼 위치 강제 설정 - 우측 하단 (최우선 순위) */
     div#drawingForm[style],
     div#drawingForm {
+        position: absolute !important;
+        bottom: 10px !important;
+        right: 10px !important;
+        left: auto !important;
+        top: auto !important;
+        transform: none !important;
         z-index: 1000 !important;
         background: rgba(30, 42, 56, 0.95) !important;
         padding: 12px 16px !important;
@@ -237,8 +243,8 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.5.1',           // [v3.5.1] 성 추가/수정 시 IndexedDB 즉시 갱신
-        DATA_SCHEMA_VERSION: '2.0.1'    // 쇄엽 등 신규 성 추가 반영 — 캐시 강제 초기화
+        APP_VERSION: '3.5.0',           // [v3.5] castle 캐시 복원 - IndexedDB 캐싱으로 13초→0.1초
+        DATA_SCHEMA_VERSION: '2.0.0'    // 데이터 구조 변경 시에만 변경
     };
     
     const storedAppVersion = localStorage.getItem('app_version');
@@ -3800,11 +3806,8 @@ body.force-mobile .marker-type-selector button {
         </div>
         
         <!-- 🚩 [추가] 그리기 툴바를 지도 우측 하단에 가로로 배치 -->
-        <div id="drawingForm" style="display:none; position: absolute !important; bottom: 10px !important; right: 10px !important; left: auto !important; top: auto !important; cursor: default; user-select: none;">
-            <div id="drawingFormHeader" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; cursor: grab; padding: 4px 6px; background: rgba(255,255,255,0.07); border-radius: 4px; margin: -4px -4px 8px -4px;">
-                <h3 style="margin: 0; font-size: 13px;">✏️ 그리기 편집</h3>
-                <span style="font-size: 10px; color: #95a5a6; pointer-events: none;">⠿ 드래그</span>
-            </div>
+        <div id="drawingForm" style="display:none; position: absolute !important; bottom: 10px !important; right: 10px !important; left: auto !important; top: auto !important;">
+            <h3 style="margin-top: 0;">그리기 편집</h3>
             <form id="editDrawingForm">
                 <input type="hidden" id="drawingMongoId">
                 <input type="hidden" id="drawingGeoJson">
@@ -3875,24 +3878,9 @@ body.force-mobile .marker-type-selector button {
               <!-- 🚩 [추가] 소속 국가 (성/도시일 때만 필수) -->
               <div class="form-row" id="contribCountryRow">
                   <label>소속 국가: <span style="color:#e74c3c">*</span></label>
-                  <!-- 검색 가능한 커스텀 드롭다운 -->
-                  <div id="contribCountryPickerWrap" style="position:relative; width:100%;">
-                      <input type="text" id="contribCountrySearch"
-                          placeholder="국가명 검색..."
-                          autocomplete="off"
-                          style="width:100%; box-sizing:border-box; padding:5px 8px; font-size:12px; background:#1e2a38; color:#ecf0f1; border:1px solid #5d7185; border-radius:4px;">
-                      <div id="contribCountryDropdown"
-                          style="display:none; position:absolute; z-index:9999; width:100%; max-height:180px; overflow-y:auto;
-                                 background:#1e2a38; border:1px solid #5d7185; border-top:none; border-radius:0 0 4px 4px;">
-                      </div>
-                      <!-- 실제 값 저장용 hidden input -->
-                      <input type="hidden" id="contribCountryId">
-                      <!-- 선택된 국가 표시 배지 -->
-                      <div id="contribCountryBadge" style="display:none; margin-top:4px; font-size:11px; color:#2ecc71; display:flex; align-items:center; gap:4px;">
-                          <span id="contribCountryBadgeText"></span>
-                          <span id="contribCountryYearHint" style="color:#95a5a6;"></span>
-                      </div>
-                  </div>
+                  <select id="contribCountryId">
+                      <option value="">-- 국가 선택 --</option>
+                  </select>
               </div>
               <!-- 새 국가 직접 입력 -->
               <div class="form-row" id="contribNewCountryRow" style="display:none;">
@@ -9880,8 +9868,6 @@ function invalidateCountryLookupCache() {
                   // 🚨 [핵심 수정 1] 전역 배열(castles)을 업데이트합니다.
                   castles[index] = updatedCastle;
                   console.log(`🔄 메모리상 데이터 교체 완료: ${updatedCastle.name} (타입: ${updatedCastle.is_natural_feature ? '자연지물' : '성'})`);
-                  // 🔄 IndexedDB 캐시도 즉시 갱신 — 다른 세션에서도 바로 반영
-                  saveCastlesCache(castles).catch(e => console.warn('⚠️ castles 캐시 갱신 실패:', e));
 
                   // 2. 지도 UI 업데이트 (타입별 분기)
                   if (updatedCastle.is_label) {
@@ -9941,8 +9927,6 @@ function invalidateCountryLookupCache() {
           // 서버 응답 데이터를 그대로 메모리에 추가
           castles.push(newCastle);
           console.log(`✅ 성/전장 메모리 추가 완료: ${newCastle.name} (ID: ${newCastle._id})`);
-          // 🔄 IndexedDB 캐시도 즉시 갱신 — 다른 세션에서도 바로 반영
-          saveCastlesCache(castles).catch(e => console.warn('⚠️ castles 캐시 갱신 실패:', e));
           console.log(`   🔍 is_label: ${newCastle.is_label}, label_type: ${newCastle.label_type}`);
           populateCitySelectForEdit(); // 드롭다운 갱신
           
@@ -13253,27 +13237,8 @@ function invalidateCountryLookupCache() {
         const historyItem = currentResult.data;
         const year = historyItem.year;
         const month = historyItem.month || 1;
-        if (year) {
-            updateTime(year, month);
-            // 해당 연도의 수도 또는 활성 도시로 지도 이동
-            setTimeout(() => {
-                const targetTotal = yearMonthToTotalMonths(year, month);
-                let capital = castles.find(c => {
-                    if (!c.lat || !c.lng) return false;
-                    const hist = getActiveHistoryInfo(c.history, targetTotal);
-                    return hist && (hist.record.is_capital || c.is_capital);
-                });
-                if (!capital) {
-                    capital = castles.find(c => {
-                        if (!c.lat || !c.lng || c.is_label || c.is_natural_feature || c.is_military_flag) return false;
-                        return getActiveHistoryInfo(c.history, targetTotal) !== null;
-                    });
-                }
-                if (capital) {
-                    map.flyTo([capital.lat, capital.lng], Math.max(map.getZoom(), 5), { animate: true, duration: 1.0 });
-                }
-            }, 100);
-        }
+        if (year) updateTime(year, month);
+        // 역사 기록은 특정 좌표가 없으므로 지도 이동은 하지 않음
     } else if (currentResult.type === 'drawing') {
         const drawing = currentResult.data;
         const year = drawing.start_year;
@@ -14096,54 +14061,6 @@ kingSelect.addEventListener('change', () => {
         document.getElementById('kingForm').style.display = 'none';
     }); 
     
-    // 🚀 [v3.5] 그리기 편집창 드래그 이동 기능
-    (function initDrawingFormDrag() {
-        const panel = document.getElementById('drawingForm');
-        const header = document.getElementById('drawingFormHeader');
-        if (!panel || !header) return;
-
-        let isDragging = false;
-        let startX, startY, startLeft, startTop;
-
-        header.addEventListener('mousedown', (e) => {
-            // 패널을 absolute에서 fixed로 전환하고 현재 위치 고정
-            const rect = panel.getBoundingClientRect();
-            panel.style.setProperty('position', 'fixed', 'important');
-            panel.style.setProperty('bottom', 'auto', 'important');
-            panel.style.setProperty('right', 'auto', 'important');
-            panel.style.setProperty('left', rect.left + 'px', 'important');
-            panel.style.setProperty('top', rect.top + 'px', 'important');
-
-            isDragging = true;
-            startX = e.clientX;
-            startY = e.clientY;
-            startLeft = rect.left;
-            startTop = rect.top;
-            header.style.cursor = 'grabbing';
-            e.preventDefault();
-        });
-
-        document.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            // 화면 밖으로 나가지 않도록 클램프
-            const maxLeft = window.innerWidth - panel.offsetWidth - 4;
-            const maxTop = window.innerHeight - panel.offsetHeight - 4;
-            const newLeft = Math.max(4, Math.min(startLeft + dx, maxLeft));
-            const newTop = Math.max(4, Math.min(startTop + dy, maxTop));
-            panel.style.setProperty('left', newLeft + 'px', 'important');
-            panel.style.setProperty('top', newTop + 'px', 'important');
-        });
-
-        document.addEventListener('mouseup', () => {
-            if (!isDragging) return;
-            isDragging = false;
-            header.style.cursor = 'grab';
-            panel.dataset.dragged = 'true'; // 드래그 이동 기록
-        });
-    })();
-
     document.getElementById('editDrawingForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const drawingId = document.getElementById('drawingMongoId').value;
@@ -14222,19 +14139,27 @@ kingSelect.addEventListener('change', () => {
     function openDrawingForm(geojson, drawingData = null) {
         closeAllFormsExcept('drawingForm');
         const form = document.getElementById('drawingForm');
-        
-        // � [v3.5] 드래그로 이동한 적 없으면 기본 위치(우측 하단)로, 이동한 적 있으면 그 위치 유지
-        const wasDragged = form.dataset.dragged === 'true';
-        if (!wasDragged) {
-            form.style.setProperty('position', 'fixed', 'important');
-            form.style.setProperty('bottom', '80px', 'important');
-            form.style.setProperty('right', '10px', 'important');
-            form.style.setProperty('left', 'auto', 'important');
-            form.style.setProperty('top', 'auto', 'important');
-            form.style.transform = 'none';
-        }
-        
         form.style.display = 'block';
+        
+        // 🚩 [추가] 위치 강제 설정 - 우측 하단
+        form.style.position = 'absolute';
+        form.style.bottom = '10px';
+        form.style.right = '10px';
+        form.style.left = 'auto';
+        form.style.top = 'auto';
+        form.style.transform = 'none';
+        
+        // 🚩 [디버그] 콘솔에 위치 정보 출력
+        console.log('drawingForm 위치 설정:', {
+            position: form.style.position,
+            bottom: form.style.bottom,
+            right: form.style.right,
+            left: form.style.left,
+            top: form.style.top,
+            computed: window.getComputedStyle(form).position,
+            computedBottom: window.getComputedStyle(form).bottom,
+            computedRight: window.getComputedStyle(form).right
+        });
         
         document.getElementById('editDrawingForm').reset();
 
@@ -15044,7 +14969,16 @@ kingSelect.addEventListener('change', () => {
 
 
 
-        // drawingForm 초기 위치는 openDrawingForm()에서 처음 열릴 때 설정됨 (드래그 이동 지원)
+        // 🚩 [추가] drawingForm 스타일 강제 적용 - 우측 하단
+        const drawingForm = document.getElementById('drawingForm');
+        if (drawingForm) {
+            drawingForm.style.position = 'absolute';
+            drawingForm.style.bottom = '10px';
+            drawingForm.style.right = '10px';
+            drawingForm.style.left = 'auto';
+            drawingForm.style.top = 'auto';
+            drawingForm.style.transform = 'none';
+        }
         
         await initialize();
         initializeTopPanelToggle(); // 🚩 [추가] PC 버전 상단 패널 토글 초기화
@@ -15387,19 +15321,14 @@ kingSelect.addEventListener('change', () => {
         const menuSearchBtn = document.getElementById('menu-search-btn');
         const menuSearchInput = document.getElementById('menu-search-input');
         if (menuSearchBtn && menuSearchInput) {
-            const doMenuSearch = () => {
-                const searchTerm = menuSearchInput.value.trim();
-                if (!searchTerm) return;
+            menuSearchBtn.addEventListener('click', () => {
+                const searchTerm = menuSearchInput.value;
                 const mapSearchInput = document.getElementById('mapSearchInput');
                 if (mapSearchInput) {
                     mapSearchInput.value = searchTerm;
                     document.getElementById('mapSearchBtn')?.click();
                 }
                 toggleHamburgerMenu();
-            };
-            menuSearchBtn.addEventListener('click', doMenuSearch);
-            menuSearchInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') { e.preventDefault(); doMenuSearch(); }
             });
         }
         
@@ -16677,120 +16606,37 @@ kingSelect.addEventListener('change', () => {
             });
         }
 
-        // 🚩 [수정] contribution 폼 국가 선택 — 검색 가능 커스텀 드롭다운
+        // 🚩 [추가] contribution 폼 열릴 때 국가 목록 채우기
         function populateContribCountrySelect() {
-            const searchInput = document.getElementById('contribCountrySearch');
-            const dropdown    = document.getElementById('contribCountryDropdown');
-            const hiddenInput = document.getElementById('contribCountryId');
-            const badge       = document.getElementById('contribCountryBadge');
-            const badgeText   = document.getElementById('contribCountryBadgeText');
-            const yearHint    = document.getElementById('contribCountryYearHint');
-            if (!searchInput || !dropdown || !hiddenInput) return;
-
-            // 가나다순 정렬 (name_kor 우선, 없으면 name)
-            const sorted = [...countries].sort((a, b) => {
-                const nameA = (a.name_kor || a.name || '').toLowerCase();
-                const nameB = (b.name_kor || b.name || '').toLowerCase();
-                return nameA.localeCompare(nameB, 'ko');
+            const select = document.getElementById('contribCountryId');
+            if (!select || !countries || countries.length === 0) return;
+            select.innerHTML = '<option value="">-- 국가 선택 --</option>';
+            countries.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c._id;
+                opt.textContent = c.name;
+                select.appendChild(opt);
             });
-            // 목록에 없는 국가 직접 입력 항목 추가용
-            const allItems = sorted;
+            // 새 국가 직접 입력 옵션
+            const newOpt = document.createElement('option');
+            newOpt.value = '__new__';
+            newOpt.textContent = '➕ 목록에 없는 국가 직접 입력...';
+            select.appendChild(newOpt);
 
-            // 드롭다운 렌더링
-            function renderDropdown(filterText) {
-                dropdown.innerHTML = '';
-                const q = filterText.trim().toLowerCase();
-
-                // "직접 입력" 항목
-                const newItem = document.createElement('div');
-                newItem.dataset.value = '__new__';
-                newItem.textContent = '➕ 목록에 없는 국가 직접 입력...';
-                newItem.style.cssText = 'padding:6px 10px; cursor:pointer; font-size:12px; color:#f39c12; border-bottom:1px solid #3e4a56;';
-                newItem.addEventListener('mousedown', () => selectCountry('__new__', '직접 입력'));
-                dropdown.appendChild(newItem);
-
-                let count = 0;
-                allItems.forEach(c => {
-                    const display = c.name_kor ? `${c.name_kor} (${c.name})` : c.name;
-                    if (q && !display.toLowerCase().includes(q)) return;
-                    const item = document.createElement('div');
-                    item.dataset.value = c._id;
-                    item.dataset.startYear = c.start_year ?? '';
-                    item.dataset.endYear   = c.end_year   ?? '';
-                    // 연도 힌트
-                    const yearStr = c.start_year != null
-                        ? ` (${c.start_year}년${c.end_year != null ? ` ~ ${c.end_year}년` : '~'})`
-                        : '';
-                    item.innerHTML = `<span style="flex:1">${display}</span><span style="color:#95a5a6; font-size:10px; white-space:nowrap;">${yearStr}</span>`;
-                    item.style.cssText = 'padding:6px 10px; cursor:pointer; font-size:12px; display:flex; gap:6px; align-items:center;';
-                    item.addEventListener('mouseover', () => item.style.background = '#2c3e50');
-                    item.addEventListener('mouseout',  () => item.style.background = '');
-                    item.addEventListener('mousedown', () => selectCountry(c._id, display, c.start_year, c.end_year));
-                    dropdown.appendChild(item);
-                    count++;
-                });
-
-                if (count === 0 && q) {
-                    const empty = document.createElement('div');
-                    empty.textContent = '검색 결과 없음';
-                    empty.style.cssText = 'padding:6px 10px; font-size:11px; color:#95a5a6;';
-                    dropdown.appendChild(empty);
-                }
-                dropdown.style.display = 'block';
-            }
-
-            function selectCountry(id, displayName, startYear, endYear) {
-                hiddenInput.value = id;
-                // 직접 입력 모드
+            // 선택 변경 시 새 국가 입력 필드 토글
+            select.onchange = () => {
                 const newRow = document.getElementById('contribNewCountryRow');
-                if (id === '__new__') {
-                    searchInput.value = '';
-                    if (newRow) newRow.style.display = '';
-                    if (badge) badge.style.display = 'none';
-                } else {
-                    searchInput.value = displayName;
-                    if (newRow) { newRow.style.display = 'none'; document.getElementById('contribNewCountryName') && (document.getElementById('contribNewCountryName').value = ''); }
-                    // 배지 & 연도 힌트 표시
-                    if (badge && badgeText) {
-                        badgeText.textContent = '✔ ' + displayName;
-                        badge.style.display = 'flex';
-                    }
-                    // 🚀 시작/종료 연도 자동 입력 (비어 있을 때만)
-                    const startInput = document.getElementById('contribStartYear');
-                    const endInput   = document.getElementById('contribEndYear');
-                    if (startInput && startYear != null && startInput.value === '') {
-                        startInput.value = startYear;
-                    }
-                    if (endInput && endYear != null && endInput.value === '') {
-                        endInput.value = endYear;
-                    }
-                    if (yearHint) {
-                        yearHint.textContent = startYear != null
-                            ? `(${startYear}년${endYear != null ? ` ~ ${endYear}년` : '~'})`
-                            : '';
-                    }
+                if (newRow) newRow.style.display = select.value === '__new__' ? '' : 'none';
+                if (select.value !== '__new__') {
+                    const inp = document.getElementById('contribNewCountryName');
+                    if (inp) inp.value = '';
                 }
-                dropdown.style.display = 'none';
-            }
-
-            // 이벤트 — 포커스: 드롭다운 열기
-            searchInput.addEventListener('focus', () => renderDropdown(searchInput.value));
-            // 입력: 필터링
-            searchInput.addEventListener('input', () => renderDropdown(searchInput.value));
-            // 포커스 아웃: 드롭다운 닫기 (mousedown은 먼저 처리되므로 delay 필요)
-            searchInput.addEventListener('blur', () => setTimeout(() => { dropdown.style.display = 'none'; }, 150));
-
-            // 초기화 (폼 열릴 때마다 호출되므로 중복 방지)
-            searchInput._contribInitialized = true;
+            };
         }
         // contributionForm이 보일 때 국가 목록 갱신
         const contribFormObserver = new MutationObserver(() => {
             if (contributionForm && contributionForm.style.display !== 'none') {
-                const searchInput = document.getElementById('contribCountrySearch');
-                // countries 데이터가 로드됐고, 아직 초기화 안 됐으면 초기화
-                if (countries && countries.length > 0 && !searchInput?._contribInitialized) {
-                    populateContribCountrySelect();
-                }
+                populateContribCountrySelect();
             }
         });
         if (contributionForm) {
@@ -16856,13 +16702,6 @@ kingSelect.addEventListener('change', () => {
                         alert('제출되었습니다! 검토 후 반영됩니다.');
                         contributionForm.style.display = 'none';
                         addContributionForm.reset();
-                        // 🚀 커스텀 국가 검색 UI 초기화
-                        const cs = document.getElementById('contribCountrySearch');
-                        const ci = document.getElementById('contribCountryId');
-                        const cb = document.getElementById('contribCountryBadge');
-                        if (cs) { cs.value = ''; cs._contribInitialized = false; }
-                        if (ci) ci.value = '';
-                        if (cb) cb.style.display = 'none';
                         if (contributionMarker) map.removeLayer(contributionMarker);
                         // 모드 종료
                         
