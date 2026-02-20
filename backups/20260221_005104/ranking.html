@@ -520,9 +520,10 @@
                                 <th>순위</th>
                                 <th>사관명</th>
                                 <th>직급</th>
-                                <th style="text-align: right;">공적</th>
-                                <th style="text-align: right;">사료제출</th>
                                 <th style="text-align: right;">승인건수</th>
+                                <th style="text-align: right;">승인점수</th>
+                                <th style="text-align: right;">사료외</th>
+                                <th style="text-align: right;">공적</th>
                             </tr>
                         </thead>
                         <tbody id="ministersTableBody">
@@ -546,7 +547,7 @@
                                 <th class="sortable" data-sort="recommended_count" style="text-align: right;">추천받은수 (×1)</th>
                                 <th class="sortable" data-sort="approved_count" style="text-align: right;">승인된건수 (×10)</th>
                                 <th class="sortable" data-sort="reviewed_count" style="text-align: right;">검토 (×5)</th>
-                                <th class="sortable" data-sort="approved_by_count" style="text-align: right;">승인 (×5)</th>
+                                <th class="sortable" data-sort="attendance_count" style="text-align: right;">출석 (×1)</th>
                                 <th class="sortable" data-sort="score" style="text-align: right;">공적</th>
                             </tr>
                         </thead>
@@ -610,7 +611,7 @@
     </div>
 
     <script>
-        const API_BASE_URL = 'http://localhost:3000/api';
+        const API_BASE_URL = '/api'; // 로컬: localhost:3000/api, Vercel: historymap-psi.vercel.app/api
 
         // 탭 전환
         document.querySelectorAll('.tab-button').forEach(button => {
@@ -635,47 +636,85 @@
         });
 
         // 직급명을 구체적으로 표시하는 함수
-        function getDetailedPosition(score) {
-            if (score >= 2600) return '정1품 감수국사';
-            if (score >= 2100) return '종1품 수국사';
-            if (score >= 1700) return '정2품 판사관사';
-            if (score >= 1600) return '종2품 동수국사';
-            if (score >= 1400) return '정3품 수찬관';
-            if (score >= 1250) return '종3품 직수찬관';
-            if (score >= 1100) return '정4품 좌·우사간';
-            if (score >= 450) return '종4품 시강학사';
-            if (score >= 300) return '정5품 사천감';
-            if (score >= 200) return '종5품 기거주';
-            if (score >= 120) return '정6품 낭중';
-            if (score >= 60) return '종6품 직사관';
-            if (score >= 30) return '정7품 태학박사';
-            if (score >= 10) return '종7품 사천승';
-            if (score >= 5) return '정8품 지제고';
-            if (score >= 2) return '종8품 기주관';
-            if (score >= 1) return '정9품 학유';
-            return '종9품 수분권지';
+        function getDetailedPosition(score, rank = null) {
+            // 동일한 기준을 server.js / index.html의 calculateRealtimePosition과 맞춥니다.
+            // 정1품~종2품(재상급)은 순위와 결합되어 결정되므로 여기서는 점수 기준만 적용된 이름을 반환합니다.
+            if (score >= 2600) return '정3품 수찬관(修撰官)';
+            if (score >= 2100) return '종3품 직수찬관(直修撰官)';
+            if (score >= 1700) return '정4품 사관수찬(史館修撰)';
+            if (score >= 1400) return '종4품 시강학사(侍講學士)';
+            if (score >= 1100) return '정5품 기거주(起居注)';
+            if (score >= 850)  return '종5품 기거사(起居舍)';
+            if (score >= 650)  return '정6품 기거랑(起居郞)';
+            if (score >= 450)  return '종6품 기거도위(起居都尉)';
+            if (score >= 300)  return '정7품 수찬(修撰)';
+            if (score >= 200)  return '종7품 직문한(直文翰)';
+            if (score >= 120)  return '정8품 주서(注書)';
+            if (score >= 60)   return '종8품 검열(檢閱)';
+            if (score >= 30)   return '정9품 정자(正字)';
+            return '종9품 수분권지(修分權知)';
         }
 
-        // 재상급 사관인지 확인하는 함수 (정1품 ~ 종2품)
-        function isMinister(score) {
-            return score >= 1100; // 종2품 동수국사 이상
+        // DB에 구 형식(품계 없음)으로 저장된 직급에 품계를 붙여주는 함수
+        const POSITION_RANK_MAP = {
+            '감수국사': '정1품 감수국사', '판사관사': '종1품 판사관사',
+            '수국사': '정2품 수국사',     '동수국사': '종2품 동수국사',
+            '수찬관': '정3품 수찬관',     '직수찬관': '종3품 직수찬관',
+            '사관수찬': '정4품 사관수찬', '시강학사': '종4품 시강학사',
+            '기거주': '정5품 기거주',     '기거사': '종5품 기거사',
+            '기거랑': '정6품 기거랑',     '기거도위': '종6품 기거도위',
+            '수찬': '정7품 수찬',         '직문한': '종7품 직문한',
+            '주서': '정8품 주서',         '검열': '종8품 검열',
+            '정자': '정9품 정자',         '수분권지': '종9품 수분권지',
+            '백성': '백성'
+        };
+        function normalizePosition(pos) {
+            if (!pos) return '종9품 수분권지';
+            if (/^(정|종)[0-9]품/.test(pos)) return pos;
+            return POSITION_RANK_MAP[pos] || pos;
         }
+
+        // 재상급 사관인지 확인하는 함수 — 서버 isMinister/designated_rank 우선, 보조로 점수 판별
+        function isMinister(user) {
+            if (user.isMinister) return true;
+            if (user.designated_rank != null) return true;
+            return (user.score || 0) >= 1100; // 종2품 동수국사 점수 기준 (fallback)
+        }
+
+        // 숨길 계정 목록 (관리용 계정 등 비회원)
+        const HIDDEN_USERNAMES = new Set(['송나라 사신 서긍']);
 
         // 랭킹 데이터 로드
         async function loadRankings() {
             try {
                 console.log('Loading rankings...');
-                const response = await fetch(`${API_BASE_URL}/rankings`);
+                
+                // 모바일 환경에서의 타임아웃 설정 (10초)
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                
+                const response = await fetch(`${API_BASE_URL}/rankings`, {
+                    signal: controller.signal,
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+                    }
+                });
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
                 const allUsers = await response.json();
                 console.log('API response:', allUsers);
                 
-                // 공적이 0인 사용자들도 포함해서 모든 사용자 표시
-                const users = allUsers.length > 0 ? allUsers : [];
+                // 공적이 0인 사용자들도 포함해서 모든 사용자 표시 (숨김 계정 제외)
+                const users = (allUsers.length > 0 ? allUsers : []).filter(u => !HIDDEN_USERNAMES.has(u.username));
                 console.log('Total users:', users.length);
                 
-                // 재상급 사관과 일반 사관 분리
-                const ministers = users.filter(user => isMinister(user.score || 0));
-                const regularOfficers = users.filter(user => !isMinister(user.score || 0));
+                // 재상급 사관과 일반 사관 분리 (isMinister는 서버 플래그 + 점수 모두 반영)
+                const ministers = users.filter(user => isMinister(user));
+                const regularOfficers = users.filter(user => !isMinister(user));
                 console.log('Ministers:', ministers.length, 'Regular officers:', regularOfficers.length);
                 
                 // 재상급 사관 테이블 채우기
@@ -685,7 +724,7 @@
                 if (ministers.length === 0) {
                     const row = document.createElement('tr');
                     const cell = document.createElement('td');
-                    cell.colSpan = 6;
+                    cell.colSpan = 7;
                     cell.textContent = '재상급 사관이 없습니다.';
                     cell.style.textAlign = 'center';
                     cell.style.color = '#95a5a6';
@@ -696,14 +735,30 @@
                         const row = document.createElement('tr');
                         const currentUsername = localStorage.getItem('username');
                         const isCurrentUser = currentUsername && user.username === currentUsername;
-                        
+                        const isAdmin = user.role === 'admin' || user.role === 'superuser';
+                        const isDesignated = !isAdmin && user.designated_rank != null;
+                        const badge = isAdmin
+                            ? '<span style="font-size:9px;background:#8e44ad;color:#fff;border-radius:3px;padding:0 3px;margin-left:4px;">관리자</span>'
+                            : isDesignated
+                                ? '<span style="font-size:9px;background:#c0392b;color:#fff;border-radius:3px;padding:0 3px;margin-left:4px;">지정</span>'
+                                : '';
+
+                        const submittedScore = (user.totalCount || 0) * 3;
+                        const approvedScore = (user.approvedCount || 0) * 10;
+                        // 사료외: 출석 + 추천 + 승인된건수(×10) + 검토 점수의 합 (승인한 점수 제외 — 별도 승인건수 컬럼)
+                        const nonSubmitScore = (user.approvedCount || 0) * 10
+                            + (user.totalVotes || 0)
+                            + (user.reviewScore || 0)
+                            + (user.attendancePoints || 0);
+
                         row.innerHTML = `
-                            <td style="font-weight: bold; color: #f1c40f;">${index + 1}</td>
-                            <td style="font-weight: bold; ${isCurrentUser ? 'color: #f1c40f;' : ''}">${user.username}${isCurrentUser ? ' 👑' : ''}</td>
-                            <td style="font-weight: bold; color: #e67e22;">${getDetailedPosition(user.score || 0)}</td>
+                            <td style="font-weight: bold; color: #f1c40f;">${user.rank || (index + 1)}</td>
+                            <td style="font-weight: bold; ${isCurrentUser ? 'color: #f1c40f;' : ''}">${user.username}${isCurrentUser ? ' 👑' : ''}${badge}</td>
+                            <td style="font-weight: bold; color: #e67e22;">${normalizePosition(user.position) || getDetailedPosition(user.score || 0)}</td>
+                            <td style="text-align: right;">${user.approvedByCount || 0}</td>
+                            <td style="text-align: right;">${user.approvalScore || 0}</td>
+                            <td style="text-align: right;">${nonSubmitScore}</td>
                             <td style="text-align: right; font-weight: bold; color: #f1c40f;">${user.score || 0}</td>
-                            <td style="text-align: right;">${user.totalCount || 0}</td>
-                            <td style="text-align: right;">${user.approvedCount || 0}</td>
                         `;
                         ministersTableBody.appendChild(row);
                     });
@@ -723,10 +778,30 @@
                 
             } catch (error) {
                 console.error('Error fetching ranking data:', error);
+                
+                // 모바일 환경에서의 상세한 에러 정보
+                let errorMessage = '랭킹 데이터를 불러오는데 실패했습니다.';
+                if (error.name === 'AbortError') {
+                    errorMessage = '네트워크 요청이 시간 초과되었습니다. 인터넷 연결을 확인해주세요.';
+                } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+                    errorMessage = '네트워크 연결에 문제가 있습니다. 인터넷 연결을 확인해주세요.';
+                } else if (error.message.includes('401') || error.message.includes('403')) {
+                    errorMessage = '인증이 만료되었습니다. 다시 로그인해주세요.';
+                }
+                
                 const ministersTableBody = document.getElementById('ministersTableBody');
                 const regularTableBody = document.getElementById('rankingTableBody');
-                ministersTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #e74c3c;">재상급 사관 데이터를 불러오는데 실패했습니다.</td></tr>';
-                regularTableBody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: #e74c3c;">일반 사관 데이터를 불러오는데 실패했습니다.</td></tr>';
+                ministersTableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #e74c3c;">${errorMessage}</td></tr>`;
+                regularTableBody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #e74c3c;">${errorMessage}</td></tr>`;
+                
+                // 모바일 디버깅을 위한 추가 정보 표시
+                if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+                    console.log('📱 모바일 환경에서 에러 발생:', {
+                        userAgent: navigator.userAgent,
+                        error: error.message,
+                        apiUrl: `${API_BASE_URL}/rankings`
+                    });
+                }
             }
         }
 
@@ -773,6 +848,10 @@
                         aVal = a.approvedByCount || 0;
                         bVal = b.approvedByCount || 0;
                         break;
+                    case 'attendance_count':
+                        aVal = a.attendancePoints || 0;
+                        bVal = b.attendancePoints || 0;
+                        break;
                     case 'score':
                     default:
                         aVal = a.score || 0;
@@ -796,7 +875,7 @@
             if (rankingData.length === 0) {
                 const row = document.createElement('tr');
                 const cell = document.createElement('td');
-                cell.colSpan = 9;
+                cell.colSpan = 8;
                 cell.textContent = '일반 사관이 없습니다.';
                 cell.style.textAlign = 'center';
                 cell.style.color = '#95a5a6';
@@ -813,21 +892,25 @@
                 const rankClass = index < 3 ? `rank-${index + 1}` : '';
                 const isCurrentUser = currentUsername && user.username === currentUsername;
                 const userClass = isCurrentUser ? 'current-user' : '';
-                
+                const displayRank = user.rank || (index + 1);
+                const displayPosition = normalizePosition(user.position) || getDetailedPosition(user.score || 0);
+                // 일반 사관 테이블: 배지 없음 (관리자/지정 배지 표시 안 함)
+
                 // 점수 계산
                 const submittedScore = (user.totalCount || 0) * 3;
                 const votesScore = (user.totalVotes || 0) * 1;
                 const approvedScore = (user.approvedCount || 0) * 10;
-                
+                const attendanceScore = (user.attendancePoints || 0) * 1;
+
                 row.innerHTML = `
-                    <td class="${rankClass} ${userClass}">${index + 1}</td>
+                    <td class="${rankClass} ${userClass}">${displayRank}</td>
                     <td class="${userClass}">${user.username}${isCurrentUser ? ' 👑' : ''}</td>
-                    <td class="${userClass}">${getDetailedPosition(user.score || 0)}</td>
+                    <td class="${userClass}">${displayPosition}</td>
                     <td style="text-align: right;" class="${userClass}">${submittedScore}(${user.totalCount || 0})</td>
                     <td style="text-align: right;" class="${userClass}">${votesScore}(${user.totalVotes || 0})</td>
                     <td style="text-align: right;" class="${userClass}">${approvedScore}(${user.approvedCount || 0})</td>
                     <td style="text-align: right;" class="${userClass}">${user.reviewScore || 0}(${user.reviewedCount || 0})</td>
-                    <td style="text-align: right;" class="${userClass}">${user.approvalScore || 0}(${user.approvedByCount || 0})</td>
+                    <td style="text-align: right;" class="${userClass}">${attendanceScore}(${user.attendancePoints || 0})</td>
                     <td style="text-align: right;" class="${rankClass} ${userClass}"><strong>${user.score || 0}</strong></td>
                 `;
                 tableBody.appendChild(row);
@@ -958,7 +1041,7 @@
                 listContainer.innerHTML = '';
                 
                 if (filteredContributions.length === 0) {
-                    listContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: #95a5a6;"><div style="font-size: 40px; margin-bottom: 10px;">📭</div>조건에 맞는 사료가 없습니다.</div>';
+                    listContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: #95a5a5;"><div style="font-size: 40px; margin-bottom: 10px;">📭</div>조건에 맞는 사료가 없습니다.</div>';
                     return;
                 }
                 
@@ -1006,10 +1089,11 @@
                             <span class="contribution-title" style="font-weight: bold; font-size: 16px; color: #3498db;">${markerName}</span>
                             <span class="contribution-status" style="background: ${statusBg}; color: ${statusColor}; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: bold; border: 1px solid ${statusColor};">${statusText}</span>
                         </div>
-                        <div class="contribution-details" style="font-size: 13px; color: #bdc3c7; display: flex; gap: 15px;">
+                        <div class="contribution-details" style="font-size: 13px; color: #bdc3c7; display: flex; gap: 15px; flex-wrap: wrap;">
                             <div>👤 ${submitter}</div>
                             <div>📅 ${date}</div>
                             <div>👍 ${item.votes || (item.votedBy ? item.votedBy.length : 0)}</div>
+                            ${(item.commentCount > 0) ? `<div style="color: #f1c40f;">💬 ${item.commentCount}</div>` : ''}
                         </div>
                     `;
                     listContainer.appendChild(div);
@@ -1222,8 +1306,31 @@
                             </div>
                         </div>
                         ` : ''}
+
+                        <!-- 💬 의견 섹션 -->
+                        <div style="margin-top: 30px; border-top: 1px solid #5d7185; padding-top: 25px;">
+                            <div style="color: #f1c40f; font-weight: 700; margin-bottom: 15px; font-size: 15px;">💬 의견</div>
+                            <div id="commentsList-${contributionId}" style="margin-bottom: 15px;">
+                                <div style="color: #95a5a6; font-size: 13px;">의견을 불러오는 중...</div>
+                            </div>
+                            ${currentUsername ? `
+                            <div style="display: flex; gap: 10px; align-items: flex-start;">
+                                <textarea id="commentInput-${contributionId}" placeholder="의견을 남겨주세요..." rows="3"
+                                    style="flex: 1; background: rgba(52, 73, 94, 0.7); color: #ecf0f1; border: 1px solid #5d7185; border-radius: 8px; padding: 10px 12px; font-size: 13px; resize: vertical; outline: none; font-family: inherit;"
+                                    onkeydown="if(event.ctrlKey && event.key==='Enter') submitComment('${contributionId}')"></textarea>
+                                <button onclick="submitComment('${contributionId}')"
+                                    style="background: linear-gradient(135deg, #27ae60 0%, #1e8449 100%); color: white; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 13px; white-space: nowrap; align-self: flex-end;">
+                                    등록
+                                </button>
+                            </div>
+                            <div style="color: #95a5a6; font-size: 11px; margin-top: 5px;">Ctrl+Enter로 빠르게 등록</div>
+                            ` : `<div style="color: #95a5a6; font-size: 13px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 8px; text-align: center;">의견을 작성하려면 로그인하세요.</div>`}
+                        </div>
                     </div>
                 `;
+                
+                // 의견 목록 비동기 로드
+                loadComments(contributionId);
                 
                 document.getElementById('contributionDetailModal').style.display = 'block';
             } catch (error) {
@@ -1253,7 +1360,107 @@
             };
         }
 
-        // 🚩 [추가] 사료 추천 함수
+        // � 의견 목록 로드
+        async function loadComments(contributionId) {
+            const container = document.getElementById(`commentsList-${contributionId}`);
+            if (!container) return;
+            try {
+                const response = await fetch(`${API_BASE_URL}/contributions/${contributionId}/comments`);
+                if (!response.ok) throw new Error('조회 실패');
+                const comments = await response.json();
+
+                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                let currentUsername = '';
+                let currentRole = '';
+                if (token) {
+                    try {
+                        const base64Url = token.split('.')[1];
+                        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                        const jsonPayload = decodeURIComponent(atob(base64).split('').map(c =>
+                            '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+                        ).join(''));
+                        const payload = JSON.parse(jsonPayload);
+                        currentUsername = payload.username || '';
+                        currentRole = payload.role || '';
+                    } catch (e) {}
+                }
+                const isAdmin = currentRole === 'admin' || currentRole === 'superuser';
+
+                if (comments.length === 0) {
+                    container.innerHTML = '<div style="color: #95a5a6; font-size: 13px; padding: 10px 0;">아직 의견이 없습니다. 첫 번째 의견을 남겨보세요!</div>';
+                    return;
+                }
+
+                container.innerHTML = comments.map(c => {
+                    const canDelete = isAdmin || c.author === currentUsername;
+                    const dateStr = c.createdAt ? new Date(c.createdAt).toLocaleString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+                    return `
+                    <div style="background: rgba(52, 73, 94, 0.5); border: 1px solid #5d7185; border-radius: 8px; padding: 12px 15px; margin-bottom: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="color: #3498db; font-weight: 600; font-size: 13px;">👤 ${c.author}</span>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="color: #7f8c8d; font-size: 11px;">${dateStr}</span>
+                                ${canDelete ? `<button onclick="deleteComment('${contributionId}', '${c._id}')" style="background: none; border: none; color: #e74c3c; cursor: pointer; font-size: 12px; padding: 2px 6px; border-radius: 4px; hover: opacity: 0.7;" title="삭제">✕</button>` : ''}
+                            </div>
+                        </div>
+                        <div style="color: #bdc3c7; font-size: 13px; line-height: 1.6; white-space: pre-wrap;">${c.text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+                    </div>`;
+                }).join('');
+            } catch (error) {
+                container.innerHTML = '<div style="color: #e74c3c; font-size: 13px;">의견을 불러오지 못했습니다.</div>';
+            }
+        }
+
+        // 💬 의견 등록
+        async function submitComment(contributionId) {
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            if (!token) { alert('로그인이 필요합니다.'); return; }
+            const textarea = document.getElementById(`commentInput-${contributionId}`);
+            if (!textarea) return;
+            const text = textarea.value.trim();
+            if (!text) { alert('의견 내용을 입력하세요.'); return; }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/contributions/${contributionId}/comments`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                if (!response.ok) {
+                    const err = await response.json();
+                    alert(err.message || '의견 등록에 실패했습니다.');
+                    return;
+                }
+                textarea.value = '';
+                await loadComments(contributionId);
+            } catch (error) {
+                alert('의견 등록에 실패했습니다.');
+            }
+        }
+
+        // 💬 의견 삭제
+        async function deleteComment(contributionId, commentId) {
+            if (!confirm('이 의견을 삭제하시겠습니까?')) return;
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            if (!token) { alert('로그인이 필요합니다.'); return; }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/contributions/${contributionId}/comments/${commentId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) {
+                    const err = await response.json();
+                    alert(err.message || '삭제에 실패했습니다.');
+                    return;
+                }
+                await loadComments(contributionId);
+            } catch (error) {
+                alert('삭제에 실패했습니다.');
+            }
+        }
+
+        // �🚩 [추가] 사료 추천 함수
         async function voteContribution(contributionId) {
             try {
                 const token = localStorage.getItem('token') || sessionStorage.getItem('token');
@@ -1423,6 +1630,7 @@
         });
 
         // 초기 로드
+
         document.addEventListener('DOMContentLoaded', async () => {
             loadRankings();
             
@@ -1460,6 +1668,22 @@
             const scoreHeader = document.querySelector('.sortable[data-sort="score"]');
             if (scoreHeader) {
                 scoreHeader.classList.add('sort-desc');
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const rankInfoBtn = document.getElementById('rankInfoBtn');
+            if (rankInfoBtn) {
+                rankInfoBtn.addEventListener('click', async () => {
+                    try {
+                        console.log('직급 안내 버튼 클릭됨');
+                        await loadRankings();
+                        alert('랭킹 데이터를 성공적으로 불러왔습니다.');
+                    } catch (error) {
+                        console.error('랭킹 데이터를 불러오는 중 오류 발생:', error);
+                        alert('랭킹 데이터를 불러오는 데 실패했습니다. 다시 시도해주세요.');
+                    }
+                });
             }
         });
     </script>

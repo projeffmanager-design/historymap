@@ -344,28 +344,11 @@ async function setupRoutesAndCollections() {
         // 🏰 CASTLE (성/위치) API 엔드포인트
         // ----------------------------------------------------
 
-        // 🚀 [v3.5] Castle 서버 메모리 캐시 (TTL 5분) — 1163개 전체 조회 최적화
-        let _castleCache = null;
-        let _castleCacheTime = 0;
-        const CASTLE_CACHE_TTL = 5 * 60 * 1000; // 5분
-        
-        function invalidateCastleCache() {
-            _castleCache = null;
-            _castleCacheTime = 0;
-        }
-
         // GET: 모든 성 정보 반환
         app.get('/api/castle', verifyToken, async (req, res) => { // (collections.castle로 변경)
             try {
                 // 🚩 [추가] label_type 쿼리 파라미터로 필터링 지원
                 const { label_type } = req.query;
-                
-                // 🚀 [v3.5] label_type 없는 전체 조회 시 서버 캐시 사용
-                if (!label_type && _castleCache && (Date.now() - _castleCacheTime) < CASTLE_CACHE_TTL) {
-                    console.log(`⚡ Castle 서버 캐시 사용: ${_castleCache.length}개`);
-                    return res.json(_castleCache);
-                }
-                
                 let query = { $or: [{ deleted: { $exists: false } }, { deleted: false }] }; // deleted 필드가 없거나 false인 문서들 (삭제되지 않은 문서들)
                 
                 if (label_type && label_type !== 'exclude_labels') {
@@ -385,11 +368,10 @@ async function setupRoutesAndCollections() {
                 const castles = await collections.castle.find(query).toArray();
                 console.log(`📖 Castle 조회: ${castles.length}개 (필터: ${label_type || '전체'})`);
                 
-                // 🚀 [v3.5] 전체 조회 결과를 서버 캐시에 저장
-                if (!label_type) {
-                    _castleCache = castles;
-                    _castleCacheTime = Date.now();
-                    console.log(`� Castle 서버 캐시 저장: ${castles.length}개`);
+                // 디버깅: 첫 번째 문서의 deleted 필드 확인
+                if (castles.length > 0) {
+                    console.log(`🔍 첫 번째 문서의 deleted 필드:`, castles[0].deleted);
+                    console.log(`🔍 첫 번째 문서의 키들:`, Object.keys(castles[0]));
                 }
                 
                 res.json(castles);
@@ -424,10 +406,7 @@ async function setupRoutesAndCollections() {
 
                 const result = await collections.castle.insertOne(newCastle);
                 
-                // � [v3.5] 서버 캐시 무효화
-                invalidateCastleCache();
-                
-                // �🚩 [수정] 삽입된 전체 문서를 다시 조회해서 반환
+                // 🚩 [수정] 삽입된 전체 문서를 다시 조회해서 반환
                 const insertedDocument = await collections.castle.findOne({ _id: result.insertedId });
                 
                 logCRUD('CREATE', 'Castle', newCastle.name, `(ID: ${result.insertedId})`);
@@ -477,9 +456,6 @@ async function setupRoutesAndCollections() {
                     { _id: _id },
                     { $set: updatedCastle }
                 );
-                
-                // 🚀 [v3.5] 서버 캐시 무효화
-                invalidateCastleCache();
 
                 if (result.matchedCount === 0) {
                     return res.status(404).json({ message: "성을 찾을 수 없습니다." });
@@ -552,9 +528,6 @@ async function setupRoutesAndCollections() {
                     return res.status(404).json({ message: "성을 찾을 수 없습니다." });
                 }
 
-                // 🚀 [v3.5] 서버 캐시 무효화
-                invalidateCastleCache();
-                
                 logCRUD('SOFT_DELETE', 'Castle', id);
                 res.json({ message: "Castle 정보 휴지통으로 이동됨" });
             } catch (error) {
@@ -584,9 +557,6 @@ async function setupRoutesAndCollections() {
                     return res.status(404).json({ message: "휴지통에서 성을 찾을 수 없습니다." });
                 }
 
-                // 🚀 [v3.5] 서버 캐시 무효화
-                invalidateCastleCache();
-                
                 logCRUD('RESTORE', 'Castle', id);
                 res.json({ message: "Castle 정보 복원 성공" });
             } catch (error) {
@@ -608,9 +578,6 @@ async function setupRoutesAndCollections() {
                     return res.status(404).json({ message: "휴지통에서 성을 찾을 수 없습니다." });
                 }
 
-                // 🚀 [v3.5] 서버 캐시 무효화
-                invalidateCastleCache();
-                
                 logCRUD('PERMANENT_DELETE', 'Castle', id);
                 res.json({ message: "Castle 정보 영구 삭제 성공" });
             } catch (error) {

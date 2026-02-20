@@ -243,7 +243,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.5.0',           // [v3.5] castle 캐시 복원 - IndexedDB 캐싱으로 13초→0.1초
+        APP_VERSION: '3.4.0',           // [v3.4] castle 캐시 제거 - 항상 DB 직접 로드
         DATA_SCHEMA_VERSION: '2.0.0'    // 데이터 구조 변경 시에만 변경
     };
     
@@ -267,6 +267,17 @@
         
         localStorage.setItem('data_schema_version', CONFIG.DATA_SCHEMA_VERSION);
     } else {
+        // CastlesDB는 더 이상 사용하지 않으므로 잔존 시 삭제
+        if (window.indexedDB) {
+            indexedDB.databases().then(dbs => {
+                dbs.forEach(db => {
+                    if (db.name === 'CastlesDB') {
+                        indexedDB.deleteDatabase('CastlesDB');
+                        console.log('🗑️ 구 CastlesDB 삭제 완료 (캐시 제거됨, 이제 DB 직접 로드)');
+                    }
+                });
+            }).catch(() => {});
+        }
         console.log(`♻️ 기존 캐시 데이터 사용 가능 (스키마 버전: ${CONFIG.DATA_SCHEMA_VERSION})`);
     }
     
@@ -6734,16 +6745,6 @@ let updateMapTimer = null;
 let lastUpdateMapCall = { year: null, month: null, cacheOnly: null, dataFingerprint: null };
 let pendingUpdateMapRAF = null; // 🚀 [v2.0.9] requestAnimationFrame ID
 
-// 🚀 [v3.5 최적화] 디바운싱된 updateMap 호출 — 초기화 중 연쇄 호출(4~5회)을 1회로 축소
-let _requestUpdateMapTimer = null;
-function requestUpdateMap(force = false) {
-    clearTimeout(_requestUpdateMapTimer);
-    _requestUpdateMapTimer = setTimeout(() => {
-        const { year, month } = getCurrentYearMonth();
-        updateMap(year, month, false, force);
-    }, 120); // 120ms 디바운스 — 연속 호출 병합
-}
-
 function updateMap(year, month, cacheOnly = false, force = false) {
         // 🚀 [v2.0.9] requestAnimationFrame으로 렌더링 최적화 (초기 로딩 시에만)
         if (!isInitializing && pendingUpdateMapRAF) {
@@ -7181,7 +7182,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                             ${(contrib.commentCount > 0) ? `<div style="display: flex; justify-content: space-between;"><span>의견:</span> <span style="color: #000000;">💬 ${contrib.commentCount}</span></div>` : ''}
                         </div>
                         <div style="margin-top: 8px; text-align: right; display: flex; justify-content: flex-end; gap: 5px; flex-wrap: wrap;">
-                            <button onclick="openContribDetail('${contrib._id}')" class="button-style" style="padding: 2px 6px; font-size: 11px; background-color: #2c3e50; color: white; border-radius: 3px;">📄 상세보기</button>
+                            <a href="ranking.html?contributionId=${contrib._id}" target="_blank" class="button-style" style="padding: 2px 6px; font-size: 11px; background-color: #2c3e50; color: white; text-decoration: none; border-radius: 3px; line-height: 1.8;">📄 상세보기</a>
                             ${isMyContribution && contrib.status !== 'approved' ? `<button onclick="deleteMyContribution('${contrib._id}')" class="button-style" style="padding: 2px 6px; font-size: 11px; background-color: #e74c3c; color: white;">🗑️ 삭제</button>` : ''}
                             ${currentUser && !isMyContribution && !(contrib.votedBy && contrib.votedBy.includes(currentUser.userId)) ? `<button onclick="voteContribution('${contrib._id}')" class="button-style" style="padding: 2px 6px; font-size: 11px;">👍 추천</button>` : ''}
                             ${adminControls}
@@ -9067,15 +9068,11 @@ function invalidateCountryLookupCache() {
           }
           
           // Castles 캐시 적용
-          if (cachedCastles && cachedCastles.length > 0) {
-              castles = cachedCastles;
-              console.log(`💾 [즉시 캐시] castles ${castles.length}개 IndexedDB에서 로드 완료`);
-              hasCachedData = true;
-          }
+          // castles는 항상 DB에서 직접 로드하므로 캐시 적용 없음
           
-          // 🎯 [핵심] territories + countries 캐시가 준비되면 렌더링
+          // 🎯 [핵심] territories + countries 캐시가 준비되면 렌더링 (castles는 백그라운드 대기)
           if (hasCachedData && countries.length > 0 && territories.length > 0) {
-              console.log(`🚀 [캐시 강제 렌더링] countries: ${countries.length}, territories: ${territories.length}, castles: ${castles.length}`);
+              console.log(`🚀 [캐시 강제 렌더링] countries: ${countries.length}, territories: ${territories.length} (castles는 DB 로드 중)`);
               
               // 🏷️ [초고속 라벨] 라벨은 castles 로드 후 렌더링됨 (백그라운드)
               
@@ -9150,9 +9147,17 @@ function invalidateCountryLookupCache() {
               if (updateMap._loggedMissingIds) updateMap._loggedMissingIds.clear();
               console.log(`✅ [즉시 렌더링] countries ${countries.length}개 로드 완료 (lookup 캐시 초기화)`);
               
-              // � [v3.5 최적화] 디바운스된 단일 호출 (기존: 즉시 1회 + rAF 매칭 재시도 1회 → 총 2회)
-              requestUpdateMap();
-              console.log('�️ [즉시 렌더링] countries 데이터로 지도 렌더링 예약 완료');
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+              console.log('🗺️ [즉시 렌더링] countries 데이터로 초기 지도 렌더링 완료 (네트워크 응답 즉시)');
+              
+              // 🔁 territories 캐시 존재 시 updateMap을 한 번 더 호출하여 매칭 재시도
+              if (territories && territories.length > 0) {
+                  requestAnimationFrame(() => {
+                      updateMap(year, month);
+                      console.log('🔁 [매칭 재시도] territories+countries 재렌더링 완료');
+                  });
+              }
           }).catch(err => {
               console.error('❌ countries 즉시 로드 실패:', err);
           });
@@ -9263,8 +9268,9 @@ function invalidateCountryLookupCache() {
                       isInitializing = false;
                       console.log('🔓 [초기화 완료] isInitializing = false (영토 로딩 완료)');
                       
-                      requestUpdateMap();
-                      console.log('🗺️ [즉시 렌더링] 영토 데이터로 지도 렌더링 예약');
+                      const { year, month } = getCurrentYearMonth();
+                      updateMap(year, month);
+                      console.log('🗺️ [즉시 렌더링] 영토 데이터로 지도 렌더링 완료');
                   } catch (error) {
                       console.error('❌ 영토 데이터 로딩 실패:', error);
                       isInitializing = false; // 오류 시에도 해제
@@ -9357,7 +9363,8 @@ function invalidateCountryLookupCache() {
                   });
                   
                   // 지도에 drawings 반영
-                  requestUpdateMap();
+                  const { year, month } = getCurrentYearMonth();
+                  updateMap(year, month);
                   console.log('🗺️ [백그라운드] drawings 데이터 지도 반영 완료');
               }).catch(err => {
                   console.error('❌ [백그라운드] drawings 로드 실패:', err);
@@ -9380,7 +9387,8 @@ function invalidateCountryLookupCache() {
                   });
                   
                   // 지도에 contributions 반영
-                  requestUpdateMap();
+                  const { year, month } = getCurrentYearMonth();
+                  updateMap(year, month);
                   console.log('🗺️ [백그라운드] contributions 데이터 지도 반영 완료');
               }).catch(err => {
                   console.error('❌ [백그라운드] contributions 로드 실패:', err);
@@ -9412,8 +9420,9 @@ function invalidateCountryLookupCache() {
           // 🎯 [최적화] 추가 데이터(drawings, naturalFeatures 등) 반영
           // 🎯 [핵심] territories가 있으면 updateMap 호출 (castles는 백그라운드 대기 중)
           if (castles.length > 0 || territories.length > 0) {
-              requestUpdateMap();
-              console.log('✅ 추가 데이터 지도 반영 예약 (drawings, naturalFeatures 등)');
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+              console.log('✅ 추가 데이터 지도 반영 완료 (drawings, naturalFeatures 등)');
           } else {
               console.log('⏭️ castles/territories 없음, 추가 데이터 렌더링 스킵 (캐시 데이터 보호)');
           }
@@ -9454,11 +9463,10 @@ function invalidateCountryLookupCache() {
           // 2️⃣ castles 데이터 - 캐시 우선, 없으면 DB 로드 후 캐시 저장
           if (layerVisibility.city || layerVisibility.territoryPolygon) {
               if (castles.length > 0) {
-                  // 캐시 히트: 이미 위에서 할당됨
-                  console.log(`⚡ castles 캐시 사용 (${castles.length}개) → DB 재요청 불필요`);
-                  populateCitySelectForEdit();
-                  // 🚀 [v3.5] 캐시 히트 시 바로 렌더링 (requestUpdateMap은 디바운스됨)
-                  requestUpdateMap();
+                  // 캐시 히트: 이미 위에서 할당됨, 백그라운드에서 DB 재검증만
+                  console.log(`⚡ castles 캐시 사용 (${castles.length}개) → 백그라운드 DB 갱신 예정`);
+                  // 백그라운드에서 최신 데이터 갱신 (캐시가 3시간 이내라면 스킵)
+                  // (이미 loadCastlesFromCache에서 유효성 확인됨, 별도 재요청 불필요)
               } else {
                   // 캐시 미스: DB에서 로드
                   console.log('🏰 castles 캐시 없음 → DB 로딩 시작...');
@@ -9524,7 +9532,8 @@ function invalidateCountryLookupCache() {
                               renderImmediateCountryLabels(year, month);
                           }
                           populateCitySelectForEdit();
-                          requestUpdateMap();
+                          const { year, month } = getCurrentYearMonth();
+                          updateMap(year, month);
                           console.log('🗺️ castles 마커 렌더링 완료');
                       } catch (error) {
                           console.error('❌ castles DB 로드 실패:', error);
@@ -16930,14 +16939,7 @@ kingSelect.addEventListener('change', () => {
             }
         };
 
-        // � 사료 상세보기 - 새 탭에서 ranking.html 열기 (sessionStorage 토큰 공유 문제 해결)
-        window.openContribDetail = (id) => {
-            const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
-            const url = `ranking.html?contributionId=${encodeURIComponent(id)}${token ? '&t=' + encodeURIComponent(token) : ''}`;
-            window.open(url, '_blank');
-        };
-
-        // �🚩 [추가] 승인 함수
+        // 🚩 [추가] 승인 함수
         // 🚩 [수정] 최종 승인 함수 (수국사 이상 가능 - 새 API 사용, 승인 후 마커 변환)
         window.approveContribution = (id) => {
             // 기여 데이터 찾기
