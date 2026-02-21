@@ -682,7 +682,7 @@ body.force-mobile #map-king-list {
     padding: 0 !important;
     width: auto !important;
     height: auto !important;
-    top: 270px !important; /* 🚩 [수정] 연대표 하단 (60px + 200px 높이 + 10px 여백) */
+    top: 60px !important; /* 🚩 [수정] 탑바 바로 아래 */
     right: 15px !important;
     bottom: auto !important;
     left: auto !important;
@@ -730,7 +730,7 @@ body.force-mobile #map-history-panel {
 
 /* 🚩 [추가] 모바일에서 축소 상태일 때 연대표 우측 하단으로 */
 body.force-mobile #map-history-panel:not(.expanded) {
-    top: 200px !important; /* 🚩 [수정] 모바일 연대표 하단 (35px + 150px 높이 + 15px 여백) */
+    top: 60px !important; /* 🚩 [수정] 탑바 바로 아래 */
     right: 10px !important;
 }
 
@@ -4264,8 +4264,8 @@ body.force-mobile .marker-type-selector button {
   </div> <!-- mainContainer 종료 -->
 
     <!-- 🚩 [이동] 왕 패널 & 역사 패널: #map(filter 적용) 밖으로 이동 → position:fixed 정상 동작 -->
-    <!-- 🚩 왕 목록 투명 박스 (지도 왼쪽 하단, 확대축소 버튼 위) -->
-    <div id="map-king-panel" style="position: fixed; bottom: 80px; left: 10px; width: 370px; max-height: 30vh; z-index: 998; background: rgba(30, 42, 56, 0.40); backdrop-filter: blur(3px); padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); overflow-y: auto; pointer-events: auto; display: none;">
+    <!-- 🚩 왕 목록 투명 박스 (오른쪽 상단 탑바 바로 아래) -->
+    <div id="map-king-panel" style="position: fixed; top: 60px; right: 345px; width: 330px; max-height: 40vh; z-index: 998; background: rgba(30, 42, 56, 0.40); backdrop-filter: blur(3px); padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); overflow-y: auto; pointer-events: auto; display: none;">
         <div id="map-king-panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 8px; cursor: grab; user-select: none;">
             <h3 style="margin: 0; font-size: 14px; color: #f5e9d2;">⠿ 국가별 왕 목록</h3>
             <div style="display: flex; gap: 4px; align-items: center; flex-shrink: 0;">
@@ -4278,8 +4278,8 @@ body.force-mobile .marker-type-selector button {
         </div>
     </div>
 
-    <!-- 🚩 역사 기록 투명 박스 (우측 상단 고정) -->
-    <div id="map-history-panel" class="expanded" style="position: fixed; top: 270px; right: 10px; width: 320px; max-height: calc(100vh - 350px); z-index: 1000; background: rgba(30, 42, 56, 0.40); backdrop-filter: blur(3px); padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); overflow-y: auto; pointer-events: auto; display: none;">
+    <!-- 🚩 역사 기록 투명 박스 (오른쪽 상단 탑바 바로 아래, 왕패널 오른쪽) -->
+    <div id="map-history-panel" class="expanded" style="position: fixed; top: 60px; right: 10px; width: 320px; max-height: 40vh; z-index: 1000; background: rgba(30, 42, 56, 0.40); backdrop-filter: blur(3px); padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); overflow-y: auto; pointer-events: auto; display: none;">
         <!-- 크기 조절 핸들 (왼쪽 가장자리) -->
         <div id="map-history-resizer" style="position: absolute; left: 0; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 1001; background: rgba(255, 255, 255, 0.1);"></div>
         <!-- 드래그 핸들 헤더 -->
@@ -4510,7 +4510,7 @@ body.force-mobile .marker-type-selector button {
         <!-- 🚩 [추가] 기여로 되돌리기 버튼 -->
         <button type="button" id="revertContributionBtn" class="danger" style="display:none; background-color: #e67e22; border-color: #d35400;">기여로 되돌리기</button>
         <button type="button" id="cloneCastle" class="primary" style="display:none;">복제</button> <!-- 🚩 [수정] 복제 버튼 스타일 클래스 적용 -->
-        <button type="button" id="deleteCastle" class="danger" style="display:none;">🗑️ 휴지통으로 이동</button>
+        <button type="button" id="deleteCastle" class="danger" style="display:none;">🗑️ 휴지통</button>
         <button type="button" id="cancelCastle">취소</button>
         <button type="submit" class="primary">저장</button> <!-- 🚩 [수정] ID 추가 -->
       </div>
@@ -6828,7 +6828,15 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         }
 
         // 🚩 [수정] 그리기 레이어 초기화를 다른 레이어 초기화와 함께 처리
-        if (drawnItems) drawnItems.clearLayers();
+        // 🔧 [textpath 에러 수정] clearLayers() 전에 setText(null)로 textpath 요소를 먼저 해제
+        if (drawnItems) {
+            drawnItems.eachLayer(layer => {
+                try {
+                    if (typeof layer.setText === 'function') layer.setText(null);
+                } catch(e) { /* 무시 */ }
+            });
+            drawnItems.clearLayers();
+        }
         
         // 🚀 [깜빡임 방지] 새 레이어 그룹을 먼저 그린 뒤 기존 그룹과 교체 (double-buffer)
         const oldTerritoryLayerGroup = territoryLayerGroup;
@@ -9303,12 +9311,8 @@ function invalidateCountryLookupCache() {
           
           const additionalLoadPromises = {};
           
-          // 왕 데이터 (kingPanel 레이어가 켜져있을 때만)
-          if (layerVisibility.kingPanel) {
-              additionalLoadPromises.kings = fetchData('kings');
-          } else {
-              additionalLoadPromises.kings = Promise.resolve([]);
-          }
+          // 왕 데이터 (항상 로드 — 패널 OFF여도 편집 폼에서 필요)
+          additionalLoadPromises.kings = fetchData('kings');
           
           // ❌ drawings: 제거 - 사용자 그리기 데이터, 백그라운드 로드로 전환 (21초 병목 제거)
           // ❌ contributions: 제거 - 사용자 기여 데이터, 백그라운드 로드로 전환 (4초 병목 제거)
@@ -9346,9 +9350,9 @@ function invalidateCountryLookupCache() {
           
           const additionalData = Object.fromEntries(additionalResults);
           
-          // 왕 데이터 처리
+          // 왕 데이터 처리 (kingPanel ON/OFF 무관하게 항상 로드 — 왕 편집 폼에서 필요)
           kings = {};
-          if (layerVisibility.kingPanel && Array.isArray(additionalData.kings)) {
+          if (Array.isArray(additionalData.kings)) {
               let totalKings = 0;
               additionalData.kings.forEach(item => {
                   if (item.country_id && Array.isArray(item.kings)) {
@@ -9357,8 +9361,6 @@ function invalidateCountryLookupCache() {
                   }
               });
               console.log(`✅ 왕 데이터 로드 완료: ${Object.keys(kings).length}개 국가, 총 ${totalKings}명 왕`);
-          } else {
-              console.log('⏭️ 왕 패널 비활성화 → 로드 스킵');
           }
           
           // 🚀 [백그라운드 로딩] drawings는 사용자 그리기 전용으로 비동기 로딩 (캐시 우선)
@@ -10505,8 +10507,8 @@ function invalidateCountryLookupCache() {
           });
       }
 
-      // 🚩 [추가] 왕 패널 드래그 이동 (bottom 기반 → top 전환)
-      makePanelDraggable('map-king-panel', 'map-king-panel-header', { clearBottom: true });
+      // 🚩 [추가] 왕 패널 드래그 이동 (top/right 기반 → left 전환)
+      makePanelDraggable('map-king-panel', 'map-king-panel-header', { clearRight: true });
 
       // 🚩 [추가] 역사 기록 패널 드래그 이동 (right 기반 → left 전환)
       makePanelDraggable('map-history-panel', 'map-history-panel-header', { clearRight: true });
@@ -12978,7 +12980,7 @@ function invalidateCountryLookupCache() {
               
               return {
                   name: nameVal,
-                  country_id: countryIdVal || '', // keep empty string if not found
+                  country_id: countryIdVal || '',
                   start_year: rawStartYear !== '' ? parseInt(rawStartYear) : null,
                   start_month: rawStartMonth !== '' ? parseInt(rawStartMonth) : 1,
                   end_year: rawEndYear !== '' ? parseInt(rawEndYear) : null,
@@ -12987,6 +12989,22 @@ function invalidateCountryLookupCache() {
                   is_battle: isBattleChecked
               };
           });
+
+          // 🚫 [검증] 국가 미지정 기록이 있으면 저장 차단
+          const missingCountryIdx = historyData.findIndex(h => !h.country_id);
+          if (missingCountryIdx !== -1) {
+              const rowNum = missingCountryIdx + 1;
+              // 해당 행의 국가 입력 필드에 포커스
+              const targetRow = historyRows[missingCountryIdx];
+              const countryInput = targetRow?.querySelector('input.history-country-name');
+              if (countryInput) {
+                  countryInput.focus();
+                  countryInput.style.outline = '2px solid #e74c3c';
+                  setTimeout(() => { countryInput.style.outline = ''; }, 2500);
+              }
+              alert(`⚠️ ${rowNum}번째 역사 기록에 소속 국가가 지정되지 않았습니다.\n국가를 선택한 뒤 저장해주세요.`);
+              return;
+          }
 
           data.history = historyData;
           // 호환성을 위해 첫 번째 기록을 대표값으로 저장
@@ -16003,9 +16021,14 @@ kingSelect.addEventListener('change', () => {
         document.getElementById('castleHistoryList').addEventListener('input', (e) => {
             if (e.target.classList.contains('history-country-name')) {
                 const input = e.target;
-                const resultsContainer = input.nextElementSibling.nextElementSibling; // input -> hidden input -> results div
+                const hiddenInput = input.nextElementSibling; // hidden country-id
+                const resultsContainer = hiddenInput.nextElementSibling; // autocomplete-results div
                 const query = input.value.toLowerCase();
                 resultsContainer.innerHTML = '';
+
+                // 입력 내용이 바뀌면 hidden id 초기화 (드롭다운에서 재선택 필요)
+                hiddenInput.value = '';
+                input.style.borderColor = '';
 
                 if (query.length === 0) {
                     resultsContainer.style.display = 'none';
@@ -16020,7 +16043,8 @@ kingSelect.addEventListener('change', () => {
                     item.textContent = country.name;
                     item.onclick = () => {
                         input.value = country.name;
-                        input.nextElementSibling.value = country._id; // hidden input에 ID 저장
+                        hiddenInput.value = country._id;
+                        input.style.borderColor = '#2ecc71'; // 선택 완료 시 초록색
                         resultsContainer.style.display = 'none';
 
                         // 🚩 [수정] 국가 선택 시, 해당 국가의 시작/멸망 연도와 월을 자동으로 채웁니다.
@@ -16048,6 +16072,24 @@ kingSelect.addEventListener('change', () => {
                 resultsContainer.style.display = filteredCountries.length > 0 ? 'block' : 'none';
             }
         });
+
+        // 🚩 [추가] blur 시 드롭다운 미선택 경고 (타이핑만 하고 선택 안 한 경우)
+        document.getElementById('castleHistoryList').addEventListener('blur', (e) => {
+            if (e.target.classList.contains('history-country-name')) {
+                const input = e.target;
+                const hiddenInput = input.nextElementSibling;
+                const resultsContainer = hiddenInput.nextElementSibling;
+                setTimeout(() => { resultsContainer.style.display = 'none'; }, 150);
+                // 텍스트는 있는데 id가 없으면 → 미선택 상태 표시
+                if (input.value.trim() && !hiddenInput.value) {
+                    input.style.borderColor = '#e74c3c';
+                    input.title = '목록에서 국가를 선택해주세요';
+                } else if (hiddenInput.value) {
+                    input.style.borderColor = '#2ecc71';
+                    input.title = '';
+                }
+            }
+        }, true);
 
         // 🚩 [추가] 자동 완성 결과 창 외부 클릭 시 창 숨기기
         document.addEventListener('click', (e) => {
