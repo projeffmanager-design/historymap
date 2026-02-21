@@ -506,6 +506,17 @@ async function setupRoutesAndCollections() {
             }
         });
         
+        // GET: 휴지통의 성 목록 (⚠️ /:id 라우트보다 반드시 앞에 위치해야 함)
+        app.get('/api/castle/trash', verifyAdmin, async (req, res) => {
+            try {
+                const castles = await collections.castle.find({ deleted: true }).toArray();
+                res.json(castles);
+            } catch (error) {
+                logCRUD('ERROR', 'Castle', 'GET_TRASH', error.message);
+                res.status(500).json({ message: "휴지통 조회 실패", error: error.message });
+            }
+        });
+
         // 🚩 [신규 추가] GET: 개별 성 정보 조회
         app.get('/api/castle/:id', verifyToken, async (req, res) => {
             try {
@@ -586,9 +597,12 @@ async function setupRoutesAndCollections() {
 
                 // 🚀 [v3.5] 서버 캐시 무효화
                 invalidateCastleCache();
+
+                // 복원된 castle 데이터를 응답에 포함 (클라이언트 캐시 갱신용)
+                const restoredCastle = await collections.castle.findOne({ _id: _id });
                 
                 logCRUD('RESTORE', 'Castle', id);
-                res.json({ message: "Castle 정보 복원 성공" });
+                res.json({ message: "Castle 정보 복원 성공", castle: restoredCastle });
             } catch (error) {
                 logCRUD('ERROR', 'Castle', 'RESTORE', error.message);
                 res.status(500).json({ message: "Castle 정보 복원 실패", error: error.message });
@@ -616,17 +630,6 @@ async function setupRoutesAndCollections() {
             } catch (error) {
                 logCRUD('ERROR', 'Castle', 'PERMANENT_DELETE', error.message);
                 res.status(500).json({ message: "Castle 정보 영구 삭제 실패", error: error.message });
-            }
-        });
-
-        // GET: 휴지통의 성 목록
-        app.get('/api/castle/trash', verifyAdmin, async (req, res) => {
-            try {
-                const castles = await collections.castle.find({ deleted: true }).toArray();
-                res.json(castles);
-            } catch (error) {
-                logCRUD('ERROR', 'Castle', 'GET_TRASH', error.message);
-                res.status(500).json({ message: "휴지통 조회 실패", error: error.message });
             }
         });
 
@@ -2816,8 +2819,16 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     if (contribution.lat && contribution.lng && contribution.category !== 'historical_record') {
                         try {
                             const isNatural = !!contribution.is_natural_feature;
-                            const startYear = isNatural ? -5000 : (contribution.start_year != null ? contribution.start_year : -5000);
-                            const endYear = isNatural ? null : (contribution.end_year != null ? contribution.end_year : null);
+                            // 시간 기반 자연지물(고분/묘 등)은 실제 연도 사용, 그 외 지형은 -5000 (항상 표시)
+                            const naturalTimeTypes = ['tomb', 'construction', 'hunting', 'buffalo', 'horse', 'camel', 'mongky'];
+                            const natType = contribution.natural_feature_type || 'other';
+                            const isTimeBased = isNatural && naturalTimeTypes.includes(natType);
+                            const startYear = isNatural
+                                ? (isTimeBased ? (contribution.start_year != null ? contribution.start_year : -5000) : -5000)
+                                : (contribution.start_year != null ? contribution.start_year : -5000);
+                            const endYear = isNatural
+                                ? (isTimeBased ? (contribution.end_year != null ? contribution.end_year : null) : null)
+                                : (contribution.end_year != null ? contribution.end_year : null);
                             const countryId = contribution.country_id || null;
                             
                             // history 배열 구성 (자연지물은 빈 배열)
@@ -2835,40 +2846,49 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                                 });
                             }
                             
-                            const newCastle = {
-                                name: (contribution.name || '').trim(),
-                                lat: contribution.lat,
-                                lng: contribution.lng,
-                                photo: null,
-                                desc: contribution.description || '',
-                                is_capital: false,
-                                is_battle: false,
-                                is_military_flag: false,
-                                is_natural_feature: isNatural,
-                                is_label: false,
-                                label_type: null,
-                                label_color: '#ffffff',
-                                label_size: 'medium',
-                                natural_feature_type: contribution.natural_feature_type || null,
-                                built_year: startYear,
-                                built_month: 1,
-                                destroyed_year: endYear,
-                                destroyed_month: endYear ? 12 : null,
-                                custom_icon: null,
-                                icon_width: null,
-                                icon_height: null,
-                                originContributionId: contribution._id.toString(),
-                                history: history,
-                                country_id: countryId ? toObjectId(countryId) : null,
-                                createdBy: contribution.username,
-                                path_data: []
-                            };
-                            
-                            const castleResult = await collections.castle.insertOne(newCastle);
-                            logCRUD('CREATE', 'Castle (from contribution)', newCastle.name, `(ID: ${castleResult.insertedId}, ContribID: ${contribution._id})`);
-                            console.log(`✅ [승인→Castle] '${newCastle.name}' castle에 자동 삽입 완료 (is_natural: ${isNatural})`);
-                            
-                            // 삽입된 castle 데이터를 응답에 포함
+                // 🚩 [중복 방지] 이미 같은 contribution에서 생성된 castle이 있으면 스킵
+                const existingCastle = await collections.castle.findOne({
+                    originContributionId: contribution._id.toString(),
+                    $or: [{ deleted: { $exists: false } }, { deleted: false }]
+                });
+                if (existingCastle) {
+                    console.log(`⚠️ [승인→Castle 스킵] '${contribution.name}' 이미 castle 존재 (ID: ${existingCastle._id})`);
+                    const message = '검토가 완료되었습니다.';
+                    return res.json({ message, castle: existingCastle });
+                }
+
+                const newCastle = {
+                    name: (contribution.name || '').trim(),
+                    lat: contribution.lat,
+                    lng: contribution.lng,
+                    photo: null,
+                    desc: contribution.description || '',
+                    is_capital: false,
+                    is_battle: false,
+                    is_military_flag: false,
+                    is_natural_feature: isNatural,
+                    is_label: false,
+                    label_type: null,
+                    label_color: '#ffffff',
+                    label_size: 'medium',
+                    natural_feature_type: contribution.natural_feature_type || null,
+                    built_year: startYear,
+                    built_month: 1,
+                    destroyed_year: endYear,
+                    destroyed_month: endYear ? 12 : null,
+                    custom_icon: null,
+                    icon_width: null,
+                    icon_height: null,
+                    originContributionId: contribution._id.toString(),
+                    history: history,
+                    country_id: countryId ? toObjectId(countryId) : null,
+                    createdBy: contribution.username,
+                    path_data: []
+                };
+                
+                const castleResult = await collections.castle.insertOne(newCastle);
+                logCRUD('CREATE', 'Castle (from contribution)', newCastle.name, `(ID: ${castleResult.insertedId}, ContribID: ${contribution._id})`);
+                console.log(`✅ [승인→Castle] '${newCastle.name}' castle에 자동 삽입 완료 (is_natural: ${isNatural})`);                            // 삽입된 castle 데이터를 응답에 포함
                             const insertedCastle = await collections.castle.findOne({ _id: castleResult.insertedId });
                             const message = '검토가 완료되었습니다.';
                             return res.json({ message, castle: insertedCastle });
@@ -3551,8 +3571,16 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
             try {
                 const isNatural = !!contribution.is_natural_feature;
                 const isCapital = !isNatural && !!contribution.is_capital;
-                const startYear = isNatural ? -5000 : (contribution.start_year != null ? contribution.start_year : (contribution.year || -5000));
-                const endYear = isNatural ? null : (contribution.end_year != null ? contribution.end_year : null);
+                // 시간 기반 자연지물(고분/묘 등)은 실제 연도 사용, 그 외 지형은 -5000 (항상 표시)
+                const naturalTimeTypes = ['tomb', 'construction', 'hunting', 'buffalo', 'horse', 'camel', 'mongky'];
+                const natType = contribution.natural_feature_type || 'other';
+                const isTimeBased = isNatural && naturalTimeTypes.includes(natType);
+                const startYear = isNatural
+                    ? (isTimeBased ? (contribution.start_year != null ? contribution.start_year : -5000) : -5000)
+                    : (contribution.start_year != null ? contribution.start_year : (contribution.year || -5000));
+                const endYear = isNatural
+                    ? (isTimeBased ? (contribution.end_year != null ? contribution.end_year : null) : null)
+                    : (contribution.end_year != null ? contribution.end_year : null);
                 let countryId = contribution.country_id || contribution.countryId || null;
 
                 // 🚩 [추가] 새 국가 자동 생성 (new_country_name이 있고 country_id가 없을 때)
@@ -3623,6 +3651,15 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
                     path_data: []
                 };
 
+                // 🚩 [중복 방지] 이미 같은 contribution에서 생성된 castle이 있으면 스킵
+                const existingCastleApprove = await collections.castle.findOne({
+                    originContributionId: contribution._id.toString(),
+                    $or: [{ deleted: { $exists: false } }, { deleted: false }]
+                });
+                if (existingCastleApprove) {
+                    console.log(`⚠️ [/approve Castle 스킵] '${contribution.name}' 이미 castle 존재 (ID: ${existingCastleApprove._id})`);
+                    insertedCastle = existingCastleApprove;
+                } else {
                 const insertResult = await collections.castle.insertOne(newCastle);
                 insertedCastle = await collections.castle.findOne({ _id: insertResult.insertedId });
                 logCRUD('CREATE', 'Castle (from approve)', newCastle.name, `(ID: ${insertResult.insertedId}, ContribID: ${contribution._id})`);
@@ -3634,6 +3671,7 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
                         { _id: contribution.userId },
                         { $inc: { approvedCount: 1 } }
                     );
+                }
                 }
             } catch (castleError) {
                 console.error('❌ [Castle 생성 실패]', castleError);

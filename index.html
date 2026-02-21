@@ -54,8 +54,19 @@
         padding: 0 !important;
         line-height: 1.2 !important;
     }
+    .compact-popup .leaflet-popup-content img {
+        max-width: 100% !important;
+        height: auto !important;
+        display: block !important;
+        border-radius: 4px !important;
+        margin-top: 5px !important;
+    }
     .compact-popup .leaflet-popup-tip-container {
         margin-top: -1px !important;
+    }
+    .compact-popup .leaflet-popup-content small {
+        color: #1a1a1a !important;
+        font-weight: 600 !important;
     }
 
     /* 🚩 [추가] 빈티지/수묵화 스타일 적용 — 타일 레이어에만 */
@@ -3980,6 +3991,7 @@ body.force-mobile .marker-type-selector button {
                       <option value="natural_mountain">자연지물 - 산</option>
                       <option value="natural_river">자연지물 - 강/호수</option>
                       <option value="natural_sea">자연지물 - 바다</option>
+                      <option value="natural_tomb">자연지물 - 고분/묘 🪦</option>
                       <option value="natural_other">자연지물 - 기타</option>
                   </select>
               </div>
@@ -4013,11 +4025,17 @@ body.force-mobile .marker-type-selector button {
               </div>
               <div class="form-row" id="contribStartYearRow">
                   <label>시작 연도: <span style="color:#e74c3c">*</span></label>
-                  <input type="number" id="contribStartYear" placeholder="예: -202, 918" min="-10000" max="2100">
+                  <div style="display:flex; flex-direction:column; flex:1; gap:3px;">
+                      <input type="number" id="contribStartYear" placeholder="예: -202, 918" min="-10000" max="2100" style="width:100%;">
+                      <span id="contribStartYearHint" style="font-size:11px; color:#2ecc71; display:none;">📅 국가 시작 연도에서 자동입력됨</span>
+                  </div>
               </div>
               <div class="form-row" id="contribEndYearRow">
                   <label>종료 연도:</label>
-                  <input type="number" id="contribEndYear" placeholder="현재까지면 비워두세요" min="-10000" max="2100">
+                  <div style="display:flex; flex-direction:column; flex:1; gap:3px;">
+                      <input type="number" id="contribEndYear" placeholder="현재까지면 비워두세요" min="-10000" max="2100" style="width:100%;">
+                      <span id="contribEndYearHint" style="font-size:11px; color:#2ecc71; display:none;">📅 국가 종료 연도에서 자동입력됨</span>
+                  </div>
               </div>
               <div class="form-row" id="contribCapitalRow">
                   <label>수도 여부:</label>
@@ -4041,6 +4059,10 @@ body.force-mobile .marker-type-selector button {
               <div class="form-row">
                   <label>참고 URL:</label>
                   <input type="text" id="contribEvidence" placeholder="이미지나 관련 링크 (선택)">
+              </div>
+              <div class="form-row">
+                  <label>사진 URL:</label>
+                  <input type="text" id="contribPhoto" placeholder="사진 링크 (선택, 이미지 직접 링크)">
               </div>
               <div class="form-actions" style="text-align: right; margin-top: 10px;">
                   <button type="button" id="cancelContribBtn">취소</button>
@@ -4346,20 +4368,16 @@ body.force-mobile .marker-type-selector button {
       </div>
 
       <!-- 🗑️ 휴지통 모달 -->
-      <div id="trashModal" style="display:none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #2c3e50; color: #ecf0f1; border: 2px solid #f39c12; padding: 20px; z-index: 2002; border-radius: 12px; width: 800px; max-height: 80vh; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
-          <h3 style="color: #f39c12; text-align: center; margin-top: 0;">🗑️ 휴지통</h3>
-          <div style="margin-bottom: 15px; text-align: center; font-size: 14px; color: #bdc3c7;">
-              삭제된 성/전장 정보를 관리합니다.
+      <div id="trashModal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#2c3e50; color:#ecf0f1; border:2px solid #f39c12; padding:24px; z-index:3000; border-radius:12px; width:min(860px, 94vw); max-height:85vh; overflow-y:auto; box-shadow:0 10px 40px rgba(0,0,0,0.85);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+              <h3 style="color:#f39c12; margin:0; font-size:18px;">🗑️ 휴지통</h3>
+              <button type="button" id="closeTrashBtn" style="background:#8e44ad;color:white;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;">✕ 닫기</button>
           </div>
-
-          <div id="trashContent" style="margin-bottom: 20px;">
-              <div style="text-align: center; color: #95a5a6; padding: 40px;">
-                  휴지통을 불러오는 중...
-              </div>
+          <div style="margin-bottom:14px; font-size:13px; color:#95a5a6;">
+              삭제된 성·도시·자연지물을 복원하거나 영구 삭제합니다. 복원 시 지도에 즉시 반영됩니다.
           </div>
-
-          <div style="text-align: center; margin-top: 20px;">
-              <button type="button" id="closeTrashBtn" style="background: #8e44ad; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">닫기</button>
+          <div id="trashContent" style="margin-bottom:10px;">
+              <div style="text-align:center; color:#95a5a6; padding:40px;">휴지통을 불러오는 중...</div>
           </div>
       </div>
 
@@ -4571,6 +4589,7 @@ body.force-mobile .marker-type-selector button {
             <option value="sea">바다/호수</option>
             <option value="river">강/내륙</option>
             <option value="mudflat">뻘/늪</option>
+            <option value="tomb">고분/묘 🪦</option>
             <option value="horse">말</option>
             <option value="buffalo">물소</option>
             <option value="mongky">원숭이</option>
@@ -5181,6 +5200,15 @@ body.force-mobile .marker-type-selector button {
     L.control.zoom({
         position: 'bottomleft'
     }).addTo(map);
+
+    // 🚩 [추가] 팝업 하나만 열리도록: 새 팝업 열릴 때 기존 팝업 모두 닫기
+    map.on('popupopen', function(e) {
+        map.eachLayer(function(layer) {
+            if (layer.getPopup && layer.getPopup() && layer.getPopup().isOpen() && layer.getPopup() !== e.popup) {
+                layer.closePopup();
+            }
+        });
+    });
     
     // 🚩 [수정] 빈티지 타일셋으로 교체 및 baseMaps/overlayMaps 정의
     const baseMaps = {
@@ -5516,60 +5544,90 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
 
         if (!trashModal || !trashContent) return;
 
-        // 로딩 표시
         trashContent.innerHTML = '<div style="text-align: center; color: #95a5a6; padding: 40px;">휴지통을 불러오는 중...</div>';
-
-        // 모달 표시
         trashModal.style.display = 'block';
 
         try {
-            // 휴지통 데이터 가져오기
             const response = await fetch(`${API_BASE_URL}/castle/trash`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
+                headers: { 'Authorization': `Bearer ${token}` }
             });
 
             if (handleApiError(response)) return;
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
             const trashItems = await response.json();
+            // 삭제일 최신순 정렬
+            trashItems.sort((a, b) => new Date(b.deletedAt || 0) - new Date(a.deletedAt || 0));
 
             if (trashItems.length === 0) {
-                trashContent.innerHTML = '<div style="text-align: center; color: #95a5a6; padding: 40px;">휴지통이 비어있습니다.</div>';
+                trashContent.innerHTML = '<div style="text-align: center; color: #95a5a6; padding: 40px; font-size:15px;">🗑️ 휴지통이 비어있습니다.</div>';
                 return;
             }
 
-            // 휴지통 아이템 표시
+            // 검색 필터 입력창
+            const searchBar = `<div style="margin-bottom:12px;">
+                <input id="trashSearchInput" type="text" placeholder="이름으로 검색…" autocomplete="off"
+                    style="width:100%; padding:7px 10px; background:#1a2533; border:1px solid #5d7185; border-radius:6px; color:#ecf0f1; font-size:13px; box-sizing:border-box;">
+            </div>`;
+
+            const typeLabel = (item) => {
+                if (item.is_natural_feature) return `<span style="background:#2980b9;color:#fff;padding:2px 7px;border-radius:10px;font-size:11px;">자연지물</span>`;
+                if (item.is_battle) return `<span style="background:#c0392b;color:#fff;padding:2px 7px;border-radius:10px;font-size:11px;">전투</span>`;
+                if (item.is_label) return `<span style="background:#8e44ad;color:#fff;padding:2px 7px;border-radius:10px;font-size:11px;">지명표시</span>`;
+                return `<span style="background:#27ae60;color:#fff;padding:2px 7px;border-radius:10px;font-size:11px;">성/도시</span>`;
+            };
+
             const itemsHtml = trashItems.map(item => {
                 const deletedDate = item.deletedAt ? new Date(item.deletedAt).toLocaleString('ko-KR') : '알 수 없음';
+                const coordStr = (item.lat && item.lng) ? `${item.lat.toFixed(4)}, ${item.lng.toFixed(4)}` : '좌표 없음';
+                const yearStr = item.built_year != null
+                    ? `${item.built_year < 0 ? `BC ${Math.abs(item.built_year)}` : `AD ${item.built_year}`}년`
+                    + (item.destroyed_year != null ? ` ~ ${item.destroyed_year < 0 ? `BC ${Math.abs(item.destroyed_year)}` : `AD ${item.destroyed_year}`}년` : '')
+                    : '';
+                const safeName = (item.name || '이름 없음').replace(/'/g, "\\'");
                 return `
-                    <div style="border: 1px solid #5d7185; margin: 10px 0; padding: 15px; border-radius: 8px; background: rgba(255,255,255,0.05);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <h4 style="margin: 0; color: #f39c12;">${item.name || '이름 없음'}</h4>
-                            <div>
-                                <button onclick="restoreCastle('${item._id}')" style="background: #27ae60; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; margin-right: 5px;">복원</button>
-                                <button onclick="permanentDeleteCastle('${item._id}', '${item.name || '이름 없음'}')" style="background: #e74c3c; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer;">영구 삭제</button>
+                <div class="trash-item" data-name="${(item.name || '').toLowerCase()}"
+                    style="border:1px solid #5d7185; margin:8px 0; padding:14px 16px; border-radius:8px; background:rgba(255,255,255,0.04);">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                        <div style="flex:1; min-width:0;">
+                            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:5px;">
+                                <strong style="color:#f39c12; font-size:15px;">${item.name || '이름 없음'}</strong>
+                                ${typeLabel(item)}
                             </div>
+                            <div style="color:#95a5a6; font-size:12px; line-height:1.7;">
+                                ${yearStr ? `<span>📅 ${yearStr}</span> &nbsp;` : ''}
+                                <span>📍 ${coordStr}</span><br>
+                                <span>🗑️ 삭제일: ${deletedDate}</span>
+                            </div>
+                            ${item.desc ? `<div style="color:#bdc3c7; font-size:12px; margin-top:6px; line-height:1.5; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">${item.desc}</div>` : ''}
                         </div>
-                        <div style="color: #bdc3c7; font-size: 12px; margin-bottom: 8px;">
-                            삭제일: ${deletedDate}
-                        </div>
-                        <div style="color: #ecf0f1; font-size: 13px;">
-                            ${item.desc ? item.desc.substring(0, 100) + (item.desc.length > 100 ? '...' : '') : '설명 없음'}
+                        <div style="display:flex; flex-direction:column; gap:5px; flex-shrink:0;">
+                            <button onclick="restoreCastle('${item._id}')"
+                                style="background:#27ae60;color:white;border:none;padding:6px 14px;border-radius:5px;cursor:pointer;font-size:13px;white-space:nowrap;">
+                                ↩️ 복원
+                            </button>
+                            <button onclick="permanentDeleteCastle('${item._id}', '${safeName}')"
+                                style="background:#e74c3c;color:white;border:none;padding:6px 14px;border-radius:5px;cursor:pointer;font-size:13px;white-space:nowrap;">
+                                ❌ 영구삭제
+                            </button>
                         </div>
                     </div>
-                `;
+                </div>`;
             }).join('');
 
-            trashContent.innerHTML = itemsHtml;
+            trashContent.innerHTML = searchBar + `<div id="trashItemList">${itemsHtml}</div>`;
+
+            // 실시간 검색 필터
+            document.getElementById('trashSearchInput')?.addEventListener('input', (e) => {
+                const q = e.target.value.toLowerCase();
+                document.querySelectorAll('#trashItemList .trash-item').forEach(el => {
+                    el.style.display = el.dataset.name.includes(q) ? '' : 'none';
+                });
+            });
 
         } catch (error) {
             console.error('휴지통 로딩 중 오류:', error);
-            trashContent.innerHTML = '<div style="text-align: center; color: #e74c3c; padding: 40px;">휴지통을 불러오는 중 오류가 발생했습니다.</div>';
+            trashContent.innerHTML = '<div style="text-align:center;color:#e74c3c;padding:40px;">휴지통을 불러오는 중 오류가 발생했습니다.</div>';
         }
     }
 
@@ -5580,25 +5638,42 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         try {
             const response = await fetch(`${API_BASE_URL}/castle/${castleId}/restore`, {
                 method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
+                headers: { 'Authorization': `Bearer ${token}` }
             });
 
             if (handleApiError(response)) return;
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
             const result = await response.json();
+
+            // 🚩 클라이언트 캐시에 복원된 castle 추가
+            const restoredCastle = result.castle;
+            if (restoredCastle) {
+                // deleted 플래그 없이 castles 배열에 추가 (없으면 추가, 있으면 교체)
+                const idx = castles.findIndex(c => (c._id || c.id) === castleId);
+                if (idx >= 0) {
+                    castles[idx] = restoredCastle;
+                } else {
+                    castles.push(restoredCastle);
+                }
+            } else {
+                // castle 정보가 응답에 없으면 전체 재로드
+                const allRes = await fetch(`${API_BASE_URL}/castle`, { headers: { 'Authorization': `Bearer ${token}` } });
+                if (allRes.ok) {
+                    const fresh = await allRes.json();
+                    castles.length = 0;
+                    fresh.forEach(c => castles.push(c));
+                }
+            }
+            saveCastlesCache(castles).catch(() => {});
+
+            // 지도 새로고침
+            const currentYear = parseInt(document.getElementById('yearInput')?.value) || 400;
+            const currentMonth = parseInt(document.getElementById('monthInput')?.value) || 1;
+            updateMap(currentYear, currentMonth, false, true);
+
             alert(result.message || '복원되었습니다.');
-
-            // 모달 새로고침
             await openTrashModal();
-
-            // 지도 데이터 새로고침 (필요시)
-            await loadCastles();
 
         } catch (error) {
             console.error('성 복원 중 오류:', error);
@@ -5613,21 +5688,18 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         try {
             const response = await fetch(`${API_BASE_URL}/castle/${castleId}/permanent`, {
                 method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
+                headers: { 'Authorization': `Bearer ${token}` }
             });
 
             if (handleApiError(response)) return;
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
             const result = await response.json();
-            alert(result.message || '영구 삭제되었습니다.');
 
-            // 모달 새로고침
+            // 🚩 클라이언트 캐시에서도 완전히 제거
+            deleteCastleInMemory(castleId);
+
+            alert(result.message || '영구 삭제되었습니다.');
             await openTrashModal();
 
         } catch (error) {
@@ -5931,6 +6003,7 @@ function getKingByYear(countryName, year, month) {
             'mongky': { symbol: '🐒', className: 'feature-other' },
             'hunting': { symbol: '🏹', className: 'feature-hunting' },
             'construction': { symbol: '⚒️', className: 'feature-construction' },
+            'tomb': { symbol: '🪦', className: 'feature-tomb' }, // 고분/묘
             'other': { symbol: '❖', className: 'feature-other' }
         };
         return icons[type] || icons['other'];
@@ -6432,19 +6505,22 @@ function getKingByYear(countryName, year, month) {
         }
         
         // 팝업 추가
-        const editorInfoHtml = newCastle.lastModifiedBy 
-            ? `<br><small>마지막 수정: ${newCastle.lastModifiedBy}</small>` 
-            : (newCastle.createdBy ? `<br><small>생성자: ${newCastle.createdBy}</small>` : '');
+        const editorInfoHtml = newCastle.createdBy
+            ? `<br><small style="font-size:12px; font-weight:600; color:#1a1a1a;">사관: ${newCastle.createdBy}</small>`
+            : '';
         
-        const popupHtml = `<div style="padding:0;margin:0;line-height:1.4;"><b style="font-size:14px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;">${newCastle.desc}</span>` : ''}${newCastle.photo ? `<br><img src="${newCastle.photo}" style="max-width:150px;max-height:100px;object-fit:cover;margin-top:4px;">` : ''}${editorInfoHtml}</div>`;
+        const popupHtml = `<div style="padding:0;margin:0;line-height:1.4;"><b style="font-size:14px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;">${newCastle.desc}</span>` : ''}${newCastle.photo ? `<br><img src="${newCastle.photo}" style="max-width:240px;max-height:180px;object-fit:cover;margin-top:4px;border-radius:4px;">` : ''}${editorInfoHtml}</div>`;
         
         marker.bindPopup(popupHtml, {
             className: 'compact-popup',
-            maxWidth: 200,
-            minWidth: 100
+            maxWidth: 280,
+            minWidth: 160,
+            autoClose: false,
+            closeOnClick: false
         });
         
-        marker.on('click', function () {
+        marker.on('click', function (e) {
+            L.DomEvent.stopPropagation(e);
             if (this && typeof this.openPopup === 'function') this.openPopup();
         });
         
@@ -6666,14 +6742,16 @@ function getKingByYear(countryName, year, month) {
             return;
         }
         
-        // 시간 범위 체크
-        const startYear = newCastle.start_year || newCastle.built_year || -Infinity;
-        const endYear = newCastle.end_year || newCastle.destroyed_year || Infinity;
-        const isWithinDuration = startYear <= year && endYear >= year;
-        
-        if (!isWithinDuration) {
-            console.log(`  ⏭️ 시간 범위 벗어남 (${startYear} ~ ${endYear}), 현재 ${year}년`);
-            return;
+        // 🚩 시간 범위 체크 — 고분/묘(tomb)는 built_year/destroyed_year 기준, 산·강 등 지형은 항상 표시
+        const featureTypeForTime = newCastle.natural_feature_type || 'other';
+        const timeBasedTypes = ['tomb', 'construction', 'hunting', 'buffalo', 'horse', 'camel', 'mongky'];
+        if (timeBasedTypes.includes(featureTypeForTime)) {
+            const startYear = newCastle.built_year != null ? newCastle.built_year : -Infinity;
+            const endYear   = newCastle.destroyed_year != null ? newCastle.destroyed_year : Infinity;
+            if (!(startYear <= year && endYear >= year)) {
+                console.log(`  ⏭️ 시간 범위 벗어남 (${startYear} ~ ${endYear}), 현재 ${year}년`);
+                return;
+            }
         }
         
         const castleName = newCastle.name;
@@ -6712,23 +6790,26 @@ function getKingByYear(countryName, year, month) {
             marker = L.marker([newCastle.lat, newCastle.lng], { icon: featureIcon });
         }
         
-        // 팝업 설정
-        const editorInfoHtml = newCastle.lastModifiedBy 
-            ? `<br><small>마지막 수정: ${newCastle.lastModifiedBy}</small>` 
-            : (newCastle.createdBy ? `<br><small>생성자: ${newCastle.createdBy}</small>` : '');
+        // 팝업 설정 — 생성자(사료 제출자) 우선 표시
+        const creatorName = newCastle.createdBy || null;
+        const creatorInfoHtml = creatorName
+            ? `<br><small style="font-size:12px; font-weight:600; color:#1a1a1a;">사관: ${creatorName}</small>`
+            : '';
         
-        const popupHtml = `<div style="padding:0;margin:0;line-height:1.4;"><b style="font-size:14px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;">${newCastle.desc}</span>` : ''}${newCastle.photo ? `<br><img src="${newCastle.photo}" style="max-width:150px;max-height:100px;object-fit:cover;margin-top:4px;">` : ''}${editorInfoHtml}</div>`;
+        const popupHtml = `<div style="padding:0;margin:0;line-height:1.4;"><b style="font-size:14px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;">${newCastle.desc}</span>` : ''}${newCastle.photo ? `<br><img src="${newCastle.photo}" style="max-width:240px;max-height:180px;object-fit:cover;margin-top:4px;border-radius:4px;">` : ''}${creatorInfoHtml}</div>`;
         
         marker.bindPopup(popupHtml, {
             className: 'compact-popup',
-            maxWidth: 200,
-            minWidth: 100
+            maxWidth: 280,
+            minWidth: 160,
+            autoClose: false,
+            closeOnClick: false
         });
         
         // 클릭 이벤트
         marker.on('click', function (e) { 
+            L.DomEvent.stopPropagation(e);
             if (this && typeof this.openPopup === 'function') this.openPopup();
-            map.flyTo(e.latlng, 10);
             if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) openCastleForm(newCastle._id); 
         });
         
@@ -7774,11 +7855,14 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             }
         }
 
+        // 🚩 시간 범위 계산 — 고분/묘 등 시간 기반 타입은 built_year/destroyed_year 사용, 산·강 등 지형은 항상 표시
+        const _naturalTimeTypes = ['tomb', 'construction', 'hunting', 'buffalo', 'horse', 'camel', 'mongky'];
+        const _featureTypeForTime = castle.natural_feature_type || 'other';
         const isWithinDuration = activeHistoryInfo ? true : (effectiveIsNatural ?
-            ((castle.built_year || castle.start_year) && (castle.destroyed_year || castle.end_year)) ?
-                (((castle.built_year || castle.start_year || -Infinity) <= year) && ((castle.destroyed_year || castle.end_year || Infinity) >= year)) :
-                true : // built_year/start_year가 모두 없는 자연지물은 항상 표시
-            false);
+            (_naturalTimeTypes.includes(_featureTypeForTime)
+                ? (((castle.built_year ?? -Infinity) <= year) && ((castle.destroyed_year ?? Infinity) >= year))
+                : true) // 산·강·바다·기타 지형은 항상 표시
+            : false);
          // console.log 제거 (성능 최적화 — 루프 내 반복 호출 방지)
          const builtText = `${recordStartYear}년 ${recordStartMonth}월`;
          const destroyedText = recordEndYear === null ? '현재' : `${recordEndYear}년 ${recordEndMonth}월`;
@@ -7827,24 +7911,26 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     marker = L.marker([castle.lat, castle.lng], { icon: featureIcon });
                 }
                 
-                const editorInfoHtml = castle.lastModifiedBy 
-                    ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
-                    : (castle.createdBy ? `<br><small>생성자: ${castle.createdBy}</small>` : '');
+                // 생성자(사료 제출자) 우선 표시
+                const _naturalCreatorHtml = castle.createdBy
+                    ? `<br><small style="font-size:12px; font-weight:600; color:#1a1a1a;">사관: ${castle.createdBy}</small>`
+                    : '';
                 
                 // 🚩 [v2.0.6] 콤팩트 팝업 - 공백 완전 제거 (한 줄로)
-                popupHtml = `<div style="padding:0;margin:0;line-height:1.4;"><b style="font-size:14px;">${castleName}</b>${castle.desc ? `<br><span style="font-size:12px;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px;max-height:100px;object-fit:cover;margin-top:4px;">` : ''}${editorInfoHtml}</div>`;
+                popupHtml = `<div style="padding:0;margin:0;line-height:1.4;"><b style="font-size:14px;">${castleName}</b>${castle.desc ? `<br><span style="font-size:12px;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${castle.photo}" style="max-width:240px;max-height:180px;object-fit:cover;margin-top:4px;border-radius:4px;">` : ''}${_naturalCreatorHtml}</div>`;
                                 
                 marker.bindPopup(popupHtml, {
                     className: 'compact-popup',
-                    maxWidth: 200,
-                    minWidth: 100
+                    maxWidth: 280,
+                    minWidth: 160,
+                    autoClose: false,
+                    closeOnClick: false
                 });
                 // 🚩 [수정] 마우스 오버 팝업을 제거하고, 클릭 시에만 팝업이 나타나도록 수정
                 // Use a normal function so `this` is bound to the marker instance
                 marker.on('click', function (e) { 
-                    // `this` is the marker that was clicked; avoid referencing outer `marker` variable
+                    L.DomEvent.stopPropagation(e);
                     if (this && typeof this.openPopup === 'function') this.openPopup(); // 팝업 열기
-                    map.flyTo(e.latlng, 10); // 🚩 [수정] 클릭 시 줌인하며 이동
                     if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) openCastleForm(castle._id); 
                 });
                 markers.push(marker);
@@ -8624,7 +8710,7 @@ function invalidateCountryLookupCache() {
 
     // 🚀 [IndexedDB] Castles 캐싱 시스템
     const CASTLES_DB_NAME = 'CastlesDB';
-    const CASTLES_DB_VERSION = 3;
+    const CASTLES_DB_VERSION = 4;
     const CASTLES_STORE_NAME = 'castles';
     const CASTLES_CACHE_DURATION = 3 * 60 * 60 * 1000; // 3시간
 
@@ -15937,8 +16023,8 @@ kingSelect.addEventListener('change', () => {
             });
             
             document.getElementById('topbar-trashBtn')?.addEventListener('click', () => {
-                openForm('trashForm');
                 topbarEditDropdownMenu.style.display = 'none';
+                openTrashModal();
             });
             
             document.getElementById('topbar-exitEditBtn')?.addEventListener('click', () => {
@@ -16932,17 +17018,17 @@ kingSelect.addEventListener('change', () => {
                     if (q && !display.toLowerCase().includes(q)) return;
                     const item = document.createElement('div');
                     item.dataset.value = c._id;
-                    item.dataset.startYear = c.start_year ?? '';
-                    item.dataset.endYear   = c.end_year   ?? '';
+                    item.dataset.startYear = c.start ?? '';
+                    item.dataset.endYear   = c.end   ?? '';
                     // 연도 힌트
-                    const yearStr = c.start_year != null
-                        ? ` (${c.start_year}년${c.end_year != null ? ` ~ ${c.end_year}년` : '~'})`
+                    const yearStr = c.start != null
+                        ? ` (${c.start}년${c.end != null ? ` ~ ${c.end}년` : '~'})`
                         : '';
                     item.innerHTML = `<span style="flex:1">${display}</span><span style="color:#95a5a6; font-size:10px; white-space:nowrap;">${yearStr}</span>`;
                     item.style.cssText = 'padding:6px 10px; cursor:pointer; font-size:12px; display:flex; gap:6px; align-items:center;';
                     item.addEventListener('mouseover', () => item.style.background = '#2c3e50');
                     item.addEventListener('mouseout',  () => item.style.background = '');
-                    item.addEventListener('mousedown', () => selectCountry(c._id, display, c.start_year, c.end_year));
+                    item.addEventListener('mousedown', () => selectCountry(c._id, display, c.start, c.end));
                     dropdown.appendChild(item);
                     count++;
                 });
@@ -16972,15 +17058,28 @@ kingSelect.addEventListener('change', () => {
                         badgeText.textContent = '✔ ' + displayName;
                         badge.style.display = 'flex';
                     }
-                    // 🚀 시작/종료 연도 자동 입력 (비어 있을 때만)
+                    // 🚀 시작/종료 연도 자동 입력 (국가 선택 시 항상 채움)
                     const startInput = document.getElementById('contribStartYear');
                     const endInput   = document.getElementById('contribEndYear');
-                    if (startInput && startYear != null && startInput.value === '') {
+                    const startHint  = document.getElementById('contribStartYearHint');
+                    const endHint    = document.getElementById('contribEndYearHint');
+
+                    if (startInput && startYear != null) {
                         startInput.value = startYear;
+                        if (startHint) startHint.style.display = 'block';
                     }
-                    if (endInput && endYear != null && endInput.value === '') {
+                    if (endInput && endYear != null) {
                         endInput.value = endYear;
+                        if (endHint) endHint.style.display = 'block';
+                    } else if (endInput) {
+                        // 종료 연도가 없는 국가 (현재까지 존속) → 비우기
+                        endInput.value = '';
+                        if (endHint) endHint.style.display = 'none';
                     }
+                    // 사용자가 직접 수정하면 힌트 숨김
+                    if (startInput) startInput.addEventListener('input', () => { if (startHint) startHint.style.display = 'none'; }, { once: true });
+                    if (endInput)   endInput.addEventListener('input',   () => { if (endHint)   endHint.style.display   = 'none'; }, { once: true });
+
                     if (yearHint) {
                         yearHint.textContent = startYear != null
                             ? `(${startYear}년${endYear != null ? ` ~ ${endYear}년` : '~'})`
@@ -17050,6 +17149,7 @@ kingSelect.addEventListener('change', () => {
                     category: document.getElementById('contribCategory').value,
                     description: document.getElementById('contribDesc').value,
                     evidence: document.getElementById('contribEvidence').value,
+                    photo: document.getElementById('contribPhoto')?.value.trim() || null,
                     placeType: placeType,
                     is_natural_feature: isNatural,
                     natural_feature_type: isNatural ? placeType.replace('natural_', '') : null,
@@ -17077,9 +17177,15 @@ kingSelect.addEventListener('change', () => {
                         const cs = document.getElementById('contribCountrySearch');
                         const ci = document.getElementById('contribCountryId');
                         const cb = document.getElementById('contribCountryBadge');
+                        const cyh = document.getElementById('contribCountryYearHint');
+                        const sh = document.getElementById('contribStartYearHint');
+                        const eh = document.getElementById('contribEndYearHint');
                         if (cs) { cs.value = ''; cs._contribInitialized = false; }
                         if (ci) ci.value = '';
                         if (cb) cb.style.display = 'none';
+                        if (cyh) cyh.textContent = '';
+                        if (sh) sh.style.display = 'none';
+                        if (eh) eh.style.display = 'none';
                         if (contributionMarker) map.removeLayer(contributionMarker);
                         // 모드 종료
                         

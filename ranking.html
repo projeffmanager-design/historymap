@@ -1137,6 +1137,27 @@
                 const lng = selectedContribution.lng || selectedContribution.coordinates?.lng || selectedContribution.longitude;
                 const coords = (lat && lng) ? `${lat.toFixed(6)}, ${lng.toFixed(6)}` : 'N/A';
                 const date = selectedContribution.createdAt ? new Date(selectedContribution.createdAt).toLocaleString('ko-KR') : '날짜 없음';
+
+                // placeType 한글 변환
+                const placeTypeMap = {
+                    'city': '성/도시',
+                    'natural_mountain': '자연지물 - 산',
+                    'natural_river': '자연지물 - 강/호수',
+                    'natural_sea': '자연지물 - 바다',
+                    'natural_tomb': '자연지물 - 고분/묘 🪦',
+                    'natural_other': '자연지물 - 기타'
+                };
+                const categoryMap = {
+                    'geography': '지형/기후 증거',
+                    'oldmap': '고지도 증거',
+                    'literature': '문헌 증거',
+                    'other': '기타 추론'
+                };
+                const placeTypeLabel = placeTypeMap[selectedContribution.placeType] || selectedContribution.placeType || '';
+                const categoryLabel = categoryMap[selectedContribution.category] || selectedContribution.category || '';
+                const startYear = selectedContribution.start_year != null && selectedContribution.start_year !== -5000 ? selectedContribution.start_year : null;
+                const endYear = selectedContribution.end_year != null ? selectedContribution.end_year : null;
+                const yearRange = startYear != null ? (endYear != null ? `${startYear} ~ ${endYear}` : `${startYear} ~`) : null;
                 
                 // 투표 및 승인 버튼 표시 여부
                 const token = localStorage.getItem('token') || sessionStorage.getItem('token');
@@ -1223,19 +1244,43 @@
                                 <div style="color: #9b59b6; font-size: 11px; margin-bottom: 5px; font-weight: bold; text-transform: uppercase;">📅 제출일</div>
                                 <div style="color: #ecf0f1; font-weight: 600; font-size: 14px;">${date}</div>
                             </div>
-                            ${selectedContribution.year ? `
-                            <div style="background: rgba(230, 126, 34, 0.15); padding: 15px; border-radius: 10px; border-left: 4px solid #e67e22;">
-                                <div style="color: #e67e22; font-size: 11px; margin-bottom: 5px; font-weight: bold; text-transform: uppercase;">📜 연도</div>
-                                <div style="color: #ecf0f1; font-weight: 600; font-size: 14px;">${selectedContribution.year}</div>
+                            ${placeTypeLabel ? `
+                            <div style="background: rgba(22, 160, 133, 0.15); padding: 15px; border-radius: 10px; border-left: 4px solid #16a085;">
+                                <div style="color: #16a085; font-size: 11px; margin-bottom: 5px; font-weight: bold; text-transform: uppercase;">🏷️ 지명 유형</div>
+                                <div style="color: #ecf0f1; font-weight: 600; font-size: 14px;">${placeTypeLabel}</div>
                             </div>
                             ` : ''}
-                            ${selectedContribution.category ? `
-                            <div style="background: rgba(22, 160, 133, 0.15); padding: 15px; border-radius: 10px; border-left: 4px solid #16a085;">
-                                <div style="color: #16a085; font-size: 11px; margin-bottom: 5px; font-weight: bold; text-transform: uppercase;">🏷️ 카테고리</div>
-                                <div style="color: #ecf0f1; font-weight: 600; font-size: 14px;">${selectedContribution.category}</div>
+                            ${yearRange ? `
+                            <div style="background: rgba(230, 126, 34, 0.15); padding: 15px; border-radius: 10px; border-left: 4px solid #e67e22;">
+                                <div style="color: #e67e22; font-size: 11px; margin-bottom: 5px; font-weight: bold; text-transform: uppercase;">📜 존속 연도</div>
+                                <div style="color: #ecf0f1; font-weight: 600; font-size: 14px;">${yearRange}</div>
+                            </div>
+                            ` : ''}
+                            ${selectedContribution.new_country_name ? `
+                            <div style="background: rgba(241, 196, 15, 0.15); padding: 15px; border-radius: 10px; border-left: 4px solid #f1c40f;">
+                                <div style="color: #f1c40f; font-size: 11px; margin-bottom: 5px; font-weight: bold; text-transform: uppercase;">🏛️ 소속 국가</div>
+                                <div style="color: #ecf0f1; font-weight: 600; font-size: 14px;">${selectedContribution.new_country_name}</div>
+                            </div>
+                            ` : ''}
+                            ${categoryLabel ? `
+                            <div style="background: rgba(127, 140, 141, 0.15); padding: 15px; border-radius: 10px; border-left: 4px solid #7f8c8d;">
+                                <div style="color: #95a5a6; font-size: 11px; margin-bottom: 5px; font-weight: bold; text-transform: uppercase;">📁 증거 유형</div>
+                                <div style="color: #ecf0f1; font-weight: 600; font-size: 14px;">${categoryLabel}</div>
+                            </div>
+                            ` : ''}
+                            ${selectedContribution.is_capital ? `
+                            <div style="background: rgba(241, 196, 15, 0.2); padding: 15px; border-radius: 10px; border-left: 4px solid #f1c40f;">
+                                <div style="color: #f1c40f; font-size: 11px; margin-bottom: 5px; font-weight: bold;">⭐ 수도 여부</div>
+                                <div style="color: #ecf0f1; font-weight: 600; font-size: 14px;">수도</div>
                             </div>
                             ` : ''}
                         </div>
+                        
+                        ${selectedContribution.photo ? `
+                        <div style="margin-bottom: 20px; text-align: center;">
+                            <img src="${selectedContribution.photo}" alt="사료 사진" style="max-width: 100%; max-height: 300px; border-radius: 10px; border: 1px solid #5d7185; object-fit: contain;">
+                        </div>
+                        ` : ''}
                         
                         ${selectedContribution.description || selectedContribution.content ? `
                         <div style="background: rgba(52, 73, 94, 0.6); padding: 20px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #5d7185;">
@@ -1254,8 +1299,12 @@
                             
                             ${selectedContribution.evidence ? `
                             <div style="background: rgba(52, 73, 94, 0.4); padding: 18px; border-radius: 10px; border: 1px solid #5d7185;">
-                                <div style="color: #e67e22; font-weight: 700; margin-bottom: 8px; font-size: 14px;">🔍 증거 자료</div>
-                                <div style="color: #bdc3c7; line-height: 1.6; font-size: 13px;">${selectedContribution.evidence}</div>
+                                <div style="color: #e67e22; font-weight: 700; margin-bottom: 8px; font-size: 14px;">🔍 참고 URL</div>
+                                <div style="color: #bdc3c7; line-height: 1.6; font-size: 13px; word-break: break-all;">
+                                    ${selectedContribution.evidence.startsWith('http') 
+                                        ? `<a href="${selectedContribution.evidence}" target="_blank" style="color:#3498db;">${selectedContribution.evidence}</a>`
+                                        : selectedContribution.evidence}
+                                </div>
                             </div>
                             ` : ''}
                         </div>
