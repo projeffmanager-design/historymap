@@ -418,10 +418,6 @@ body.force-mobile #usernameDisplay {
 body.force-mobile #pcTopPanelToggleBtn {
     display: none !important;
 }
-/* 모바일 탑바: 편집 드롭다운 버튼 숨기기 (햄버거 메뉴로 대체) */
-body.force-mobile #topbar-edit-dropdown-container {
-    display: none !important;
-}
 body.force-mobile #accountLink {
     display: inline-block !important;
     padding: 4px 8px !important;
@@ -912,15 +908,21 @@ body.force-mobile #historyForm,
 body.force-mobile #countryForm,
 body.force-mobile #kingForm,
 body.force-mobile #eventForm {
-    position: fixed !important;
-    top: 50% !important;
-    left: 50% !important;
-    transform: translate(-50%, -50%) !important;
-    width: 90vw !important;
-    max-width: 90vw !important;
-    max-height: 85vh !important;
-    overflow-y: auto !important;
-    padding: 15px !important;
+    width: 100vw !important;
+    left: -100vw !important;
+    top: 0 !important;
+    transform: none !important;
+    max-width: none !important;
+    max-height: none !important;
+    height: 100vh !important;
+}
+
+body.force-mobile #castleForm.active,
+body.force-mobile #historyForm.active,
+body.force-mobile #countryForm.active,
+body.force-mobile #kingForm.active,
+body.force-mobile #eventForm.active {
+    left: 0 !important;
 }
 
 body.force-mobile #castleForm h3,
@@ -1899,33 +1901,113 @@ body.force-mobile .marker-type-selector button {
         }
 
     /* ------------------- 3. 폼 및 패널 디자인 CSS ------------------- */
-    /* 🚩 [수정] 폼 패널 스타일 개선 */
-    /* 🚩 [수정] 폼 이동을 위해 left, transform 속성 제거 */
-        #castleForm, #historyForm, #countryForm, #kingForm, #eventForm {
-            /* 🚩 [수정] 좌측 상단에 고정 위치 */
-            position: absolute; 
-            top: 10px;
-            left: 10px;
-            background: #2c3e50; color: #ecf0f1; border: 1px solid #5d7185;
-            padding: 20px; 
-            z-index: 1000; 
-            border-radius: 8px;
-            width: 600px;
-            /* 🚩 [추가] 폼이 너무 길어질 경우 스크롤이 생기도록 max-height 설정 */
-            max-height: 90vh;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.5); max-width: 90%; min-width: 350px;
-            overflow: auto; /* 🚩 [수정] 폼 크기를 줄이면 내부 스크롤이 생기도록 */
-            resize: both;
-            min-width: 250px;
-            min-height: 200px;
-            max-width: 98vw;
-            max-height: 95vh;
+    /* 🚩 [수정] 편집 폼들을 왼쪽 슬라이드 패널로 변환 (햄버거 메뉴 방식) */
+        #castleForm, #historyForm, #countryForm, #kingForm, #eventForm, #editCitySelectionForm {
+            position: fixed;
+            top: 0;
+            left: -680px;
+            width: 660px;
+            height: 100vh;
+            background: rgba(28, 38, 50, 0.98);
+            backdrop-filter: blur(10px);
+            color: #ecf0f1;
+            border: none;
+            border-right: 1px solid #5d7185;
+            padding: 0;
+            z-index: 1101;
+            box-shadow: 4px 0 20px rgba(0,0,0,0.6);
+            transition: left 0.3s ease;
+            overflow-y: auto;
+            overflow-x: hidden;
+            box-sizing: border-box;
+            resize: none;
+            min-width: unset;
+            min-height: unset;
+            max-width: unset;
+            max-height: unset;
         }
-        
+
+        #castleForm.active, #historyForm.active, #countryForm.active,
+        #kingForm.active, #eventForm.active, #editCitySelectionForm.active {
+            left: 0;
+        }
+
+        /* 편집 폼 내부 패딩 래퍼 */
+        #castleForm .edit-panel-inner,
+        #historyForm .edit-panel-inner,
+        #countryForm .edit-panel-inner,
+        #kingForm .edit-panel-inner,
+        #eventForm .edit-panel-inner,
+        #editCitySelectionForm .edit-panel-inner {
+            padding: 20px 24px 80px 24px;
+            box-sizing: border-box;
+            min-height: 100%;
+        }
+
+        /* 편집 패널 헤더 */
+        .edit-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 24px 12px 24px;
+            border-bottom: 1px solid rgba(255,255,255,0.15);
+            position: sticky;
+            top: 0;
+            background: rgba(28, 38, 50, 0.98);
+            backdrop-filter: blur(10px);
+            z-index: 2;
+        }
+
+        .edit-panel-header h3 {
+            margin: 0;
+            font-size: 16px;
+            color: #f5e9d2;
+            font-family: 'Nanum Myeongjo', serif;
+            font-weight: 700;
+        }
+
+        .edit-panel-close-btn {
+            background: rgba(180,60,60,0.2);
+            border: 1px solid rgba(255,100,100,0.4);
+            color: #ecf0f1;
+            font-size: 18px;
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+            flex-shrink: 0;
+        }
+
+        .edit-panel-close-btn:hover {
+            background: rgba(231, 76, 60, 0.6);
+            border-color: #e74c3c;
+        }
+
+        /* 편집 폼 오버레이 */
+        #edit-panel-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1100;
+            display: none;
+            transition: opacity 0.3s ease;
+        }
+
+        #edit-panel-overlay.active {
+            display: block;
+        }
+
         /* 🚩 [추가] 모든 폼 헤더를 드래그 가능하게 표시 */
         #castleForm h3, #historyForm h3, #countryForm h3, #kingForm h3, #eventForm h3, 
         #drawingForm h3, #editCitySelectionForm h3 {
-            cursor: move;
+            cursor: default;
             user-select: none;
         }
         
@@ -1966,48 +2048,30 @@ body.force-mobile .marker-type-selector button {
 
         /* ------------------- 모바일 폼 반응형 ------------------- */
                 @media (max-width: 967px) {
-                    #castleForm, #historyForm, #countryForm, #kingForm, #eventForm {
-                        width: 90vw !important;
-                        left: 5vw !important;
-                        min-width: unset !important;
-                        max-width: 95vw !important;
-                        max-height: 90vh !important;
-                        overflow-y: auto !important;
-                        padding-bottom: 80px !important; /* 버튼 공간 확보 */
+                    #castleForm, #historyForm, #countryForm, #kingForm, #eventForm, #editCitySelectionForm {
+                        width: 100vw !important;
+                        left: -100vw !important;
+                    }
+                    #castleForm.active, #historyForm.active, #countryForm.active,
+                    #kingForm.active, #eventForm.active, #editCitySelectionForm.active {
+                        left: 0 !important;
                     }
                     #castleForm .form-actions,
                     #historyForm .form-actions,
                     #countryForm .form-actions,
                     #kingForm .form-actions,
                     #eventForm .form-actions,
+                    #editCitySelectionForm .form-actions,
                     #drawingForm .form-actions {
                         position: sticky;
                         bottom: 0;
-                        background: #2c3e50;
+                        background: rgba(28, 38, 50, 0.98);
                         z-index: 10;
                         padding: 10px 0 0 0;
                         margin-bottom: 0;
                         width: 100%;
                         justify-content: flex-end;
                         display: flex;
-                    }
-                    /* 폼은 JS로 열릴 때만 display:block/flex가 됨. 강제 display: flex !important 제거 */
-                    #castleForm,
-                    #historyForm,
-                    #countryForm,
-                    #kingForm,
-                    #eventForm {
-                        flex-direction: column !important;
-                    }
-                    #castleForm form,
-                    #historyForm form,
-                    #countryForm form,
-                    #kingForm form,
-                    #eventForm form {
-                        display: flex;
-                        flex-direction: column;
-                        flex: 1 1 auto;
-                        min-height: 0;
                     }
                     /* drawingForm 모바일 스타일은 파일 상단에 통합됨 */
                     #drawingForm input,
@@ -3107,12 +3171,18 @@ body.force-mobile .marker-type-selector button {
     .leaflet-top.leaflet-left {
         top: 270px !important; /* 연대표 바로 아래 (60px + 200px + 10px) */
     }
-    .leaflet-top.leaflet-left .leaflet-draw-toolbar {
-        margin-top: 0 !important;
-    }
     /* 모바일에서 그리기 툴바 위치 조정 */
     body.force-mobile .leaflet-top.leaflet-left {
         top: 200px !important; /* 모바일 연대표 하단 */
+    }
+    /* 그리기 툴바: 우측 상단, 레이어 컨트롤 바로 아래 */
+    .leaflet-top.leaflet-right .leaflet-draw-toolbar {
+        margin-top: 4px !important;
+    }
+    .leaflet-top.leaflet-right .leaflet-draw-toolbar a {
+        width: 30px !important;
+        height: 30px !important;
+        line-height: 30px !important;
     }
   </style>
 
@@ -3622,21 +3692,7 @@ body.force-mobile .marker-type-selector button {
               </div>
           </div>
           
-          <!-- 🚩 [추가] 편집 드롭다운 버튼 -->
-          <div id="topbar-edit-dropdown-container" style="position: relative; display: none;">
-              <button id="topbarEditBtn" class="button-style primary" style="background-color: #3498db; border-color: #2980b9;">편집 ▾</button>
-              <div id="topbar-edit-dropdown-menu" style="display: none; position: absolute; top: 100%; right: 0; background: rgba(30, 42, 56, 0.98); border: 1px solid #5d7185; border-radius: 4px; padding: 8px; z-index: 1102; min-width: 150px; margin-top: 4px;">
-                  <button id="topbar-cityEditBtn" style="display: block; width: 100%; padding: 8px; margin: 2px 0; font-size: 13px; background: transparent; border: none; color: #ecf0f1; cursor: pointer; text-align: left; border-radius: 4px;">성/도시 편집</button>
-                  <button id="topbar-countryEditBtn" style="display: block; width: 100%; padding: 8px; margin: 2px 0; font-size: 13px; background: transparent; border: none; color: #ecf0f1; cursor: pointer; text-align: left; border-radius: 4px;">국가 편집</button>
-                  <button id="topbar-kingEditBtn" style="display: block; width: 100%; padding: 8px; margin: 2px 0; font-size: 13px; background: transparent; border: none; color: #ecf0f1; cursor: pointer; text-align: left; border-radius: 4px;">왕 편집</button>
-                  <button id="topbar-eventEditBtn" style="display: block; width: 100%; padding: 8px; margin: 2px 0; font-size: 13px; background: transparent; border: none; color: #ecf0f1; cursor: pointer; text-align: left; border-radius: 4px;">이벤트 편집</button>
-                  <button id="topbar-trashBtn" style="display: block; width: 100%; padding: 8px; margin: 2px 0; font-size: 13px; background: transparent; border: none; color: #f39c12; cursor: pointer; text-align: left; border-radius: 4px;">🗑️ 휴지통</button>
-                  <hr style="border: 0; border-top: 1px solid #5d7185; margin: 4px 0;">
-                  <button id="topbar-exitEditBtn" style="display: block; width: 100%; padding: 8px; margin: 2px 0; font-size: 13px; background: transparent; border: none; color: #e74c3c; cursor: pointer; text-align: left; border-radius: 4px;">편집모드 종료</button>
-              </div>
-          </div>
-          
-          <!-- 🚩 [이동] PC용 컨트롤 토글 버튼을 아이디 오른쪽으로 이동 -->
+          <!-- 🚩 [수정] PC용 컨트롤 토글 버튼을 아이디 오른쪽으로 이동 -->
           <!-- 모바일에서는 톱니 버튼 제거 -->
           <button id="pcTopPanelToggleBtn" class="button-style" title="컨트롤 패널 숨기기/보이기" style="display:none;">⚙️</button>
           <a id="recruitLink" href="recruit.html" class="button-style" style="background-color: #f39c12; border-color: #e67e22; font-weight: 600;">사관 모집</a>
@@ -3647,15 +3703,14 @@ body.force-mobile .marker-type-selector button {
   <!-- Hamburger Menu Overlay -->
   <div id="hamburger-menu-overlay"></div>
   
-  <!-- Hamburger Menu Panel -->
+  <!-- Edit Panel Overlay -->
+  <div id="edit-panel-overlay"></div>
+  
+      <!-- Hamburger Menu Panel -->
   <div id="hamburger-menu-panel">
-      <h3>🔍 검색 & 필터</h3>
+      <h3>🔍 필터</h3>
       <div class="menu-section">
-          <label for="menu-search-input">검색:</label>
-          <input type="text" id="menu-search-input" placeholder="성, 도시, 지역명 검색">
-          <button id="menu-search-btn" class="primary">검색</button>
-          
-          <label for="menu-ethnicity-select" style="margin-top: 10px;">민족 필터:</label>
+          <label for="menu-ethnicity-select">민족 필터:</label>
           <select id="menu-ethnicity-select">
               <option value="all">전체</option>
           </select>
@@ -3679,6 +3734,7 @@ body.force-mobile .marker-type-selector button {
       
       <h3>🎨 표시 레이어</h3>
       <div class="menu-section">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px;">
           <label><input type="checkbox" id="menu-layer-city" checked> 성/도시</label>
           <label><input type="checkbox" id="menu-layer-territory" checked> 영토</label>
           <label><input type="checkbox" id="menu-layer-country-label" checked> 국가명</label>
@@ -3691,6 +3747,7 @@ body.force-mobile .marker-type-selector button {
           <label><input type="checkbox" id="menu-layer-king"> 왕 패널</label>
           <label><input type="checkbox" id="menu-layer-history"> 역사 패널</label>
           <label><input type="checkbox" id="menu-layer-contributions" checked> 사관 사료</label>
+          </div>
       </div>
       
       <h3>📐 도구</h3>
@@ -3698,6 +3755,21 @@ body.force-mobile .marker-type-selector button {
           <button id="menu-historical-record">사관 기록 제출</button>
           <hr style="border: 0; border-top: 1px solid #5d7185; margin: 8px 0;">
           <button id="menu-ranking-btn" style="background: rgba(243,156,18,0.1); border-color: #f39c12; color: #f39c12;">🏆 사관 랭킹</button>
+          <hr style="border: 0; border-top: 1px solid #5d7185; margin: 8px 0;">
+          <!-- 🚩 편집 도구 섹션 (편집 모드일 때만 표시) -->
+          <div id="menu-edit-section" style="display:none;">
+              <div style="font-size:11px; color:#95a5a6; margin-bottom:6px; text-transform:uppercase; letter-spacing:1px;">✏️ 편집 도구</div>
+              <button id="menu-cityEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">🏯 성/도시 편집</button>
+              <button id="menu-countryEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">🏛️ 국가 편집</button>
+              <button id="menu-kingEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">👑 왕 편집</button>
+              <button id="menu-eventEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">📅 이벤트 편집</button>
+              <button id="menu-trashBtn" style="background: rgba(243,156,18,0.1); border-color: #f39c12; color: #f39c12;">🗑️ 휴지통</button>
+              <hr style="border: 0; border-top: 1px solid #5d7185; margin: 8px 0;">
+              <button id="menu-exitEditBtn" style="background: rgba(231,76,60,0.1); border-color: #e74c3c; color: #e74c3c;">🚪 편집모드 종료</button>
+              <hr style="border: 0; border-top: 1px solid #5d7185; margin: 8px 0;">
+          </div>
+          <!-- 편집 모드 진입 버튼 (비편집 모드일 때만 표시, 관리자 전용) -->
+          <button id="menu-enterEditBtn" style="display:none; background: rgba(39,174,96,0.1); border-color: #27ae60; color: #27ae60;">🔑 편집 모드 진입</button>
           <hr style="border: 0; border-top: 1px solid #5d7185; margin: 8px 0;">
           <button id="menu-account-management">계정 관리</button>
           <button id="menu-user-management" style="display:none;">회원 관리</button>
@@ -4426,8 +4498,13 @@ body.force-mobile .marker-type-selector button {
         </div>
     </div>
 
-    <div id="castleForm" style="display:none;">
-        <h3>새로운 오브젝트 추가/편집</h3> <form id="addCastleForm"><input type="hidden" id="castleKey"><div class="form-row"><label>마커 타입:</label><div id="markerTypeSelector" class="marker-type-selector"><button type="button" data-type="normal" class="active">성/도시</button><button type="button" data-type="military">군대</button><button type="button" data-type="natural">자연</button><button type="button" data-type="label">지명</button></div></div><div class="form-row"><label for="castleName">이름:</label>
+    <div id="castleForm">
+        <div class="edit-panel-header">
+            <h3>🏯 오브젝트 추가/편집</h3>
+            <button type="button" class="edit-panel-close-btn" onclick="closeEditPanel('castleForm')">✕</button>
+        </div>
+        <div class="edit-panel-inner">
+        <form id="addCastleForm"><input type="hidden" id="castleKey"><div class="form-row"><label>마커 타입:</label><div id="markerTypeSelector" class="marker-type-selector"><button type="button" data-type="normal" class="active">성/도시</button><button type="button" data-type="military">군대</button><button type="button" data-type="natural">자연</button><button type="button" data-type="label">지명</button></div></div><div class="form-row"><label for="castleName">이름:</label>
         <input type="text" id="castleName" style="width: 280px;" required> 
         <!-- 🚩 [추가] 기여 변환 시 원본 기여자 정보 저장용 히든 필드 -->
         <input type="hidden" id="originContributionId">
@@ -4640,13 +4717,18 @@ body.force-mobile .marker-type-selector button {
         <button type="submit" class="primary">저장</button> <!-- 🚩 [수정] ID 추가 -->
       </div>
     </form>
+    </div><!-- edit-panel-inner -->
   </div>
 
   <!-- 🚩 [수정] 도시/성/지명 편집 선택 폼 -->
-  <div id="editCitySelectionForm" style="display: none; position: absolute; top: 100px; left: calc(50% - 225px); background: #2c3e50; color: #ecf0f1; border: 1px solid #5d7185; padding: 20px; z-index: 1000; border-radius: 8px; width: 450px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); max-width: 90%; min-width: 350px;">
-      <h3>편집할 도시/성/지명 선택</h3>
-      <!-- 🚩 [핵심 수정] 도시/성 선택 UI를 자동 완성 검색 방식으로 변경 -->
-      <div class="form-row" style="margin-bottom: 15px;">
+  <div id="editCitySelectionForm">
+      <div class="edit-panel-header">
+          <h3>🔎 편집할 도시/성 선택</h3>
+          <button type="button" class="edit-panel-close-btn" onclick="closeEditPanel('editCitySelectionForm')">✕</button>
+      </div>
+      <div class="edit-panel-inner">
+          <!-- 🚩 [핵심 수정] 도시/성 선택 UI를 자동 완성 검색 방식으로 변경 -->
+          <div class="form-row" style="margin-bottom: 15px;">
           <label for="citySearchInputForEdit">도시/성/지명:</label>
           <div style="display: flex; flex-grow: 1; gap: 10px; position: relative;">
               <div style="position: relative; flex-grow: 1;">
@@ -4655,14 +4737,19 @@ body.force-mobile .marker-type-selector button {
               </div>
               <select id="citySelectForEdit" style="width: 180px; flex-shrink: 0;"></select>
           </div>
-      </div>
-      <div class="form-actions" style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
-          <button type="button" id="cancelCitySelectionBtn">취소</button>
-          <button type="button" id="editSelectedCityBtn" class="primary">편집</button>
-      </div>
+          </div>
+          <div class="form-actions" style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
+              <button type="button" id="cancelCitySelectionBtn">취소</button>
+              <button type="button" id="editSelectedCityBtn" class="primary">편집</button>
+          </div>
+      </div><!-- edit-panel-inner -->
   </div>
-    <div id="historyForm" style="display:none;">
-      <h3>사서 기록 편집/추가</h3>
+    <div id="historyForm">
+      <div class="edit-panel-header">
+          <h3>📜 사서 기록 편집/추가</h3>
+          <button type="button" class="edit-panel-close-btn" onclick="closeEditPanel('historyForm')">✕</button>
+      </div>
+      <div class="edit-panel-inner">
       <form id="addHistoryForm">
           <input type="hidden" id="historyKey"> 
           <div class="form-row">
@@ -4716,10 +4803,15 @@ body.force-mobile .marker-type-selector button {
             <button type="submit" id="saveHistoryBtn" class="primary">저장</button>
           </div>
       </form>
+      </div><!-- edit-panel-inner -->
   </div>
 
-    <div id="countryForm" style="display:none;">
-    <h3>국가 정보 편집</h3>
+    <div id="countryForm">
+    <div class="edit-panel-header">
+        <h3>🏛️ 국가 정보 편집</h3>
+        <button type="button" class="edit-panel-close-btn" onclick="closeEditPanel('countryForm')">✕</button>
+    </div>
+    <div class="edit-panel-inner">
     <!-- 🚩 [수정] 국가 선택 UI를 자동 완성 검색 방식으로 변경 -->
     <div class="form-row" style="margin-bottom: 15px;">
         <label for="countrySelectForEdit">기존 국가:</label>
@@ -4777,10 +4869,15 @@ body.force-mobile .marker-type-selector button {
           <button type="submit" id="saveCountryBtn" class="primary">저장/추가</button>
         </div>
     </form>
+    </div><!-- edit-panel-inner -->
   </div>
   
-    <div id="kingForm" style="display:none;">
-    <h3>왕 정보 편집</h3>
+    <div id="kingForm">
+    <div class="edit-panel-header">
+        <h3>👑 왕 정보 편집</h3>
+        <button type="button" class="edit-panel-close-btn" onclick="closeEditPanel('kingForm')">✕</button>
+    </div>
+    <div class="edit-panel-inner">
     <form id="editKingForm">
         <input type="hidden" id="kingMongoId" name="kingMongoId">
         <input type="hidden" id="kingOriginalKey">
@@ -4833,11 +4930,16 @@ body.force-mobile .marker-type-selector button {
           <button type="submit" id="saveKingBtn" class="primary">추가</button>
         </div>
     </form>
+    </div><!-- edit-panel-inner -->
   </div>
 
   <!-- 🚩 [추가] 이벤트 편집 폼 -->
-    <div id="eventForm" style="display:none;">
-    <h3>연도별 이벤트 편집</h3> <!-- 🚩 [수정] 폼 구조를 다른 폼과 통일 -->
+    <div id="eventForm">
+    <div class="edit-panel-header">
+        <h3>📅 연도별 이벤트 편집</h3>
+        <button type="button" class="edit-panel-close-btn" onclick="closeEditPanel('eventForm')">✕</button>
+    </div>
+    <div class="edit-panel-inner">
     <form id="editEventForm">
         <input type="hidden" id="eventMongoId">
         <div class="form-row" style="margin-bottom: 15px;">
@@ -4860,12 +4962,13 @@ body.force-mobile .marker-type-selector button {
             <input type="text" id="eventPhoto" placeholder="선택 사항">
         </div>
         <hr style="margin: 15px 0;">
-        <div class="form-actions" style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;"> <!-- 🚩 [수정] form-actions 클래스 적용 -->
+        <div class="form-actions" style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
             <button type="button" id="cancelEventBtn">취소</button>
             <button type="button" id="deleteEventBtn" class="danger" style="display:none;">삭제</button>
             <button type="submit" id="saveEventBtn" class="primary">저장/추가</button>
         </div>
     </form>
+    </div><!-- edit-panel-inner -->
   </div>
   
   <!-- 🚩 [이동됨] 그리기 폼을 지도 내부로 이동 -->
@@ -5524,17 +5627,60 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     const eventOverlayText = document.getElementById('event-overlay-text');
 
     // 🚩 [추가] 폼을 열고 화면 중앙에 위치시키는 함수
+    // ✏️ 편집 패널 ID 목록
+    const EDIT_PANEL_IDS = ['castleForm', 'historyForm', 'countryForm', 'kingForm', 'eventForm', 'editCitySelectionForm'];
+
+    function openEditPanel(formId) {
+        const panel = document.getElementById(formId);
+        if (!panel) return;
+        // 다른 편집 패널은 모두 닫기
+        EDIT_PANEL_IDS.forEach(id => {
+            if (id !== formId) {
+                const el = document.getElementById(id);
+                if (el) el.classList.remove('active');
+            }
+        });
+        // 오버레이 활성화
+        const overlay = document.getElementById('edit-panel-overlay');
+        if (overlay) overlay.classList.add('active');
+        // 패널 슬라이드 인
+        panel.style.display = '';
+        requestAnimationFrame(() => panel.classList.add('active'));
+    }
+
+    function closeEditPanel(formId) {
+        const panel = document.getElementById(formId);
+        if (panel) panel.classList.remove('active');
+        // 모든 편집 패널이 닫혔는지 확인 후 오버레이 제거
+        const anyOpen = EDIT_PANEL_IDS.some(id => {
+            const el = document.getElementById(id);
+            return el && el.classList.contains('active');
+        });
+        if (!anyOpen) {
+            const overlay = document.getElementById('edit-panel-overlay');
+            if (overlay) overlay.classList.remove('active');
+            // 패널이 모두 닫히면 햄버거 메뉴로 돌아감
+            const hamburgerPanel = document.getElementById('hamburger-menu-panel');
+            const hamburgerOverlay = document.getElementById('hamburger-menu-overlay');
+            if (hamburgerPanel && !hamburgerPanel.classList.contains('active')) {
+                hamburgerPanel.classList.add('active');
+                if (hamburgerOverlay) hamburgerOverlay.classList.add('active');
+            }
+        }
+    }
+
+    function closeAllEditPanels() {
+        EDIT_PANEL_IDS.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.classList.remove('active');
+        });
+        const overlay = document.getElementById('edit-panel-overlay');
+        if (overlay) overlay.classList.remove('active');
+    }
+
     function openForm(formId) {
-        const form = document.getElementById(formId);
-        if (!form) return;
-
-        form.style.display = 'block';
-
-        // 폼을 뷰포트 중앙에 위치시킵니다.
-        const formHeight = form.offsetHeight;
-        const windowHeight = window.innerHeight;
-        const topPosition = Math.max(20, (windowHeight - formHeight) / 2); // 상단에 최소 20px 여백
-        form.style.top = `${topPosition}px`;
+        // 슬라이드 패널 방식으로 열기
+        openEditPanel(formId);
     }
 
     // 🗑️ 휴지통 모달 열기 함수
@@ -5982,12 +6128,17 @@ function getKingByYear(countryName, year, month) {
 
     /** 활성화된 폼을 제외한 모든 폼을 닫습니다. (동일) */
     function closeAllFormsExcept(exceptId) {
-        ['castleForm', 'historyForm', 'countryForm', 'kingForm', 'eventForm', 'drawingForm', 'editCitySelectionForm'].forEach(id => {
+        EDIT_PANEL_IDS.forEach(id => {
             if (id !== exceptId) {
                 const el = document.getElementById(id);
-                if (el) el.style.display = "none";
+                if (el) el.classList.remove('active');
             }
         });
+        // drawingForm은 기존 방식 유지
+        if (exceptId !== 'drawingForm') {
+            const drawingEl = document.getElementById('drawingForm');
+            if (drawingEl) drawingEl.style.display = "none";
+        }
     }
 
         /** 자연 지물 타입에 따른 아이콘 심볼과 클래스 매핑 (NEW) */
@@ -10496,8 +10647,7 @@ function invalidateCountryLookupCache() {
 
       const openHistoryForm = () => {
           editingHistoryKey = null;
-          closeAllFormsExcept('historyForm');
-          document.getElementById('historyForm').style.display = 'block';
+          openEditPanel('historyForm');
           document.getElementById('addHistoryForm').reset();
           document.getElementById('deleteHistoryBtn').style.display = 'none';
           document.getElementById('historyYear').value = yearInput.value;
@@ -12433,11 +12583,11 @@ function invalidateCountryLookupCache() {
         return pathData.filter(p => p.target_year !== null && p.lat !== null && p.lng !== null);
     }
     cancelCitySelectionBtn.addEventListener('click', () => {
-        editCitySelectionForm.style.display = 'none';
+        closeEditPanel('editCitySelectionForm');
     });
     editSelectedCityBtn.addEventListener('click', () => {
         const selectedCityId = citySelectForEdit.value;
-        if (selectedCityId) { editCitySelectionForm.style.display = 'none'; openCastleForm(selectedCityId); } else { alert('편집할 도시/성을 선택해주세요!'); }
+        if (selectedCityId) { closeEditPanel('editCitySelectionForm'); openCastleForm(selectedCityId); } else { alert('편집할 도시/성을 선택해주세요!'); }
     });
 
     
@@ -12572,27 +12722,7 @@ function invalidateCountryLookupCache() {
           editModeButtonBottom.onclick = () => {
             console.log('편집 모드 나가기 클릭');
             map.closePopup();
-            // 편집 모드 직접 해제
-            editMode = false;
-            const editDropdownContainerElement = document.getElementById('edit-dropdown-container');
-            if (editDropdownContainerElement) {
-                editDropdownContainerElement.style.display = 'none';
-            }
-            const topbarEditContainer = document.getElementById('topbar-edit-dropdown-container');
-            if (topbarEditContainer) {
-                topbarEditContainer.style.display = 'none';
-            }
-            // 드롭다운 메뉴 닫기
-            const topbarEditDropdownMenu = document.getElementById('topbar-edit-dropdown-menu');
-            if (topbarEditDropdownMenu) {
-                topbarEditDropdownMenu.style.display = 'none';
-            }
-            if (typeof drawControl !== 'undefined' && drawControl) {
-                map.removeControl(drawControl);
-            }
-            if (typeof updateHistoryPanel === 'function' && typeof currentYear !== 'undefined') {
-                updateHistoryPanel(currentYear);
-            }
+            setEditModeState(false);
           };
         } else {
           editModeButtonBottom.innerText = '편집 모드 진입';
@@ -12600,27 +12730,7 @@ function invalidateCountryLookupCache() {
           editModeButtonBottom.onclick = () => {
             console.log('편집 모드 진입 클릭', {currentUser, editMode, privileged});
             map.closePopup();
-            // 편집 모드 직접 활성화
-            editMode = true;
-            const editDropdownContainerElement = document.getElementById('edit-dropdown-container');
-            if (editDropdownContainerElement) {
-                editDropdownContainerElement.style.display = 'inline-block';
-            }
-            const topbarEditContainer = document.getElementById('topbar-edit-dropdown-container');
-            if (topbarEditContainer) {
-                topbarEditContainer.style.display = 'inline-block';
-            }
-            // 드롭다운 메뉴 자동 열기
-            const topbarEditDropdownMenu = document.getElementById('topbar-edit-dropdown-menu');
-            if (topbarEditDropdownMenu) {
-                topbarEditDropdownMenu.style.display = 'block';
-            }
-            if (typeof initializeDrawControl === 'function') {
-                initializeDrawControl();
-            }
-            if (typeof updateHistoryPanel === 'function' && typeof currentYear !== 'undefined') {
-                updateHistoryPanel(currentYear);
-            }
+            setEditModeState(true);
           };
         }
         popupContent.appendChild(editModeButtonBottom);
@@ -13085,7 +13195,7 @@ function invalidateCountryLookupCache() {
 
             // 3. 메모리 및 UI 업데이트
             deleteCastleInMemory(castleId);
-            document.getElementById('castleForm').style.display = 'none';
+            closeEditPanel('castleForm');
             if (editMarker) { map.removeLayer(editMarker); editMarker = null; }
 
             // 4. 기여 데이터 최신화 (pending 상태인 기여를 다시 불러옴)
@@ -13287,7 +13397,7 @@ function invalidateCountryLookupCache() {
               }
           }
 
-          document.getElementById('castleForm').style.display = 'none';
+          closeEditPanel('castleForm');
           if (editMarker && map.hasLayer(editMarker) && editMarker.getPopup()) {
               editMarker.closePopup();
           }
@@ -13329,7 +13439,7 @@ function invalidateCountryLookupCache() {
 
     // 성 폼 취소
     cancelCastle.addEventListener('click', () => {
-      document.getElementById('castleForm').style.display = 'none';
+      closeEditPanel('castleForm');
       // 🚩 [추가] 마커의 팝업을 명시적으로 닫은 후 레이어를 제거합니다.
       if (editMarker && map.hasLayer(editMarker) && editMarker.getPopup()) {
           editMarker.closePopup();
@@ -13370,7 +13480,7 @@ function invalidateCountryLookupCache() {
                 map.removeLayer(editMarker);
                 editMarker = null;
             }
-            document.getElementById('castleForm').style.display = 'none';
+            closeEditPanel('castleForm');
 
             // 🚩 [최적화] 전체 fetch 대신 메모리에서 삭제
             deleteCastleInMemory(editingCastleKey);
@@ -13868,7 +13978,7 @@ function invalidateCountryLookupCache() {
                 throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
             }
 
-            document.getElementById('countryForm').style.display = 'none';
+            closeEditPanel('countryForm');
             
             // 🚩 [최적화] 전체 fetch 대신 메모리에서 삭제
             deleteCountryInMemory(originalId || originalName);
@@ -13879,7 +13989,7 @@ function invalidateCountryLookupCache() {
     });
 
     document.getElementById('cancelCountryBtn').addEventListener('click', () => {
-        document.getElementById('countryForm').style.display = 'none';
+        closeEditPanel('countryForm');
     });
 
     // --- 10. 이벤트 편집 폼 관리 --- (🚩 [신규 추가])
@@ -13943,7 +14053,7 @@ function invalidateCountryLookupCache() {
             });
             if (!response.ok) throw new Error('이벤트 저장 실패');
             
-            document.getElementById('eventForm').style.display = 'none';
+            closeEditPanel('eventForm');
             
             // 🚩 [최적화] 전체 fetch 대신 메모리에서 증분 업데이트
             if (eventId) {
@@ -13964,14 +14074,14 @@ function invalidateCountryLookupCache() {
             });
             if (!response.ok) throw new Error('이벤트 삭제 실패');
             
-            document.getElementById('eventForm').style.display = 'none';
+            closeEditPanel('eventForm');
             
             // 🚩 [최적화] 전체 fetch 대신 메모리에서 삭제
             deleteEventInMemory(eventId);
         } catch (error) { alert(error.message); }
     });
 
-    document.getElementById('cancelEventBtn').addEventListener('click', () => { document.getElementById('eventForm').style.display = 'none'; });
+    document.getElementById('cancelEventBtn').addEventListener('click', () => { closeEditPanel('eventForm'); });
 
     // --- 10. 왕 편집 폼 관리 --- (기존 로직 유지)
 
@@ -14246,7 +14356,7 @@ kingSelect.addEventListener('change', () => {
                 throw new Error(`${response.status}: ${errorData.message || '알 수 없는 오류'}`);
             }
 
-            document.getElementById('kingForm').style.display = 'none';
+            closeEditPanel('kingForm');
             
             // 🚩 [최적화] 전체 fetch 대신 메모리에서 삭제
             deleteKingInMemory(kingMongoId);
@@ -14304,11 +14414,11 @@ kingSelect.addEventListener('change', () => {
         document.getElementById('kingEnd').value = targetKing.end || '';
         document.getElementById('kingEndMonth').value = targetKing.end_month || 12;
         
-        document.getElementById('kingForm').style.display = 'block';
+        openEditPanel('kingForm');
     }; 
 
     document.getElementById('cancelKingBtn').addEventListener('click', () => {
-        document.getElementById('kingForm').style.display = 'none';
+        closeEditPanel('kingForm');
     }); 
     
     // 🚀 [v3.5] 그리기 편집창 드래그 이동 기능
@@ -14490,7 +14600,7 @@ kingSelect.addEventListener('change', () => {
     // });
 
     document.getElementById('cancelHistoryBtn').addEventListener('click', () => {
-        document.getElementById('historyForm').style.display = 'none';
+        closeEditPanel('historyForm');
     });
     
     // 🚩 [추가] 역사 기록 삭제 버튼 이벤트 리스너
@@ -14508,7 +14618,7 @@ kingSelect.addEventListener('change', () => {
 
             if (!response.ok) throw new Error('기록 삭제에 실패했습니다.');
 
-            document.getElementById('historyForm').style.display = 'none';
+            closeEditPanel('historyForm');
             initialize(); // 데이터 다시 로드
         } catch (error) {
             alert(error.message);
@@ -14602,7 +14712,7 @@ kingSelect.addEventListener('change', () => {
             // --- 이벤트 동기화 로직 끝 ---
 
 
-            document.getElementById('historyForm').style.display = "none";
+            closeEditPanel('historyForm');
             initialize(); 
         } catch (error) {
             console.error("History 저장 중 오류:", error);
@@ -14616,8 +14726,7 @@ kingSelect.addEventListener('change', () => {
         if (!record) return alert("기록을 찾을 수 없습니다.");
         
         editingHistoryKey = key;
-        closeAllFormsExcept('historyForm');
-        document.getElementById('historyForm').style.display = "block";
+        openEditPanel('historyForm');
         document.getElementById('deleteHistoryBtn').style.display = 'inline-block'; // 🚩 [추가] 편집 모드에서는 삭제 버튼 표시
         
         document.getElementById('historyKey').value = key;
@@ -14696,7 +14805,7 @@ kingSelect.addEventListener('change', () => {
         if (user && (user.role === 'admin' || user.role === 'superuser')) {
             if (drawControl) map.removeControl(drawControl); // 중복 방지
             drawControl = new L.Control.Draw({
-                position: 'topleft', // 🚩 [수정] 그리기 툴바를 연대표 하단에 배치 (CSS로 위치 조정)
+                position: 'topright', // 🚩 레이어 컨트롤 바로 아래 (우측 상단)
                 edit: false, // 도형 클릭으로만 편집/삭제 가능
                 draw: { 
                     polygon: {
@@ -15954,88 +16063,81 @@ kingSelect.addEventListener('change', () => {
             });
         }
         
-        // 🚩 [추가] 상단 탑바 편집 버튼 기능
-        const topbarEditBtn = document.getElementById('topbarEditBtn');
-        const topbarEditDropdownMenu = document.getElementById('topbar-edit-dropdown-menu');
-        const topbarEditContainer = document.getElementById('topbar-edit-dropdown-container');
-        
-        if (topbarEditBtn && topbarEditDropdownMenu) {
-            topbarEditBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const isVisible = topbarEditDropdownMenu.style.display === 'block';
-                topbarEditDropdownMenu.style.display = isVisible ? 'none' : 'block';
+        // 🚩 [수정] 햄버거 메뉴 — 편집 도구 버튼 연결
+        document.getElementById('menu-cityEditBtn')?.addEventListener('click', () => {
+            toggleHamburgerMenu();
+            closeAllFormsExcept('editCitySelectionForm');
+            openEditPanel('editCitySelectionForm');
+            const searchInput = document.getElementById('citySearchInputForEdit');
+            if (searchInput) searchInput.value = '';
+            populateCitySelectForEdit();
+        });
+
+        document.getElementById('menu-countryEditBtn')?.addEventListener('click', () => {
+            toggleHamburgerMenu();
+            closeAllFormsExcept('countryForm');
+            openEditPanel('countryForm');
+            updateCountrySelectForEdit();
+            document.getElementById('editCountryForm').reset();
+            document.getElementById('countryOriginalName').value = '';
+            document.getElementById('countryOriginalId').value = '';
+            document.getElementById('deleteCountryBtn').style.display = 'none';
+            document.getElementById('saveCountryBtn').textContent = '저장/추가';
+            document.getElementById('countryColor').value = '#ffffff';
+            const searchInput = document.getElementById('countrySearchForEdit');
+            if (searchInput) searchInput.value = '';
+        });
+
+        document.getElementById('menu-kingEditBtn')?.addEventListener('click', () => {
+            toggleHamburgerMenu();
+            closeAllFormsExcept('kingForm');
+            openEditPanel('kingForm');
+            document.getElementById('editKingForm').reset();
+            document.getElementById('deleteKingBtn').style.display = 'none';
+            document.getElementById('saveKingBtn').textContent = '추가';
+            document.getElementById('kingCountryId').value = '';
+            document.getElementById('kingCountryNameInput').value = '';
+            populateKingCountrySelect();
+            document.getElementById('kingCountrySelect').value = '';
+            document.getElementById('kingSelect').innerHTML = '<option value="">--- 새 왕 추가 ---</option>';
+            loadKingsForCountry(true);
+        });
+
+        document.getElementById('menu-eventEditBtn')?.addEventListener('click', () => {
+            toggleHamburgerMenu();
+            closeAllFormsExcept('eventForm');
+            openEditPanel('eventForm');
+            document.getElementById('editEventForm').reset();
+            document.getElementById('deleteEventBtn').style.display = 'none';
+            document.getElementById('saveEventBtn').textContent = '저장/추가';
+            populateEventSelect();
+        });
+
+        document.getElementById('menu-trashBtn')?.addEventListener('click', () => {
+            toggleHamburgerMenu();
+            openTrashModal();
+        });
+
+        document.getElementById('menu-exitEditBtn')?.addEventListener('click', () => {
+            setEditModeState(false);
+            toggleHamburgerMenu();
+        });
+
+        document.getElementById('menu-enterEditBtn')?.addEventListener('click', () => {
+            setEditModeState(true);
+            // 햄버거 메뉴 갱신 (편집 섹션 표시)
+            const menuEditSection = document.getElementById('menu-edit-section');
+            const menuEnterEditBtn = document.getElementById('menu-enterEditBtn');
+            if (menuEditSection) menuEditSection.style.display = 'block';
+            if (menuEnterEditBtn) menuEnterEditBtn.style.display = 'none';
+        });
+
+        // 편집 패널 오버레이 클릭 시 모든 편집 패널 닫기
+        const editPanelOverlay = document.getElementById('edit-panel-overlay');
+        if (editPanelOverlay) {
+            editPanelOverlay.addEventListener('click', () => {
+                closeAllEditPanels();
             });
-            
-            // 편집 메뉴 외부 클릭 시 닫기
-            document.addEventListener('click', (e) => {
-                if (topbarEditContainer && !topbarEditContainer.contains(e.target)) {
-                    topbarEditDropdownMenu.style.display = 'none';
-                }
-            });
-            
-            // 편집 버튼들 연결
-            document.getElementById('topbar-cityEditBtn')?.addEventListener('click', () => {
-                closeAllFormsExcept('editCitySelectionForm');
-                openForm('editCitySelectionForm');
-                const searchInput = document.getElementById('editCitySelectionForm')?.querySelector('#citySearchInputForEdit');
-                if (searchInput) searchInput.value = '';
-                populateCitySelectForEdit();
-                topbarEditDropdownMenu.style.display = 'none';
-            });
-            
-            document.getElementById('topbar-countryEditBtn')?.addEventListener('click', () => {
-                closeAllFormsExcept('countryForm');
-                openForm('countryForm');
-                updateCountrySelectForEdit();
-                document.getElementById('editCountryForm').reset();
-                document.getElementById('countryOriginalName').value = '';
-                document.getElementById('countryOriginalId').value = '';
-                document.getElementById('deleteCountryBtn').style.display = 'none';
-                document.getElementById('saveCountryBtn').textContent = '저장/추가';
-                document.getElementById('countryColor').value = '#ffffff';
-                const searchInput = document.getElementById('countryForm')?.querySelector('#countrySearchForEdit');
-                if (searchInput) searchInput.value = '';
-                topbarEditDropdownMenu.style.display = 'none';
-            });
-            
-            document.getElementById('topbar-kingEditBtn')?.addEventListener('click', () => {
-                closeAllFormsExcept('kingForm');
-                openForm('kingForm');
-                document.getElementById('editKingForm').reset();
-                document.getElementById('deleteKingBtn').style.display = 'none';
-                document.getElementById('saveKingBtn').textContent = '추가';
-                document.getElementById('kingCountryId').value = '';
-                document.getElementById('kingCountryNameInput').value = '';
-                document.getElementById('kingCountrySelect').value = '';
-                document.getElementById('kingSelect').innerHTML = '<option value="">--- 새 왕 추가 ---</option>';
-                loadKingsForCountry(true);
-                topbarEditDropdownMenu.style.display = 'none';
-            });
-            
-            document.getElementById('topbar-eventEditBtn')?.addEventListener('click', () => {
-                closeAllFormsExcept('eventForm');
-                openForm('eventForm');
-                document.getElementById('editEventForm').reset();
-                document.getElementById('deleteEventBtn').style.display = 'none';
-                document.getElementById('saveEventBtn').textContent = '저장/추가';
-                populateEventSelect();
-                topbarEditDropdownMenu.style.display = 'none';
-            });
-            
-            document.getElementById('topbar-trashBtn')?.addEventListener('click', () => {
-                topbarEditDropdownMenu.style.display = 'none';
-                openTrashModal();
-            });
-            
-            document.getElementById('topbar-exitEditBtn')?.addEventListener('click', () => {
-                setEditModeState(false);
-                topbarEditDropdownMenu.style.display = 'none';
-            });
-            
-            // 편집모드일 때만 버튼 표시
-            if (editMode && currentUser && (currentUser.role === 'admin' || currentUser.role === 'superuser')) {
-                topbarEditContainer.style.display = 'block';
-            }
         }
 
         // 🚩 [추가] 사관 기록 제출 버튼 이벤트 리스너
@@ -16613,9 +16715,8 @@ kingSelect.addEventListener('change', () => {
             const privileged = currentUser?.role === 'superuser' || currentUser?.role === 'admin';
             editMode = privileged ? !!newState : false;
             console.log('편집 모드 상태 변경:', {editMode, privileged});
-            // 🚩 [수정] localStorage 저장 제거 - 로그인 시 항상 일반 뷰 모드로 시작
             if (editDropdownContainer) {
-                editDropdownContainer.style.display = privileged ? 'inline-block' : 'none';
+                editDropdownContainer.style.display = (editMode && privileged) ? 'inline-block' : 'none';
             }
             if (exitEditBtnDropdown) {
                 exitEditBtnDropdown.style.display = editMode ? 'block' : 'none';
@@ -16627,14 +16728,11 @@ kingSelect.addEventListener('change', () => {
                 trashBtnDropdown.style.display = (editMode && privileged) ? 'block' : 'none';
             }
 
-            // 탑바 편집 버튼 표시 제어
-            const topbarEditContainer = document.getElementById('topbar-edit-dropdown-container');
-            console.log('탑바 편집 컨테이너:', topbarEditContainer, 'display:', (editMode && privileged) ? 'inline-block' : 'none');
-            if (topbarEditContainer) {
-                topbarEditContainer.style.display = (editMode && privileged) ? 'inline-block' : 'none';
-            }
-
-            // openHistoryFormBtn.style.display = (editMode && privileged) ? 'inline-block' : 'none'; // 오른쪽 패널 제거
+            // 🚩 [수정] 햄버거 메뉴 편집 섹션 표시 제어
+            const menuEditSection = document.getElementById('menu-edit-section');
+            const menuEnterEditBtn = document.getElementById('menu-enterEditBtn');
+            if (menuEditSection) menuEditSection.style.display = (editMode && privileged) ? 'block' : 'none';
+            if (menuEnterEditBtn) menuEnterEditBtn.style.display = (!editMode && privileged) ? 'block' : 'none';
 
             if (editMode && privileged) {
                 if (typeof initializeDrawControl === 'function') {
@@ -16654,6 +16752,7 @@ kingSelect.addEventListener('change', () => {
                 updateHistoryPanel(currentYear);
             }
         }
+        window.setEditModeState = setEditModeState; // 전역 접근 허용
 
         mainEditBtn.addEventListener('click', (e) => {
             e.stopPropagation(); // 이벤트 버블링 방지
@@ -16697,6 +16796,7 @@ kingSelect.addEventListener('change', () => {
             // 🚩 [추가] 폼을 열 때 국가 관련 필드를 모두 초기화합니다.
             document.getElementById('kingCountryId').value = '';
             document.getElementById('kingCountryNameInput').value = '';
+            populateKingCountrySelect();
             document.getElementById('kingCountrySelect').value = '';
             document.getElementById('kingSelect').innerHTML = '<option value="">--- 새 왕 추가 ---</option>';
 
