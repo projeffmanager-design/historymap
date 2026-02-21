@@ -8482,9 +8482,18 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         //    const destroyedText = castle.destroyed === null ? '현재' : `${castle.destroyed}년 ${castle.destroyed_month || 12}월`;
             
             let kingHtml = king ? `<br><b>왕:</b> ${king.name} (${king.start}년 ${king.start_month||1}월 ~ ${king.end === null ? '현재' : `${king.end}년 ${king.end_month||1}월`})` : "";
-           // 🚩 [수정] 국기 이미지를 위한 변수 추가
-        const flagHtml = currentCountry.flag ?
-            `<img src="${currentCountry.flag}" class="country-flag-img" style="width: 20px; height: 13px; border: 1px solid rgba(180,140,80,0.4); margin-right: 5px; vertical-align: middle; border-radius:2px;">` : '';
+           // 🚩 [수정] 국기 있으면 국기 이미지, 없으면 낙인 아이콘
+        const _sealChar = currentCountry.sealText || (()=>{
+            const n = currentCountry.name || '';
+            const hanja = (n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g) || []);
+            if (hanja.length) return hanja.slice(-1)[0];
+            const hangul = (n.match(/[가-힣]/g) || []);
+            return hangul.length ? hangul.slice(-1)[0] : '?';
+        })();
+        const _sealColor = currentCountry.color || '#c0392b';
+        const flagHtml = currentCountry.flag
+            ? `<img src="${currentCountry.flag}" class="country-flag-img" style="width: 20px; height: 13px; border: 1px solid rgba(180,140,80,0.4); margin-right: 5px; vertical-align: middle; border-radius:2px;">`
+            : `<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:${_sealColor};border-radius:2px;font-size:10px;color:#fff;font-family:'Noto Serif KR',serif;transform:rotate(-3deg);box-shadow:1px 1px 3px rgba(0,0,0,0.5);margin-right:5px;vertical-align:middle;filter:brightness(0.8);">${_sealChar}</span>`;
         const countryEthnicity = currentCountry.ethnicity ? `<br><span style="color:#9aabbd;font-size:11px;">민족: ${currentCountry.ethnicity}</span>` : '';
         const editorInfoHtml = castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">사관: ${castle.createdBy}</small>` : '';
         
