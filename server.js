@@ -42,7 +42,7 @@ const RANK_CONFIG = {
         attendance:    1,   // attendancePoints 그대로 반영
     },
     limits: {
-        dailyVotes:         10,  // 일일 추천 최대 횟수
+        dailyVotes:         9999,  // 일일 추천 제한 없음
         reviewBonus:         5,  // 검토 1회당 획득 점수
         approvalBonus:       5,  // 관리자 패널 승인 시 획득 점수
         finalApprovalBonus: 10,  // /approve API 최종승인 시 승인자 획득 점수
@@ -2768,7 +2768,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     message: "추천하였습니다.", 
                     votes: updatedContribution.votes || 0, 
                     action: 'vote',
-                    remainingVotes: 10 - dailyVoteCount - 1  // 남은 추천 횟수
+                    remainingVotes: RANK_CONFIG.limits.dailyVotes - dailyVoteCount - 1  // 남은 추천 횟수
                 });
             } catch (error) {
                 res.status(500).json({ message: "투표 실패", error: error.message });
