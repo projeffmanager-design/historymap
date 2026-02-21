@@ -237,19 +237,19 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.5.1',           // [v3.5.1] 성 추가/수정 시 IndexedDB 즉시 갱신
-        DATA_SCHEMA_VERSION: '2.0.1'    // 쇄엽 등 신규 성 추가 반영 — 캐시 강제 초기화
+        APP_VERSION: '3.5.3',           // [v3.5.3] Vercel 캐시 불일치 수정 — countries/castle 동기화
+        DATA_SCHEMA_VERSION: '2.0.2'    // countries_cache + IndexedDB 동시 초기화
     };
     
     const storedAppVersion = localStorage.getItem('app_version');
     const storedSchemaVersion = localStorage.getItem('data_schema_version');
     
-    // 1️⃣ 데이터 구조가 변경된 경우에만 IndexedDB 삭제
+    // 1️⃣ 데이터 구조가 변경된 경우에만 IndexedDB + localStorage 데이터 캐시 삭제
     if (storedSchemaVersion !== CONFIG.DATA_SCHEMA_VERSION) {
         console.log(`📦 데이터 구조 변경 감지: ${storedSchemaVersion || '없음'} → ${CONFIG.DATA_SCHEMA_VERSION}`);
-        console.log('📦 IndexedDB 초기화 중... (영토 데이터 재다운로드 필요)');
+        console.log('📦 IndexedDB + countries 캐시 초기화 중...');
         
-        // IndexedDB만 선택적 삭제
+        // IndexedDB 전체 삭제 (castles, territories 등)
         if (window.indexedDB) {
             indexedDB.databases().then(dbs => {
                 dbs.forEach(db => {
@@ -258,6 +258,11 @@
                 });
             }).catch(e => console.warn('IndexedDB 클리어 실패:', e));
         }
+        
+        // countries localStorage 캐시도 함께 삭제 (색상 불일치 방지)
+        localStorage.removeItem('countries_cache');
+        localStorage.removeItem('countries_cache_time');
+        localStorage.removeItem('countries_cache_version');
         
         localStorage.setItem('data_schema_version', CONFIG.DATA_SCHEMA_VERSION);
     } else {
@@ -8268,11 +8273,11 @@ function invalidateCountryLookupCache() {
             const cachedData = localStorage.getItem('countries_cache');
             const cacheTime = localStorage.getItem('countries_cache_time');
             const cacheVersion = localStorage.getItem('countries_cache_version');
-            const CACHE_DURATION = 60 * 60 * 1000; // 1시간 (국가 추가/수정 반영을 위해 단축)
-            // 날짜 기반 버전 키: 매일 자동 무효화 (YYYY-MM-DD)
-            const todayKey = new Date().toISOString().slice(0, 10);
+            const CACHE_DURATION = 60 * 60 * 1000; // 1시간
+            // 앱 버전 기반 캐시 키: 배포(APP_VERSION 변경) 시 자동 무효화
+            const versionKey = localStorage.getItem('app_version') || 'init';
             
-            if (cachedData && cacheTime && cacheVersion === todayKey) {
+            if (cachedData && cacheTime && cacheVersion === versionKey) {
                 const age = Date.now() - parseInt(cacheTime);
                 if (age < CACHE_DURATION) {
                     console.log(`💾 [캐시] countries 캐시 사용 (${(age / 1000 / 60).toFixed(1)}분 전 저장)`);
@@ -8306,10 +8311,10 @@ function invalidateCountryLookupCache() {
         
         // 🚀 [최적화] countries 데이터 캐싱 저장
         if (endpoint === 'countries') {
-            const todayKey = new Date().toISOString().slice(0, 10);
+            const versionKey = localStorage.getItem('app_version') || 'init';
             localStorage.setItem('countries_cache', JSON.stringify(data));
             localStorage.setItem('countries_cache_time', Date.now().toString());
-            localStorage.setItem('countries_cache_version', todayKey);
+            localStorage.setItem('countries_cache_version', versionKey);
             console.log('💾 [캐시] countries 데이터 저장 완료');
         }
         
