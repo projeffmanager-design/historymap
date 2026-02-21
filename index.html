@@ -3175,14 +3175,15 @@ body.force-mobile .marker-type-selector button {
     body.force-mobile .leaflet-top.leaflet-left {
         top: 200px !important; /* 모바일 연대표 하단 */
     }
-    /* 그리기 툴바: 우측 상단, 레이어 컨트롤 바로 아래 */
-    .leaflet-top.leaflet-right .leaflet-draw-toolbar {
-        margin-top: 4px !important;
-    }
-    .leaflet-top.leaflet-right .leaflet-draw-toolbar a {
-        width: 30px !important;
-        height: 30px !important;
-        line-height: 30px !important;
+    /* 그리기 툴바만 우측 세로 중앙으로 고정 */
+    .leaflet-top.leaflet-left .leaflet-draw-toolbar {
+        position: fixed !important;
+        right: 12px !important;
+        left: auto !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
+        z-index: 1199 !important;
+        margin: 0 !important;
     }
   </style>
 
@@ -4727,17 +4728,15 @@ body.force-mobile .marker-type-selector button {
           <button type="button" class="edit-panel-close-btn" onclick="closeEditPanel('editCitySelectionForm')">✕</button>
       </div>
       <div class="edit-panel-inner">
-          <!-- 🚩 [핵심 수정] 도시/성 선택 UI를 자동 완성 검색 방식으로 변경 -->
-          <div class="form-row" style="margin-bottom: 15px;">
-          <label for="citySearchInputForEdit">도시/성/지명:</label>
-          <div style="display: flex; flex-grow: 1; gap: 10px; position: relative;">
+          <!-- 검색으로만 선택 (select 리스트 제거 → 렌더링 지연 없음) -->
+          <div class="form-row" style="margin-bottom: 8px;">
+              <label for="citySearchInputForEdit">이름 검색:</label>
               <div style="position: relative; flex-grow: 1;">
-                  <input type="text" id="citySearchInputForEdit" placeholder="이름으로 검색..." autocomplete="off">
-                  <div id="citySearchResults" style="position: absolute; top: 100%; left: 0; right: 0; background: #3e4a56; border: 1px solid #5d7185; z-index: 1001; max-height: 150px; overflow-y: auto; display: none;"></div>
+                  <input type="text" id="citySearchInputForEdit" placeholder="성/도시 이름 입력..." autocomplete="off" style="width: 100%;">
+                  <div id="citySearchResults" style="position: absolute; top: 100%; left: 0; right: 0; background: #3e4a56; border: 1px solid #5d7185; z-index: 1001; max-height: 220px; overflow-y: auto; display: none; border-radius: 0 0 6px 6px;"></div>
               </div>
-              <select id="citySelectForEdit" style="width: 180px; flex-shrink: 0;"></select>
           </div>
-          </div>
+          <div id="citySelectedDisplay" style="padding: 6px 8px; background: rgba(255,255,255,0.07); border-radius: 4px; font-size: 13px; color: #aec; margin-bottom: 12px; display: none;"></div>
           <div class="form-actions" style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
               <button type="button" id="cancelCitySelectionBtn">취소</button>
               <button type="button" id="editSelectedCityBtn" class="primary">편집</button>
@@ -8702,6 +8701,31 @@ function invalidateCountryLookupCache() {
             
             // layerVisibility 객체 업데이트
             Object.assign(layerVisibility, settings);
+
+            // 🚩 kingPanel / historyPanel: 설정값에 따라 패널 DOM 즉시 반영
+            const kingPanel = document.getElementById('map-king-panel');
+            const historyPanel = document.getElementById('map-history-panel');
+            if (kingPanel) kingPanel.style.display = layerVisibility.kingPanel ? 'block' : 'none';
+            if (historyPanel) historyPanel.style.display = layerVisibility.historyPanel ? 'block' : 'none';
+
+            // 🚩 햄버거 메뉴 체크박스 동기화 (DOMContentLoaded보다 늦게 완료되므로 여기서 재적용)
+            const layerCheckboxMap = {
+                'menu-layer-city': 'city',
+                'menu-layer-territory': 'territoryPolygon',
+                'menu-layer-country-label': 'countryLabel',
+                'menu-layer-place-label': 'placeLabel',
+                'menu-layer-ethnic-label': 'ethnicLabel',
+                'menu-layer-military': 'military',
+                'menu-layer-natural': 'natural',
+                'menu-layer-rivers': 'rivers',
+                'menu-layer-timeline': 'timeline',
+                'menu-layer-king': 'kingPanel',
+                'menu-layer-history': 'historyPanel'
+            };
+            Object.entries(layerCheckboxMap).forEach(([cbId, layerKey]) => {
+                const cb = document.getElementById(cbId);
+                if (cb) cb.checked = layerVisibility[layerKey] === true;
+            });
             
             return settings;
         } catch (error) {
@@ -11209,59 +11233,62 @@ function invalidateCountryLookupCache() {
       // L.DomEvent.disableClickPropagation(mapButtonContainer);
       // L.DomEvent.disableScrollPropagation(mapButtonContainer);
 
-    // 🚩 [추가] 도시/성 편집 검색 이벤트 리스너 초기화 (한 번만 등록)
+    // 🚩 도시/성 편집 검색 (select 없이 검색+클릭으로만 선택)
     let citySearchForEditInitialized = false;
+    let _selectedCityIdForEdit = null; // 선택된 city ID 저장
     function initCitySearchForEdit() {
         if (citySearchForEditInitialized) return;
         const citySearchInputForEdit = document.getElementById('citySearchInputForEdit');
         const citySearchResults = document.getElementById('citySearchResults');
-        const citySelectForEdit = document.getElementById('citySelectForEdit');
-        if (!citySearchInputForEdit || !citySearchResults || !citySelectForEdit) return;
-        
+        const citySelectedDisplay = document.getElementById('citySelectedDisplay');
+        if (!citySearchInputForEdit || !citySearchResults) return;
+
         citySearchForEditInitialized = true;
+
         citySearchInputForEdit.addEventListener('input', () => {
-            const searchTerm = citySearchInputForEdit.value.toLowerCase();
+            const searchTerm = citySearchInputForEdit.value.toLowerCase().trim();
             citySearchResults.innerHTML = '';
-            if (searchTerm.length === 0) {
+            if (searchTerm.length < 1) {
                 citySearchResults.style.display = 'none';
-                const select = document.getElementById('citySelectForEdit');
-                for (let i = 0; i < select.options.length; i++) {
-                    select.options[i].hidden = false;
-                }
                 return;
             }
-
-            const select = document.getElementById('citySelectForEdit');
-            for (let i = 0; i < select.options.length; i++) {
-                const option = select.options[i];
-                if (option.value === "") { option.hidden = false; continue; }
-                option.hidden = !option.textContent.toLowerCase().includes(searchTerm);
-            }
-
-            const filteredCastles = castles.filter(c => 
-                !c.is_military_flag && 
-                !c.is_natural_feature && 
+            const filteredCastles = castles.filter(c =>
+                !c.is_military_flag &&
+                !c.is_natural_feature &&
                 c.name.toLowerCase().includes(searchTerm)
-            );
+            ).slice(0, 50); // 최대 50개만 표시
 
+            if (filteredCastles.length === 0) {
+                citySearchResults.style.display = 'none';
+                return;
+            }
             filteredCastles.forEach(castle => {
                 const div = document.createElement('div');
                 const typeLabel = castle.is_label ? '지명' : '성/도시';
-                const countryName = getCountryInfoById(castle.country_id)?.name || '알 수 없음';
-                div.textContent = `${castle.name} [${typeLabel}] (${countryName})`;
-                div.style.padding = '8px';
-                div.style.cursor = 'pointer';
-                div.onmouseover = () => div.style.backgroundColor = '#5d7185';
-                div.onmouseout = () => div.style.backgroundColor = '';
+                const countryName = getCountryInfoById(castle.country_id)?.name || '';
+                div.textContent = `${castle.name} [${typeLabel}]${countryName ? ' · ' + countryName : ''}`;
+                div.style.cssText = 'padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid rgba(255,255,255,0.05);';
+                div.onmouseover = () => div.style.background = '#5d7185';
+                div.onmouseout  = () => div.style.background = '';
                 div.onclick = () => {
-                    citySearchInputForEdit.value = '';
-                    citySelectForEdit.value = castle._id;
+                    _selectedCityIdForEdit = castle._id;
+                    citySearchInputForEdit.value = castle.name;
                     citySearchResults.style.display = 'none';
+                    if (citySelectedDisplay) {
+                        citySelectedDisplay.textContent = `✅ 선택됨: ${castle.name} [${typeLabel}]${countryName ? ' · ' + countryName : ''}`;
+                        citySelectedDisplay.style.display = 'block';
+                    }
                 };
                 citySearchResults.appendChild(div);
             });
+            citySearchResults.style.display = 'block';
+        });
 
-            citySearchResults.style.display = filteredCastles.length > 0 ? 'block' : 'none';
+        // 바깥 클릭 시 결과창 닫기
+        document.addEventListener('click', (e) => {
+            if (!citySearchInputForEdit.contains(e.target) && !citySearchResults.contains(e.target)) {
+                citySearchResults.style.display = 'none';
+            }
         });
     }
 
@@ -11275,20 +11302,8 @@ function invalidateCountryLookupCache() {
       
       console.log(`✅ UI 초기화 완료!`);
 
-      // 🚩 [수정] 도시/성/지명 선택 드롭다운을 채우는 함수
+      // 🚩 [수정] select 채우기 제거 → 검색 초기화만 수행 (렌더링 지연 없음)
     function populateCitySelectForEdit() {
-        const select = document.getElementById('citySelectForEdit');
-        if (!select) return;
-        select.innerHTML = '<option value="">-- 도시/성/지명 선택 --</option>'; // 초기화
-        // 🚩 [수정] 군대와 자연 타입만 제외하고, 지명도 포함
-        const filteredCastles = castles.filter(c => !c.is_military_flag && !c.is_natural_feature)
-                                       .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
-        filteredCastles.forEach(castle => {
-            const typeLabel = castle.is_label ? '지명' : '성/도시';
-            const countryName = getCountryInfoById(castle.country_id)?.name || '알 수 없음';
-            select.innerHTML += `<option value="${castle._id}">${castle.name} [${typeLabel}] (${countryName})</option>`;
-        });
-        // 🚩 [수정] 검색 이벤트 리스너가 아직 없으면 등록
         initCitySearchForEdit();
     }
 
@@ -12586,8 +12601,12 @@ function invalidateCountryLookupCache() {
         closeEditPanel('editCitySelectionForm');
     });
     editSelectedCityBtn.addEventListener('click', () => {
-        const selectedCityId = citySelectForEdit.value;
-        if (selectedCityId) { closeEditPanel('editCitySelectionForm'); openCastleForm(selectedCityId); } else { alert('편집할 도시/성을 선택해주세요!'); }
+        if (_selectedCityIdForEdit) {
+            closeEditPanel('editCitySelectionForm');
+            openCastleForm(_selectedCityIdForEdit);
+        } else {
+            alert('편집할 도시/성을 검색하여 선택해주세요!');
+        }
     });
 
     
@@ -14805,7 +14824,7 @@ kingSelect.addEventListener('change', () => {
         if (user && (user.role === 'admin' || user.role === 'superuser')) {
             if (drawControl) map.removeControl(drawControl); // 중복 방지
             drawControl = new L.Control.Draw({
-                position: 'topright', // 🚩 레이어 컨트롤 바로 아래 (우측 상단)
+                position: 'topleft', // 🚩 연대표 하단 좌측
                 edit: false, // 도형 클릭으로만 편집/삭제 가능
                 draw: { 
                     polygon: {
@@ -16068,9 +16087,15 @@ kingSelect.addEventListener('change', () => {
             toggleHamburgerMenu();
             closeAllFormsExcept('editCitySelectionForm');
             openEditPanel('editCitySelectionForm');
+            // 검색창·선택 상태 초기화
+            _selectedCityIdForEdit = null;
             const searchInput = document.getElementById('citySearchInputForEdit');
-            if (searchInput) searchInput.value = '';
-            populateCitySelectForEdit();
+            if (searchInput) { searchInput.value = ''; searchInput.focus(); }
+            const display = document.getElementById('citySelectedDisplay');
+            if (display) display.style.display = 'none';
+            const results = document.getElementById('citySearchResults');
+            if (results) results.style.display = 'none';
+            initCitySearchForEdit();
         });
 
         document.getElementById('menu-countryEditBtn')?.addEventListener('click', () => {
@@ -16169,28 +16194,28 @@ kingSelect.addEventListener('change', () => {
                 }
             }
             
-            // 🚩 [추가] 모바일에서 역사기록 패널 초기 축소 상태로 설정
+            // 🚩 [수정] 모바일에서 역사기록 패널 — layerVisibility 값 존중
             const mapHistoryPanel = document.getElementById('map-history-panel');
             if (mapHistoryPanel) {
                 mapHistoryPanel.classList.remove('expanded');
-                mapHistoryPanel.style.display = 'none'; // 🚩 [추가] 초기에는 숨김
+                mapHistoryPanel.style.display = layerVisibility.historyPanel ? 'block' : 'none';
             }
             
-            // 🚩 [추가] 모바일에서 왕목록 패널 초기 숨김
+            // 🚩 [수정] 모바일에서 왕목록 패널 — layerVisibility 값 존중
             const mapKingPanel = document.getElementById('map-king-panel');
             if (mapKingPanel) {
-                mapKingPanel.style.display = 'none'; // 🚩 [추가] 초기에는 숨김
+                mapKingPanel.style.display = layerVisibility.kingPanel ? 'block' : 'none';
             }
         } else {
-            // 🚩 [추가] PC에서도 패널 초기 숨김
+            // 🚩 [수정] PC에서도 layerVisibility 값 존중
             const mapHistoryPanel = document.getElementById('map-history-panel');
             if (mapHistoryPanel) {
-                mapHistoryPanel.style.display = 'none';
+                mapHistoryPanel.style.display = layerVisibility.historyPanel ? 'block' : 'none';
             }
             
             const mapKingPanel = document.getElementById('map-king-panel');
             if (mapKingPanel) {
-                mapKingPanel.style.display = 'none';
+                mapKingPanel.style.display = layerVisibility.kingPanel ? 'block' : 'none';
             }
         }
 
@@ -16311,9 +16336,15 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('mobile-cityEditBtn').addEventListener('click', () => {
                 closeAllFormsExcept('editCitySelectionForm');
                 openForm('editCitySelectionForm');
-                const searchInput = document.getElementById('editCitySelectionForm').querySelector('#citySearchInputForEdit');
-                if (searchInput) searchInput.value = '';
-                populateCitySelectForEdit();
+                // 검색창·선택 상태 초기화
+                _selectedCityIdForEdit = null;
+                const searchInput = document.getElementById('citySearchInputForEdit');
+                if (searchInput) { searchInput.value = ''; searchInput.focus(); }
+                const display = document.getElementById('citySelectedDisplay');
+                if (display) display.style.display = 'none';
+                const results = document.getElementById('citySearchResults');
+                if (results) results.style.display = 'none';
+                initCitySearchForEdit();
                 mobileEditMenu.style.display = 'none';
                 mobileEditBtn.textContent = '편집 ▾';
             });
