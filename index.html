@@ -6099,7 +6099,8 @@ function getKingByYear(countryName, year, month) {
                 iconHtml = `<img src="${country.flag}" class="country-flag-img" style="width: 18px; height: 12px; border: 1px solid #ccc; margin-right: 5px; vertical-align: middle;">`;
             } else {
                 const sealChar = country.sealText || (()=>{ const n=country.name||''; const hanja=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hanja.length) return hanja.slice(-1)[0]; const hangul=(n.match(/[가-힣]/g)||[]); return hangul.length ? hangul.slice(-1)[0] : '?'; })();
-                iconHtml = `<span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;background:${countryColor};border:1.5px solid ${countryColor};filter:brightness(0.75);color:#fff;font-size:9px;font-weight:900;border-radius:2px;transform:rotate(-3deg);margin-right:5px;vertical-align:middle;box-shadow:0 0 3px rgba(0,0,0,0.6);text-shadow:-1px -1px 0 #000,1px 1px 0 #000;flex-shrink:0;">${sealChar}</span>`;
+                const _sealTxtColor = (()=>{ try{ const h=(countryColor||'').replace(/^#/,''); const hx=h.length===3?h.split('').map(c=>c+c).join(''):h; if(hx.length!==6)return '#fff'; const lum=0.2126*parseInt(hx.slice(0,2),16)+0.7152*parseInt(hx.slice(2,4),16)+0.0722*parseInt(hx.slice(4,6),16); return lum>160?'#1a1a1a':'#ffffff'; }catch(e){return '#ffffff';} })();
+                iconHtml = `<span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;background:${countryColor};border:1.5px solid ${countryColor};filter:brightness(0.75);color:${_sealTxtColor};font-size:9px;font-weight:900;border-radius:2px;transform:rotate(-3deg);margin-right:5px;vertical-align:middle;box-shadow:0 0 3px rgba(0,0,0,0.6);flex-shrink:0;">${sealChar}</span>`;
             }
 
             // 🚩 한줄평을 HTML 속성에 안전하게 표시 (따옴표 이스케이프)
@@ -8493,7 +8494,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         const _sealColor = currentCountry.color || '#c0392b';
         const flagHtml = currentCountry.flag
             ? `<img src="${currentCountry.flag}" class="country-flag-img" style="width: 20px; height: 13px; border: 1px solid rgba(180,140,80,0.4); margin-right: 5px; vertical-align: middle; border-radius:2px;">`
-            : `<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:${_sealColor};border-radius:2px;font-size:10px;color:#fff;font-family:'Noto Serif KR',serif;transform:rotate(-3deg);box-shadow:1px 1px 3px rgba(0,0,0,0.5);margin-right:5px;vertical-align:middle;filter:brightness(0.8);">${_sealChar}</span>`;
+            : (()=>{ const _tc=(typeof getContrastColor==='function')?getContrastColor(_sealColor):(()=>{ try{ const h=(_sealColor||'').replace(/^#/,''); const hx=h.length===3?h.split('').map(c=>c+c).join(''):h; if(hx.length!==6)return'#fff'; const lum=0.2126*parseInt(hx.slice(0,2),16)+0.7152*parseInt(hx.slice(2,4),16)+0.0722*parseInt(hx.slice(4,6),16); return lum>160?'#1a1a1a':'#fff'; }catch(e){return'#fff';} })(); return `<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:${_sealColor};border-radius:2px;font-size:10px;color:${_tc};font-family:'Noto Serif KR',serif;transform:rotate(-3deg);box-shadow:1px 1px 3px rgba(0,0,0,0.5);margin-right:5px;vertical-align:middle;filter:brightness(0.85);">${_sealChar}</span>`; })();
         const countryEthnicity = currentCountry.ethnicity ? `<br><span style="color:#9aabbd;font-size:11px;">민족: ${currentCountry.ethnicity}</span>` : '';
         const editorInfoHtml = castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">사관: ${castle.createdBy}</small>` : '';
         
@@ -8538,8 +8539,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
               // 국기 유무 관계없이 낙관 스타일로 통일
             const sealChar = currentCountry.sealText || (()=>{ const n=currentCountry.name||''; const hanja=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hanja.length) return hanja.slice(-1)[0]; const hangul=(n.match(/[가-힣]/g)||[]); return hangul.length ? hangul.slice(-1)[0] : '?'; })();
             const sealColor = currentCountry.color || '#c0392b';
+            const _capitalTxtColor = (typeof getContrastColor==='function') ? getContrastColor(sealColor) : '#ffffff';
             const capitalIconHtml = `<div class="capital-marker">
-                <div class="capital-seal" style="background-color:${sealColor}; border-color: ${sealColor}; filter: brightness(0.75);">${sealChar}</div>
+                <div class="capital-seal" style="background-color:${sealColor}; border-color: ${sealColor}; filter: brightness(0.75); color:${_capitalTxtColor}; text-shadow:${_capitalTxtColor==='#1a1a1a'?'none':'-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000'};">${sealChar}</div>
                 <span class="city-name">${castleName}</span>
             </div>`;
                 const customIcon = L.divIcon({
@@ -12110,6 +12112,22 @@ function invalidateCountryLookupCache() {
         const year = parseInt(yearInput.value);
         const month = parseInt(monthInput.value);
         return { year, month };
+    }
+
+    // 🚩 [추가] 배경색 대비에 따라 글씨색 반환 (밝은 배경 → 어둡게, 어두운 배경 → 흰색)
+    function getContrastColor(hexOrCss) {
+        try {
+            // hex 파싱 (#rgb / #rrggbb)
+            let hex = (hexOrCss || '').trim().replace(/^#/, '');
+            if (hex.length === 3) hex = hex.split('').map(c => c+c).join('');
+            if (hex.length !== 6) return '#fff'; // 파싱 불가 → 기본 흰색
+            const r = parseInt(hex.slice(0,2), 16);
+            const g = parseInt(hex.slice(2,4), 16);
+            const b = parseInt(hex.slice(4,6), 16);
+            // 상대 휘도 (WCAG 공식)
+            const lum = 0.2126*r + 0.7152*g + 0.0722*b;
+            return lum > 160 ? '#1a1a1a' : '#ffffff';
+        } catch(e) { return '#ffffff'; }
     }
 
     // 🚩 [추가] 사건 카테고리에 따른 색상 반환 함수
