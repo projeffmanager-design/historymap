@@ -5464,6 +5464,14 @@ body.force-mobile .marker-type-selector button {
 
     // 🚩 [핵심 수정] 모바일 뷰일 때 기본 줌 레벨을 다르게 설정합니다.
     const isMobileOnLoad = window.innerWidth <= 967;
+
+    // 🚀 [모바일 메모리 최적화] 모바일에서 console.log 억제 — 문자열 생성/GC 부하 제거
+    if (isMobileOnLoad) {
+        const _noop = () => {};
+        console.log = _noop;
+        console.debug = _noop;
+        // console.warn / console.error 는 오류 추적을 위해 유지
+    }
     const map = L.map('map', {
         center: [36, 120],
         zoom: isMobileOnLoad ? 5 : 6, // 모바일이면 5, 데스크톱이면 6
@@ -8021,7 +8029,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         }
 
         castleLayerGroup.clearLayers(); // 마커 레이어는 기존처럼 클리어 후 다시 추가
-        markers = [];
+        markers.length = 0; // 🚀 [모바일 메모리 최적화] = [] 대신 length=0 — 기존 배열 재사용으로 GC 부하 감소
 
         // � [메모리 최적화] 마커 렌더링 시 현재 padded bounds 기록 (moveend 재렌더링 판단용)
         window._lastMarkerRenderBounds = map.getBounds().pad(1.0);
@@ -8033,7 +8041,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         // 🚩 [과제1] 거시 모드(zoom < 6)에서는 자연지물/라벨만 렌더링
         if (currentMacroMode === 0) {
             console.log('🔭 [LOD] 거시 모드 → 자연지물/라벨 렌더링');
-            allCastleMarkers = [];
+            allCastleMarkers.length = 0;
         } else if (currentMacroMode === 1) {
             console.log('🔍 [LOD] 중간 모드 → 수도+자연지물/라벨 렌더링 (약 200km 뷰)');
         }
@@ -8058,11 +8066,12 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         
         // 🚀 [최적화] 뷰포트 밖 마커 스킵을 위한 현재 화면 범위 캐싱
         const _viewBounds = map.getBounds();
-        const _viewPadded = _viewBounds.pad(1.5); // 150% 여유 — 줌/이동 후 성 누락 방지
+        // 🚀 [모바일 메모리 최적화] 모바일은 패딩 50%, 데스크톱은 150%
+        const _viewPadded = _viewBounds.pad(isMobileOnLoad ? 0.5 : 1.5);
         
         labelLayerGroup.clearLayers(); // 🚩 [추가] 라벨 레이어 클리어
         castleLayerGroup.clearLayers();
-        allCastleMarkers = []; // 🚀 [최적화] 매 렌더링 시 마커 트래킹 배열 초기화
+        allCastleMarkers.length = 0; // 🚀 [최적화] 매 렌더링 시 마커 트래킹 배열 초기화 (length=0으로 재사용)
         castles.forEach(castle => {
             // 🚩 LOD 필터링
             // 거시 모드(zoom < 6,  약 300km+): 자연지물/라벨만
