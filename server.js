@@ -1559,14 +1559,35 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         });
 
         // 🌊 GET: 자연 지형지물 (강, 산맥 등) 조회 - 🚩 인증 불필요 (공개 읽기)
+        // 🚀 [최적화] 서버 메모리 캐시 - Atlas 콜드스타트 8초 병목 해결
+        let naturalFeaturesCache = null;
+        let naturalFeaturesCacheTime = null;
+        const NATURAL_FEATURES_CACHE_TTL = 10 * 60 * 1000; // 10분
+
         app.get('/api/natural-features', async (req, res) => {
             try {
                 const { type } = req.query; // type: 'river', 'mountain', etc.
+
+                // type 없는 전체 조회만 캐시 적용 (type 지정 쿼리는 캐시 우회)
+                if (!type && naturalFeaturesCache && naturalFeaturesCacheTime) {
+                    const age = Date.now() - naturalFeaturesCacheTime;
+                    if (age < NATURAL_FEATURES_CACHE_TTL) {
+                        console.log(`🚀 [natural-features 캐시] ${(age/1000).toFixed(0)}초 전 데이터, ${naturalFeaturesCache.length}개`);
+                        return res.json(naturalFeaturesCache);
+                    }
+                }
+
                 const query = type ? { type } : {};
                 
                 const features = await collections.naturalFeatures.find(query).toArray();
                 console.log(`🌊 [자연 지형지물 조회] type: ${type || 'all'}, ${features.length}개 반환`);
-                
+
+                // 전체 조회 결과만 캐시 저장
+                if (!type) {
+                    naturalFeaturesCache = features;
+                    naturalFeaturesCacheTime = Date.now();
+                }
+
                 res.json(features);
             } catch (error) {
                 console.error("자연 지형지물 조회 중 오류:", error);
@@ -1586,7 +1607,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 }
                 
                 const result = await collections.naturalFeatures.insertOne(newFeature);
-                
+                naturalFeaturesCache = null; // 캐시 무효화
+                naturalFeaturesCacheTime = null;
                 logCRUD('CREATE', 'NaturalFeature', newFeature.name, `(ID: ${result.insertedId})`);
                 res.status(201).json({ 
                     message: "자연 지형지물이 성공적으로 생성되었습니다.", 
