@@ -2910,7 +2910,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 
                 const castleResult = await collections.castle.insertOne(newCastle);
                 logCRUD('CREATE', 'Castle (from contribution)', newCastle.name, `(ID: ${castleResult.insertedId}, ContribID: ${contribution._id})`);
-                console.log(`✅ [승인→Castle] '${newCastle.name}' castle에 자동 삽입 완료 (is_natural: ${isNatural})`);                            // 삽입된 castle 데이터를 응답에 포함
+                console.log(`✅ [승인→Castle] '${newCastle.name}' castle에 자동 삽입 완료 (is_natural: ${isNatural})`);
+                invalidateCastleCache(); // 🚩 서버 캐시 즉시 무효화                            // 삽입된 castle 데이터를 응답에 포함
                             const insertedCastle = await collections.castle.findOne({ _id: castleResult.insertedId });
                             const message = '검토가 완료되었습니다.';
                             return res.json({ message, castle: insertedCastle });
@@ -3686,6 +3687,7 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
                 insertedCastle = await collections.castle.findOne({ _id: insertResult.insertedId });
                 logCRUD('CREATE', 'Castle (from approve)', newCastle.name, `(ID: ${insertResult.insertedId}, ContribID: ${contribution._id})`);
                 console.log(`✅ [Castle 생성] 승인된 기여 "${contribution.name}"를 Castle로 변환 완료 (ID: ${insertResult.insertedId}, is_natural: ${isNatural})`);
+                invalidateCastleCache(); // 🚩 서버 캐시 즉시 무효화
                 
                 // 기여자에게도 추가 보상 (승인 완료 시)
                 if (contribution.userId) {

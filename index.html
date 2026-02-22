@@ -3852,6 +3852,7 @@ body.force-mobile .marker-type-selector button {
           <label><input type="checkbox" id="menu-layer-ethnic-label"> 민족</label>
           <label><input type="checkbox" id="menu-layer-military"> 군대</label>
           <label><input type="checkbox" id="menu-layer-natural"> 자연</label>
+          <label><input type="checkbox" id="menu-layer-relic" checked> 유적</label>
           <label><input type="checkbox" id="menu-layer-rivers"> 강</label>
           <label><input type="checkbox" id="menu-layer-timeline"> 연대표</label>
           <label><input type="checkbox" id="menu-layer-king"> 왕 패널</label>
@@ -3927,6 +3928,9 @@ body.force-mobile .marker-type-selector button {
                         </label>
                         <label style="display: flex; align-items: center; padding: 4px 0; cursor: pointer; font-size: 11px;">
                             <input type="checkbox" class="mobile-layer-checkbox" data-layer="natural" style="margin-right: 6px;"> 자연
+                        </label>
+                        <label style="display: flex; align-items: center; padding: 4px 0; cursor: pointer; font-size: 11px;">
+                            <input type="checkbox" class="mobile-layer-checkbox" data-layer="relic" checked style="margin-right: 6px;"> 유적
                         </label>
                         <label style="display: flex; align-items: center; padding: 4px 0; cursor: pointer; font-size: 11px;">
                             <input type="checkbox" class="mobile-layer-checkbox" data-layer="event" style="margin-right: 6px;"> 이벤트
@@ -4174,6 +4178,14 @@ body.force-mobile .marker-type-selector button {
                       <option value="natural_river">자연지물 - 강/호수</option>
                       <option value="natural_sea">자연지물 - 바다</option>
                       <option value="natural_tomb">자연지물 - 고분/묘 🪦</option>
+                      <option value="natural_temple">자연지물 - 사원/신전 🏛</option>
+                      <option value="natural_palace">자연지물 - 궁전 🏯</option>
+                      <option value="natural_mine">자연지물 - 광산 ⛏️</option>
+                      <option value="natural_port">자연지물 - 항구 ⚓</option>
+                      <option value="natural_kiln">자연지물 - 가마/도요지 🔥</option>
+                      <option value="natural_farmland">자연지물 - 농경지 🌾</option>
+                      <option value="natural_hunting">자연지물 - 사냥터 🏹</option>
+                      <option value="natural_construction">자연지물 - 건설 ⚒️</option>
                       <option value="natural_other">자연지물 - 기타</option>
                   </select>
               </div>
@@ -4782,10 +4794,16 @@ body.force-mobile .marker-type-selector button {
             <option value="river">강/내륙</option>
             <option value="mudflat">뻘/늪</option>
             <option value="tomb">고분/묘 🪦</option>
-            <option value="horse">말</option>
-            <option value="buffalo">물소</option>
-            <option value="mongky">원숭이</option>
-            <option value="camel">낙타</option>
+            <option value="temple">사원/신전 🏛</option>
+            <option value="palace">궁전 🏯</option>
+            <option value="mine">광산 ⛏️</option>
+            <option value="port">항구 ⚓</option>
+            <option value="kiln">가마/도요지 🔥</option>
+            <option value="farmland">농경지 🌾</option>
+            <option value="horse">말 🐎</option>
+            <option value="buffalo">물소 🐃</option>
+            <option value="mongky">원숭이 🐒</option>
+            <option value="camel">낙타 🐫</option>
             <option value="hunting">사냥터 🏹</option>
             <option value="construction">건설 ⚒️</option>
           </select>
@@ -5220,7 +5238,8 @@ body.force-mobile .marker-type-selector button {
         ethnicLabel: false, // ✨ [신규] 민족 거주지
         military: false,   // 🔄 [최적화] 군대 초기 OFF
         battle: false,     // 🔄 [최적화] 전장 초기 OFF
-        natural: true,     // 🔄 [수정] 자연 초기 ON (자연지물 마커 표시)
+        natural: true,     // 🔄 [수정] 자연 초기 ON (산·강·바다 등 순수 지형)
+        relic: true,       // 🏛️ [신규] 유적 레이어 (고분군·건설·사냥터·성곽 그리기 등)
         territoryPolygon: true, // 🔄 [변경] 영토 초기 ON (자동 로딩)
         rivers: false,    // 🌊 [추가] 강 레이어 가시성
         event: false,      // 📖 [최적화] 이벤트 초기 OFF
@@ -6311,6 +6330,12 @@ function getKingByYear(countryName, year, month) {
             'hunting': { symbol: '🏹', className: 'feature-hunting' },
             'construction': { symbol: '⚒️', className: 'feature-construction' },
             'tomb': { symbol: '🪦', className: 'feature-tomb' }, // 고분/묘
+            'temple': { symbol: '🏛', className: 'feature-temple' }, // 사원/신전
+            'palace': { symbol: '🏯', className: 'feature-palace' }, // 궁전
+            'mine': { symbol: '⛏️', className: 'feature-mine' }, // 광산
+            'port': { symbol: '⚓', className: 'feature-port' }, // 항구
+            'kiln': { symbol: '🔥', className: 'feature-kiln' }, // 가마/도요지
+            'farmland': { symbol: '🌾', className: 'feature-farmland' }, // 농경지
             'other': { symbol: '❖', className: 'feature-other' }
         };
         return icons[type] || icons['other'];
@@ -6771,7 +6796,12 @@ function getKingByYear(countryName, year, month) {
         const endYear = newCastle.end_year || newCastle.destroyed_year || Infinity;
         const isWithinDuration = startYear <= year && endYear >= year;
         
-        if (!isWithinDuration || !layerVisibility.natural) {
+        // 🏛️ 유적 계열은 relic 레이어, 순수 자연 지형은 natural 레이어
+        const _relicTypes6774 = ['tomb', 'construction', 'hunting', 'temple', 'palace', 'mine', 'port', 'kiln', 'farmland'];
+        const _featureType6774 = newCastle.natural_feature_type || 'other';
+        const _isRelic6774 = _relicTypes6774.includes(_featureType6774);
+        const _layerOn6774 = _isRelic6774 ? layerVisibility.relic : layerVisibility.natural;
+        if (!isWithinDuration || !_layerOn6774) {
             console.log(`  ⏭️ 현재 시간대(${year}) 또는 레이어 비활성화로 표시 안 함`);
             return;
         }
@@ -7044,15 +7074,24 @@ function getKingByYear(countryName, year, month) {
         console.log(`🌳 새 자연 지형지물 생성: ${newCastle.name}`);
         
         // 자연 지형지물 레이어 가시성 체크
-        if (!layerVisibility.natural) {
-            console.log(`  ⏭️ 자연 지형지물 레이어가 꺼져있어 표시 안 함`);
-            return;
+        // 🏛️ 유적 계열은 relic 레이어, 순수 자연 지형은 natural 레이어로 분리
+        const featureTypeForTime = newCastle.natural_feature_type || 'other';
+        const timeBasedTypes = ['tomb', 'construction', 'hunting', 'temple', 'palace', 'mine', 'port', 'kiln', 'farmland'];
+        const isRelicType = timeBasedTypes.includes(featureTypeForTime);
+        if (isRelicType) {
+            if (!layerVisibility.relic) {
+                console.log(`  ⏭️ 유적 레이어가 꺼져있어 표시 안 함`);
+                return;
+            }
+        } else {
+            if (!layerVisibility.natural) {
+                console.log(`  ⏭️ 자연 지형지물 레이어가 꺼져있어 표시 안 함`);
+                return;
+            }
         }
         
         // 🚩 시간 범위 체크 — 고분/묘(tomb)는 built_year/destroyed_year 기준, 산·강 등 지형은 항상 표시
-        const featureTypeForTime = newCastle.natural_feature_type || 'other';
-        const timeBasedTypes = ['tomb', 'construction', 'hunting', 'buffalo', 'horse', 'camel', 'mongky'];
-        if (timeBasedTypes.includes(featureTypeForTime)) {
+        if (isRelicType) {
             const startYear = newCastle.built_year != null ? newCastle.built_year : -Infinity;
             const endYear   = newCastle.destroyed_year != null ? newCastle.destroyed_year : Infinity;
             if (!(startYear <= year && endYear >= year)) {
@@ -7764,9 +7803,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             if (drawing.type === 'mountain' && !layerVisibility.natural) {
                 return; // '자연' 레이어가 꺼져있으면 산맥을 그리지 않습니다.
             }
-            // 🚩 [추가] '성곽'과 '화살표' 유형은 '지명' 레이어 토글에 따라 표시 여부를 결정합니다.
-            if ((drawing.type === 'wall' || drawing.type === 'arrow') && !layerVisibility.label) {
-                return; // '지명' 레이어가 꺼져있으면 성곽과 화살표를 그리지 않습니다.
+            // 🚩 [추가] '성곽'과 '화살표' 유형은 '유적' 레이어 토글에 따라 표시 여부를 결정합니다.
+            if ((drawing.type === 'wall' || drawing.type === 'arrow') && !layerVisibility.relic) {
+                return; // '유적' 레이어가 꺼져있으면 성곽과 화살표를 그리지 않습니다.
             }
 
             // 🚩 [핵심 수정] 그리기 유형에 따라 다른 스타일 적용
@@ -8134,7 +8173,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             if (!castle.is_natural_feature) return false;
 
             // 명시적 예외: 수도이거나 이름에 '성/궁/城'이 포함된 경우는 인공 구조물로 간주
-            const nameSuggestsManmade = typeof castle.name === 'string' && /성|궁|城/.test(castle.name);
+            // 단, natural_feature_type이 명시된 경우(tomb, mountain 등)는 이름 휴리스틱 적용 안 함
+            const hasExplicitNaturalType = !!castle.natural_feature_type;
+            const nameSuggestsManmade = !hasExplicitNaturalType && typeof castle.name === 'string' && /성|궁|城/.test(castle.name);
             if (castle.is_capital || nameSuggestsManmade) {
                 console.log(`⚠️ [자연지물 오분류 보정] '${castle.name}'를 인공 구조물로 처리 (원본 is_natural_feature=true)`);
                 return false;
@@ -8155,18 +8196,19 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         const countryName = countryInfo ? countryInfo.name : '알 수 없음';
         const dotColor = countryInfo ? countryInfo.color : 'white';
 
-        // 🚩 [추가] 민족 필터링 로직 (부분 일치) - 현재 활성화된 히스토리의 국가 민족만 체크
-        if (selectedEthnicity !== 'all') {
+        // 🚩 [추가] 민족 필터링 로직 (부분 일치) - 자연지물은 국가가 없으므로 민족 필터 제외
+        if (selectedEthnicity !== 'all' && !effectiveIsNatural) {
             if (!countryInfo || !countryInfo.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity)) {
                 return; // 현재 시점의 국가가 선택된 민족을 포함하지 않으면 제외
             }
         }
 
         // 🚩 시간 범위 계산 — 고분/묘 등 시간 기반 타입은 built_year/destroyed_year 사용, 산·강 등 지형은 항상 표시
-        const _naturalTimeTypes = ['tomb', 'construction', 'hunting', 'buffalo', 'horse', 'camel', 'mongky'];
+        const _naturalTimeTypes = ['tomb', 'construction', 'hunting', 'temple', 'palace', 'mine', 'port', 'kiln', 'farmland'];
         const _featureTypeForTime = castle.natural_feature_type || 'other';
+        const _isRelicType = _naturalTimeTypes.includes(_featureTypeForTime); // 유적 계열 여부
         const isWithinDuration = activeHistoryInfo ? true : (effectiveIsNatural ?
-            (_naturalTimeTypes.includes(_featureTypeForTime)
+            (_isRelicType
                 ? (((castle.built_year ?? -Infinity) <= year) && ((castle.destroyed_year ?? Infinity) >= year))
                 : true) // 산·강·바다·기타 지형은 항상 표시
             : false);
@@ -8178,8 +8220,11 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
              // 🚩 1. 자연 지물 마커 (NEW)
             if (effectiveIsNatural) { 
-                 if (!layerVisibility.natural) {
-                     return;
+                 // 🏛️ 유적 계열(고분·건설·사냥터 등)은 relic 레이어, 나머지는 natural 레이어로 분리
+                 if (_isRelicType) {
+                     if (!layerVisibility.relic) return;
+                 } else {
+                     if (!layerVisibility.natural) return;
                  }
                  // 🚩 [수정] 자연 지형지물 시간 범위 체크
                  if (!isWithinDuration) {
@@ -8884,6 +8929,7 @@ function invalidateCountryLookupCache() {
                 'menu-layer-ethnic-label': 'ethnicLabel',
                 'menu-layer-military': 'military',
                 'menu-layer-natural': 'natural',
+                'menu-layer-relic': 'relic',
                 'menu-layer-rivers': 'rivers',
                 'menu-layer-timeline': 'timeline',
                 'menu-layer-king': 'kingPanel',
@@ -9052,7 +9098,7 @@ function invalidateCountryLookupCache() {
 
     // 🚀 [IndexedDB] Castles 캐싱 시스템
     const CASTLES_DB_NAME = 'CastlesDB';
-    const CASTLES_DB_VERSION = 4;
+    const CASTLES_DB_VERSION = 5;  // 🚩 캐시 강제 무효화 (산성하 고분군 built_year 수정)
     const CASTLES_STORE_NAME = 'castles';
     const CASTLES_CACHE_DURATION = 3 * 60 * 60 * 1000; // 3시간
 
@@ -16046,6 +16092,7 @@ kingSelect.addEventListener('change', () => {
             'menu-layer-ethnic-label': 'ethnicLabel',
             'menu-layer-military': 'military',
             'menu-layer-natural': 'natural',
+            'menu-layer-relic': 'relic',
             'menu-layer-rivers': 'rivers',
             'menu-layer-timeline': 'timeline',
             'menu-layer-king': 'kingPanel',
@@ -17418,6 +17465,9 @@ kingSelect.addEventListener('change', () => {
                 if (countries && countries.length > 0 && !searchInput?._contribInitialized) {
                     populateContribCountrySelect();
                 }
+                // 🚩 폼이 열릴 때 placeType 초기값에 맞게 UI 갱신
+                const cpt = document.getElementById('contribPlaceType');
+                if (cpt) cpt.dispatchEvent(new Event('change'));
             }
         });
         if (contributionForm) {
@@ -17756,6 +17806,21 @@ kingSelect.addEventListener('change', () => {
             else if (contrib.category === 'label') markerType = 'label';
             else if (contrib.is_battle) markerType = 'battle';
             setActiveMarkerType(markerType);
+
+            // 🚩 자연지물 종류 자동 설정
+            if (markerType === 'natural') {
+                // contrib.natural_feature_type 우선, 없으면 placeType에서 유추
+                let nfType = contrib.natural_feature_type || null;
+                if (!nfType && contrib.placeType) {
+                    // placeType: 'natural_tomb' → 'tomb', 'natural_mountain' → 'mountain' 등
+                    nfType = contrib.placeType.replace(/^natural_/, '') || null;
+                }
+                if (nfType) {
+                    const nfSelect = document.getElementById('naturalFeatureType');
+                    const hasOpt = nfSelect && Array.from(nfSelect.options).some(o => o.value === nfType);
+                    if (hasOpt) nfSelect.value = nfType;
+                }
+            }
 
             // 역사 기록 채우기 (normal / battle)
             if (markerType === 'normal' || markerType === 'battle') {
