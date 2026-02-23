@@ -2069,6 +2069,8 @@ body.force-mobile .marker-type-selector button {
             z-index: 1100;
             display: none;
             transition: opacity 0.3s ease;
+            /* 🚩 [수정] 편집창이 열려있는 동안 지도 조작이 overlay를 통과하도록 클릭 차단 해제 */
+            pointer-events: none;
         }
 
         #edit-panel-overlay.active {
@@ -13047,7 +13049,15 @@ function invalidateCountryLookupCache() {
       
       if (editMarker) map.removeLayer(editMarker);
       editMarker = L.marker(e.latlng, { draggable: true }).addTo(map);
+      editMarker.dragging.enable();
+      // 🚩 editMarker 클릭 시 하위 마커로 이벤트 전파 차단 (창 닫힘 방지)
+      editMarker.on('click', (e) => { L.DomEvent.stopPropagation(e); });
+      editMarker.on('dragstart', () => { window._editMarkerDragging = true; });
       editMarker.on('dragend', (event) => {
+        window._editMarkerDragging = false;
+        // 🚩 dragend 직후 발생하는 spurious click 이벤트 차단 (300ms)
+        window._editMarkerJustDragged = true;
+        setTimeout(() => { window._editMarkerJustDragged = false; }, 300);
         const marker = event.target;
         const position = marker.getLatLng();
         document.getElementById('castleLat').value = position.lat.toFixed(6);
@@ -13253,7 +13263,15 @@ function invalidateCountryLookupCache() {
         
         if (editMarker) map.removeLayer(editMarker);
         editMarker = L.marker([castle.lat, castle.lng], { draggable: true }).addTo(map);
+        editMarker.dragging.enable();
+        // 🚩 editMarker 클릭 시 하위 마커로 이벤트 전파 차단 (창 닫힘 방지)
+        editMarker.on('click', (e) => { L.DomEvent.stopPropagation(e); });
+        editMarker.on('dragstart', () => { window._editMarkerDragging = true; });
         editMarker.on('dragend', (event) => {
+            window._editMarkerDragging = false;
+            // 🚩 dragend 직후 발생하는 spurious click 이벤트 차단 (300ms)
+            window._editMarkerJustDragged = true;
+            setTimeout(() => { window._editMarkerJustDragged = false; }, 300);
             const marker = event.target;
             const position = marker.getLatLng();
             document.getElementById('castleLat').value = position.lat.toFixed(6);
@@ -13454,6 +13472,17 @@ function invalidateCountryLookupCache() {
         // 임시 마커 표시
         if (editMarker) map.removeLayer(editMarker);
         editMarker = L.marker([contrib.lat, contrib.lng], { draggable: true }).addTo(map);
+        editMarker.dragging.enable();
+        editMarker.on('click', (e) => { L.DomEvent.stopPropagation(e); });
+        editMarker.on('dragstart', () => { window._editMarkerDragging = true; });
+        editMarker.on('dragend', (event) => {
+            window._editMarkerDragging = false;
+            window._editMarkerJustDragged = true;
+            setTimeout(() => { window._editMarkerJustDragged = false; }, 300);
+            const pos = event.target.getLatLng();
+            document.getElementById('castleLat').value = pos.lat.toFixed(6);
+            document.getElementById('castleLng').value = pos.lng.toFixed(6);
+        });
         map.setView([contrib.lat, contrib.lng], 10);
     };
 
@@ -16497,6 +16526,8 @@ kingSelect.addEventListener('change', () => {
         const editPanelOverlay = document.getElementById('edit-panel-overlay');
         if (editPanelOverlay) {
             editPanelOverlay.addEventListener('click', () => {
+                // 🚩 마커 드래그 중이거나 직후에는 편집창 닫기 무시 (dragend 후 spurious click 방지)
+                if (window._editMarkerDragging || window._editMarkerJustDragged) return;
                 closeAllEditPanels();
             });
         }
@@ -17961,7 +17992,14 @@ kingSelect.addEventListener('change', () => {
             if (editMarker) map.removeLayer(editMarker);
             if (contrib.lat && contrib.lng) {
                 editMarker = L.marker([contrib.lat, contrib.lng], { draggable: true }).addTo(map);
+                editMarker.dragging.enable();
+                // 🚩 editMarker 클릭 시 하위 마커로 이벤트 전파 차단 (창 닫힘 방지)
+                editMarker.on('click', (e) => { L.DomEvent.stopPropagation(e); });
+                editMarker.on('dragstart', () => { window._editMarkerDragging = true; });
                 editMarker.on('dragend', (e) => {
+                    window._editMarkerDragging = false;
+                    window._editMarkerJustDragged = true;
+                    setTimeout(() => { window._editMarkerJustDragged = false; }, 300);
                     const pos = e.target.getLatLng();
                     document.getElementById('castleLat').value = pos.lat.toFixed(6);
                     document.getElementById('castleLng').value = pos.lng.toFixed(6);
