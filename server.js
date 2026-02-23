@@ -721,6 +721,8 @@ app.post('/api/countries', verifyAdmin, async (req, res) => {
         newCountry.is_main_dynasty = typeof newCountry.is_main_dynasty === 'boolean' ? newCountry.is_main_dynasty : false;
         // ✨ NEW: ethnicity 필드 추가
         newCountry.ethnicity = newCountry.ethnicity || null;
+        // ✨ NEW: description 필드 추가
+        newCountry.description = newCountry.description || null;
 
         const result = await collections.countries.insertOne(newCountry);
         // 클라이언트에서 countryOriginalName 필드를 사용하여 신규 여부를 확인하므로, 
@@ -770,6 +772,8 @@ app.put('/api/countries/:name', verifyAdmin, async (req, res) => {
         updatedCountry.is_main_dynasty = typeof updatedCountry.is_main_dynasty === 'boolean' ? updatedCountry.is_main_dynasty : false;
         // ✨ NEW: ethnicity 필드 추가
         updatedCountry.ethnicity = updatedCountry.ethnicity || null;
+        // ✨ NEW: description 필드 추가
+        updatedCountry.description = updatedCountry.description || null;
         
         // 🚩 [수정] _id 또는 name으로 검색 (이름 변경 시에도 안전)
         let query;

@@ -4640,7 +4640,6 @@ body.force-mobile .marker-type-selector button {
         <div id="map-king-panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.12); padding-bottom: 8px; cursor: grab; user-select: none;">
             <h3 style="margin: 0; font-size: 14px; color: #f5e9d2; letter-spacing: 0.5px;">⠿ 국가별 왕 목록</h3>
             <div style="display: flex; gap: 5px; align-items: center; flex-shrink: 0;">
-                <button id="map-king-toggle-btn" class="panel-icon-btn" title="패널 접기/펼치기">◆</button>
                 <button id="map-king-close-btn" class="panel-icon-btn close-btn" title="닫기">✕</button>
             </div>
         </div>
@@ -4653,6 +4652,18 @@ body.force-mobile .marker-type-selector button {
 
     <!-- 🚩 한줄평 클릭 팝업 -->
     <div id="king-summary-popup"></div>
+
+    <!-- 🚩 국가 정보 모달 -->
+    <div id="country-info-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:3000; align-items:center; justify-content:center;">
+        <div style="position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6);" id="country-info-modal-backdrop"></div>
+        <div style="position:relative; background:#1e2a38; border:1px solid rgba(255,255,255,0.15); border-radius:10px; padding:24px; max-width:500px; width:90%; max-height:80vh; overflow-y:auto; box-shadow:0 8px 32px rgba(0,0,0,0.5); z-index:1;">
+            <button id="country-info-modal-close" style="position:absolute; top:12px; right:14px; background:none; border:none; color:#9aabbd; font-size:20px; cursor:pointer; line-height:1;">✕</button>
+            <div id="country-info-modal-flag" style="margin-bottom:10px;"></div>
+            <h2 id="country-info-modal-name" style="margin:0 0 4px; font-size:20px; color:#f5e9d2; font-family:'Noto Serif KR',serif;"></h2>
+            <div id="country-info-modal-meta" style="font-size:12px; color:#9aabbd; margin-bottom:16px;"></div>
+            <div id="country-info-modal-desc" style="font-size:14px; color:#d0e0f0; line-height:1.8; white-space:pre-wrap;"></div>
+        </div>
+    </div>
 
     <!-- 🚩 역사 기록 투명 박스 (오른쪽 상단 탑바 바로 아래, 왕패널 오른쪽) -->
     <div id="map-history-panel" class="expanded" style="position: fixed; top: 60px; right: 10px; width: 320px; height: 260px; min-width: 200px; min-height: 120px; z-index: 1000; background: rgba(30, 42, 56, 0.40); backdrop-filter: blur(3px); padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); overflow: hidden; pointer-events: auto; display: none; box-sizing: border-box;">
@@ -5045,6 +5056,10 @@ body.force-mobile .marker-type-selector button {
         <div class="form-row">
             <label for="countrySealText" style="line-height:1.3;">낙인 글씨:<br><small style="color:#95a5a6; font-weight:400;">수도 마커 낙관에 표시될 글자 (비워두면 국가명에서 자동 추출)</small></label>
             <input type="text" id="countrySealText" placeholder="예: 漢, 고, ?" maxlength="2" style="width: 60px; flex-grow: 0; text-align: center; font-size: 15px;">
+        </div>
+        <div class="form-row" style="align-items: flex-start;">
+            <label for="countryDescription" style="line-height:1.3; padding-top: 6px;">국가 소개:<br><small style="color:#95a5a6; font-weight:400;">국가명 클릭 시 표시될 설명</small></label>
+            <textarea id="countryDescription" placeholder="국가에 대한 설명을 입력하세요..." style="flex-grow:1; min-height:100px; resize:vertical; background:#2c3e50; color:#ecf0f1; border:1px solid #5d7185; border-radius:4px; padding:8px; font-size:13px; font-family:inherit;"></textarea>
         </div>
         <hr style="margin: 15px 0;">
         <div class="form-actions" style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
@@ -8704,7 +8719,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         
         const _capitalImgHtml = '';
         popupHtml = _capitalImgHtml
-                + `<b>${castleName}</b><br>${flagHtml} <span style="color:#c8d8e8;">${countryName}</span>${countryEthnicity}<br><span style="color:#9aabbd;font-size:11px;">존속: ${builtText} ~ ${destroyedText}</span>` 
+                + `<b>${castleName}</b><br>${flagHtml} <span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8; cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px;">${countryName}</span>${countryEthnicity}<br><span style="color:#9aabbd;font-size:11px;">존속: ${builtText} ~ ${destroyedText}</span>` 
                 + (castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${castle.desc}</span>` : "") 
                 + (castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px; max-height:100px; object-fit:cover; border-radius:4px; border:1px solid rgba(180,140,80,0.3); margin-top:4px;">` : "") 
                 + kingHtml
@@ -8803,6 +8818,16 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                             marker.closePopup();
                         }
                     });
+                    // 🚩 국가명 클릭 → 국가 정보 모달
+                    const link = popup._container.querySelector('.country-name-link');
+                    if (link) {
+                        link.addEventListener('click', (ev) => {
+                            ev.stopPropagation();
+                            const cId = link.dataset.countryId;
+                            const cInfo = getCountryInfoById(cId) || getCountryInfo(link.textContent.trim());
+                            if (cInfo) showCountryInfoModal(cInfo);
+                        }, { once: true });
+                    }
                 }
               });
               
@@ -11019,43 +11044,13 @@ function invalidateCountryLookupCache() {
           }
       }
 
-      // 🚩 왕 목록 패널 토글 기능
+      // 🚩 왕 목록 패널 이벤트 차단
       const mapKingPanel = document.getElementById('map-king-panel');
-      const mapKingToggleBtn = document.getElementById('map-king-toggle-btn');
-      const mapKingList = document.getElementById('map-king-list');
       
-      if (mapKingToggleBtn && mapKingPanel && mapKingList) {
+      if (mapKingPanel) {
           mapKingPanel.addEventListener('click', (e) => e.stopPropagation());
           mapKingPanel.addEventListener('dblclick', (e) => e.stopPropagation());
           mapKingPanel.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
-          
-          const isMobile = document.body.classList.contains('force-mobile');
-          let isKingPanelExpanded = !isMobile;
-          
-          if (!isKingPanelExpanded) {
-              mapKingList.style.display = 'none';
-              mapKingToggleBtn.innerHTML = '▼';
-              mapKingToggleBtn.title = '패널 펼치기';
-          } else {
-              mapKingList.style.display = 'block';
-              mapKingToggleBtn.innerHTML = '▲';
-              mapKingToggleBtn.title = '패널 접기';
-          }
-          
-          mapKingToggleBtn.addEventListener('click', (e) => {
-              e.stopPropagation();
-              isKingPanelExpanded = !isKingPanelExpanded;
-              
-              if (isKingPanelExpanded) {
-                  mapKingList.style.display = 'block';
-                  mapKingToggleBtn.innerHTML = '▲';
-                  mapKingToggleBtn.title = '패널 접기';
-              } else {
-                  mapKingList.style.display = 'none';
-                  mapKingToggleBtn.innerHTML = '▼';
-                  mapKingToggleBtn.title = '패널 펼치기';
-              }
-          });
       }
 
       // 🚩 우하단 리사이즈 핸들 공통 함수
@@ -14197,6 +14192,7 @@ function invalidateCountryLookupCache() {
         document.getElementById('countryEthnicity').value = country.ethnicity || '';
         document.getElementById('isMainDynasty').checked = country.is_main_dynasty || false;
         document.getElementById('countrySealText').value = country.sealText || '';
+        document.getElementById('countryDescription').value = country.description || '';
 
         document.getElementById('deleteCountryBtn').style.display = 'inline-block';
         document.getElementById('saveCountryBtn').textContent = '저장';
@@ -14255,7 +14251,8 @@ function invalidateCountryLookupCache() {
             flag: document.getElementById('countryFlag').value || null,
             ethnicity: document.getElementById('countryEthnicity').value || null,
             is_main_dynasty: document.getElementById('isMainDynasty').checked,
-            sealText: document.getElementById('countrySealText').value.trim() || null
+            sealText: document.getElementById('countrySealText').value.trim() || null,
+            description: document.getElementById('countryDescription').value.trim() || null
         };
         
         if (!data.name || isNaN(data.start) || !data.color) {
@@ -14320,6 +14317,7 @@ function invalidateCountryLookupCache() {
             document.getElementById('countryColor').value = '#ffffff'; // 색상 기본값
             document.getElementById('countrySearchForEdit').value = ''; // 검색창 초기화
             document.getElementById('countrySealText').value = ''; // 낙인 글씨 초기화
+            document.getElementById('countryDescription').value = ''; // 국가 소개 초기화
 
             // 🚩 [수정] 수정했던 국가를 다시 선택해줍니다.
             document.getElementById('countrySelectForEdit').value = newName;
@@ -14374,6 +14372,40 @@ function invalidateCountryLookupCache() {
     document.getElementById('cancelCountryBtn').addEventListener('click', () => {
         closeEditPanel('countryForm');
     });
+
+    // 🚩 국가 정보 모달 초기화
+    document.getElementById('country-info-modal-close').addEventListener('click', () => {
+        document.getElementById('country-info-modal').style.display = 'none';
+    });
+    document.getElementById('country-info-modal-backdrop').addEventListener('click', () => {
+        document.getElementById('country-info-modal').style.display = 'none';
+    });
+
+    function showCountryInfoModal(cInfo) {
+        const modal = document.getElementById('country-info-modal');
+        const sealChar = cInfo.sealText || (()=>{ const n=cInfo.name||''; const hanja=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hanja.length) return hanja.slice(-1)[0]; const hangul=(n.match(/[가-힣]/g)||[]); return hangul.length ? hangul.slice(-1)[0] : '?'; })();
+        const sealColor = cInfo.color || '#c0392b';
+        const flagEl = document.getElementById('country-info-modal-flag');
+        flagEl.innerHTML = cInfo.flag
+            ? `<img src="${cInfo.flag}" style="height:36px; border:1px solid rgba(255,255,255,0.2); border-radius:3px;">`
+            : `<span style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;background:${sealColor};border-radius:4px;font-size:18px;color:#fff;font-family:'Noto Serif KR',serif;">${sealChar}</span>`;
+        document.getElementById('country-info-modal-name').textContent = cInfo.name;
+        const startStr = `${cInfo.start}년${cInfo.start_month && cInfo.start_month !== 1 ? ` ${cInfo.start_month}월` : ''}`;
+        const endStr = cInfo.end ? `${cInfo.end}년${cInfo.end_month && cInfo.end_month !== 12 ? ` ${cInfo.end_month}월` : ''}` : '현재';
+        let meta = `${startStr} ~ ${endStr}`;
+        if (cInfo.ethnicity) meta += ` · ${cInfo.ethnicity}`;
+        document.getElementById('country-info-modal-meta').textContent = meta;
+        const desc = cInfo.description || '';
+        const descEl = document.getElementById('country-info-modal-desc');
+        if (desc) {
+            descEl.style.display = 'block';
+            descEl.textContent = desc;
+        } else {
+            descEl.style.display = 'none';
+            descEl.textContent = '';
+        }
+        modal.style.display = 'flex';
+    }
 
     // --- 10. 이벤트 편집 폼 관리 --- (🚩 [신규 추가])
     function populateEventSelect() {
