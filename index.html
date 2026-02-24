@@ -5093,6 +5093,10 @@ body.force-mobile .marker-type-selector button {
             <label for="countryDescription" style="line-height:1.3; padding-top: 6px;">국가 소개:<br><small style="color:#95a5a6; font-weight:400;">국가명 클릭 시 표시될 설명</small></label>
             <textarea id="countryDescription" placeholder="국가에 대한 설명을 입력하세요..." style="flex-grow:1; min-height:100px; resize:vertical; background:#2c3e50; color:#ecf0f1; border:1px solid #5d7185; border-radius:4px; padding:8px; font-size:13px; font-family:inherit;"></textarea>
         </div>
+        <div class="form-row" id="countryCastleCountRow" style="display:none;">
+            <label style="color:#95a5a6; font-size:12px;">연결된 성/도시:</label>
+            <div id="countryCastleCount" style="font-size:13px; color:#ecf0f1; display:flex; align-items:center; gap:8px; flex-wrap:wrap;"></div>
+        </div>
         <hr style="margin: 15px 0;">
         <div class="form-actions" style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
           <button type="button" id="cancelCountryBtn">취소</button>
@@ -14234,6 +14238,7 @@ function invalidateCountryLookupCache() {
             document.getElementById('countryOriginalId').value = '';
             document.getElementById('deleteCountryBtn').style.display = 'none';
             document.getElementById('saveCountryBtn').textContent = '저장';
+            document.getElementById('countryCastleCountRow').style.display = 'none';
             return;
         }
         
@@ -14256,6 +14261,9 @@ function invalidateCountryLookupCache() {
 
         document.getElementById('deleteCountryBtn').style.display = 'inline-block';
         document.getElementById('saveCountryBtn').textContent = '저장';
+
+        // 🏯 연결된 성/도시 수 계산
+        updateCountryCastleCount(country._id, country.name);
     });
     
     // 🚩 [수정] 국가 편집 폼 내 검색 기능을 자동 완성 방식으로 변경
@@ -14442,6 +14450,35 @@ function invalidateCountryLookupCache() {
     document.getElementById('cancelCountryBtn').addEventListener('click', () => {
         closeEditPanel('countryForm');
     });
+
+    // 🏯 연결된 성/도시 수 계산 함수
+    function updateCountryCastleCount(countryId, countryName) {
+        const row = document.getElementById('countryCastleCountRow');
+        const countEl = document.getElementById('countryCastleCount');
+        if (!countryId) { row.style.display = 'none'; return; }
+
+        // 로컬 castles 데이터로 즉시 계산
+        let direct = 0;   // country_id 직접 연결
+        let inHistory = 0; // history 배열 내 참조
+
+        castles.forEach(c => {
+            const cid = c.country_id ? String(c.country_id) : null;
+            const inHist = (c.history || []).some(h => String(h.country_id) === String(countryId));
+            if (cid === String(countryId)) direct++;
+            else if (inHist) inHistory++;
+        });
+
+        const total = direct + inHistory;
+        row.style.display = 'flex';
+
+        if (total === 0) {
+            countEl.innerHTML = `<span style="color:#e74c3c;">⚠️ 연결된 성/도시 없음</span>`;
+        } else {
+            countEl.innerHTML =
+                `<span style="font-weight:bold; color:#2ecc71; font-size:15px;">🏯 총 ${total}개</span>` +
+                `<span style="color:#95a5a6; font-size:12px;">(수도/직접: ${direct}개 · 역사 기록: ${inHistory}개)</span>`;
+        }
+    }
 
     // 🚩 국가 정보 모달 초기화
     document.getElementById('country-info-modal-close').addEventListener('click', () => {
