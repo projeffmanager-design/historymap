@@ -8943,7 +8943,7 @@ function invalidateCountryLookupCache() {
             const cachedData = localStorage.getItem('countries_cache');
             const cacheTime = localStorage.getItem('countries_cache_time');
             const cacheVersion = localStorage.getItem('countries_cache_version');
-            const CACHE_DURATION = 60 * 60 * 1000; // 1시간
+            const CACHE_DURATION = 5 * 60 * 1000; // 5분 (국가 데이터 변경 반영 지연 최소화)
             // 앱 버전 기반 캐시 키: 배포(APP_VERSION 변경) 시 자동 무효화
             const versionKey = localStorage.getItem('app_version') || 'init';
             
@@ -14300,6 +14300,11 @@ function invalidateCountryLookupCache() {
 
             alert(isUpdate ? "국가 정보가 성공적으로 수정되었습니다." : "새 국가가 성공적으로 추가되었습니다.");
 
+            // 🚩 국가 데이터 변경 시 모든 브라우저 캐시 즉시 무효화 (다른 브라우저에서 즉시 반영되도록)
+            localStorage.removeItem('countries_cache');
+            localStorage.removeItem('countries_cache_time');
+            localStorage.removeItem('countries_cache_version');
+
             // 🚩 [최적화] 전체 fetch 대신 메모리에서 증분 업데이트
             if (isUpdate) {
                 updateCountryInMemory(originalId || originalName, data);
@@ -14361,6 +14366,11 @@ function invalidateCountryLookupCache() {
 
             closeEditPanel('countryForm');
             
+            // 🚩 국가 데이터 변경 시 캐시 즉시 무효화
+            localStorage.removeItem('countries_cache');
+            localStorage.removeItem('countries_cache_time');
+            localStorage.removeItem('countries_cache_version');
+
             // 🚩 [최적화] 전체 fetch 대신 메모리에서 삭제
             deleteCountryInMemory(originalId || originalName);
         } catch (error) {
