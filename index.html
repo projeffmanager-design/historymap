@@ -226,7 +226,7 @@
 (function() {
     const CONFIG = {
         APP_VERSION: '3.5.3',           // [v3.5.3] Vercel 캐시 불일치 수정 — countries/castle 동기화
-        DATA_SCHEMA_VERSION: '2.0.2'    // countries_cache + IndexedDB 동시 초기화
+        DATA_SCHEMA_VERSION: '2.0.3'    // countries_cache 강제 갱신 (국가 추가 반영)
     };
     
     const storedAppVersion = localStorage.getItem('app_version');
@@ -8938,20 +8938,43 @@ function invalidateCountryLookupCache() {
       try {
         // console.log(`📡 [Fetch] ${endpoint} 요청 시작...`);
         
-        // 🚀 [최적화] countries 데이터 캐싱 (localStorage)
+        // 🚀 [최적화] countries 데이터 캐싱 (localStorage) — stale-while-revalidate
         if (endpoint === 'countries') {
             const cachedData = localStorage.getItem('countries_cache');
             const cacheTime = localStorage.getItem('countries_cache_time');
             const cacheVersion = localStorage.getItem('countries_cache_version');
-            const CACHE_DURATION = 5 * 60 * 1000; // 5분 (국가 데이터 변경 반영 지연 최소화)
-            // 앱 버전 기반 캐시 키: 배포(APP_VERSION 변경) 시 자동 무효화
+            const CACHE_DURATION = 5 * 60 * 1000; // 5분
             const versionKey = localStorage.getItem('app_version') || 'init';
             
             if (cachedData && cacheTime && cacheVersion === versionKey) {
                 const age = Date.now() - parseInt(cacheTime);
                 if (age < CACHE_DURATION) {
-                    // console.log(`💾 [캐시] countries 캐시 사용 (${(age / 1000 / 60).toFixed(1)}분 전 저장)`);
-                    return JSON.parse(cachedData);
+                    // 캐시 유효: 즉시 반환하되, 백그라운드에서 최신 데이터 확인 (국가 추가/삭제 반영)
+                    const cached = JSON.parse(cachedData);
+                    // � [백그라운드 재검증] 서버와 개수 다르면 캐시 갱신 + 지도 재렌더링
+                    setTimeout(async () => {
+                        try {
+                            const res = await fetch(`${API_BASE_URL}/countries`, {
+                                headers: { 'Authorization': `Bearer ${token}` }
+                            });
+                            if (res.ok) {
+                                const fresh = await res.json();
+                                const cachedCount = cached.length;
+                                const freshCount = fresh.length;
+                                if (freshCount !== cachedCount) {
+                                    console.log(`🔄 [백그라운드] countries 개수 변경 감지: ${cachedCount} → ${freshCount}. 캐시 갱신 및 지도 재렌더링`);
+                                    localStorage.setItem('countries_cache', JSON.stringify(fresh));
+                                    localStorage.setItem('countries_cache_time', Date.now().toString());
+                                    localStorage.setItem('countries_cache_version', versionKey);
+                                    countries = fresh;
+                                    _countryLookupMap = null;
+                                    if (updateMap._loggedMissingIds) updateMap._loggedMissingIds.clear();
+                                    requestUpdateMap();
+                                }
+                            }
+                        } catch(e) { /* 백그라운드 실패는 무시 */ }
+                    }, 500);
+                    return cached;
                 }
             }
         }
