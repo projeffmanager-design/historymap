@@ -1000,6 +1000,38 @@ body.force-mobile .marker-type-selector button {
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <!-- 🚩 [추가] Leaflet.draw 플러그인 -->
   <script src="https://cdn.jsdelivr.net/npm/leaflet-textpath/leaflet.textpath.min.js"></script>
+  <script>
+  // 🔧 [textpath 버그 패치] _path가 undefined일 때 setAttribute 오류 방지
+  (function patchLeafletTextpath() {
+      function tryPatch() {
+          if (!L || !L.Polyline || !L.Polyline.prototype._textRedraw) return false;
+          const proto = L.Polyline.prototype;
+          const orig_textRedraw = proto._textRedraw;
+          proto._textRedraw = function() {
+              if (!this._path) return;
+              if (this._textNode && !this._textNode.parentNode) return;
+              try { orig_textRedraw.call(this); } catch(e) { /* _path 미연결 타이밍 무시 */ }
+          };
+          const orig_setText = proto.setText;
+          proto.setText = function(text, options) {
+              try { return orig_setText.call(this, text, options); } catch(e) { return this; }
+          };
+          const orig_updatePath = proto._updatePath;
+          if (orig_updatePath) {
+              proto._updatePath = function() {
+                  if (!this._path) return;
+                  try { orig_updatePath.call(this); } catch(e) { /* 무시 */ }
+              };
+          }
+          return true;
+      }
+      // textpath가 로드된 직후 실행 (동기 스크립트이므로 바로 패치 가능)
+      if (!tryPatch()) {
+          // 혹시 L이 아직 없으면 DOMContentLoaded 후 재시도
+          document.addEventListener('DOMContentLoaded', tryPatch);
+      }
+  })();
+  </script>
   <!-- 🚩 [추가] 모바일 스와이프 이벤트를 위한 Hammer.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
   <!-- 🚩 [추가] Leaflet.PolylineDecorator 플러그인 (화살표용) -->
@@ -7440,13 +7472,18 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         }
 
         // 🚩 [수정] 그리기 레이어 초기화를 다른 레이어 초기화와 함께 처리
-        // 🔧 [textpath 에러 수정] clearLayers() 전에 setText(null)로 textpath 요소를 먼저 해제
+        // 🔧 [textpath 에러 수정] clearLayers() 전에 setText(null)로 textpath 요소를 먼저 해제 (재귀)
         if (drawnItems) {
-            drawnItems.eachLayer(layer => {
+            function safeTextPathClear(l) {
+                if (!l) return;
+                if (typeof l.eachLayer === 'function') {
+                    l.eachLayer(child => safeTextPathClear(child));
+                }
                 try {
-                    if (typeof layer.setText === 'function') layer.setText(null);
+                    if (typeof l.setText === 'function') l.setText(null);
                 } catch(e) { /* 무시 */ }
-            });
+            }
+            safeTextPathClear(drawnItems);
             drawnItems.clearLayers();
         }
         
