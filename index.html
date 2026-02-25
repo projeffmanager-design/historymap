@@ -4727,83 +4727,204 @@ body.force-mobile .marker-type-selector button {
             <button type="button" class="edit-panel-close-btn" onclick="closeEditPanel('castleForm')">✕</button>
         </div>
         <div class="edit-panel-inner">
-        <form id="addCastleForm"><input type="hidden" id="castleKey"><div class="form-row"><label>마커 타입:</label><div id="markerTypeSelector" class="marker-type-selector"><button type="button" data-type="normal" class="active">성/도시</button><button type="button" data-type="military">군대</button><button type="button" data-type="natural">자연</button><button type="button" data-type="label">지명</button></div></div><div class="form-row"><label for="castleName">이름:</label>
-        <input type="text" id="castleName" style="width: 280px;" required> 
-        <!-- 🚩 [추가] 기여 변환 시 원본 기여자 정보 저장용 히든 필드 -->
-        <input type="hidden" id="originContributionId">
-        <input type="hidden" id="originContributor">
+        <form id="addCastleForm"><input type="hidden" id="castleKey">
+      <input type="hidden" id="originContributionId">
+      <input type="hidden" id="originContributor">
+
+      <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           ① 마커 타입 선택 (항상 최상단)
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+      <div class="form-row">
+        <label>마커 타입:</label>
+        <div id="markerTypeSelector" class="marker-type-selector">
+          <button type="button" data-type="normal" class="active">성/도시</button>
+          <button type="button" data-type="military">군대</button>
+          <button type="button" data-type="natural">자연</button>
+          <button type="button" data-type="label">지명</button>
+        </div>
       </div>
-      <div class="form-row" id="labelColorRow" style="display:none;">
-    <label for="labelColor">글자 색상:</label>
-        <input type="color" id="labelColor" value="#FFFFFF" style="height: 30px; padding: 2px;">
+
+      <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           ② 타입별 서브 분류 (타입 선택 직후)
+           · 자연: 지물 종류
+           · 지명: 라벨 타입
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+      <!-- [자연] 지물 종류 -->
+      <div id="naturalFeatureDetails" style="display:none; flex-direction:column; gap:0;">
+        <div class="form-row">
+          <label for="naturalFeatureType">지물 종류:</label>
+          <select id="naturalFeatureType" style="flex:1; min-width:150px;">
+            <option value="mountain">산/숲</option>
+            <option value="sea">바다/호수</option>
+            <option value="river">강/내륙</option>
+            <option value="mudflat">뻘/늪</option>
+            <option value="tomb">고분/묘 🪦</option>
+            <option value="temple">사원/신전 🏛</option>
+            <option value="palace">궁전 🏯</option>
+            <option value="mine">광산 ⛏️</option>
+            <option value="port">항구 ⚓</option>
+            <option value="kiln">가마/도요지 🔥</option>
+            <option value="farmland">농경지 🌾</option>
+            <option value="horse">말 🐎</option>
+            <option value="buffalo">물소 🐃</option>
+            <option value="mongky">원숭이 🐒</option>
+            <option value="camel">낙타 🐫</option>
+            <option value="hunting">사냥터 🏹</option>
+            <option value="construction">건설 ⚒️</option>
+          </select>
+        </div>
       </div>
-      <!-- ✨ [신규] 지명 타입 선택 (지명/국가명/민족) -->
+      <!-- [지명] 라벨 타입 -->
       <div class="form-row" id="labelTypeRow" style="display:none;">
-    <label for="labelType">라벨 타입:</label>
+        <label for="labelType">라벨 타입:</label>
         <select id="labelType">
-            <option value="place">지명 (산, 강, 지형)</option>
-            <option value="country">국가명 (고구려, 조선 등)</option>
-            <option value="ethnic">민족 거주지 (한민족, 여진족 등)</option>
+          <option value="place">지명 (산, 강, 지형)</option>
+          <option value="country">국가명 (고구려, 조선 등)</option>
+          <option value="ethnic">민족 거주지 (한민족, 여진족 등)</option>
         </select>
       </div>
-      <!-- 🚩 [추가] 지명 글자 크기 선택 -->
-      <div class="form-row" id="labelSizeRow" style="display:none;">
-    <label for="labelSize">글자 크기:</label>
-        <select id="labelSize">
-            <option value="medium">중</option><option value="large">대</option><option value="small">소</option></select>
+
+      <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           ③ 이름 (군대는 소속국가·장수이름 우선)
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+      <!-- [군대] 소속 국가 + 장수 이름 -->
+      <div id="militaryIdentitySection" style="display:none;">
+        <div class="form-row">
+          <label for="militaryCountryNameInput">소속 국가:</label>
+          <div style="display:flex; flex-grow:1; gap:10px; position:relative;">
+            <input type="text" id="militaryCountryNameInput" placeholder="소속 국가명 입력..." autocomplete="off" required style="flex-grow:1;">
+            <div class="autocomplete-results" id="militaryCountryResults"></div>
+            <select id="militaryCountrySelect" style="width:180px; flex-shrink:0;"></select>
+          </div>
+          <input type="hidden" id="militaryCountryId" value="">
+        </div>
+        <div class="form-row">
+          <label for="generalName">장수 이름:</label>
+          <input type="text" id="generalName" placeholder="장수 이름 (선택)">
+        </div>
       </div>
+      <!-- [성/도시·자연·지명] 이름 -->
+      <div class="form-row" id="castleNameRow">
+        <label for="castleName">이름:</label>
+        <input type="text" id="castleName" required>
+      </div>
+      <!-- [지명] 글자 색상 · 크기 -->
+      <div class="form-row" id="labelColorRow" style="display:none;">
+        <label for="labelColor">글자 색상:</label>
+        <input type="color" id="labelColor" value="#FFFFFF" style="height:30px; padding:2px;">
+      </div>
+      <div class="form-row" id="labelSizeRow" style="display:none;">
+        <label for="labelSize">글자 크기:</label>
+        <select id="labelSize">
+          <option value="medium">중</option>
+          <option value="large">대</option>
+          <option value="small">소</option>
+        </select>
+      </div>
+
+      <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           ④ 위도 / 경도 (모든 타입 공통)
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
       <div class="form-row">
-        <label>위도/경도:</label>
+        <label>위도 / 경도:</label>
         <div class="input-group">
           <input type="number" id="castleLat" step="any" required placeholder="위도">
           <input type="number" id="castleLng" step="any" required placeholder="경도">
         </div>
       </div>
-      <!-- 🚩 [추가] 전장, 지명, 자연 타입을 위한 단일 기간 설정 섹션 -->
+
+      <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           ⑤ 기간 설정
+           · 성/도시: 📜 역사 기록 (국가·이름·기간 복합)
+           · 자연·지명·군대: 단순 시작/종료 연도
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+      <!-- [성/도시·전장] 역사 기록 -->
+      <div id="castleHistorySection" style="border:1px solid #00aaff; padding:10px; margin-top:10px; border-radius:4px;">
+        <h4>📜 성/도시 역사 기록</h4>
+        <div id="castleHistoryList" style="max-height:250px; overflow-y:auto; padding-right:5px;"></div>
+        <button type="button" id="addCastleHistoryBtn" style="margin-top:5px;">역사 기록 추가</button>
+      </div>
+      <!-- [자연·지명·군대] 단순 기간 -->
       <div id="simpleDateSection" style="display:none;">
-          <div class="form-row">
-              <label for="simpleStartYear">시작 연도:</label>
-              <div class="input-group">
-                  <input type="number" id="simpleStartYear" placeholder="시작 연도">
-                  <input type="number" id="simpleStartMonth" min="1" max="12" placeholder="월" style="width: 60px; flex-grow: 0;">
-              </div>
+        <div class="form-row">
+          <label for="simpleStartYear">시작 연도:</label>
+          <div class="input-group">
+            <input type="number" id="simpleStartYear" placeholder="시작 연도">
+            <input type="number" id="simpleStartMonth" min="1" max="12" placeholder="월" style="width:60px; flex-grow:0;">
           </div>
-          <div class="form-row">
-              <label for="simpleEndYear">종료 연도:</label>
-              <div class="input-group">
-                  <input type="number" id="simpleEndYear" placeholder="종료 연도">
-                  <input type="number" id="simpleEndMonth" min="1" max="12" placeholder="월" style="width: 60px; flex-grow: 0;">
-              </div>
+        </div>
+        <div class="form-row">
+          <label for="simpleEndYear">종료 연도:</label>
+          <div class="input-group">
+            <input type="number" id="simpleEndYear" placeholder="종료 연도">
+            <input type="number" id="simpleEndMonth" min="1" max="12" placeholder="월" style="width:60px; flex-grow:0;">
           </div>
-      </div>
-      <div class="form-row">
-    <label for="castleDesc">설명:</label>
-        <textarea id="castleDesc" rows="3"></textarea>
-      </div>
-      <div class="form-row">
-    <label for="castlePhoto">사진 URL:</label>
-        <input type="text" id="castlePhoto" placeholder="선택 사항">
-      </div>
-      <!-- 🚩 [추가] 커스텀 아이콘 설정 섹션 -->
-      <div class="form-row">
-    <label for="customIcon">커스텀 아이콘 URL:</label>
-        <input type="text" id="customIcon" placeholder="이미지 URL (선택 사항)">
-      </div>
-      <div class="form-row">
-        <label>아이콘 크기:</label>
-        <div class="input-group">
-          <input type="number" id="iconWidth" placeholder="너비 (px)" min="10" max="200" style="width: 120px;">
-          <input type="number" id="iconHeight" placeholder="높이 (px)" min="10" max="200" style="width: 120px;">
         </div>
       </div>
-      <!-- 🚩 [수정] '성' 타입 전용 역사 기록 관리 섹션 -->
-      <div id="castleHistorySection" style="border: 1px solid #00aaff; padding: 10px; margin-top: 10px; border-radius: 4px;">
-          <h4>📜 성/도시 역사 기록</h4>
-          <!-- 🚩 [수정] 역사 기록 목록에 스크롤을 적용합니다. -->
-          <div id="castleHistoryList" style="max-height: 250px; overflow-y: auto; padding-right: 5px;">
-              <!-- 역사 기록이 여기에 동적으로 추가됩니다. -->
-          </div>
-          <button type="button" id="addCastleHistoryBtn" style="margin-top: 5px;">역사 기록 추가</button>
+
+      <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           ⑥ 설명 · 사진 URL
+           · 성/도시·지명 공통 필드
+           · 자연 전용 proxy
+           · 군대: 병력 수 + 장수 사진
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+      <!-- [성/도시·지명·전장] 설명 -->
+      <div class="form-row" id="castleDescRow">
+        <label for="castleDesc">설명:</label>
+        <textarea id="castleDesc" rows="3"></textarea>
+      </div>
+      <!-- [성/도시·지명·전장] 사진 URL -->
+      <div class="form-row" id="castlePhotoRow">
+        <label for="castlePhoto">사진 URL:</label>
+        <input type="text" id="castlePhoto" placeholder="선택 사항">
+      </div>
+      <!-- [자연] 설명 + 사진 URL -->
+      <div id="naturalContentDetails" style="display:none; flex-direction:column; gap:0;">
+        <div class="form-row">
+          <label for="naturalDescProxy">설명:</label>
+          <textarea id="naturalDescProxy" rows="3" placeholder="팝업에 표시할 설명 (선택)" style="flex:1; resize:vertical;"
+            oninput="document.getElementById('castleDesc').value=this.value"></textarea>
+        </div>
+        <div class="form-row">
+          <label for="naturalPhotoProxy">사진 URL:</label>
+          <input type="text" id="naturalPhotoProxy" placeholder="팝업에 표시할 사진 URL (선택)" style="flex:1;"
+            oninput="document.getElementById('castlePhoto').value=this.value">
+        </div>
+      </div>
+      <!-- [군대] 병력 수 + 장수 사진 -->
+      <div id="militaryStatsSection" style="display:none;">
+        <div class="form-row">
+          <label for="troopCount">병력 (명):</label>
+          <input type="number" id="troopCount" placeholder="숫자만 입력">
+        </div>
+        <div class="form-row">
+          <label for="generalPhoto">장수 사진 URL:</label>
+          <input type="text" id="generalPhoto" placeholder="선택 사항">
+        </div>
+      </div>
+
+      <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           ⑦ 커스텀 아이콘 (군대 제외 공통)
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+      <div class="form-row" id="customIconRow">
+        <label for="customIcon">커스텀 아이콘 URL:</label>
+        <input type="text" id="customIcon" placeholder="이미지 URL (선택 사항)">
+      </div>
+      <div class="form-row" id="iconSizeRow">
+        <label>아이콘 크기:</label>
+        <div class="input-group">
+          <input type="number" id="iconWidth" placeholder="너비 (px)" min="10" max="200" style="width:120px;">
+          <input type="number" id="iconHeight" placeholder="높이 (px)" min="10" max="200" style="width:120px;">
+        </div>
+      </div>
+
+      <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           ⑧ 군대 전용: 이동 경로 (마지막)
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+      <div id="pathDataSection" style="display:none; border:1px solid #00aaff; padding:10px; margin-top:10px; border-radius:4px;">
+        <h4>⚔️ 군대 이동 경로</h4>
+        <div id="pathDataList"></div>
+        <button type="button" onclick="addPathPoint()" style="margin-top:5px;">경로 지점 추가</button>
       </div>
       <style>
           .history-record-row {
@@ -4880,70 +5001,13 @@ body.force-mobile .marker-type-selector button {
         </style>
       
 
-         <hr style="margin: 15px 0;">
-      <div class="form-row" id="naturalFeatureDetails">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <label for="naturalFeatureType" style="margin: 0; white-space: nowrap;">지물 종류:</label>
-          <select id="naturalFeatureType" style="flex: 1; min-width: 150px;">
-            <option value="mountain">산/숲</option>
-            <option value="sea">바다/호수</option>
-            <option value="river">강/내륙</option>
-            <option value="mudflat">뻘/늪</option>
-            <option value="tomb">고분/묘 🪦</option>
-            <option value="temple">사원/신전 🏛</option>
-            <option value="palace">궁전 🏯</option>
-            <option value="mine">광산 ⛏️</option>
-            <option value="port">항구 ⚓</option>
-            <option value="kiln">가마/도요지 🔥</option>
-            <option value="farmland">농경지 🌾</option>
-            <option value="horse">말 🐎</option>
-            <option value="buffalo">물소 🐃</option>
-            <option value="mongky">원숭이 🐒</option>
-            <option value="camel">낙타 🐫</option>
-            <option value="hunting">사냥터 🏹</option>
-            <option value="construction">건설 ⚒️</option>
-          </select>
-        </div>
-      </div>
-     <div id="militaryFlagDetails" style="border-top: 0px solid #ccc; padding-top: 5px; margin-top: 10px;">
-    <div class="form-row">
-        <label for="militaryCountryNameInput">소속 국가:</label>
-        <!-- 🚩 [핵심 수정] 국가 검색 입력창과 선택 목록을 나란히 배치합니다. -->
-        <div style="display: flex; flex-grow: 1; gap: 10px; position: relative;">
-            <input type="text" id="militaryCountryNameInput" placeholder="소속 국가명 입력..." autocomplete="off" required style="flex-grow: 1;">
-            <div class="autocomplete-results" id="militaryCountryResults"></div>
-            <select id="militaryCountrySelect" style="width: 180px; flex-shrink: 0;"></select>
-        </div>
-        <input type="hidden" id="militaryCountryId" value="">
-    </div>
-    <div class="form-row">
-        <label for="generalName">장수 이름:</label>
-        <input type="text" id="generalName" placeholder="장수 이름">
-    </div>
-    <div class="form-row">
-        <label for="troopCount">병력 (명):</label>
-        <input type="number" id="troopCount" placeholder="숫자만">
-    </div>
-    <div class="form-row">
-        <label for="generalPhoto">장수 사진 URL:</label>
-        <input type="text" id="generalPhoto" placeholder="선택 사항">
-    </div>
-</div>
-<div id="pathDataSection" style="border: 1px solid #00aaff; padding: 10px; margin-top: 10px; border-radius: 4px;">
-                <h4>⚔️ 군대 이동 경로 (Path Data)</h4>
-                <div id="pathDataList"></div>
-                <button type="button" onclick="addPathPoint()" style="margin-top: 5px;">경로 지점 추가</button>
-            </div>
-
       <br>
       <div class="form-actions" style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
-        <!-- 🚩 [수정] 버튼 순서 변경 및 스타일 클래스 적용 -->
-        <!-- 🚩 [추가] 기여로 되돌리기 버튼 -->
         <button type="button" id="revertContributionBtn" class="danger" style="display:none; background-color: #e67e22; border-color: #d35400;">기여로 되돌리기</button>
-        <button type="button" id="cloneCastle" class="primary" style="display:none;">복제</button> <!-- 🚩 [수정] 복제 버튼 스타일 클래스 적용 -->
+        <button type="button" id="cloneCastle" class="primary" style="display:none;">복제</button>
         <button type="button" id="deleteCastle" class="danger" style="display:none;">🗑️ 휴지통</button>
         <button type="button" id="cancelCastle">취소</button>
-        <button type="submit" class="primary">저장</button> <!-- 🚩 [수정] ID 추가 -->
+        <button type="submit" class="primary">저장</button>
       </div>
     </form>
     </div><!-- edit-panel-inner -->
@@ -5832,7 +5896,7 @@ body.force-mobile .marker-type-selector button {
     // 🚩 [추가] 성/위치 폼 내 국가 선택 드롭다운 (이벤트 핸들러에서 사용)
     // 성/위치 폼 내 체크박스 및 상세 정보
     const layerToggles = document.getElementById('layer-toggles');
-    const militaryFlagDetails = document.getElementById('militaryFlagDetails');
+    // const militaryFlagDetails = document.getElementById('militaryFlagDetails'); // ← 제거된 div (militaryIdentitySection + militaryStatsSection으로 분리됨)
     // 🚩 [추가] 마커 타입 선택기 DOM 요소
     const militaryCountryNameInput = document.getElementById('militaryCountryNameInput');
     const militaryCountrySelect = document.getElementById('militaryCountrySelect');
@@ -13076,6 +13140,11 @@ function invalidateCountryLookupCache() {
       document.getElementById('customIcon').value = '';
       document.getElementById('iconWidth').value = '';
       document.getElementById('iconHeight').value = '';
+      // 자연마커 proxy 필드 초기화
+      const _naturalPhotoProxy = document.getElementById('naturalPhotoProxy');
+      const _naturalDescProxy = document.getElementById('naturalDescProxy');
+      if (_naturalPhotoProxy) _naturalPhotoProxy.value = '';
+      if (_naturalDescProxy) _naturalDescProxy.value = '';
       
       document.getElementById('castleLat').value = e.latlng.lat.toFixed(6);
       document.getElementById('castleLng').value = e.latlng.lng.toFixed(6);
@@ -13124,13 +13193,7 @@ function invalidateCountryLookupCache() {
       });
       editMarker.bindPopup('마커를 드래그하여 위치 조정').openPopup();
       
-      // 🚩 자연 지물/군대 플래그 미체크 상태로 관련 섹션 숨김
-      pathDataSection.style.display = 'none';
-      militaryFlagDetails.style.display = 'none';
-      
-      naturalFeatureDetails.style.display = 'none';
-
-      // 🚩 마커 타입 선택기 '일반'으로 초기화
+      // 마커 타입 선택기 '일반'으로 초기화 (모든 섹션 가시성 한꺼번에 정리)
       setActiveMarkerType('normal');
       };
 
@@ -13317,6 +13380,11 @@ function invalidateCountryLookupCache() {
                 const naturalTypeFromData = castle.natural_feature_type || 'mountain';
                 const hasOption = Array.from(naturalFeatureType.options).some(opt => opt.value === naturalTypeFromData);
                 naturalFeatureType.value = hasOption ? naturalTypeFromData : 'mountain';
+                // 자연마커 proxy 필드 동기화 (naturalContentDetails 내)
+                const naturalPhotoProxy = document.getElementById('naturalPhotoProxy');
+                const naturalDescProxy = document.getElementById('naturalDescProxy');
+                if (naturalPhotoProxy) naturalPhotoProxy.value = castle.photo ?? '';
+                if (naturalDescProxy) naturalDescProxy.value = castle.desc ?? '';
             }
         }
         
@@ -13363,70 +13431,73 @@ function invalidateCountryLookupCache() {
     });
     */
     
-    // 🚩 [추가] 마커 타입 버튼 상태를 설정하고 관련 UI를 토글하는 함수
+    // 마커 타입 버튼 상태 설정 및 관련 UI 토글
     function setActiveMarkerType(type) {
-        // 모든 버튼에서 active 클래스 제거
-        markerTypeSelector.querySelectorAll('button').forEach(btn => {
-            btn.classList.remove('active');
-        });
-        // 선택된 버튼에 active 클래스 추가
+        markerTypeSelector.querySelectorAll('button').forEach(btn => btn.classList.remove('active'));
         const activeButton = markerTypeSelector.querySelector(`button[data-type="${type}"]`);
-        if (activeButton) {
-            activeButton.classList.add('active');
-        }
+        if (activeButton) activeButton.classList.add('active');
 
-        // 🚩 [핵심 수정] 타입에 따라 UI 요소들의 가시성을 제어합니다.
-        const isCastle = (type === 'normal'); // 🚩 [수정] 'capital' 타입 조건 제거
-        const isBattle = (type === 'battle'); // 🚩 [추가] 전장 타입
+        const isCastle   = (type === 'normal');
+        const isBattle   = (type === 'battle');
         const isMilitary = (type === 'military');
-        const isNatural = (type === 'natural');
-        const isLabel = (type === 'label');
+        const isNatural  = (type === 'natural');
+        const isLabel    = (type === 'label');
 
-        // 이름 필드: 군대 타입은 '장수 이름'을 사용하므로 숨김
-        const castleNameInput = document.getElementById('castleName');
-        castleNameInput.closest('.form-row').style.display = isMilitary ? 'none' : 'flex';
-        // 군대 타입이면 required 제거, 아니면 required 추가
-        if (isMilitary) {
-            castleNameInput.removeAttribute('required');
-        } else {
-            castleNameInput.setAttribute('required', 'required');
-        }
+        // ── ② 서브 분류 ──────────────────────────────
+        // [자연] 지물 종류
+        naturalFeatureDetails.style.display = isNatural ? 'flex' : 'none';
+        // [지명] 라벨 타입
+        document.getElementById('labelTypeRow').style.display = isLabel ? 'flex' : 'none';
 
-        // 복잡한 역사 기록 섹션
-        castleHistorySection.style.display = (isCastle || isBattle) ? 'block' : 'none';
-        
-        // 🚩 [핵심 수정] 히스토리 섹션이 숨겨질 때 required 속성 제거
-        const historyInputs = castleHistorySection.querySelectorAll('input[required]');
-        historyInputs.forEach(input => {
-            if (!isCastle && !isBattle) {
-                input.removeAttribute('required');
-            }
-        });
-
-        // 단순 기간 설정 섹션
-        simpleDateSection.style.display = (isCastle || isBattle) ? 'none' : 'block';
-        document.getElementById('simpleStartMonth').style.display = (isNatural || isLabel) ? 'none' : 'inline-block';
-        document.getElementById('simpleEndMonth').style.display = (isNatural || isLabel) ? 'none' : 'inline-block';
-
-        // 🚩 [수정] 설명 및 사진 필드 가시성 로직 복원
-        castleDescRow.style.display = (isCastle || isMilitary || isLabel || isBattle) ? 'flex' : 'none';
-        castlePhotoRow.style.display = (isCastle || isLabel || isBattle) ? 'flex' : 'none';
-
-        // 군대 전용 필드
-        militaryFlagDetails.style.display = isMilitary ? 'block' : 'none';
-        pathDataSection.style.display = isMilitary ? 'block' : 'none';
-
-        // 🚩 [수정] 군대 타입일 때만 소속 국가 입력 필드를 필수로 설정합니다.
+        // ── ③ 이름 영역 ──────────────────────────────
+        // [군대] 소속국가 + 장수이름 블록
+        const militaryIdentitySection = document.getElementById('militaryIdentitySection');
+        if (militaryIdentitySection) militaryIdentitySection.style.display = isMilitary ? 'block' : 'none';
         document.getElementById('militaryCountryNameInput').required = isMilitary;
 
+        // [성/도시·자연·지명] 이름 필드
+        const castleNameRow = document.getElementById('castleNameRow');
+        if (castleNameRow) castleNameRow.style.display = isMilitary ? 'none' : 'flex';
+        const castleNameInput = document.getElementById('castleName');
+        if (isMilitary) castleNameInput.removeAttribute('required');
+        else castleNameInput.setAttribute('required', 'required');
 
-        // 자연 전용 필드
-        naturalFeatureDetails.style.display = isNatural ? 'flex' : 'none';
-
-        // 지명 전용 필드
+        // [지명] 글자 색상 · 크기
         document.getElementById('labelColorRow').style.display = isLabel ? 'flex' : 'none';
-        document.getElementById('labelTypeRow').style.display = isLabel ? 'flex' : 'none'; // ✨ [신규] 라벨 타입 선택
-        document.getElementById('labelSizeRow').style.display = isLabel ? 'flex' : 'none';
+        document.getElementById('labelSizeRow').style.display  = isLabel ? 'flex' : 'none';
+
+        // ── ⑤ 기간 설정 ──────────────────────────────
+        // [성/도시·전장] 역사 기록
+        castleHistorySection.style.display = (isCastle || isBattle) ? 'block' : 'none';
+        castleHistorySection.querySelectorAll('input[required]').forEach(input => {
+            if (!isCastle && !isBattle) input.removeAttribute('required');
+        });
+        // [자연·지명·군대] 단순 기간
+        simpleDateSection.style.display = (isCastle || isBattle) ? 'none' : 'block';
+        document.getElementById('simpleStartMonth').style.display = (isNatural || isLabel) ? 'none' : 'inline-block';
+        document.getElementById('simpleEndMonth').style.display   = (isNatural || isLabel) ? 'none' : 'inline-block';
+
+        // ── ⑥ 설명 · 사진 ────────────────────────────
+        // [성/도시·지명·전장] 공통 필드
+        castleDescRow.style.display  = (isCastle || isLabel || isBattle) ? 'flex' : 'none';
+        castlePhotoRow.style.display = (isCastle || isLabel || isBattle) ? 'flex' : 'none';
+        // [자연] proxy 설명+사진
+        const naturalContentDetails = document.getElementById('naturalContentDetails');
+        if (naturalContentDetails) naturalContentDetails.style.display = isNatural ? 'flex' : 'none';
+        // [군대] 병력+장수사진
+        const militaryStatsSection = document.getElementById('militaryStatsSection');
+        if (militaryStatsSection) militaryStatsSection.style.display = isMilitary ? 'block' : 'none';
+
+        // ── ⑦ 커스텀 아이콘 ──────────────────────────
+        const customIconRow = document.getElementById('customIconRow');
+        const iconSizeRow   = document.getElementById('iconSizeRow');
+        if (customIconRow) customIconRow.style.display = isMilitary ? 'none' : 'flex';
+        if (iconSizeRow)   iconSizeRow.style.display   = isMilitary ? 'none' : 'flex';
+
+        // ── ⑧ 군대 이동 경로 ─────────────────────────
+        const pathDataSection = document.getElementById('pathDataSection');
+        if (pathDataSection) pathDataSection.style.display = isMilitary ? 'block' : 'none';
+
     }
     
     // 🚩 [추가] 성 편집 폼에 역사 기록 행을 추가하는 함수
@@ -13673,6 +13744,14 @@ function invalidateCountryLookupCache() {
 
       const selectedType = markerTypeSelector.querySelector('button.active')?.dataset.type || 'normal'; // 🚩 [수정] 'capital' 타입 조건 제거
       console.log('🛠️ Castle 수정 - 선택된 타입:', selectedType); // 🚩 [디버그] 선택된 타입 확인
+
+      // 🚩 [추가] 자연마커 타입이면 proxy 필드 → 실제 필드 동기화
+      if (selectedType === 'natural') {
+        const _np = document.getElementById('naturalPhotoProxy');
+        const _nd = document.getElementById('naturalDescProxy');
+        if (_np) document.getElementById('castlePhoto').value = _np.value;
+        if (_nd) document.getElementById('castleDesc').value = _nd.value;
+      }
 // 🚩 [필수 수정]: country 필드를 삭제하고 country_id를 추가합니다.
       // 🚩 [수정] 역사 기록 데이터를 수집합니다.
 
@@ -17045,9 +17124,9 @@ kingSelect.addEventListener('change', () => {
             resultsContainer.style.display = filteredCountries.length > 0 ? 'block' : 'none';
         });
 
-        // 🚩 [추가] 군대 폼 자동 완성 결과 창 외부 클릭 시 창 숨기기
+        // 군대 폼 자동 완성 결과 창 외부 클릭 시 창 숨기기
         document.addEventListener('click', (e) => {
-            if (!e.target.closest('#militaryFlagDetails .form-row > div')) { // 해당 form-row 내부의 flex 컨테이너 외부 클릭 시
+            if (!e.target.closest('#militaryIdentitySection .form-row > div')) {
                 militaryCountryResults.style.display = 'none';
             }
         });
