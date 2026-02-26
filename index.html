@@ -7870,33 +7870,40 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const riverStartTime = performance.now();
             let riverRenderedCount = 0;
             
+            const riverPolylineOptions = {
+                color: '#3498db',
+                weight: 2,
+                opacity: 0.7,
+                smoothFactor: 1
+            };
+
             naturalFeatures.forEach(feature => {
-                if (feature.type === 'river' && feature.geometry && feature.geometry.type === 'LineString') {
-                    // GeoJSON LineString을 Leaflet Polyline으로 변환
+                if (feature.type !== 'river' || !feature.geometry) return;
+                const geomType = feature.geometry.type;
+                const popupContent = `<div style="padding:2px;margin:0;line-height:1.4;"><b style="font-size:13px;">${feature.name}</b>${feature.name_en ? `<br><span style="font-size:11px;color:#9aabbd;">${feature.name_en}</span>` : ''}</div>`;
+                const popupOptions = { className: 'compact-popup', maxWidth: 200, minWidth: 100 };
+
+                if (geomType === 'LineString') {
+                    // GeoJSON LineString → Leaflet Polyline
                     const latLngs = feature.geometry.coordinates.map(coord => [coord[1], coord[0]]);
-                    
-                    const riverLine = L.polyline(latLngs, {
-                        color: '#3498db',      // 파란색
-                        weight: 2,
-                        opacity: 0.7,
-                        smoothFactor: 1
-                    });
-                    
-                    // 팝업 추가 (콤팩트 버전)
-                    const popupContent = `<div style="padding:2px;margin:0;line-height:1.4;"><b style="font-size:13px;">${feature.name}</b>${feature.name_en ? `<br><span style="font-size:11px;color:#9aabbd;">${feature.name_en}</span>` : ''}</div>`;
-                    riverLine.bindPopup(popupContent, {
-                        className: 'compact-popup',
-                        maxWidth: 200,
-                        minWidth: 100
-                    });
-                    
+                    const riverLine = L.polyline(latLngs, riverPolylineOptions);
+                    riverLine.bindPopup(popupContent, popupOptions);
                     territoryLayerGroup.addLayer(riverLine);
+                    riverRenderedCount++;
+                } else if (geomType === 'MultiLineString') {
+                    // GeoJSON MultiLineString → 여러 Polyline을 FeatureGroup으로
+                    const lines = feature.geometry.coordinates.map(lineCoords =>
+                        L.polyline(lineCoords.map(coord => [coord[1], coord[0]]), riverPolylineOptions)
+                    );
+                    const group = L.featureGroup(lines);
+                    group.bindPopup(popupContent, popupOptions);
+                    territoryLayerGroup.addLayer(group);
                     riverRenderedCount++;
                 }
             });
             
             const riverEndTime = performance.now();
-          //  console.log(`🌊 강 렌더링 완료: ${riverRenderedCount}개 (${(riverEndTime - riverStartTime).toFixed(0)}ms)`);
+            console.log(`🌊 강 렌더링 완료: ${riverRenderedCount}개 (${(riverEndTime - riverStartTime).toFixed(0)}ms)`);
         }
 
         // 🚀 [깜빡임 방지] 새 레이어가 모두 그려진 뒤 다음 프레임에서 기존 레이어 제거
@@ -9347,77 +9354,66 @@ function invalidateCountryLookupCache() {
 
             // 레이어 토글 버튼들의 초기 상태 설정 및 레이어 표시/숨김 적용
             Object.entries(settings).forEach(([layerKey, isEnabled]) => {
+                // layerVisibility는 버튼 유무와 무관하게 항상 업데이트
+                layerVisibility[layerKey] = isEnabled;
+
+                // 토글 버튼 활성화 표시
                 const button = document.querySelector(`.layer-toggle-btn[data-layer="${layerKey}"]`);
                 if (button) {
-                    if (isEnabled) {
-                        button.classList.add('active');
-                    } else {
-                        button.classList.remove('active');
-                    }
-                    // layerVisibility 객체도 업데이트
-                    layerVisibility[layerKey] = isEnabled;
+                    if (isEnabled) button.classList.add('active');
+                    else button.classList.remove('active');
+                }
 
-                    // UI 전용 레이어 처리 (맵 업데이트 불필요)
-                    if (layerKey === 'timeline') {
-                        const timelineWrapper = document.getElementById('timeline-control');
-                        if (timelineWrapper) {
-                            timelineWrapper.style.display = isEnabled ? 'block' : 'none';
-                        }
-                        // 연대표 바 컨테이너 pointer-events 제어
-                        const timelineContainer = document.getElementById('timeline-container');
-                        if (timelineContainer) {
-                            timelineContainer.style.pointerEvents = isEnabled ? 'auto' : 'none';
-                        }
-                        // 연대표 사이드바 토글
-                        const timelineSidebar = document.getElementById('timeline-sidebar');
-                        if (timelineSidebar) {
-                            if (isEnabled) {
-                                timelineSidebar.classList.add('open');
-                                timelineSidebar.style.display = 'block';
-                                timelineSidebar.style.pointerEvents = 'auto';
-                                timelineSidebar.style.opacity = '1';
-                            } else {
-                                timelineSidebar.classList.remove('open');
-                                timelineSidebar.style.display = 'none';
-                                timelineSidebar.style.pointerEvents = 'none';
-                                timelineSidebar.style.opacity = '0';
-                            }
-                        }
-                    } else if (layerKey === 'kingPanel') {
-                        const kingPanel = document.getElementById('map-king-panel');
-                        if (kingPanel) {
-                            kingPanel.style.display = isEnabled ? 'block' : 'none';
-                        }
-                    } else if (layerKey === 'historyPanel') {
-                        const historyPanel = document.getElementById('map-history-panel');
-                        if (historyPanel) {
-                            historyPanel.style.display = isEnabled ? 'block' : 'none';
-                        }
-                    } else if (layerKey === 'rankingPanel') {
-                        const el = document.getElementById('rankingDisplay');
-                        if (el) el.style.display = isEnabled ? '' : 'none';
-                    } else if (layerKey === 'activityFeed') {
-                        const el = document.getElementById('activity-feed-panel');
-                        if (el) el.style.display = isEnabled ? '' : 'none';
-                    } else if (layerKey === 'eventSidebar') {
-                        // 🚩 [과제2] 사건목록 사이드바 설정 적용
-                        const eventSidebar = document.getElementById('event-sidebar');
-                        if (eventSidebar) {
-                            if (isEnabled) {
-                                eventSidebar.classList.add('open');
-                                if (typeof renderEventSidebar === 'function') renderEventSidebar();
-                            } else {
-                                eventSidebar.classList.remove('open');
-                            }
+                // UI 전용 레이어 처리 (버튼 유무와 무관)
+                if (layerKey === 'timeline') {
+                    const timelineWrapper = document.getElementById('timeline-control');
+                    if (timelineWrapper) {
+                        timelineWrapper.style.display = isEnabled ? 'block' : 'none';
+                    }
+                    const timelineContainer = document.getElementById('timeline-container');
+                    if (timelineContainer) {
+                        timelineContainer.style.pointerEvents = isEnabled ? 'auto' : 'none';
+                    }
+                    const timelineSidebar = document.getElementById('timeline-sidebar');
+                    if (timelineSidebar) {
+                        if (isEnabled) {
+                            timelineSidebar.classList.add('open');
+                            timelineSidebar.style.display = 'block';
+                            timelineSidebar.style.pointerEvents = 'auto';
+                            timelineSidebar.style.opacity = '1';
+                        } else {
+                            timelineSidebar.classList.remove('open');
+                            timelineSidebar.style.display = 'none';
+                            timelineSidebar.style.pointerEvents = 'none';
+                            timelineSidebar.style.opacity = '0';
                         }
                     }
-                    // 다른 레이어들은 한 번만 업데이트 예약
-                    else {
-                        needsMapUpdate = true;
-                        layersToUpdate.push(layerKey);
+                } else if (layerKey === 'kingPanel') {
+                    const kingPanel = document.getElementById('map-king-panel');
+                    if (kingPanel) kingPanel.style.display = isEnabled ? 'block' : 'none';
+                } else if (layerKey === 'historyPanel') {
+                    const historyPanel = document.getElementById('map-history-panel');
+                    if (historyPanel) historyPanel.style.display = isEnabled ? 'block' : 'none';
+                } else if (layerKey === 'rankingPanel') {
+                    const el = document.getElementById('rankingDisplay');
+                    if (el) el.style.display = isEnabled ? '' : 'none';
+                } else if (layerKey === 'activityFeed') {
+                    const el = document.getElementById('activity-feed-panel');
+                    if (el) el.style.display = isEnabled ? '' : 'none';
+                } else if (layerKey === 'eventSidebar') {
+                    const eventSidebar = document.getElementById('event-sidebar');
+                    if (eventSidebar) {
+                        if (isEnabled) {
+                            eventSidebar.classList.add('open');
+                            if (typeof renderEventSidebar === 'function') renderEventSidebar();
+                        } else {
+                            eventSidebar.classList.remove('open');
+                        }
                     }
                 } else {
-                    console.warn(`⚠️ 버튼을 찾을 수 없음: .layer-toggle-btn[data-layer="${layerKey}"]`);
+                    // 맵 레이어 업데이트 필요
+                    needsMapUpdate = true;
+                    layersToUpdate.push(layerKey);
                 }
             });
 
