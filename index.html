@@ -5314,6 +5314,10 @@ body.force-mobile .marker-type-selector button {
         window.location.href = 'login.html';
     } else {
         console.log('✅ 유효한 토큰으로 로그인됨');
+
+        // 🚩 [수정] 로그인 등청 → 사관 활동 소식 피드에 직접 삽입
+        // sessionStorage._loginNotice 는 login.html에서 저장됨 — 여기서는 건드리지 않음
+        // (피드 JS의 DOMContentLoaded에서 읽음)
     }
 
 
@@ -5715,6 +5719,95 @@ body.force-mobile .marker-type-selector button {
     let territoryLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 영토 폴리곤 레이어 그룹
     let contributionLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 기여 레이어 그룹
     let labelLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 라벨 레이어 그룹
+
+    // -------------------------
+    // Marker comment badge helpers
+    // -------------------------
+    // 전역 캐시: { castleId: count }
+    window._commentCounts = window._commentCounts || {};
+
+    async function fetchCommentCounts() {
+        try {
+            const res = await fetch('/api/marker-comments-counts');
+            if (!res.ok) {
+                console.warn('marker comment counts fetch failed', res.status);
+                return;
+            }
+            const obj = await res.json();
+            window._commentCounts = obj || {};
+        } catch (e) {
+            console.warn('fetchCommentCounts error', e);
+            window._commentCounts = window._commentCounts || {};
+        }
+    }
+
+    function placeBadgeOnMarker(marker, castleId) {
+        if (!marker || !marker._icon) return;
+        try {
+            const id = String(castleId);
+            const count = (window._commentCounts && window._commentCounts[id]) || 0;
+            // ensure icon is positioned relatively so absolute badge can be placed
+            marker._icon.style.position = marker._icon.style.position || 'relative';
+            let badge = marker._icon.querySelector(`#mc-marker-badge-${id}`);
+            if (!badge) {
+                badge = document.createElement('div');
+                badge.id = `mc-marker-badge-${id}`;
+                badge.style.position = 'absolute';
+                badge.style.top = '-6px';
+                badge.style.right = '-6px';
+                badge.style.minWidth = '18px';
+                badge.style.height = '18px';
+                badge.style.background = '#e74c3c';
+                badge.style.color = '#fff';
+                badge.style.borderRadius = '9px';
+                badge.style.display = 'flex';
+                badge.style.justifyContent = 'center';
+                badge.style.alignItems = 'center';
+                badge.style.fontSize = '11px';
+                badge.style.fontWeight = '600';
+                badge.style.padding = '0 4px';
+                badge.style.boxShadow = '0 1px 2px rgba(0,0,0,0.5)';
+                badge.style.pointerEvents = 'none';
+                marker._icon.appendChild(badge);
+            }
+            badge.textContent = count > 99 ? '99+' : (count || '');
+            badge.style.display = count > 0 ? 'flex' : 'none';
+        } catch (e) {
+            // non-fatal
+            console.warn('placeBadgeOnMarker error', e);
+        }
+    }
+
+    function initCommentBadges() {
+        // initial fetch and then decorate existing markers
+        fetchCommentCounts().then(() => {
+            setTimeout(() => {
+                try {
+                    (allCastleMarkers || []).forEach(m => {
+                        if (m && m._castleData) placeBadgeOnMarker(m, m._castleData._id);
+                    });
+                } catch (e) { /* ignore */ }
+            }, 200);
+        });
+
+        // whenever markers are added to the layer group, ensure badges are placed
+        if (castleLayerGroup && typeof castleLayerGroup.on === 'function') {
+            castleLayerGroup.on('layeradd', function(e) {
+                const m = e.layer;
+                if (m && m._castleData) placeBadgeOnMarker(m, m._castleData._id);
+            });
+        }
+        // also watch labelLayerGroup (some labels are added to a separate layer)
+        if (labelLayerGroup && typeof labelLayerGroup.on === 'function') {
+            labelLayerGroup.on('layeradd', function(e) {
+                const m = e.layer;
+                if (m && m._castleData) placeBadgeOnMarker(m, m._castleData._id);
+            });
+        }
+    }
+
+    // kick off badge initialization after groups are created
+    try { initCommentBadges(); } catch (e) { console.warn('initCommentBadges failed', e); }
 
     // 🚩 [과제1 구현] 거시 모드 국가명 레이어 (zoom < 7 에서 사용)
     let macroCountryLayer = L.layerGroup();
@@ -6492,6 +6585,18 @@ function getKingByYear(countryName, year, month) {
         }
     }
 
+    // 💬 마커 의견 버튼 HTML 생성 헬퍼
+    function buildCommentBtn(castleId, castleName) {
+        const safeName = (castleName || '').replace(/'/g, "\\'");
+        const count = (window._commentCounts && window._commentCounts[String(castleId)]) || 0;
+        const badgeHtml = count > 0
+            ? `<span id="mc-btn-badge-${castleId}" style="display:inline-block;background:#e74c3c;color:#fff;font-size:10px;font-weight:bold;border-radius:8px;padding:0 5px;margin-left:4px;line-height:16px;vertical-align:middle;">${count > 99 ? '99+' : count}</span>`
+            : `<span id="mc-btn-badge-${castleId}" style="display:none;background:#e74c3c;color:#fff;font-size:10px;font-weight:bold;border-radius:8px;padding:0 5px;margin-left:4px;line-height:16px;vertical-align:middle;"></span>`;
+        return `<div style="margin-top:8px; text-align:right;">
+            <button onclick="openMarkerCommentModal('${castleId}','${safeName}')" style="background:rgba(44,62,80,0.85); border:1px solid rgba(180,140,80,0.4); border-radius:3px; color:#c8b87a; font-size:11px; padding:3px 8px; cursor:pointer;">💬 의견 남기기${badgeHtml}</button>
+        </div>`;
+    }
+
         /** 자연 지물 타입에 따른 아이콘 심볼과 클래스 매핑 (NEW) */
     function getNaturalFeatureIcon(type) {
         const icons = {
@@ -7024,7 +7129,7 @@ function getKingByYear(countryName, year, month) {
             ? `<br><small style="font-size:11px; color:#9aabbd;">사관: ${newCastle.createdBy}</small>`
             : '';
         
-        const popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${newCastle.desc}</span>` : ''}${newCastle.photo ? `<br><img src="${newCastle.photo}" style="max-width:240px;max-height:180px;object-fit:cover;margin-top:6px;border-radius:4px;border:1px solid rgba(180,140,80,0.3);">` : ''}${editorInfoHtml}</div>`;
+        const popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${newCastle.desc}</span>` : ''}${newCastle.photo ? `<br><img src="${newCastle.photo}" style="max-width:240px;max-height:180px;object-fit:cover;margin-top:6px;border-radius:4px;border:1px solid rgba(180,140,80,0.3);">` : ''}${editorInfoHtml}${buildCommentBtn(newCastle._id, castleName)}</div>`;
         
         marker.bindPopup(popupHtml, {
             className: 'compact-popup',
@@ -7322,7 +7427,7 @@ function getKingByYear(countryName, year, month) {
             ? `<br><small style="font-size:11px; color:#9aabbd;">사관: ${creatorName}</small>`
             : '';
         
-        const popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${newCastle.desc}</span>` : ''}${newCastle.photo ? `<br><img src="${newCastle.photo}" style="max-width:240px;max-height:180px;object-fit:cover;margin-top:6px;border-radius:4px;border:1px solid rgba(180,140,80,0.3);">` : ''}${creatorInfoHtml}</div>`;
+        const popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${newCastle.desc}</span>` : ''}${newCastle.photo ? `<br><img src="${newCastle.photo}" style="max-width:240px;max-height:180px;object-fit:cover;margin-top:6px;border-radius:4px;border:1px solid rgba(180,140,80,0.3);">` : ''}${creatorInfoHtml}${buildCommentBtn(newCastle._id, castleName)}</div>`;
         
         marker.bindPopup(popupHtml, {
             className: 'compact-popup',
@@ -8291,7 +8396,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
                     : (castle.createdBy ? `<br><small>생성자: ${castle.createdBy}</small>` : '');
                 
-                popupHtml = `<b>지역명: ${castleName}</b><br>기간: ${builtText} ~ ${destroyedText}<br>설명: ${castle.desc ?? ''}${editorInfoHtml}`;
+                popupHtml = `<b>지역명: ${castleName}</b><br>기간: ${builtText} ~ ${destroyedText}<br>설명: ${castle.desc ?? ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
                 
                 marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
                 
@@ -8458,7 +8563,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     : '';
                 
                 // 🚩 [v2.0.6] 콤팩트 팝업
-                popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${castle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${castle.photo}" style="max-width:240px;max-height:180px;object-fit:cover;margin-top:6px;border-radius:4px;border:1px solid rgba(180,140,80,0.3);">` : ''}${_naturalCreatorHtml}</div>`;
+                popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${castle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${castle.photo}" style="max-width:240px;max-height:180px;object-fit:cover;margin-top:6px;border-radius:4px;border:1px solid rgba(180,140,80,0.3);">` : ''}${_naturalCreatorHtml}${buildCommentBtn(castle._id, castleName)}</div>`;
                                 
                 marker.bindPopup(popupHtml, {
                     className: 'compact-popup',
@@ -8528,7 +8633,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     if (castle.lastModifiedBy) metaInfo.push(`마지막 수정: ${castle.lastModifiedBy}`);
                     const editorInfoHtml = metaInfo.length ? `<br><small>${metaInfo.join('<br>')}</small>` : '';
                     
-                    popupHtml = `${flagHtml}<b>${countryName}</b>${countryInfo.ethnicity ? `<br>민족: ${countryInfo.ethnicity}` : ''}<br>${castle.general_name ? `장수: ${castle.general_name}<br>` : ''}${castle.troop_count ? `병력: ${Number(castle.troop_count).toLocaleString()}<br>` : ''}${castle.general_photo ? `<br><img src="${castle.general_photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}${descriptionHtml}${editorInfoHtml}`;
+                    popupHtml = `${flagHtml}<b>${countryName}</b>${countryInfo.ethnicity ? `<br>민족: ${countryInfo.ethnicity}` : ''}<br>${castle.general_name ? `장수: ${castle.general_name}<br>` : ''}${castle.troop_count ? `병력: ${Number(castle.troop_count).toLocaleString()}<br>` : ''}${castle.general_photo ? `<br><img src="${castle.general_photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}${descriptionHtml}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
                     
                     marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
                     
@@ -8626,7 +8731,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 if (castle.lastModifiedBy) metaInfo.push(`마지막 수정: ${castle.lastModifiedBy}`);
                 const editorInfoHtml = metaInfo.length ? `<br><small>${metaInfo.join('<br>')}</small>` : '';
 
-                popupHtml = `${flagHtml}<b>${countryName}</b>${countryInfo.ethnicity ? `<br>민족: ${countryInfo.ethnicity}` : ''}<br>장수: ${general}<br>병력: ${troops}<br>${generalPhotoUrl ? `<br><img src="${generalPhotoUrl}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}${descriptionHtml}${editorInfoHtml}`;
+                popupHtml = `${flagHtml}<b>${countryName}</b>${countryInfo.ethnicity ? `<br>민족: ${countryInfo.ethnicity}` : ''}<br>장수: ${general}<br>병력: ${troops}<br>${generalPhotoUrl ? `<br><img src="${generalPhotoUrl}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}${descriptionHtml}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
                 
                 marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
                 
@@ -8730,7 +8835,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 ? `<br><small style="font-size:11px;color:#9aabbd;">마지막 수정: ${castle.lastModifiedBy}</small>` 
                 : (castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">생성자: ${castle.createdBy}</small>` : '');
             
-            popupHtml = `<b>⚔ ${castleName}</b><br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px; max-height:100px; object-fit:cover; border-radius:4px; border:1px solid rgba(180,140,80,0.3); margin-top:4px;">` : ""}${editorInfoHtml}`;
+            popupHtml = `<b>⚔ ${castleName}</b><br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px; max-height:100px; object-fit:cover; border-radius:4px; border:1px solid rgba(180,140,80,0.3); margin-top:4px;">` : ""}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
             
             marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
             
@@ -8828,7 +8933,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 + (castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${castle.desc}</span>` : "") 
                 + (castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px; max-height:100px; object-fit:cover; border-radius:4px; border:1px solid rgba(180,140,80,0.3); margin-top:4px;">` : "") 
                 + kingHtml
-                + editorInfoHtml;
+                + editorInfoHtml
+                + buildCommentBtn(castle._id, castleName);
 
 
             // 🚩 [추가] 커스텀 아이콘이 있으면 일반/수도 구분 없이 커스텀 아이콘 사용
@@ -16656,7 +16762,24 @@ kingSelect.addEventListener('change', () => {
         if (menuLogoutBtn) {
             menuLogoutBtn.addEventListener('click', () => {
                 if (confirm('로그아웃하시겠습니까?')) {
-                    // 두 저장소의 토큰을 모두 삭제
+                    // 퇴청 토스트 표시 후 로그아웃
+                    let logoutUsername = '';
+                    let logoutPosition = '';
+                    const logoutToken = localStorage.getItem('token') || sessionStorage.getItem('token');
+                    try {
+                        if (logoutToken) {
+                            const p = JSON.parse(atob(logoutToken.split('.')[1]));
+                            logoutUsername = p.username || '';
+                            logoutPosition = p.position || '';
+                        }
+                    } catch(e) {}
+
+                    // 퇴청 활동 로그 API 호출
+                    if (logoutToken) {
+                        fetch('/api/auth/logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + logoutToken } }).catch(() => {});
+                    }
+
+                    // 바로 로그아웃
                     localStorage.removeItem('token');
                     sessionStorage.removeItem('token');
                     window.location.href = 'login.html';
@@ -19101,6 +19224,424 @@ kingSelect.addEventListener('change', () => {
     }
   }
   </style>
+
+<!-- ══════════════════════════════════════════════════════
+     💬 마커 의견(코멘트) 모달
+══════════════════════════════════════════════════════ -->
+<div id="markerCommentModal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.55); align-items:center; justify-content:center;">
+  <div style="background:#1e2a35; border:1px solid rgba(180,140,80,0.45); border-radius:8px; width:min(460px,92vw); max-height:80vh; display:flex; flex-direction:column; box-shadow:0 8px 32px rgba(0,0,0,0.6);">
+    <!-- 헤더 -->
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid rgba(180,140,80,0.25); flex-shrink:0;">
+      <div>
+        <span style="font-size:15px; font-weight:bold; color:#f0e2c0;">💬 사관 의견</span>
+        <span id="mcModalMarkerName" style="font-size:12px; color:#9aabbd; margin-left:8px;"></span>
+      </div>
+      <button onclick="closeMarkerCommentModal()" style="background:none; border:none; color:#9aabbd; font-size:18px; cursor:pointer; padding:2px 6px; line-height:1;">✕</button>
+    </div>
+    <!-- 의견 목록 -->
+    <div id="mcCommentList" style="flex:1; overflow-y:auto; padding:12px 16px; min-height:80px;">
+      <div id="mcLoadingMsg" style="color:#9aabbd; font-size:13px; text-align:center; padding:20px 0;">불러오는 중...</div>
+    </div>
+    <!-- 입력창 (로그인한 경우만) -->
+    <div id="mcInputArea" style="padding:10px 16px; border-top:1px solid rgba(180,140,80,0.2); flex-shrink:0; display:none;">
+      <div style="display:flex; gap:8px; align-items:flex-end;">
+        <textarea id="mcTextInput" rows="2" maxlength="500" placeholder="의견을 입력하세요... (500자 이내)"
+          style="flex:1; background:#263340; border:1px solid rgba(180,140,80,0.3); border-radius:4px; color:#e0d8cc; font-size:13px; padding:7px 9px; resize:none; font-family:inherit; line-height:1.4;"></textarea>
+        <button onclick="submitMarkerComment()" style="background:#c8a84b; border:none; border-radius:4px; color:#1a1a1a; font-size:13px; font-weight:bold; padding:8px 14px; cursor:pointer; white-space:nowrap; align-self:stretch;">등록</button>
+      </div>
+      <div style="text-align:right; font-size:11px; color:#6a7d8e; margin-top:3px;"><span id="mcCharCount">0</span>/500</div>
+    </div>
+    <div id="mcLoginNotice" style="padding:10px 16px; border-top:1px solid rgba(180,140,80,0.2); font-size:12px; color:#9aabbd; text-align:center; display:none;">
+      의견을 작성하려면 로그인이 필요합니다.
+    </div>
+  </div>
+</div>
+
+<style>
+  #mcCommentList::-webkit-scrollbar { width:5px; }
+  #mcCommentList::-webkit-scrollbar-track { background: #1e2a35; }
+  #mcCommentList::-webkit-scrollbar-thumb { background: rgba(180,140,80,0.35); border-radius:3px; }
+  .mc-comment-item {
+    padding: 9px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    font-size: 13px;
+    color: #d0c8bc;
+  }
+  .mc-comment-item:last-child { border-bottom: none; }
+  .mc-comment-author { font-weight: bold; color: #c8a84b; font-size: 12px; margin-right: 6px; }
+  .mc-comment-date { font-size: 11px; color: #6a7d8e; }
+  .mc-comment-text { margin-top: 4px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .mc-delete-btn { float:right; background:none; border:none; color:#e74c3c; font-size:11px; cursor:pointer; padding:0 2px; opacity:0.7; }
+  .mc-delete-btn:hover { opacity:1; }
+</style>
+
+<script>
+(function() {
+    let _mcCurrentCastleId = null;
+    let _mcCurrentCastleName = '';
+
+    // 팝업에서 버튼 클릭 시 호출
+    window.openMarkerCommentModal = function(castleId, castleName) {
+        _mcCurrentCastleId = castleId;
+        _mcCurrentCastleName = castleName;
+        document.getElementById('mcModalMarkerName').textContent = castleName ? `— ${castleName}` : '';
+        document.getElementById('mcCommentList').innerHTML = '<div id="mcLoadingMsg" style="color:#9aabbd;font-size:13px;text-align:center;padding:20px 0;">불러오는 중...</div>';
+        document.getElementById('mcTextInput').value = '';
+        document.getElementById('mcCharCount').textContent = '0';
+
+        // 로그인 여부에 따라 입력창 표시
+        const loggedIn = !!currentUser;
+        document.getElementById('mcInputArea').style.display = loggedIn ? 'block' : 'none';
+        document.getElementById('mcLoginNotice').style.display = loggedIn ? 'none' : 'block';
+
+        document.getElementById('markerCommentModal').style.display = 'flex';
+        loadMarkerComments();
+    };
+
+    window.closeMarkerCommentModal = function() {
+        document.getElementById('markerCommentModal').style.display = 'none';
+    };
+
+    // 배경 클릭 시 닫기
+    document.getElementById('markerCommentModal').addEventListener('click', function(e) {
+        if (e.target === this) closeMarkerCommentModal();
+    });
+
+    // 글자수 카운트
+    document.getElementById('mcTextInput').addEventListener('input', function() {
+        document.getElementById('mcCharCount').textContent = this.value.length;
+    });
+
+    // Ctrl+Enter 등록
+    document.getElementById('mcTextInput').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitMarkerComment();
+    });
+
+    async function loadMarkerComments() {
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        if (!token) {
+            document.getElementById('mcCommentList').innerHTML = '<div style="color:#9aabbd;font-size:13px;text-align:center;padding:20px 0;">로그인 후 의견을 볼 수 있습니다.</div>';
+            return;
+        }
+        try {
+            const res = await fetch(`/api/marker-comments/${_mcCurrentCastleId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!res.ok) throw new Error(res.status);
+            const comments = await res.json();
+            renderComments(comments);
+        } catch (e) {
+            document.getElementById('mcCommentList').innerHTML = '<div style="color:#e74c3c;font-size:13px;text-align:center;padding:20px 0;">의견을 불러오지 못했습니다.</div>';
+        }
+    }
+
+    function renderComments(comments) {
+        const list = document.getElementById('mcCommentList');
+        if (!comments || comments.length === 0) {
+            list.innerHTML = '<div style="color:#9aabbd;font-size:13px;text-align:center;padding:20px 0;">아직 의견이 없습니다. 첫 번째 의견을 남겨보세요!</div>';
+            return;
+        }
+        list.innerHTML = comments.map(c => {
+            const date = new Date(c.created_at).toLocaleDateString('ko-KR', { year:'2-digit', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+            const canDelete = currentUser && (currentUser.username === c.author || currentUser.role === 'admin' || currentUser.role === 'superuser');
+            const deleteBtn = canDelete ? `<button class="mc-delete-btn" onclick="deleteMarkerComment('${c._id}')">삭제</button>` : '';
+            return `<div class="mc-comment-item" id="mc-item-${c._id}">
+                ${deleteBtn}
+                <span class="mc-comment-author">${escapeHtml(c.author)}</span>
+                <span class="mc-comment-date">${date}</span>
+                <div class="mc-comment-text">${escapeHtml(c.text)}</div>
+            </div>`;
+        }).join('');
+    }
+
+    window.submitMarkerComment = async function() {
+        const text = document.getElementById('mcTextInput').value.trim();
+        if (!text) return;
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        if (!token) return;
+        try {
+            const res = await fetch('/api/marker-comments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ castle_id: _mcCurrentCastleId, text })
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                alert(err.message || '의견 등록 실패');
+                return;
+            }
+            document.getElementById('mcTextInput').value = '';
+            document.getElementById('mcCharCount').textContent = '0';
+            await loadMarkerComments();
+            // 로컬 카운트 갱신 및 배지 업데이트
+            try {
+                const id = String(_mcCurrentCastleId);
+                window._commentCounts = window._commentCounts || {};
+                window._commentCounts[id] = (window._commentCounts[id] || 0) + 1;
+                const btnBadge = document.getElementById(`mc-btn-badge-${id}`);
+                if (btnBadge) {
+                    btnBadge.style.display = 'inline-block';
+                    btnBadge.textContent = window._commentCounts[id] > 99 ? '99+' : window._commentCounts[id];
+                }
+                (allCastleMarkers || []).forEach(m => {
+                    try { if (m && m._castleData && String(m._castleData._id) === id) placeBadgeOnMarker(m, id); } catch(e){}
+                });
+            } catch (e) { /* non-fatal */ }
+            // 🚩 [추가] 액티비티 피드 즉시 갱신
+            if (typeof window.refreshActivityFeed === 'function') window.refreshActivityFeed();
+        } catch (e) {
+            alert('의견 등록 중 오류가 발생했습니다.');
+        }
+    };
+
+    window.deleteMarkerComment = async function(commentId) {
+        if (!confirm('이 의견을 삭제할까요?')) return;
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        try {
+            const res = await fetch(`/api/marker-comments/${commentId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!res.ok) { alert('삭제 실패'); return; }
+            const item = document.getElementById(`mc-item-${commentId}`);
+            if (item) item.remove();
+            const list = document.getElementById('mcCommentList');
+            if (!list.querySelector('.mc-comment-item')) {
+                list.innerHTML = '<div style="color:#9aabbd;font-size:13px;text-align:center;padding:20px 0;">아직 의견이 없습니다. 첫 번째 의견을 남겨보세요!</div>';
+            }
+            // 의견 삭제 후 카운트 갱신 — 전체 카운트를 다시 받아와서 뱃지 업데이트
+            try {
+                await fetchCommentCounts();
+                const id = String(_mcCurrentCastleId);
+                const btnBadge = document.getElementById(`mc-btn-badge-${id}`);
+                if (btnBadge) {
+                    const c = window._commentCounts && window._commentCounts[id] ? window._commentCounts[id] : 0;
+                    btnBadge.style.display = c > 0 ? 'inline-block' : 'none';
+                    btnBadge.textContent = c > 99 ? '99+' : (c || '');
+                }
+                (allCastleMarkers || []).forEach(m => {
+                    try { if (m && m._castleData && String(m._castleData._id) === id) placeBadgeOnMarker(m, id); } catch(e){}
+                });
+            } catch (e) { /* ignore */ }
+        } catch (e) {
+            alert('삭제 중 오류가 발생했습니다.');
+        }
+    };
+
+    function escapeHtml(str) {
+        return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+})();
+</script>
+
+<!-- ============================================================
+     📜 사관 활동 소식 피드 (랭킹 왼쪽, 완전투명, 스크롤 5줄)
+     ============================================================ -->
+<div id="activity-feed-panel">
+    <div id="activity-feed-header">📜 사관 활동 소식</div>
+    <div id="activity-feed-scroll">
+        <div id="activity-feed-list"></div>
+    </div>
+</div>
+
+<style>
+/* ── 사관 활동 소식 피드 ─────────────────────────────────────── */
+#activity-feed-panel {
+    position: fixed;
+    bottom: 90px;    /* 타임슬라이더(~105px) 위 */
+    left: 20px;
+    width: 290px;
+    max-height: calc(100vh - 240px); /* 위아래 여백 확보 */
+    z-index: 999;
+    pointer-events: none;
+    font-family: 'Noto Serif KR', serif;
+    background: transparent;
+    border: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+#activity-feed-header {
+    font-size: 10px;
+    font-weight: 400;
+    color: rgba(235,196,100,0.9);
+    padding: 0 0 5px 0;
+    letter-spacing: 0.5px;
+    text-shadow: 0 1px 5px rgba(0,0,0,1), 0 0 10px rgba(0,0,0,1);
+}
+/* 스크롤 영역: flex 컨테이너 남은 공간 자동 채움, 스크롤바 숨김 */
+#activity-feed-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: none; /* Firefox */
+    pointer-events: auto;  /* 스크롤 허용 */
+}
+#activity-feed-scroll::-webkit-scrollbar { display: none; }
+#activity-feed-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.af-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    line-height: 1.5;
+    animation: af-fadein 0.45s ease;
+}
+.af-icon {
+    font-size: 9px;
+    flex-shrink: 0;
+    margin-top: 2px;
+    filter: drop-shadow(0 1px 3px rgba(0,0,0,1));
+}
+.af-text {
+    font-size: 10px;
+    color: rgba(242,230,206,0.96);
+    text-shadow: 0 1px 5px rgba(0,0,0,1), 0 0 10px rgba(0,0,0,0.9);
+    word-break: keep-all;
+    flex: 1;
+    line-height: 1.6;
+}
+.af-text .af-actor   { color: #fae282; font-weight: 400; text-shadow: 0 1px 5px rgba(0,0,0,1); }
+.af-text .af-target  { color: #92d4ff; font-weight: 400; text-shadow: 0 1px 5px rgba(0,0,0,1); }
+.af-text .af-special { color: #ffbc80; font-weight: 400; text-shadow: 0 1px 5px rgba(0,0,0,1); }
+.af-text .af-restore { color: #90ff90; font-weight: 400; text-shadow: 0 1px 5px rgba(0,0,0,1); }
+.af-time {
+    font-size: 8px;
+    color: rgba(210,196,164,0.72);
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 3px;
+    text-shadow: 0 1px 4px rgba(0,0,0,1);
+}
+.af-empty {
+    font-size: 11px;
+    color: rgba(200,186,156,0.65);
+    text-shadow: 0 1px 4px rgba(0,0,0,0.95);
+}
+@keyframes af-fadein {
+    from { opacity: 0; transform: translateX(5px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+</style>
+
+<script>
+(function() {
+    'use strict';
+
+    const VISIBLE_ROWS  = 5;   // 화면에 보이는 줄 수
+    const POLL_INTERVAL = 30000;
+
+    const TYPE_CONFIG = {
+        register:      { icon: '🎉' },
+        submit:        { icon: '📋' },
+        review:        { icon: '🔍' },
+        review_reject: { icon: '❌' },
+        approve:       { icon: '🏆' },
+        comment:       { icon: '💬' },
+        rankup:        { icon: '⭐' },
+        checkin:       { icon: '🏛️' },
+        checkout:      { icon: '🌙' },
+    };
+
+    function e(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    function buildMessage(log) {
+        const actor  = `<span class="af-actor">${e(log.actor || '알 수 없음')}</span>`;
+        const pos    = log.actorPosition
+            ? `<span style="color:rgba(205,182,144,0.78);font-size:10px;">[${e(log.actorPosition)}]</span> `
+            : '';
+        const target = log.targetName ? `<span class="af-target">${e(log.targetName)}</span>` : '';
+        switch (log.type) {
+            case 'register':
+                return `${pos}${actor} 사관으로 임관하셨습니다. 🎊`;
+            case 'submit':
+                return `${pos}${actor}님이 ${target ? target + ' ' : ''}기록을 제출하셨습니다.`;
+            case 'review':
+                return `${pos}${actor}님이 ${target ? target + ' ' : ''}검토를 완료하셨습니다.`;
+            case 'review_reject':
+                return `${pos}${actor}님이 ${target ? target + ' ' : ''}기록을 반려하셨습니다.`;
+            case 'approve':
+                return `${pos}${actor}님이 ${target ? target + '의 ' : ''}<span class="af-restore">복원에 성공</span>하셨습니다! 🎉`;
+            case 'comment':
+                return `${pos}${actor}님이 ${target ? target + '에 ' : ''}의견을 등록하셨습니다.`;
+            case 'rankup': {
+                const np = (log.extra && log.extra.newPosition) ? log.extra.newPosition : (log.actorPosition || '');
+                return `${pos}${actor}님이 <span class="af-special">${e(np)}</span>으로 승급하셨습니다! 🎊`;
+            }
+            case 'checkin': {
+                const pts = (log.extra && log.extra.points) ? log.extra.points : 0;
+                const ptsTxt = pts > 0 ? ` 공적 <span class="af-restore">+${pts}점</span>` : '';
+                return `${pos}${actor} 사관님께서 <span class="af-special">등청</span>하셨습니다.${ptsTxt}`;
+            }
+            case 'checkout':
+                return `${pos}${actor} 사관님께서 <span class="af-special">퇴청</span>하셨습니다.`;
+            default:
+                return `${pos}${actor}님의 활동이 기록되었습니다.`;
+        }
+    }
+
+    function relativeTime(dateStr) {
+        const d = new Date(dateStr);
+        const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        const isSameDay = d.getFullYear() === now.getFullYear()
+            && d.getMonth() === now.getMonth()
+            && d.getDate() === now.getDate();
+        if (isSameDay) {
+            return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }
+        return `${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    function renderLogs(logs) {
+        const list = document.getElementById('activity-feed-list');
+        if (!list) return;
+        if (!logs || logs.length === 0) {
+            list.innerHTML = '<div class="af-empty">아직 기록된 활동이 없습니다.</div>';
+            return;
+        }
+        // 최신 순으로 렌더 (서버가 -1 정렬이므로 그대로)
+        list.innerHTML = logs.map(log => {
+            const cfg = TYPE_CONFIG[log.type] || { icon: '📌' };
+            return `<div class="af-item">
+                <span class="af-icon">${cfg.icon}</span>
+                <span class="af-text">${buildMessage(log)}</span>
+                <span class="af-time">${relativeTime(log.createdAt)}</span>
+            </div>`;
+        }).join('');
+        // 새 로그 추가 시 맨 위(최신)로 스크롤
+        const scroll = document.getElementById('activity-feed-scroll');
+        if (scroll) scroll.scrollTop = 0;
+    }
+
+    let _lastLogId = null;
+    let _allLogs   = [];
+
+    async function fetchLogs(silent) {
+        try {
+            const resp = await fetch('/api/activity-logs?limit=15');
+            if (!resp.ok) return;
+            const logs = await resp.json();
+            if (!Array.isArray(logs)) return;
+            _allLogs = logs;
+            const newestId = logs.length > 0 ? String(logs[0]._id) : null;
+            _lastLogId = newestId;
+            renderLogs(logs);
+        } catch (e) { /* 무시 */ }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        fetchLogs(true);  // DB 로그 렌더링
+        setInterval(() => fetchLogs(false), POLL_INTERVAL);
+    });
+
+    window.refreshActivityFeed = function() { fetchLogs(false); };
+})();
+</script>
 
 </body>
 </html>
