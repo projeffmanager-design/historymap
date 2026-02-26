@@ -1981,6 +1981,22 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     timestamp: new Date()
                 });
 
+                // 🚩 [추가] 사용자 공적 점수 계산 (출석 처리 전에 먼저)
+                let score = 0;
+                try {
+                    const contributionCount = await collections.contributions.countDocuments({ userId: user._id });
+                    score = contributionCount * 3;
+                    score += (user.attendancePoints || 0);
+                } catch (error) {
+                    console.error('점수 계산 에러:', error);
+                    score = 0;
+                }
+
+                // 실시간 직급 계산 (admin 지정 재상급 우선, 없으면 점수 기반)
+                const realtimePos = getRealtimePosition(score, null, user.designated_rank || null);
+                // admin이 position을 직접 지정한 경우 그것을 우선 사용
+                const position = user.position || realtimePos;
+
                 // 🚩 [추가] 출석 포인트 처리 (하루에 1회 1점)
                 const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD 형식
                 let attendancePoints = 0;
@@ -1991,18 +2007,20 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     await collections.users.updateOne(
                         { _id: user._id },
                         { 
-                            $set: { lastAttendanceDate: today },
+                            $set: { lastAttendanceDate: today, position: position },
                             $inc: { attendancePoints: 1 } // 출석 포인트 누적
                         }
                     );
                     console.log(`출석 포인트 지급: ${user.username} (+1점)`);
                     // 출석 활동 로그 기록 (첫 출석 시에만)
-                    const positionForLog = user.position || getPosition(0);
-                    logActivity('checkin', user.username, positionForLog, null, { points: 1 });
+                    logActivity('checkin', user.username, position, null, { points: 1 });
                 } else {
                     // 첫 출석이 아닌 경우에만 등청 로그 기록
-                    const loginPosition = user.position || getPosition(0);
-                    logActivity('checkin', user.username, loginPosition, null, {});
+                    await collections.users.updateOne(
+                        { _id: user._id },
+                        { $set: { position: position } }
+                    );
+                    logActivity('checkin', user.username, position, null, {});
                 }
 
                 // 🚩 [추가] 마지막 로그인 시간 업데이트
@@ -2010,23 +2028,6 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     { _id: user._id },
                     { $set: { lastLogin: new Date() } }
                 );
-
-                // 🚩 [추가] 사용자 공적 점수 계산 및 직급 부여
-                let score = 0;
-                try {
-                    // 기여도 점수 계산
-                    const contributionCount = await collections.contributions.countDocuments({ userId: user._id });
-                    score = contributionCount * 3; // 기본 점수: 제출 개수 × 3
-                    
-                    // 출석 포인트 추가 (누적)
-                    score += attendancePoints;
-                } catch (error) {
-                    console.error('점수 계산 에러:', error);
-                    score = 0;
-                }
-
-                // 데이터베이스에 저장된 position을 우선 사용, 없으면 점수 기반 계산
-                const position = user.position || getPosition(score);
 
                 const token = jwt.sign(
                     { userId: user._id, username: user.username, role: user.role, position: position },
