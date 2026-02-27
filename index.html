@@ -5719,8 +5719,15 @@ body.force-mobile .marker-type-selector button {
     map.getPane('labelPane').style.zIndex = 700;
     }
 
+    // 🌊 강 전용 pane — 영토 폴리곤(overlayPane=400)보다 위에 렌더링
+    if (!map.getPane('riverPane')) {
+        map.createPane('riverPane');
+        map.getPane('riverPane').style.zIndex = 420;
+    }
+
     let castleLayerGroup = L.layerGroup().addTo(map); 
     let territoryLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 영토 폴리곤 레이어 그룹
+    let riverLayerGroup = L.layerGroup().addTo(map);     // 🌊 강 레이어 그룹 (별도 분리)
     let contributionLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 기여 레이어 그룹
     let labelLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 라벨 레이어 그룹
 
@@ -7595,7 +7602,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         // 🔑 [개선] 16ms → 300ms — 초기화 연쇄 호출(4-5회) 차단
         // 단, 데이터 개수가 변했으면 (새 데이터 도착) 즉시 통과
         const now = Date.now();
-        const dataFingerprint = `${castles.length}_${territories.length}_${countries.length}`;
+        const dataFingerprint = `${castles.length}_${territories.length}_${countries.length}_${naturalFeatures.length}`;
         if (!force && lastUpdateMapCall.year === year && 
             lastUpdateMapCall.month === month && 
             lastUpdateMapCall.cacheOnly === cacheOnly &&
@@ -7865,16 +7872,25 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             // console.log(`📊 스킵 이유: 중복=${skipReasons.duplicate}, 뷰포트밖=${skipReasons.outOfView}, 시간범위=${skipReasons.timeRange}, 국가없음=${skipReasons.noCountry}, 국가찾기실패=${skipReasons.countryNotFound}`);
         }
 
-        // 🌊 [추가] 자연 지형지물 (강) 렌더링
+        // 🌊 [추가] 자연 지형지물 (강) 렌더링 — 별도 레이어 그룹 + 전용 SVG 렌더러 사용
+        riverLayerGroup.clearLayers();
+        // 기존 강 렌더러 제거
+        if (window._riverRenderer) { try { map.removeLayer(window._riverRenderer); } catch(e) {} }
         if (layerVisibility.rivers && naturalFeatures.length > 0) {
             const riverStartTime = performance.now();
             let riverRenderedCount = 0;
             
+            // 🌊 강 전용 SVG 렌더러 — preferCanvas:true 환경에서도 SVG로 렌더링하여 pane z-order 보장
+            const riverRenderer = L.svg({ pane: 'riverPane', padding: 0.5 });
+            window._riverRenderer = riverRenderer;
+
             const riverPolylineOptions = {
-                color: '#3498db',
-                weight: 2,
-                opacity: 0.7,
-                smoothFactor: 1
+                color: '#08294a',
+                weight: 1,
+                opacity: 0.9,
+                smoothFactor: 2,
+                pane: 'riverPane',
+                renderer: riverRenderer
             };
 
             naturalFeatures.forEach(feature => {
@@ -7884,20 +7900,18 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const popupOptions = { className: 'compact-popup', maxWidth: 200, minWidth: 100 };
 
                 if (geomType === 'LineString') {
-                    // GeoJSON LineString → Leaflet Polyline
                     const latLngs = feature.geometry.coordinates.map(coord => [coord[1], coord[0]]);
                     const riverLine = L.polyline(latLngs, riverPolylineOptions);
                     riverLine.bindPopup(popupContent, popupOptions);
-                    territoryLayerGroup.addLayer(riverLine);
+                    riverLayerGroup.addLayer(riverLine);
                     riverRenderedCount++;
                 } else if (geomType === 'MultiLineString') {
-                    // GeoJSON MultiLineString → 여러 Polyline을 FeatureGroup으로
                     const lines = feature.geometry.coordinates.map(lineCoords =>
                         L.polyline(lineCoords.map(coord => [coord[1], coord[0]]), riverPolylineOptions)
                     );
                     const group = L.featureGroup(lines);
                     group.bindPopup(popupContent, popupOptions);
-                    territoryLayerGroup.addLayer(group);
+                    riverLayerGroup.addLayer(group);
                     riverRenderedCount++;
                 }
             });
@@ -10367,7 +10381,7 @@ function invalidateCountryLookupCache() {
           // 🎯 [최적화] 추가 데이터(drawings, naturalFeatures 등) 반영
           // 🎯 [핵심] territories가 있으면 updateMap 호출 (castles는 백그라운드 대기 중)
           if (castles.length > 0 || territories.length > 0) {
-              requestUpdateMap();
+              requestUpdateMap(true); // force=true: naturalFeatures 로드 후 무조건 재렌더링
               console.log('✅ 추가 데이터 지도 반영 예약 (drawings, naturalFeatures 등)');
           } else {
               console.log('⏭️ castles/territories 없음, 추가 데이터 렌더링 스킵 (캐시 데이터 보호)');
