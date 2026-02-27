@@ -8962,17 +8962,20 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 + buildCommentBtn(castle._id, castleName);
 
 
-            // 🚩 [추가] 커스텀 아이콘이 있으면 일반/수도 구분 없이 커스텀 아이콘 사용
+            // 🚩 [추가] 커스텀 아이콘이 있으면 역삼각형(▼) 자리에 이미지를 표시하고 아래에 텍스트(이름) 유지
             if (castle.custom_icon) {
-                const iconWidth = castle.icon_width || 32;
-                const iconHeight = castle.icon_height || 32;
-                const customIconHtml = `<img src="${castle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+                const iconWidth = castle.icon_width || 20;
+                const iconHeight = castle.icon_height || 20;
+                const dotColor = currentCountry?.color || 'white';
+                const customMarkerHtml = `<div style="display: flex; flex-direction: column; align-items: center; gap: 1px; transform: scale(var(--marker-scale, 1));">
+                    <img src="${castle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain; filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.5));">
+                    <div class="city-marker-text" style="color:#f0e6c8; font-family:'Nanum Myeongjo',serif; font-weight:400; font-size:10px; white-space:nowrap; padding-bottom:1px; text-shadow: 0px 0px 2px rgba(0,0,0,0.9), 0px 0px 4px rgba(0,0,0,0.8);">${castleName}</div>
+                </div>`;
                 const customIcon = L.divIcon({
                     className: 'custom-icon-marker',
-                    html: customIconHtml,
-                    iconSize: [iconWidth, iconHeight],
-                    iconAnchor: [iconWidth / 2, iconHeight],
-                    popupAnchor: [0, -iconHeight]
+                    html: customMarkerHtml,
+                    iconAnchor: [iconWidth / 2, 0],
+                    popupAnchor: [0, -5]
                 });
                 marker = L.marker([castle.lat, castle.lng], { icon: customIcon, zIndexOffset: activeHistoryRecord.is_capital ? 1000 : 0 });
             } else if (currentCountry.flag && !activeHistoryRecord.is_capital) { // 🚩 [수정] activeHistoryRecord 사용
