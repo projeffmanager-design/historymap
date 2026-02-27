@@ -19468,7 +19468,10 @@ kingSelect.addEventListener('change', () => {
      📜 사관 활동 소식 피드 (랭킹 왼쪽, 완전투명, 스크롤 5줄)
      ============================================================ -->
 <div id="activity-feed-panel">
-    <div id="activity-feed-header">📜 사관 활동 소식</div>
+    <div id="activity-feed-header">
+        <span>📜 사관 활동 소식</span>
+        <button id="activity-feed-close" title="닫기">&times;</button>
+    </div>
     <div id="activity-feed-scroll">
         <div id="activity-feed-list"></div>
     </div>
@@ -19480,25 +19483,47 @@ kingSelect.addEventListener('change', () => {
     position: fixed;
     bottom: 90px;    /* 타임슬라이더(~105px) 위 */
     left: 20px;
-    width: 290px;
+    width: 280px;
     max-height: calc(100vh - 240px); /* 위아래 여백 확보 */
     z-index: 999;
-    pointer-events: none;
+    pointer-events: auto;
     font-family: 'Noto Serif KR', serif;
-    background: transparent;
-    border: none;
+    background: rgba(30, 42, 56, 0.45);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     padding: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
 }
 #activity-feed-header {
-    font-size: 10px;
-    font-weight: 400;
-    color: rgba(235,196,100,0.9);
-    padding: 0 0 5px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(235,196,100,0.95);
+    padding: 8px 10px 6px 10px;
     letter-spacing: 0.5px;
-    text-shadow: 0 1px 5px rgba(0,0,0,1), 0 0 10px rgba(0,0,0,1);
+    text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    flex-shrink: 0;
+}
+#activity-feed-close {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.45);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+    transition: color 0.2s;
+}
+#activity-feed-close:hover {
+    color: rgba(255,255,255,0.85);
 }
 /* 스크롤 영역: flex 컨테이너 남은 공간 자동 채움, 스크롤바 숨김 */
 #activity-feed-scroll {
@@ -19506,13 +19531,13 @@ kingSelect.addEventListener('change', () => {
     min-height: 0;
     overflow-y: auto;
     scrollbar-width: none; /* Firefox */
-    pointer-events: auto;  /* 스크롤 허용 */
+    padding: 6px 10px 8px 10px;
 }
 #activity-feed-scroll::-webkit-scrollbar { display: none; }
 #activity-feed-list {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
 }
 .af-item {
     display: flex;
@@ -19667,6 +19692,18 @@ kingSelect.addEventListener('change', () => {
     document.addEventListener('DOMContentLoaded', function() {
         fetchLogs(true);  // DB 로그 렌더링
         setInterval(() => fetchLogs(false), POLL_INTERVAL);
+
+        // ✕ 닫기 버튼 — 패널 숨기고 레이어 체크박스도 연동
+        const closeBtn = document.getElementById('activity-feed-close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', function() {
+                const panel = document.getElementById('activity-feed-panel');
+                if (panel) panel.style.display = 'none';
+                // 레이어 체크박스 연동
+                const cb = document.getElementById('menu-layer-activity-feed');
+                if (cb) { cb.checked = false; cb.dispatchEvent(new Event('change')); }
+            });
+        }
     });
 
     window.refreshActivityFeed = function() { fetchLogs(false); };
