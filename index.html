@@ -13387,8 +13387,89 @@ function invalidateCountryLookupCache() {
     // 🚩 [추가] 마커 타입 선택기 이벤트 리스너
     markerTypeSelector.addEventListener('click', (e) => {
         if (e.target.tagName === 'BUTTON') {
-            const type = e.target.dataset.type;
-            setActiveMarkerType(type);
+            const newType = e.target.dataset.type;
+            
+            // 🚩 [수정] 타입 전환 시 기존 폼 필드 값을 수집하여 새 타입 필드에 매핑
+            const prevType = markerTypeSelector.querySelector('button.active')?.dataset?.type || 'normal';
+            if (prevType === newType) return; // 같은 타입이면 무시
+            
+            // ── 공통 필드 수집 ──
+            const commonName = document.getElementById('castleName').value;
+            const commonLat = document.getElementById('castleLat').value;
+            const commonLng = document.getElementById('castleLng').value;
+            const commonCustomIcon = document.getElementById('customIcon').value;
+            const commonIconWidth = document.getElementById('iconWidth').value;
+            const commonIconHeight = document.getElementById('iconHeight').value;
+            
+            // ── 설명/사진 수집 (타입에 따라 다른 필드에서 읽기) ──
+            let commonDesc = '';
+            let commonPhoto = '';
+            if (prevType === 'natural') {
+                commonDesc = document.getElementById('naturalDescProxy')?.value || '';
+                commonPhoto = document.getElementById('naturalPhotoProxy')?.value || '';
+            } else if (prevType === 'military') {
+                commonDesc = '';
+                commonPhoto = '';
+            } else {
+                commonDesc = document.getElementById('castleDesc').value || '';
+                commonPhoto = document.getElementById('castlePhoto').value || '';
+            }
+            
+            // ── 연도 수집 (역사기록 또는 단순기간에서 읽기) ──
+            let startYear = '', startMonth = '', endYear = '', endMonth = '';
+            if (prevType === 'normal' || prevType === 'battle') {
+                // 역사 기록의 첫 번째 행에서 가져오기
+                const firstRow = document.querySelector('#castleHistoryList .history-record-row');
+                if (firstRow) {
+                    startYear = firstRow.querySelector('input.history-start-year')?.value || '';
+                    startMonth = firstRow.querySelector('input.history-start-month')?.value || '';
+                    endYear = firstRow.querySelector('input.history-end-year')?.value || '';
+                    endMonth = firstRow.querySelector('input.history-end-month')?.value || '';
+                }
+            } else {
+                startYear = document.getElementById('simpleStartYear').value || '';
+                startMonth = document.getElementById('simpleStartMonth').value || '';
+                endYear = document.getElementById('simpleEndYear').value || '';
+                endMonth = document.getElementById('simpleEndMonth').value || '';
+            }
+            
+            // ── 타입 전환 실행 ──
+            setActiveMarkerType(newType);
+            
+            // ── 새 타입 필드에 수집한 값 채우기 ──
+            // 설명/사진
+            if (newType === 'natural') {
+                const naturalDescProxy = document.getElementById('naturalDescProxy');
+                const naturalPhotoProxy = document.getElementById('naturalPhotoProxy');
+                if (naturalDescProxy) naturalDescProxy.value = commonDesc;
+                if (naturalPhotoProxy) naturalPhotoProxy.value = commonPhoto;
+            } else if (newType !== 'military') {
+                document.getElementById('castleDesc').value = commonDesc;
+                document.getElementById('castlePhoto').value = commonPhoto;
+            }
+            
+            // 연도
+            if (newType === 'normal' || newType === 'battle') {
+                // 역사 기록이 비어있으면 새 행 추가
+                const existingRows = document.querySelectorAll('#castleHistoryList .history-record-row');
+                if (existingRows.length === 0) {
+                    addCastleHistoryRow({
+                        name: commonName,
+                        country_id: '',
+                        start_year: startYear ? parseInt(startYear) : '',
+                        start_month: startMonth ? parseInt(startMonth) : 1,
+                        end_year: endYear ? parseInt(endYear) : '',
+                        end_month: endMonth ? parseInt(endMonth) : 12,
+                        is_capital: false,
+                        is_battle: newType === 'battle'
+                    });
+                }
+            } else {
+                document.getElementById('simpleStartYear').value = startYear;
+                document.getElementById('simpleStartMonth').value = startMonth;
+                document.getElementById('simpleEndYear').value = endYear;
+                document.getElementById('simpleEndMonth').value = endMonth;
+            }
         }
     });
 
