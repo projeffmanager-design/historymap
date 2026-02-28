@@ -225,8 +225,8 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.5.3',           // [v3.5.3] Vercel 캐시 불일치 수정 — countries/castle 동기화
-        DATA_SCHEMA_VERSION: '2.0.3'    // countries_cache 강제 갱신 (국가 추가 반영)
+        APP_VERSION: '3.5.4',           // [v3.5.4] 영토 데이터 MongoDB 직접 로드 + country/properties 필드 보존
+        DATA_SCHEMA_VERSION: '2.0.4'    // territory country 필드 추가 — 캐시 강제 갱신
     };
     
     const storedAppVersion = localStorage.getItem('app_version');
@@ -10595,9 +10595,9 @@ function invalidateCountryLookupCache() {
               
               const bounds = map.getBounds();
               
-              // 📖 [최적화] 정적 타일 파일 사용 (네트워크 지연 해결)
-              console.log(`📡 [정적 파일] 영토 타일 데이터 로드`);
-              await loadTerritoryFromStaticTiles(bounds);
+              // 📖 [수정] MongoDB 직접 로드 (정적 타일에 country 등 필드 미포함 → 직접 API 사용)
+              console.log(`📡 [MongoDB] 영토 데이터 직접 로드`);
+              await loadTerritoryFromMongoDB(bounds);
               return;
               
           } catch (error) {
@@ -10737,7 +10737,11 @@ function invalidateCountryLookupCache() {
                           name_type: feature.properties?.name_type,
                           type: feature.geometry?.type,
                           coordinates: feature.geometry?.coordinates,
+                          bbox: feature.properties?.bbox,
                           level: feature.properties?.level,
+                          country: feature.properties?.country,
+                          properties: feature.properties,
+                          osm_id: feature.properties?.osm_id,
                           start: feature.properties?.start_year || feature.properties?.start,
                           end: feature.properties?.end_year || feature.properties?.end
                       });
