@@ -6827,6 +6827,7 @@ function getKingByYear(countryName, year, month) {
         
         // 구역 내 도시가 0개면 → castles 미로드 상태일 수 있으므로 properties.country_id로 fallback
         if (uniqueCountries.length === 0) {
+            // fallback 1: properties.country_id
             if (territory.properties && territory.properties.country_id) {
                 const fallbackId = String(territory.properties.country_id);
                 if (castles.length === 0) {
@@ -6837,6 +6838,11 @@ function getKingByYear(countryName, year, month) {
                         calculateDominantCountry._fallbackLogCount++;
                     }
                 }
+                return { countryId: fallbackId, isExclusive: true, countriesInZone: [fallbackId] };
+            }
+            // fallback 2: territory.country (DB의 country 필드)
+            if (territory.country) {
+                const fallbackId = String(territory.country);
                 return { countryId: fallbackId, isExclusive: true, countriesInZone: [fallbackId] };
             }
             return null;
@@ -10816,7 +10822,11 @@ function invalidateCountryLookupCache() {
                   name_type: t.name_type,
                   type: t.geometry?.type || t.type,
                   coordinates: t.geometry?.coordinates || t.coordinates,
+                  bbox: t.bbox,
                   level: t.level,
+                  country: t.country,
+                  properties: t.properties,
+                  osm_id: t.osm_id,
                   start: t.start || t.start_year,
                   end: t.end || t.end_year
               }));
