@@ -1471,6 +1471,48 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // POST: 영역 교차 검색 (bbox 기반) - territory_manager에서 사용
+        app.post('/api/territories/intersect', verifyAdmin, async (req, res) => {
+            try {
+                const { bbox } = req.body;
+                if (!bbox || bbox.minLat === undefined || bbox.maxLat === undefined || bbox.minLng === undefined || bbox.maxLng === undefined) {
+                    return res.status(400).json({ message: "bbox (minLat, maxLat, minLng, maxLng) 필드가 필요합니다." });
+                }
+
+                console.log(`🔎 영역 교차 검색: lat ${bbox.minLat}~${bbox.maxLat}, lng ${bbox.minLng}~${bbox.maxLng}`);
+
+                // bbox가 겹치는 영토 검색 (두 사각형이 겹치는 조건)
+                const query = {
+                    'bbox.minLat': { $lte: bbox.maxLat },
+                    'bbox.maxLat': { $gte: bbox.minLat },
+                    'bbox.minLng': { $lte: bbox.maxLng },
+                    'bbox.maxLng': { $gte: bbox.minLng }
+                };
+
+                const territories = await collections.territories.find(query, {
+                    projection: {
+                        _id: 1,
+                        name: 1,
+                        name_ko: 1,
+                        name_en: 1,
+                        type: 1,
+                        start_year: 1,
+                        end_year: 1,
+                        osm_id: 1,
+                        admin_level: 1,
+                        country: 1,
+                        level: 1
+                    }
+                }).toArray();
+
+                console.log(`✅ 교차 검색 결과: ${territories.length}개`);
+                res.json({ territories });
+            } catch (error) {
+                console.error("영역 교차 검색 중 오류:", error);
+                res.status(500).json({ message: "영역 교차 검색 실패", error: error.message });
+            }
+        });
+
         // PUT: 영토 폴리곤 업데이트
         app.put('/api/territories/:id', verifyAdmin, async (req, res) => {
             try {
