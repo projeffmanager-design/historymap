@@ -584,30 +584,84 @@
                 }
                 osmIdField.value = `r${osmId}`;
 
-                // 2. GeoJSON 데이터 가져오기 (Nominatim 사용)
+                // 2. GeoJSON 데이터 가져오기 (Nominatim 우선 → Overpass geom fallback)
                 setProgress(80);
-                const geoUrl = `https://nominatim.openstreetmap.org/lookup?osm_ids=R${osmId}&format=geojson&polygon_geojson=1`;
-                const geoResponse = await fetch(geoUrl, {
-                    headers: { 'User-Agent': 'KoreaHistoryMap/1.0' }
-                });
+                let geometryLoaded = false;
 
-                if (geoResponse.ok) {
-                    const geoData = await geoResponse.json();
-                    if (geoData.features && geoData.features.length > 0) {
-                        const geojson = JSON.stringify(geoData.features[0], null, 2);
-                        document.getElementById('geojson').value = geojson;
-                        // store bbox for intersection queries
-                        const feature = geoData.features[0];
-                        const g = feature.geometry || feature;
-                        const computedBbox = calculateBBox(g);
-                        if (computedBbox) {
-                            document.getElementById('osm_bbox_hidden')?.remove();
-                            const b = document.createElement('input');
-                            b.type = 'hidden'; b.id = 'osm_bbox_hidden'; b.name = 'osm_bbox';
-                            b.value = JSON.stringify(computedBbox);
-                            document.getElementById('territoryForm').appendChild(b);
+                // 2-a. Nominatim 시도
+                try {
+                    const geoUrl = `https://nominatim.openstreetmap.org/lookup?osm_ids=R${osmId}&format=geojson&polygon_geojson=1`;
+                    const geoResponse = await fetch(geoUrl, { headers: { 'User-Agent': 'KoreaHistoryMap/1.0' } });
+                    if (geoResponse.ok) {
+                        const geoData = await geoResponse.json();
+                        if (geoData.features && geoData.features.length > 0) {
+                            const feature = geoData.features[0];
+                            const g = feature.geometry || feature;
+                            if (g && g.coordinates && g.coordinates.length > 0) {
+                                document.getElementById('geojson').value = JSON.stringify(feature, null, 2);
+                                const computedBbox = calculateBBox(g);
+                                if (computedBbox) {
+                                    document.getElementById('osm_bbox_hidden')?.remove();
+                                    const b = document.createElement('input');
+                                    b.type = 'hidden'; b.id = 'osm_bbox_hidden'; b.name = 'osm_bbox';
+                                    b.value = JSON.stringify(computedBbox);
+                                    document.getElementById('territoryForm').appendChild(b);
+                                }
+                                geometryLoaded = true;
+                                log('  📐 Nominatim에서 GeoJSON 로드 완료', 'info');
+                            }
                         }
                     }
+                } catch (e) {
+                    log('  ⚠️ Nominatim 요청 실패, Overpass fallback 시도...', 'warning');
+                }
+
+                // 2-b. Nominatim에서 coordinates가 없으면 Overpass geom으로 fallback
+                if (!geometryLoaded) {
+                    log('  🔄 Overpass API로 폴리곤 직접 요청 중...', 'info');
+                    try {
+                        const overpassGeoQuery = `[out:json][timeout:60];relation(${osmId});out geom;`;
+                        const overpassGeoResp = await fetch('https://overpass-api.de/api/interpreter', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'KoreaHistoryMap/1.0' },
+                            body: `data=${encodeURIComponent(overpassGeoQuery)}`
+                        });
+                        if (!overpassGeoResp.ok) throw new Error(`Overpass geom 오류: ${overpassGeoResp.status}`);
+                        const overpassGeoData = await overpassGeoResp.json();
+                        const rel = overpassGeoData.elements && overpassGeoData.elements[0];
+                        if (rel && rel.members) {
+                            // outer way들의 좌표를 모아 MultiPolygon 구성
+                            const outerRings = rel.members
+                                .filter(m => m.type === 'way' && m.role === 'outer' && m.geometry)
+                                .map(m => m.geometry.map(p => [p.lon, p.lat]));
+                            if (outerRings.length > 0) {
+                                const geomType = outerRings.length === 1 ? 'Polygon' : 'MultiPolygon';
+                                const coords = geomType === 'Polygon' ? outerRings : outerRings.map(r => [r]);
+                                const feature = {
+                                    type: 'Feature',
+                                    properties: rel.tags || {},
+                                    geometry: { type: geomType, coordinates: coords }
+                                };
+                                document.getElementById('geojson').value = JSON.stringify(feature, null, 2);
+                                const computedBbox = calculateBBox(feature.geometry);
+                                if (computedBbox) {
+                                    document.getElementById('osm_bbox_hidden')?.remove();
+                                    const b = document.createElement('input');
+                                    b.type = 'hidden'; b.id = 'osm_bbox_hidden'; b.name = 'osm_bbox';
+                                    b.value = JSON.stringify(computedBbox);
+                                    document.getElementById('territoryForm').appendChild(b);
+                                }
+                                geometryLoaded = true;
+                                log(`  📐 Overpass에서 GeoJSON 로드 완료 (${geomType}, outer rings: ${outerRings.length})`, 'info');
+                            }
+                        }
+                    } catch (e2) {
+                        log(`  ❌ Overpass geom 실패: ${e2.message}`, 'error');
+                    }
+                }
+
+                if (!geometryLoaded) {
+                    log('⚠️ 폴리곤 데이터를 가져오지 못했습니다. GeoJSON을 수동으로 붙여넣어 주세요.', 'warning');
                 }
 
                 setProgress(100);
