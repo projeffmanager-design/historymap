@@ -225,8 +225,8 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.0',           // [v3.6.0] 성능 최적화: 좌표 간소화, SVG 렌더러 재사용, 국가계산 캐시, 모바일 메모리 절감
-        DATA_SCHEMA_VERSION: '2.0.4'    // territory country 필드 추가 — 캐시 강제 갱신 (데이터 변경 없음)
+        APP_VERSION: '3.6.1',           // [v3.6.1] 국가 매칭 실패 수정: DB country 필드 업데이트 + ObjectId 직렬화 처리
+        DATA_SCHEMA_VERSION: '2.0.5'    // territory country 필드 ObjectId 변환 — 캐시 강제 갱신
     };
     
     const storedAppVersion = localStorage.getItem('app_version');
@@ -10938,7 +10938,10 @@ function invalidateCountryLookupCache() {
                       coordinates: truncateCoordPrecision(rawCoords),
                       bbox: t.bbox,
                       level: t.level,
-                      country: t.country,
+                      // 🔑 [v3.6.1] ObjectId 객체 → hex 문자열 변환 (서버가 {$oid:"..."} 반환 시 대비)
+                      country: t.country && typeof t.country === 'object' && !Array.isArray(t.country)
+                                ? (t.country.$oid || String(t.country))
+                                : t.country,
                       properties: t.properties,
                       osm_id: t.osm_id,
                       start: t.start || t.start_year,

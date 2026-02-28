@@ -1388,6 +1388,14 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         if (t.geometry && t.geometry.coordinates) {
                             t.geometry.coordinates = truncCoords(t.geometry.coordinates);
                         }
+                        // 🔑 [v3.6.1] ObjectId 필드를 문자열로 변환 (country, properties.country_id)
+                        // MongoDB ObjectId는 JSON 직렬화 시 {$oid: "..."} 가 되어 클라이언트 매칭 실패 원인
+                        if (t.country && typeof t.country === 'object' && t.country._id === undefined) {
+                            t.country = String(t.country); // ObjectId → hex string
+                        }
+                        if (t.properties && t.properties.country_id && typeof t.properties.country_id === 'object') {
+                            t.properties.country_id = String(t.properties.country_id);
+                        }
                         return t;
                     });
                     
