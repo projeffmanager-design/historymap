@@ -7860,7 +7860,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             let skipReasons = { duplicate: 0, outOfView: 0, timeRange: 0, noCountry: 0, countryNotFound: 0 };
             
             // 🚩 [v3.2 핵심] 2-pass 렌더링: 국가별 Feature 수집 → 국가별 단일 레이어로 병합
+            // level 순서로 분리: province(아래) → country/city(위)
             const countryFeatures = new Map();   // countryId → { features: [], countryInfo, style }
+            const provinceFeatures = new Map();  // province 전용 (아래 깔리도록)
             
             territories.forEach(territory => {
                 const localKey = `${territory.name}_${territory.type}`;
@@ -7923,16 +7925,18 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     }
                 };
                 
-                // 국가별 수집
-                if (!countryFeatures.has(dominantCountryId)) {
+                // 국가별 수집 (province는 별도 Map으로 분리 — 아래 깔리도록)
+                const isProvince = (territory.level === 'province');
+                const targetMap = isProvince ? provinceFeatures : countryFeatures;
+                if (!targetMap.has(dominantCountryId)) {
                     const computedStyle = getTerritoryStyle(territory, countryInfo, year, month);
-                    countryFeatures.set(dominantCountryId, {
+                    targetMap.set(dominantCountryId, {
                         features: [],
                         countryInfo: countryInfo,
                         style: computedStyle
                     });
                 }
-                countryFeatures.get(dominantCountryId).features.push(feature);
+                targetMap.get(dominantCountryId).features.push(feature);
                 
                 // 국가 중심점 추적 (거시 모드용)
                 _renderedCountryIds.add(dominantCountryId);
@@ -7963,42 +7967,49 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             // 🚀 [v3.6] 공유 SVG renderer 1개만 생성 (메모리 30배 절감)
             const sharedRenderer = L.svg({ padding: 0.5 });
             window._territoryRenderers.push(sharedRenderer);
-            
-            countryFeatures.forEach(({ features, countryInfo, style }, countryId) => {
-                const featureCollection = {
-                    type: 'FeatureCollection',
-                    features: features
-                };
-                
-                // 🚀 [v3.6] 공유 renderer 사용 — fillOpacity를 직접 스타일에 설정
-                const groupOpacity = style.fillOpacity || 0.3;
-                const pathStyle = Object.assign({}, style, {
-                    fillOpacity: groupOpacity,
-                    opacity: style.opacity || 0.6
-                });
-                
-                const countryLayer = L.geoJSON(featureCollection, {
-                    style: pathStyle,
-                    renderer: sharedRenderer,
-                    onEachFeature: (feature, layer) => {
-                        const props = feature.properties;
-                        const sY = props.startYear;
-                        const eY = props.endYear;
-                        let popupContent;
-                        if (props.isExclusive) {
-                            popupContent = `<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name}<br>기간: ${sY}년 ~ ${eY === Infinity ? '현재' : eY + '년'}`;
-                        } else {
-                            const zoneNames = (props.countriesInZone || [])
-                                .map(cid => { const ci = getCountryInfoById(cid); return ci ? ci.name : cid; })
-                                .join(', ');
-                            popupContent = `<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name} (혼합: ${zoneNames})<br>기간: ${sY}년 ~ ${eY === Infinity ? '현재' : eY + '년'}`;
+
+            // 렌더링 헬퍼: featureMap의 항목들을 territoryLayerGroup에 추가
+            const renderFeatureMap = (featureMap) => {
+                featureMap.forEach(({ features, countryInfo, style }, countryId) => {
+                    const featureCollection = {
+                        type: 'FeatureCollection',
+                        features: features
+                    };
+                    
+                    // 🚀 [v3.6] 공유 renderer 사용 — fillOpacity를 직접 스타일에 설정
+                    const groupOpacity = style.fillOpacity || 0.3;
+                    const pathStyle = Object.assign({}, style, {
+                        fillOpacity: groupOpacity,
+                        opacity: style.opacity || 0.6
+                    });
+                    
+                    const countryLayer = L.geoJSON(featureCollection, {
+                        style: pathStyle,
+                        renderer: sharedRenderer,
+                        onEachFeature: (feature, layer) => {
+                            const props = feature.properties;
+                            const sY = props.startYear;
+                            const eY = props.endYear;
+                            let popupContent;
+                            if (props.isExclusive) {
+                                popupContent = `<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name}<br>기간: ${sY}년 ~ ${eY === Infinity ? '현재' : eY + '년'}`;
+                            } else {
+                                const zoneNames = (props.countriesInZone || [])
+                                    .map(cid => { const ci = getCountryInfoById(cid); return ci ? ci.name : cid; })
+                                    .join(', ');
+                                popupContent = `<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name} (혼합: ${zoneNames})<br>기간: ${sY}년 ~ ${eY === Infinity ? '현재' : eY + '년'}`;
+                            }
+                            layer.bindPopup(popupContent);
                         }
-                        layer.bindPopup(popupContent);
-                    }
+                    });
+                    
+                    territoryLayerGroup.addLayer(countryLayer);
                 });
-                
-                territoryLayerGroup.addLayer(countryLayer);
-            });
+            };
+
+            // province 먼저 → country/city 나중에 (province가 항상 아래에 깔림)
+            renderFeatureMap(provinceFeatures);
+            renderFeatureMap(countryFeatures);
         }
 
         // 🌊 [추가] 자연 지형지물 (강) 렌더링 — 별도 레이어 그룹 + 전용 SVG 렌더러 사용
@@ -11686,6 +11697,7 @@ function invalidateCountryLookupCache() {
           
           let addedCount = 0;
           const countryFeatures = new Map(); // countryId → { features: [], countryInfo, style }
+          const provinceFeatures = new Map(); // province 전용 (아래 깔리도록)
           
           territories.forEach(territory => {
               const territoryKey = `${territory._id || territory.name}_${year}`;
@@ -11741,15 +11753,18 @@ function invalidateCountryLookupCache() {
                   }
               };
               
-              if (!countryFeatures.has(dominantCountryId)) {
+              // province는 provinceFeatures에, 나머지는 countryFeatures에 분리 저장
+              const isProvince2 = (territory.level === 'province');
+              const targetMap2 = isProvince2 ? provinceFeatures : countryFeatures;
+              if (!targetMap2.has(dominantCountryId)) {
                   const computedStyle = getTerritoryStyle(territory, countryInfo, year, month);
-                  countryFeatures.set(dominantCountryId, {
+                  targetMap2.set(dominantCountryId, {
                       features: [],
                       countryInfo: countryInfo,
                       style: computedStyle
                   });
               }
-              countryFeatures.get(dominantCountryId).features.push(feature);
+              targetMap2.get(dominantCountryId).features.push(feature);
               
               // 국가명 갱신용: _renderedCountryIds / _renderedCountryCentroids 동기화
               _renderedCountryIds.add(dominantCountryId);
@@ -11768,31 +11783,34 @@ function invalidateCountryLookupCache() {
               addedCount++;
           });
           
-          // � [v3.6] 공유 renderer 사용 (증분 업데이트에서도 메모리 절감)
-          countryFeatures.forEach(({ features, countryInfo, style }, countryId) => {
-              const featureCollection = {
-                  type: 'FeatureCollection',
-                  features: features
-              };
-              
-              const groupOpacity = style.fillOpacity || 0.3;
-              const pathStyle = Object.assign({}, style, {
-                  fillOpacity: groupOpacity,
-                  opacity: style.opacity || 0.6
+          // 🚀 [v3.6] province 먼저, country/city 나중에 (province가 항상 아래에 깔림)
+          const renderIncrementalMap = (featureMap) => {
+              featureMap.forEach(({ features, countryInfo, style }, countryId) => {
+                  const featureCollection = {
+                      type: 'FeatureCollection',
+                      features: features
+                  };
+                  
+                  const groupOpacity = style.fillOpacity || 0.3;
+                  const pathStyle = Object.assign({}, style, {
+                      fillOpacity: groupOpacity,
+                      opacity: style.opacity || 0.6
+                  });
+                  
+                  const countryLayer = L.geoJSON(featureCollection, {
+                      style: pathStyle,
+                      onEachFeature: (feature, layer) => {
+                          const props = feature.properties;
+                          const popupContent = `<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name}`;
+                          layer.bindPopup(popupContent);
+                      }
+                  });
+                  
+                  territoryLayerGroup.addLayer(countryLayer);
               });
-              
-              const countryLayer = L.geoJSON(featureCollection, {
-                  style: pathStyle,
-                  onEachFeature: (feature, layer) => {
-                      const props = feature.properties;
-                      const popupContent = `<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name}`;
-                      layer.bindPopup(popupContent);
-                  }
-              });
-              
-              territoryLayerGroup.addLayer(countryLayer);
-          });
-          
+          };
+          renderIncrementalMap(provinceFeatures);
+          renderIncrementalMap(countryFeatures);
           if (addedCount > 0) {
               console.log(`🗺️ 영토 증분 업데이트: ${addedCount}개 추가됨 (${countryFeatures.size}개 국가 레이어)`);
               // 새 영토가 추가됐으므로 국가명 라벨 갱신
