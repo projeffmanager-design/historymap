@@ -238,8 +238,8 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.13',          // [v3.6.13] territories country_id/start_year 대규모 정비 - 중국/한국/몽골/북한/일본 현대 영토 색칠
-        DATA_SCHEMA_VERSION: '2.0.7'    // territories country_id 대량 설정 — 캐시 강제 갱신
+        APP_VERSION: '3.6.14',          // [v3.6.14] territories country_id 제거 — castles 기반 동적 국가 판단 복원
+        DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
     
     const storedAppVersion = localStorage.getItem('app_version');
@@ -8012,17 +8012,17 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 });
             };
 
-            // 🚩 [v3.6.12] 2단계 색칠: 1단계(province+country) 렌더 후 city는 중복 국가 skip
-            // 1단계 렌더링 후 "이 countryId가 칠해진 rings" 수집
-            const stage1Rings = new Map(); // countryId → [ [[lat,lng], ...], ... ] (ring 배열)
-            const collectRings = (featureMap) => {
-                featureMap.forEach(({ features }, countryId) => {
-                    if (!stage1Rings.has(countryId)) stage1Rings.set(countryId, []);
-                    const rings = stage1Rings.get(countryId);
+            // 🚩 [v3.6.14] 3단계 색칠: country → province(같은 색 skip) → city(같은 색 skip)
+            // 이미 칠해진 "fillColor → rings[]" 를 추적하여 같은 색이면 skip
+            const stage1ColorRings = new Map(); // fillColor → [ [[lat,lng], ...], ... ]
+            const collectColorRings = (featureMap) => {
+                featureMap.forEach(({ features, style }) => {
+                    const color = style.fillColor || style.color || '#888888';
+                    if (!stage1ColorRings.has(color)) stage1ColorRings.set(color, []);
+                    const rings = stage1ColorRings.get(color);
                     for (const f of features) {
                         const geom = f.geometry;
                         if (!geom) continue;
-                        // GeoJSON 좌표는 [lng, lat] → isPointInPolygon은 [lat, lng] 기대
                         const toLatLng = (ring) => ring.map(([lng, lat]) => [lat, lng]);
                         if (geom.type === 'Polygon') {
                             rings.push(toLatLng(geom.coordinates[0]));
@@ -8033,13 +8033,13 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 });
             };
 
-            // city feature의 대표 좌표(centroid)가 1단계의 같은 국가 ring 안에 있으면 skip
-            const renderCityFeatures = (featureMap) => {
+            // province/city: 같은 fillColor로 이미 칠해진 ring 안에 있으면 skip
+            const renderFilteredFeatureMap = (featureMap) => {
                 featureMap.forEach(({ features, countryInfo, style }, countryId) => {
+                    const fillColor = style.fillColor || style.color || '#888888';
                     const filteredFeatures = features.filter(f => {
                         const geom = f.geometry;
                         if (!geom) return false;
-                        // 대표 좌표 = 첫 번째 ring의 첫 번째 점 (빠른 근사)
                         let sampleLng, sampleLat;
                         if (geom.type === 'Polygon' && geom.coordinates[0]?.length > 0) {
                             [sampleLng, sampleLat] = geom.coordinates[0][0];
@@ -8048,8 +8048,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         } else {
                             return true; // 알 수 없는 타입은 그냥 그림
                         }
-                        // 1단계에서 같은 countryId로 칠해진 rings 안에 있으면 skip
-                        const rings = stage1Rings.get(countryId);
+                        const rings = stage1ColorRings.get(fillColor);
                         if (rings) {
                             for (const ring of rings) {
                                 if (isPointInPolygon([sampleLat, sampleLng], ring)) return false;
@@ -8069,20 +8068,33 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         renderer: sharedRenderer,
                         onEachFeature: (feature, layer) => {
                             const props = feature.properties;
-                            layer.bindPopup(`<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name}`);
+                            const sY = props.startYear;
+                            const eY = props.endYear;
+                            let popupContent;
+                            if (props.isExclusive) {
+                                popupContent = `<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name}<br>기간: ${sY}년 ~ ${eY === Infinity ? '현재' : eY + '년'}`;
+                            } else {
+                                const zoneNames = (props.countriesInZone || [])
+                                    .map(cid => { const ci = getCountryInfoById(cid); return ci ? ci.name : cid; })
+                                    .join(', ');
+                                popupContent = `<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name} (혼합: ${zoneNames})<br>기간: ${sY}년 ~ ${eY === Infinity ? '현재' : eY + '년'}`;
+                            }
+                            layer.bindPopup(popupContent);
                         }
                     });
                     territoryLayerGroup.addLayer(countryLayer);
                 });
             };
 
-            // 1단계: province → country 순서로 렌더링 + rings 수집
-            renderFeatureMap(provinceFeatures);
+            // 3단계 렌더링:
+            // 1단계: country (필터 없이 모두 그림)
             renderFeatureMap(countryFeatures);
-            collectRings(provinceFeatures);
-            collectRings(countryFeatures);
-            // 2단계: city (같은 국가가 이미 칠해진 곳은 skip)
-            renderCityFeatures(cityFeatures);
+            collectColorRings(countryFeatures);
+            // 2단계: province (같은 색이 이미 칠해진 곳은 skip)
+            renderFilteredFeatureMap(provinceFeatures);
+            collectColorRings(provinceFeatures);
+            // 3단계: city (같은 색이 이미 칠해진 곳은 skip)
+            renderFilteredFeatureMap(cityFeatures);
         }
 
         // 🌊 [추가] 자연 지형지물 (강) 렌더링 — 별도 레이어 그룹 + 전용 SVG 렌더러 사용
@@ -10997,9 +11009,9 @@ function invalidateCountryLookupCache() {
           }, 1000);
           
           try {
-              // 🚀 bounds 없이 전체 영토 로드 (캐싱 활용)
+              // 🚀 bounds 없이 전체 영토 로드 (nocache=true로 서버 캐시 무효화)
               const response = await fetch(
-                  `${API_BASE_URL}/territories`,
+                  `${API_BASE_URL}/territories?nocache=true`,
                   { headers }
               );
               
@@ -11882,12 +11894,13 @@ function invalidateCountryLookupCache() {
               });
           };
 
-          // 1단계 rings 수집
-          const stage1Rings2 = new Map(); // countryId → ring 배열
-          const collectRings2 = (featureMap) => {
-              featureMap.forEach(({ features }, countryId) => {
-                  if (!stage1Rings2.has(countryId)) stage1Rings2.set(countryId, []);
-                  const rings = stage1Rings2.get(countryId);
+          // 🚩 [v3.6.14] 3단계 색칠: country → province(같은 색 skip) → city(같은 색 skip)
+          const stage1ColorRings2 = new Map(); // fillColor → ring[]
+          const collectColorRings2 = (featureMap) => {
+              featureMap.forEach(({ features, style }) => {
+                  const color = style.fillColor || style.color || '#888888';
+                  if (!stage1ColorRings2.has(color)) stage1ColorRings2.set(color, []);
+                  const rings = stage1ColorRings2.get(color);
                   for (const f of features) {
                       const geom = f.geometry;
                       if (!geom) continue;
@@ -11901,9 +11914,10 @@ function invalidateCountryLookupCache() {
               });
           };
 
-          // 2단계: city (같은 국가가 이미 칠해진 곳은 skip)
-          const renderIncrementalCity = (featureMap) => {
+          // province/city: 같은 fillColor로 이미 칠해진 ring 안에 있으면 skip
+          const renderIncrementalFiltered = (featureMap) => {
               featureMap.forEach(({ features, countryInfo, style }, countryId) => {
+                  const fillColor = style.fillColor || style.color || '#888888';
                   const filteredFeatures = features.filter(f => {
                       const geom = f.geometry;
                       if (!geom) return false;
@@ -11915,7 +11929,7 @@ function invalidateCountryLookupCache() {
                       } else {
                           return true;
                       }
-                      const rings = stage1Rings2.get(countryId);
+                      const rings = stage1ColorRings2.get(fillColor);
                       if (rings) {
                           for (const ring of rings) {
                               if (isPointInPolygon([sampleLat, sampleLng], ring)) return false;
@@ -11941,11 +11955,14 @@ function invalidateCountryLookupCache() {
               });
           };
 
-          renderIncrementalMap(provinceFeatures);
+          // 1단계: country (필터 없이)
           renderIncrementalMap(countryFeatures);
-          collectRings2(provinceFeatures);
-          collectRings2(countryFeatures);
-          renderIncrementalCity(cityFeatures);
+          collectColorRings2(countryFeatures);
+          // 2단계: province (같은 색 skip)
+          renderIncrementalFiltered(provinceFeatures);
+          collectColorRings2(provinceFeatures);
+          // 3단계: city (같은 색 skip)
+          renderIncrementalFiltered(cityFeatures);
           if (addedCount > 0) {
               console.log(`🗺️ 영토 증분 업데이트: ${addedCount}개 추가됨 (${countryFeatures.size}개 국가 레이어)`);
               // 새 영토가 추가됐으므로 국가명 라벨 갱신
