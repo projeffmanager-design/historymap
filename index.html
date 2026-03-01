@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.14',          // [v3.6.14] territories country_id 제거 — castles 기반 동적 국가 판단 복원
+        APP_VERSION: '3.6.15',          // [v3.6.15] nearest-era fallback 제거 — 잘못된 시대 국가 표시 수정
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
     
@@ -6838,8 +6838,10 @@ function getKingByYear(countryName, year, month) {
             const activeHistoryInfo = getActiveHistoryInfo(castle.history, currentTotalMonths);
             if (!activeHistoryInfo) return;
             
-            const countryId = activeHistoryInfo.record.country_id || castle.country_id;
+            let countryId = activeHistoryInfo.record.country_id || castle.country_id;
             if (!countryId) return;
+            // 🔑 [v3.6.14] ObjectId 객체 → 문자열 변환 (MongoDB가 {$oid:"..."} 반환 시 대비)
+            if (typeof countryId === 'object') countryId = countryId.$oid || String(countryId);
             
             // 성 갯수 카운트 (가중치 없이 순수 1개 = 1)
             countryCount[countryId] = (countryCount[countryId] || 0) + 1;
@@ -6852,26 +6854,8 @@ function getKingByYear(countryName, year, month) {
         
         const uniqueCountries = Object.keys(countryCount);
         
-        // 구역 내 도시가 0개면 → castles 미로드 상태일 수 있으므로 properties.country_id로 fallback
+        // 구역 내 활성 도시가 0개 → 해당 시대에 지배국 없음 (색칠 안 함)
         if (uniqueCountries.length === 0) {
-            // fallback 1: properties.country_id
-            if (territory.properties && territory.properties.country_id) {
-                const fallbackId = String(territory.properties.country_id);
-                if (castles.length === 0) {
-                    // castles 로딩 대기 중임을 표시 (과도한 로그 방지: 첫 5개만)
-                    if (typeof calculateDominantCountry._fallbackLogCount === 'undefined') calculateDominantCountry._fallbackLogCount = 0;
-                    if (calculateDominantCountry._fallbackLogCount < 5) {
-                        // console.log(`⏳ [성 데이터 로딩 대기 중] territory "${territory.name}" → fallback 사용`);
-                        calculateDominantCountry._fallbackLogCount++;
-                    }
-                }
-                return { countryId: fallbackId, isExclusive: true, countriesInZone: [fallbackId] };
-            }
-            // fallback 2: territory.country (DB의 country 필드)
-            if (territory.country) {
-                const fallbackId = String(territory.country);
-                return { countryId: fallbackId, isExclusive: true, countriesInZone: [fallbackId] };
-            }
             return null;
         }
         
