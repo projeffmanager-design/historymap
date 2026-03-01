@@ -2051,18 +2051,31 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 // 🚩 [추가] 사용자 공적 점수 계산 (출석 처리 전에 먼저)
                 let score = 0;
                 try {
-                    const contributionCount = await collections.contributions.countDocuments({ userId: user._id });
-                    score = contributionCount * 3;
-                    score += (user.attendancePoints || 0);
+                    // userId(ObjectId) 또는 username 문자열 양쪽으로 저장된 기여도 모두 집계
+                    const contribAgg = await collections.contributions.aggregate([
+                        { $match: { $or: [{ userId: user._id }, { username: user.username }] } },
+                        { $group: {
+                            _id: null,
+                            totalCount:    { $sum: 1 },
+                            approvedCount: { $sum: { $cond: [{ $eq: ['$status', 'approved'] }, 1, 0] } },
+                            totalVotes:    { $sum: { $ifNull: ['$votes', 0] } }
+                        }}
+                    ]).toArray();
+                    const stats = contribAgg[0] || { totalCount: 0, approvedCount: 0, totalVotes: 0 };
+                    score = (stats.totalCount    * RANK_CONFIG.scoreWeights.submitCount)
+                          + (stats.approvedCount * RANK_CONFIG.scoreWeights.approvedCount)
+                          + stats.totalVotes
+                          + (user.reviewScore    || 0)
+                          + (user.approvalScore  || 0)
+                          + (user.attendancePoints || 0);
                 } catch (error) {
                     console.error('점수 계산 에러:', error);
                     score = 0;
                 }
 
                 // 실시간 직급 계산 (admin 지정 재상급 우선, 없으면 점수 기반)
-                const realtimePos = getRealtimePosition(score, null, user.designated_rank || null);
-                // admin이 position을 직접 지정한 경우 그것을 우선 사용
-                const position = user.position || realtimePos;
+                // 항상 실시간 재계산 — 이전에 저장된 position 값은 무시
+                const position = getRealtimePosition(score, null, user.designated_rank || null);
 
                 // 🚩 [추가] 출석 포인트 처리 (하루에 1회 1점)
                 const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD 형식
