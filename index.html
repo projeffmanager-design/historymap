@@ -219,16 +219,16 @@
     }
     .macro-country-ethnic {
         font-family: 'Nanum Myeongjo', serif;
-        font-size: 11px;
-        font-weight: bold;
+        font-size: 9px;
+        font-weight: normal;
         white-space: nowrap;
         pointer-events: none;
         text-align: center;
         line-height: 1.3;
-        letter-spacing: 1.5px;
-        opacity: 1.0;
-        text-shadow: -1px -1px 3px #000, 1px -1px 3px #000, -1px 1px 3px #000, 1px 1px 3px #000, 0px 0px 5px #000;
-        margin-top: 4px;
+        letter-spacing: 1px;
+        opacity: 0.80;
+        text-shadow: -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000, 1px 1px 2px #000;
+        margin-top: 3px;
     }
 
     .macro-country-label-icon { pointer-events: none; }
@@ -238,8 +238,8 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.5',           // [v3.6.5] 대한민국 territories 시작연도 수정 (1948~), 폴리곤 불투명도 1.0
-        DATA_SCHEMA_VERSION: '2.0.6'    // 대한민국 territories start_year 1948 수정 — 캐시 강제 갱신
+        APP_VERSION: '3.6.13',          // [v3.6.13] territories country_id/start_year 대규모 정비 - 중국/한국/몽골/북한/일본 현대 영토 색칠
+        DATA_SCHEMA_VERSION: '2.0.7'    // territories country_id 대량 설정 — 캐시 강제 갱신
     };
     
     const storedAppVersion = localStorage.getItem('app_version');
@@ -5969,8 +5969,8 @@ body.force-mobile .marker-type-selector button {
             const icon = L.divIcon({
                 className: 'macro-country-label-icon',
                 html: `<div class="macro-country-name" style="color: ${countryColor}; font-size: ${countryFontSize}px; display:flex; flex-direction:column; align-items:center;"><div style="display:flex;align-items:center;">${flagHtmlMacro}${country.name}</div>${ethnicHtml}</div>`,
-                iconSize: [220, ethnicHtml ? 58 : 40],
-                iconAnchor: [110, ethnicHtml ? 29 : 20]
+                iconSize: [200, 40],
+                iconAnchor: [100, 20]
             });
 
             L.marker([labelLat, labelLng], { 
@@ -6795,7 +6795,8 @@ function getKingByYear(countryName, year, month) {
         }
         
         const currentTotalMonths = yearMonthToTotalMonths(year, month);
-        const countryCount = {};  // countryId → 성 갯수
+        const countryCount = {};          // countryId → 성 갯수
+        const capitalCountries = new Set(); // 이 구역 내 수도를 가진 국가 목록
         
         // Polygon 또는 MultiPolygon 처리 및 좌표 변환 (캐싱)
         let polygonData = [];
@@ -6840,8 +6841,13 @@ function getKingByYear(countryName, year, month) {
             const countryId = activeHistoryInfo.record.country_id || castle.country_id;
             if (!countryId) return;
             
-            // 성 갯수 카운트
+            // 성 갯수 카운트 (가중치 없이 순수 1개 = 1)
             countryCount[countryId] = (countryCount[countryId] || 0) + 1;
+            
+            // 수도 여부 기록
+            if (activeHistoryInfo.record.is_capital || castle.is_capital) {
+                capitalCountries.add(countryId);
+            }
         });
         
         const uniqueCountries = Object.keys(countryCount);
@@ -6874,7 +6880,25 @@ function getKingByYear(countryName, year, month) {
             return { countryId: uniqueCountries[0], isExclusive: true, countriesInZone: uniqueCountries };
         }
         
-        // 🚩 [v3.1 핵심] 혼합 점유 판정 — 성 갯수가 더 많은 국가
+        // 🚩 [v3.1 핵심] 혼합 점유 판정
+        // ① 수도가 있는 국가 → 무조건 그 국가 (수도가 여러 국가에 있으면 성 갯수로 결정)
+        if (capitalCountries.size === 1) {
+            const winner = capitalCountries.values().next().value;
+            return { countryId: winner, isExclusive: false, countriesInZone: uniqueCountries };
+        }
+        if (capitalCountries.size > 1) {
+            // 수도가 여러 국가 → 그 중 성 갯수가 더 많은 국가
+            let winner = null, maxCount = 0;
+            for (const cid of capitalCountries) {
+                if (countryCount[cid] > maxCount) {
+                    maxCount = countryCount[cid];
+                    winner = cid;
+                }
+            }
+            return { countryId: winner, isExclusive: false, countriesInZone: uniqueCountries };
+        }
+        
+        // ② 수도 없음 → 성 갯수가 더 많은 국가
         let dominantCountry = null;
         let maxCount = 0;
         for (const [countryId, count] of Object.entries(countryCount)) {
@@ -7838,9 +7862,10 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             let skipReasons = { duplicate: 0, outOfView: 0, timeRange: 0, noCountry: 0, countryNotFound: 0 };
             
             // 🚩 [v3.2 핵심] 2-pass 렌더링: 국가별 Feature 수집 → 국가별 단일 레이어로 병합
-            // level 순서로 분리: province(아래) → country/city(위)
-            const countryFeatures = new Map();   // countryId → { features: [], countryInfo, style }
+            // level 순서로 분리: province(아래) → country(중간) → city(위, 동일 국가면 skip)
             const provinceFeatures = new Map();  // province 전용 (아래 깔리도록)
+            const countryFeatures = new Map();   // country 레벨 전용
+            const cityFeatures = new Map();      // city 레벨 전용 (2단계에서 중복 skip)
             
             territories.forEach(territory => {
                 const localKey = `${territory.name}_${territory.type}`;
@@ -7903,9 +7928,11 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     }
                 };
                 
-                // 국가별 수집 (province는 별도 Map으로 분리 — 아래 깔리도록)
-                const isProvince = (territory.level === 'province');
-                const targetMap = isProvince ? provinceFeatures : countryFeatures;
+                // 국가별 수집 (province/country/city 3단계로 분리)
+                const lvl = territory.level;
+                const targetMap = (lvl === 'province') ? provinceFeatures
+                                : (lvl === 'city')     ? cityFeatures
+                                :                        countryFeatures;
                 if (!targetMap.has(dominantCountryId)) {
                     const computedStyle = getTerritoryStyle(territory, countryInfo, year, month);
                     targetMap.set(dominantCountryId, {
@@ -7985,9 +8012,77 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 });
             };
 
-            // province 먼저 → country/city 나중에 (province가 항상 아래에 깔림)
+            // 🚩 [v3.6.12] 2단계 색칠: 1단계(province+country) 렌더 후 city는 중복 국가 skip
+            // 1단계 렌더링 후 "이 countryId가 칠해진 rings" 수집
+            const stage1Rings = new Map(); // countryId → [ [[lat,lng], ...], ... ] (ring 배열)
+            const collectRings = (featureMap) => {
+                featureMap.forEach(({ features }, countryId) => {
+                    if (!stage1Rings.has(countryId)) stage1Rings.set(countryId, []);
+                    const rings = stage1Rings.get(countryId);
+                    for (const f of features) {
+                        const geom = f.geometry;
+                        if (!geom) continue;
+                        // GeoJSON 좌표는 [lng, lat] → isPointInPolygon은 [lat, lng] 기대
+                        const toLatLng = (ring) => ring.map(([lng, lat]) => [lat, lng]);
+                        if (geom.type === 'Polygon') {
+                            rings.push(toLatLng(geom.coordinates[0]));
+                        } else if (geom.type === 'MultiPolygon') {
+                            for (const poly of geom.coordinates) rings.push(toLatLng(poly[0]));
+                        }
+                    }
+                });
+            };
+
+            // city feature의 대표 좌표(centroid)가 1단계의 같은 국가 ring 안에 있으면 skip
+            const renderCityFeatures = (featureMap) => {
+                featureMap.forEach(({ features, countryInfo, style }, countryId) => {
+                    const filteredFeatures = features.filter(f => {
+                        const geom = f.geometry;
+                        if (!geom) return false;
+                        // 대표 좌표 = 첫 번째 ring의 첫 번째 점 (빠른 근사)
+                        let sampleLng, sampleLat;
+                        if (geom.type === 'Polygon' && geom.coordinates[0]?.length > 0) {
+                            [sampleLng, sampleLat] = geom.coordinates[0][0];
+                        } else if (geom.type === 'MultiPolygon' && geom.coordinates[0]?.[0]?.length > 0) {
+                            [sampleLng, sampleLat] = geom.coordinates[0][0][0];
+                        } else {
+                            return true; // 알 수 없는 타입은 그냥 그림
+                        }
+                        // 1단계에서 같은 countryId로 칠해진 rings 안에 있으면 skip
+                        const rings = stage1Rings.get(countryId);
+                        if (rings) {
+                            for (const ring of rings) {
+                                if (isPointInPolygon([sampleLat, sampleLng], ring)) return false;
+                            }
+                        }
+                        return true;
+                    });
+                    if (filteredFeatures.length === 0) return;
+                    const featureCollection = { type: 'FeatureCollection', features: filteredFeatures };
+                    const groupOpacity = style.fillOpacity || 0.3;
+                    const pathStyle = Object.assign({}, style, {
+                        fillOpacity: groupOpacity,
+                        opacity: style.opacity || 0.6
+                    });
+                    const countryLayer = L.geoJSON(featureCollection, {
+                        style: pathStyle,
+                        renderer: sharedRenderer,
+                        onEachFeature: (feature, layer) => {
+                            const props = feature.properties;
+                            layer.bindPopup(`<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name}`);
+                        }
+                    });
+                    territoryLayerGroup.addLayer(countryLayer);
+                });
+            };
+
+            // 1단계: province → country 순서로 렌더링 + rings 수집
             renderFeatureMap(provinceFeatures);
             renderFeatureMap(countryFeatures);
+            collectRings(provinceFeatures);
+            collectRings(countryFeatures);
+            // 2단계: city (같은 국가가 이미 칠해진 곳은 skip)
+            renderCityFeatures(cityFeatures);
         }
 
         // 🌊 [추가] 자연 지형지물 (강) 렌더링 — 별도 레이어 그룹 + 전용 SVG 렌더러 사용
@@ -11674,8 +11769,9 @@ function invalidateCountryLookupCache() {
           };
           
           let addedCount = 0;
-          const countryFeatures = new Map(); // countryId → { features: [], countryInfo, style }
           const provinceFeatures = new Map(); // province 전용 (아래 깔리도록)
+          const countryFeatures = new Map();  // country 레벨 전용
+          const cityFeatures = new Map();     // city 레벨 전용 (2단계에서 중복 skip)
           
           territories.forEach(territory => {
               const territoryKey = `${territory._id || territory.name}_${year}`;
@@ -11731,9 +11827,11 @@ function invalidateCountryLookupCache() {
                   }
               };
               
-              // province는 provinceFeatures에, 나머지는 countryFeatures에 분리 저장
-              const isProvince2 = (territory.level === 'province');
-              const targetMap2 = isProvince2 ? provinceFeatures : countryFeatures;
+              // province/country/city 3단계로 분리 저장
+              const lvl2 = territory.level;
+              const targetMap2 = (lvl2 === 'province') ? provinceFeatures
+                               : (lvl2 === 'city')     ? cityFeatures
+                               :                         countryFeatures;
               if (!targetMap2.has(dominantCountryId)) {
                   const computedStyle = getTerritoryStyle(territory, countryInfo, year, month);
                   targetMap2.set(dominantCountryId, {
@@ -11761,34 +11859,93 @@ function invalidateCountryLookupCache() {
               addedCount++;
           });
           
-          // 🚀 [v3.6] province 먼저, country/city 나중에 (province가 항상 아래에 깔림)
+          // � [v3.6.12] 2단계 색칠: province+country 먼저, city는 같은 국가 중복 skip
           const renderIncrementalMap = (featureMap) => {
               featureMap.forEach(({ features, countryInfo, style }, countryId) => {
                   const featureCollection = {
                       type: 'FeatureCollection',
                       features: features
                   };
-                  
                   const groupOpacity = style.fillOpacity || 0.3;
                   const pathStyle = Object.assign({}, style, {
                       fillOpacity: groupOpacity,
                       opacity: style.opacity || 0.6
                   });
-                  
                   const countryLayer = L.geoJSON(featureCollection, {
                       style: pathStyle,
                       onEachFeature: (feature, layer) => {
                           const props = feature.properties;
-                          const popupContent = `<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name}`;
-                          layer.bindPopup(popupContent);
+                          layer.bindPopup(`<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name}`);
                       }
                   });
-                  
                   territoryLayerGroup.addLayer(countryLayer);
               });
           };
+
+          // 1단계 rings 수집
+          const stage1Rings2 = new Map(); // countryId → ring 배열
+          const collectRings2 = (featureMap) => {
+              featureMap.forEach(({ features }, countryId) => {
+                  if (!stage1Rings2.has(countryId)) stage1Rings2.set(countryId, []);
+                  const rings = stage1Rings2.get(countryId);
+                  for (const f of features) {
+                      const geom = f.geometry;
+                      if (!geom) continue;
+                      const toLatLng = (ring) => ring.map(([lng, lat]) => [lat, lng]);
+                      if (geom.type === 'Polygon') {
+                          rings.push(toLatLng(geom.coordinates[0]));
+                      } else if (geom.type === 'MultiPolygon') {
+                          for (const poly of geom.coordinates) rings.push(toLatLng(poly[0]));
+                      }
+                  }
+              });
+          };
+
+          // 2단계: city (같은 국가가 이미 칠해진 곳은 skip)
+          const renderIncrementalCity = (featureMap) => {
+              featureMap.forEach(({ features, countryInfo, style }, countryId) => {
+                  const filteredFeatures = features.filter(f => {
+                      const geom = f.geometry;
+                      if (!geom) return false;
+                      let sampleLng, sampleLat;
+                      if (geom.type === 'Polygon' && geom.coordinates[0]?.length > 0) {
+                          [sampleLng, sampleLat] = geom.coordinates[0][0];
+                      } else if (geom.type === 'MultiPolygon' && geom.coordinates[0]?.[0]?.length > 0) {
+                          [sampleLng, sampleLat] = geom.coordinates[0][0][0];
+                      } else {
+                          return true;
+                      }
+                      const rings = stage1Rings2.get(countryId);
+                      if (rings) {
+                          for (const ring of rings) {
+                              if (isPointInPolygon([sampleLat, sampleLng], ring)) return false;
+                          }
+                      }
+                      return true;
+                  });
+                  if (filteredFeatures.length === 0) return;
+                  const featureCollection = { type: 'FeatureCollection', features: filteredFeatures };
+                  const groupOpacity = style.fillOpacity || 0.3;
+                  const pathStyle = Object.assign({}, style, {
+                      fillOpacity: groupOpacity,
+                      opacity: style.opacity || 0.6
+                  });
+                  const countryLayer = L.geoJSON(featureCollection, {
+                      style: pathStyle,
+                      onEachFeature: (feature, layer) => {
+                          const props = feature.properties;
+                          layer.bindPopup(`<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name}`);
+                      }
+                  });
+                  territoryLayerGroup.addLayer(countryLayer);
+              });
+          };
+
           renderIncrementalMap(provinceFeatures);
           renderIncrementalMap(countryFeatures);
+          collectRings2(provinceFeatures);
+          collectRings2(countryFeatures);
+          renderIncrementalCity(cityFeatures);
           if (addedCount > 0) {
               console.log(`🗺️ 영토 증분 업데이트: ${addedCount}개 추가됨 (${countryFeatures.size}개 국가 레이어)`);
               // 새 영토가 추가됐으므로 국가명 라벨 갱신
