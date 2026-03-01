@@ -6795,8 +6795,7 @@ function getKingByYear(countryName, year, month) {
         }
         
         const currentTotalMonths = yearMonthToTotalMonths(year, month);
-        const countryCount = {};          // countryId → 성 갯수
-        const capitalCountries = new Set(); // 이 구역 내 수도를 가진 국가 목록
+        const countryCount = {};  // countryId → 성 갯수
         
         // Polygon 또는 MultiPolygon 처리 및 좌표 변환 (캐싱)
         let polygonData = [];
@@ -6841,13 +6840,8 @@ function getKingByYear(countryName, year, month) {
             const countryId = activeHistoryInfo.record.country_id || castle.country_id;
             if (!countryId) return;
             
-            // 성 갯수 카운트 (가중치 없이 순수 1개 = 1)
+            // 성 갯수 카운트
             countryCount[countryId] = (countryCount[countryId] || 0) + 1;
-            
-            // 수도 여부 기록
-            if (activeHistoryInfo.record.is_capital || castle.is_capital) {
-                capitalCountries.add(countryId);
-            }
         });
         
         const uniqueCountries = Object.keys(countryCount);
@@ -6880,25 +6874,7 @@ function getKingByYear(countryName, year, month) {
             return { countryId: uniqueCountries[0], isExclusive: true, countriesInZone: uniqueCountries };
         }
         
-        // 🚩 [v3.1 핵심] 혼합 점유 판정
-        // ① 수도가 있는 국가 → 무조건 그 국가 (수도가 여러 국가에 있으면 성 갯수로 결정)
-        if (capitalCountries.size === 1) {
-            const winner = capitalCountries.values().next().value;
-            return { countryId: winner, isExclusive: false, countriesInZone: uniqueCountries };
-        }
-        if (capitalCountries.size > 1) {
-            // 수도가 여러 국가 → 그 중 성 갯수가 더 많은 국가
-            let winner = null, maxCount = 0;
-            for (const cid of capitalCountries) {
-                if (countryCount[cid] > maxCount) {
-                    maxCount = countryCount[cid];
-                    winner = cid;
-                }
-            }
-            return { countryId: winner, isExclusive: false, countriesInZone: uniqueCountries };
-        }
-        
-        // ② 수도 없음 → 성 갯수가 더 많은 국가
+        // 🚩 [v3.1 핵심] 혼합 점유 판정 — 성 갯수가 더 많은 국가
         let dominantCountry = null;
         let maxCount = 0;
         for (const [countryId, count] of Object.entries(countryCount)) {
