@@ -3078,6 +3078,10 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 }
                 
                 const message = status === 'approved' ? '검토가 완료되었습니다.' : '검토가 거부되었습니다.';
+                // 🚩 [추가] 승인 시 활동 소식 피드에 기록
+                if (status === 'approved') {
+                    logActivity('approve', req.user.username, req.user.position || '', contribution.name || '사관 기록', {});
+                }
                 res.json({ message });
             } catch (error) {
                 res.status(500).json({ message: "상태 변경 실패", error: error.message });
