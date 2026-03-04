@@ -165,6 +165,36 @@ const logCRUD = (operation, collection, identifier, details = '') => {
     console.log(`${emoji[operation] || operation} ${collection}: ${identifier} ${details}`.trim());
 };
 
+// 🚩 [추가] 액티비티 로그 기록 헬퍼 함수
+// type: 'register' | 'submit' | 'review' | 'approve' | 'comment' | 'rankup'
+async function logActivity(type, actor, actorPosition, targetName, extra = {}) {
+    try {
+        const { collections: cols } = await require('./db').connectToDatabase();
+        await cols.activityLogs.insertOne({
+            type,
+            actor,
+            actorPosition,
+            targetName,
+            extra,
+            createdAt: new Date()
+        });
+        // FIFO: 15개 초과 시 가장 오래된 것부터 삭제
+        const count = await cols.activityLogs.countDocuments({});
+        if (count > 15) {
+            const oldest = await cols.activityLogs
+                .find({})
+                .sort({ createdAt: 1 })
+                .limit(count - 15)
+                .toArray();
+            const oldIds = oldest.map(d => d._id);
+            await cols.activityLogs.deleteMany({ _id: { $in: oldIds } });
+        }
+    } catch (e) {
+        // non-fatal: 로그 실패가 서비스에 영향 주지 않도록
+        console.warn('⚠️ [logActivity] 기록 실패:', e.message);
+    }
+}
+
 // �💡 [추가] 인증 미들웨어
 const verifyToken = (req, res, next) => { // (전역으로 이동)
     const authHeader = req.headers.authorization;
@@ -721,6 +751,8 @@ app.post('/api/countries', verifyAdmin, async (req, res) => {
         newCountry.is_main_dynasty = typeof newCountry.is_main_dynasty === 'boolean' ? newCountry.is_main_dynasty : false;
         // ✨ NEW: ethnicity 필드 추가
         newCountry.ethnicity = newCountry.ethnicity || null;
+        // ✨ NEW: description 필드 추가
+        newCountry.description = newCountry.description || null;
 
         const result = await collections.countries.insertOne(newCountry);
         // 클라이언트에서 countryOriginalName 필드를 사용하여 신규 여부를 확인하므로, 
@@ -770,6 +802,8 @@ app.put('/api/countries/:name', verifyAdmin, async (req, res) => {
         updatedCountry.is_main_dynasty = typeof updatedCountry.is_main_dynasty === 'boolean' ? updatedCountry.is_main_dynasty : false;
         // ✨ NEW: ethnicity 필드 추가
         updatedCountry.ethnicity = updatedCountry.ethnicity || null;
+        // ✨ NEW: description 필드 추가
+        updatedCountry.description = updatedCountry.description || null;
         
         // 🚩 [수정] _id 또는 name으로 검색 (이름 변경 시에도 안전)
         let query;
@@ -1340,6 +1374,31 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     // 전체 데이터 (geometry 포함)
                     territories = await collections.territories.find(query).toArray();
                     
+                    // 🚀 [v3.6 성능 최적화] 좌표 정밀도 축소 (15자리 → 5자리)
+                    // 네트워크 전송량 30-50% 절감, 모바일 파싱 속도 향상
+                    function truncCoords(coords) {
+                        if (!Array.isArray(coords)) return coords;
+                        if (typeof coords[0] === 'number') {
+                            return [Math.round(coords[0] * 100000) / 100000, Math.round(coords[1] * 100000) / 100000];
+                        }
+                        return coords.map(truncCoords);
+                    }
+                    
+                    territories = territories.map(t => {
+                        if (t.geometry && t.geometry.coordinates) {
+                            t.geometry.coordinates = truncCoords(t.geometry.coordinates);
+                        }
+                        // 🔑 [v3.6.1] ObjectId 필드를 문자열로 변환 (country, properties.country_id)
+                        // MongoDB ObjectId는 JSON 직렬화 시 {$oid: "..."} 가 되어 클라이언트 매칭 실패 원인
+                        if (t.country && typeof t.country === 'object' && t.country._id === undefined) {
+                            t.country = String(t.country); // ObjectId → hex string
+                        }
+                        if (t.properties && t.properties.country_id && typeof t.properties.country_id === 'object') {
+                            t.properties.country_id = String(t.properties.country_id);
+                        }
+                        return t;
+                    });
+                    
                     // 🚀 캐시 저장 (bounds 없는 전체 조회인 경우만)
                     if (useCache) {
                         territoriesCache = territories;
@@ -1434,6 +1493,48 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             } catch (error) {
                 console.error("Territory 추가 중 오류:", error);
                 res.status(500).json({ message: "Territory 추가 실패", error: error.message });
+            }
+        });
+
+        // POST: 영역 교차 검색 (bbox 기반) - territory_manager에서 사용
+        app.post('/api/territories/intersect', verifyAdmin, async (req, res) => {
+            try {
+                const { bbox } = req.body;
+                if (!bbox || bbox.minLat === undefined || bbox.maxLat === undefined || bbox.minLng === undefined || bbox.maxLng === undefined) {
+                    return res.status(400).json({ message: "bbox (minLat, maxLat, minLng, maxLng) 필드가 필요합니다." });
+                }
+
+                console.log(`🔎 영역 교차 검색: lat ${bbox.minLat}~${bbox.maxLat}, lng ${bbox.minLng}~${bbox.maxLng}`);
+
+                // bbox가 겹치는 영토 검색 (두 사각형이 겹치는 조건)
+                const query = {
+                    'bbox.minLat': { $lte: bbox.maxLat },
+                    'bbox.maxLat': { $gte: bbox.minLat },
+                    'bbox.minLng': { $lte: bbox.maxLng },
+                    'bbox.maxLng': { $gte: bbox.minLng }
+                };
+
+                const territories = await collections.territories.find(query, {
+                    projection: {
+                        _id: 1,
+                        name: 1,
+                        name_ko: 1,
+                        name_en: 1,
+                        type: 1,
+                        start_year: 1,
+                        end_year: 1,
+                        osm_id: 1,
+                        admin_level: 1,
+                        country: 1,
+                        level: 1
+                    }
+                }).toArray();
+
+                console.log(`✅ 교차 검색 결과: ${territories.length}개`);
+                res.json({ territories });
+            } catch (error) {
+                console.error("영역 교차 검색 중 오류:", error);
+                res.status(500).json({ message: "영역 교차 검색 실패", error: error.message });
             }
         });
 
@@ -1908,6 +2009,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     lastLogin: null
                 });
 
+                // 🚩 [추가] 임관 액티비티 로그
+                logActivity('register', username, position || '참봉', null, {});
+
                 res.status(201).json({ message: "사용자 등록 성공" });
             } catch (error) {
                 res.status(500).json({ message: "서버 오류가 발생했습니다.", error: error.message });
@@ -1944,6 +2048,35 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     timestamp: new Date()
                 });
 
+                // 🚩 [추가] 사용자 공적 점수 계산 (출석 처리 전에 먼저)
+                let score = 0;
+                try {
+                    // userId(ObjectId) 또는 username 문자열 양쪽으로 저장된 기여도 모두 집계
+                    const contribAgg = await collections.contributions.aggregate([
+                        { $match: { $or: [{ userId: user._id }, { username: user.username }] } },
+                        { $group: {
+                            _id: null,
+                            totalCount:    { $sum: 1 },
+                            approvedCount: { $sum: { $cond: [{ $eq: ['$status', 'approved'] }, 1, 0] } },
+                            totalVotes:    { $sum: { $ifNull: ['$votes', 0] } }
+                        }}
+                    ]).toArray();
+                    const stats = contribAgg[0] || { totalCount: 0, approvedCount: 0, totalVotes: 0 };
+                    score = (stats.totalCount    * RANK_CONFIG.scoreWeights.submitCount)
+                          + (stats.approvedCount * RANK_CONFIG.scoreWeights.approvedCount)
+                          + stats.totalVotes
+                          + (user.reviewScore    || 0)
+                          + (user.approvalScore  || 0)
+                          + (user.attendancePoints || 0);
+                } catch (error) {
+                    console.error('점수 계산 에러:', error);
+                    score = 0;
+                }
+
+                // 실시간 직급 계산 (admin 지정 재상급 우선, 없으면 점수 기반)
+                // 항상 실시간 재계산 — 이전에 저장된 position 값은 무시
+                const position = getRealtimePosition(score, null, user.designated_rank || null);
+
                 // 🚩 [추가] 출석 포인트 처리 (하루에 1회 1점)
                 const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD 형식
                 let attendancePoints = 0;
@@ -1954,11 +2087,28 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     await collections.users.updateOne(
                         { _id: user._id },
                         { 
-                            $set: { lastAttendanceDate: today },
+                            $set: { lastAttendanceDate: today, position: position },
                             $inc: { attendancePoints: 1 } // 출석 포인트 누적
                         }
                     );
                     console.log(`출석 포인트 지급: ${user.username} (+1점)`);
+                    // 출석 활동 로그 기록 (첫 출석 시에만)
+                    logActivity('checkin', user.username, position, null, { points: 1 });
+                } else {
+                    // 오늘 이미 출석한 경우 — 최근 5분 내 중복 checkin 방지
+                    await collections.users.updateOne(
+                        { _id: user._id },
+                        { $set: { position: position } }
+                    );
+                    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+                    const recentCheckin = await collections.activityLogs.findOne({
+                        type: 'checkin',
+                        actor: user.username,
+                        createdAt: { $gte: fiveMinutesAgo }
+                    });
+                    if (!recentCheckin) {
+                        logActivity('checkin', user.username, position, null, {});
+                    }
                 }
 
                 // 🚩 [추가] 마지막 로그인 시간 업데이트
@@ -1967,32 +2117,33 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     { $set: { lastLogin: new Date() } }
                 );
 
-                // 🚩 [추가] 사용자 공적 점수 계산 및 직급 부여
-                let score = 0;
-                try {
-                    // 기여도 점수 계산
-                    const contributionCount = await collections.contributions.countDocuments({ userId: user._id });
-                    score = contributionCount * 3; // 기본 점수: 제출 개수 × 3
-                    
-                    // 출석 포인트 추가 (누적)
-                    score += attendancePoints;
-                } catch (error) {
-                    console.error('점수 계산 에러:', error);
-                    score = 0;
-                }
-
-                // 데이터베이스에 저장된 position을 우선 사용, 없으면 점수 기반 계산
-                const position = user.position || getPosition(score);
-
                 const token = jwt.sign(
                     { userId: user._id, username: user.username, role: user.role, position: position },
                     jwtSecret,
                     { expiresIn: '365d' } // 토큰 유효기간 365일 (1년)
                 );
 
-                res.json({ message: "로그인 성공", token });
+                res.json({
+                    message: "로그인 성공",
+                    token,
+                    attendancePoints,          // 0 이면 오늘 이미 출석, 1 이면 오늘 첫 출석
+                    username: user.username,
+                    position: position
+                });
             } catch (error) {
                 res.status(500).json({ message: "서버 오류가 발생했습니다.", error: error.message });
+            }
+        });
+
+        // 🚩 [추가] POST: 퇴청 로그 기록
+        app.post('/api/auth/logout', verifyToken, async (req, res) => {
+            try {
+                const username = req.user.username;
+                const position = req.user.position || '';
+                logActivity('checkout', username, position, null, {});
+                res.json({ message: '퇴청 기록 완료' });
+            } catch (e) {
+                res.json({ message: 'ok' });
             }
         });
 
@@ -2531,6 +2682,15 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (result.matchedCount === 0) return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
 
                 const rankNames = { 1: '정1품 감수국사', 2: '종1품 판사관사', 3: '정2품 수국사', 4: '종2품 동수국사' };
+
+                // 🚩 [추가] 직급 지정 액티비티 로그
+                if (designated_rank !== null) {
+                    const targetUser = await collections.users.findOne({ _id }, { projection: { username: 1 } });
+                    if (targetUser) {
+                        logActivity('rankup', targetUser.username, rankNames[designated_rank], null, { newPosition: rankNames[designated_rank] });
+                    }
+                }
+
                 res.json({
                     message: designated_rank === null
                         ? '재상급 지정이 해제되었습니다.'
@@ -2717,6 +2877,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const result = await collections.contributions.insertOne(newContribution);
                 // 🚩 [수정] 생성된 객체 반환 (ID 포함)
                 const createdContribution = { ...newContribution, _id: result.insertedId };
+
+                // 🚩 [추가] 기여 제출 액티비티 로그
+                logActivity('submit', req.user.username, req.user.position || '', newContribution.name || '사관 기록', { category });
                 
                 res.status(201).json({ 
                     message: category === 'historical_record' ? "사관 기록이 접수되었습니다. 검토 후 반영됩니다." : "역사 복원 제안이 접수되었습니다. 검토 후 지도에 반영됩니다.",
@@ -2923,6 +3086,10 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 }
                 
                 const message = status === 'approved' ? '검토가 완료되었습니다.' : '검토가 거부되었습니다.';
+                // 🚩 [추가] 승인 시 활동 소식 피드에 기록
+                if (status === 'approved') {
+                    logActivity('approve', req.user.username, req.user.position || '', contribution.name || '사관 기록', {});
+                }
                 res.json({ message });
             } catch (error) {
                 res.status(500).json({ message: "상태 변경 실패", error: error.message });
@@ -3433,6 +3600,10 @@ app.put('/api/contributions/:id/review', verifyToken, async (req, res) => {
             { $inc: { reviewScore: RANK_CONFIG.limits.reviewBonus } }
         );
 
+        // 🚩 [추가] 검토 액티비티 로그
+        const reviewVerb = status === 'approved' ? 'review' : 'review_reject';
+        logActivity(reviewVerb, user.username, user.position || '', contribution.name || '사관 기록', {});
+
         res.json({ message: `기여가 ${status === 'approved' ? '검토 완료' : '검토 거부'}되었습니다.` });
     } catch (error) {
         res.status(500).json({ message: "검토 실패", error: error.message });
@@ -3705,9 +3876,134 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
             console.log(`ℹ️ [Castle 변환 스킵] 사관 기록이거나 좌표 없음: category=${contribution.category}, lat=${contribution.lat}, lng=${contribution.lng}`);
         }
 
+        // 🚩 [추가] 동일 이름의 다른 pending/reviewed 중복 기여 자동 거부
+        if (contribution.name) {
+            const dupResult = await collections.contributions.updateMany(
+                {
+                    _id: { $ne: toObjectId(id) },
+                    name: contribution.name,
+                    status: { $in: ['pending', 'reviewed'] }
+                },
+                {
+                    $set: {
+                        status: 'rejected',
+                        rejectComment: `"${contribution.name}" 이름의 다른 기여가 이미 승인되어 자동 거부됨`,
+                        rejectedAt: new Date()
+                    }
+                }
+            );
+            if (dupResult.modifiedCount > 0) {
+                console.log(`🗑️ [중복 자동 거부] "${contribution.name}" 동명 중복 기여 ${dupResult.modifiedCount}건 rejected 처리`);
+            }
+        }
+
+        // 🚩 [추가] 최종 승인 액티비티 로그
+        logActivity('approve', user.username, user.position || '', contribution.name || '사관 기록', {});
+
         res.json({ message: "기여가 최종 승인되었습니다. 성 마커로 변환되었습니다.", castle: insertedCastle });
     } catch (error) {
         res.status(500).json({ message: "승인 실패", error: error.message });
+    }
+});
+
+// ============================================================
+// 💬 MARKER COMMENTS (마커 의견) API
+// ============================================================
+
+// 🚩 [추가] 액티비티 로그 조회 API (인증 불필요 — 피드 표시용)
+app.get('/api/activity-logs', async (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+        const logs = await collections.activityLogs
+            .find({})
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .toArray();
+        res.json(logs);
+    } catch (error) {
+        res.status(500).json({ message: '액티비티 로그 조회 실패', error: error.message });
+    }
+});
+
+// GET: 전체 마커 의견 개수 맵 조회 (인증 불필요 — 뱃지 표시용)
+app.get('/api/marker-comments-counts', async (req, res) => {
+    try {
+        const counts = await collections.markerComments.aggregate([
+            { $group: { _id: '$castle_id', count: { $sum: 1 } } }
+        ]).toArray();
+        // { castleId: count } 형태로 변환
+        const result = {};
+        counts.forEach(c => { result[c._id] = c.count; });
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ message: '카운트 조회 실패', error: error.message });
+    }
+});
+
+// GET: 특정 마커의 의견 목록 조회 (로그인 필요)
+app.get('/api/marker-comments/:castleId', verifyToken, async (req, res) => {
+    try {
+        const { castleId } = req.params;
+        const comments = await collections.markerComments
+            .find({ castle_id: castleId })
+            .sort({ created_at: -1 })
+            .toArray();
+        res.json(comments);
+    } catch (error) {
+        res.status(500).json({ message: '의견 조회 실패', error: error.message });
+    }
+});
+
+// POST: 의견 작성 (로그인 필요)
+app.post('/api/marker-comments', verifyToken, async (req, res) => {
+    try {
+        const { castle_id, text } = req.body;
+        if (!castle_id || !text || text.trim().length === 0) {
+            return res.status(400).json({ message: '마커 ID와 의견 내용이 필요합니다.' });
+        }
+        if (text.trim().length > 500) {
+            return res.status(400).json({ message: '의견은 500자 이내로 작성해주세요.' });
+        }
+        const comment = {
+            castle_id,
+            text: text.trim(),
+            author: req.user.username,
+            author_id: req.user.userId,
+            created_at: new Date()
+        };
+        const result = await collections.markerComments.insertOne(comment);
+
+        // 🚩 [추가] 의견 등록 액티비티 로그 (castle 이름 조회)
+        try {
+            const castleDoc = await collections.castle.findOne({ _id: toObjectId(castle_id) }, { projection: { name: 1 } });
+            const castleName = castleDoc ? castleDoc.name : castle_id;
+            logActivity('comment', req.user.username, req.user.position || '', castleName, {});
+        } catch (_) {}
+
+        res.json({ ...comment, _id: result.insertedId });
+    } catch (error) {
+        res.status(500).json({ message: '의견 작성 실패', error: error.message });
+    }
+});
+
+// DELETE: 의견 삭제 (본인 또는 admin/superuser)
+app.delete('/api/marker-comments/:commentId', verifyToken, async (req, res) => {
+    try {
+        const commentId = toObjectId(req.params.commentId);
+        if (!commentId) return res.status(400).json({ message: '잘못된 의견 ID입니다.' });
+
+        const comment = await collections.markerComments.findOne({ _id: commentId });
+        if (!comment) return res.status(404).json({ message: '의견을 찾을 수 없습니다.' });
+
+        const isOwner = comment.author_id === req.user.userId;
+        const isAdmin = req.user.role === 'admin' || req.user.role === 'superuser';
+        if (!isOwner && !isAdmin) {
+            return res.status(403).json({ message: '삭제 권한이 없습니다.' });
+        }
+        await collections.markerComments.deleteOne({ _id: commentId });
+        res.json({ message: '의견이 삭제되었습니다.' });
+    } catch (error) {
+        res.status(500).json({ message: '의견 삭제 실패', error: error.message });
     }
 });
 

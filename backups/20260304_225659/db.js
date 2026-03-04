@@ -38,6 +38,8 @@ async function connectToDatabase() {
         collections.loginLogs = db.collection("login_logs"); // 🚩 [추가] 로그인 로그 컬렉션 초기화
     collections.pageViews = db.collection("page_views"); // 🚩 [추가] 페이지 뷰 통계 컬렉션 초기화
         collections.layerSettings = db.collection("layer_settings"); // 🚩 [추가] 레이어 설정 컬렉션 초기화
+        collections.markerComments = db.collection("marker_comments"); // 🚩 [추가] 마커 의견(코멘트) 컬렉션
+        collections.activityLogs = db.collection("activity_logs"); // 🚩 [추가] 액티비티 로그 컬렉션
 
         // 🚩 [추가] 지리 공간 인덱스 생성
         try {
