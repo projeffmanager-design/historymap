@@ -220,12 +220,19 @@
     <script>
         const API_BASE_URL = '/api'; // 💡 상대 경로로 변경
 
+        let _isLoggingIn = false; // 중복 로그인 요청 방지 플래그
+
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            if (_isLoggingIn) return; // 이미 처리 중이면 무시
+            _isLoggingIn = true;
+
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
             const rememberMe = document.getElementById('rememberMe').checked;
             const messageEl = document.getElementById('message');
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            if (submitBtn) submitBtn.disabled = true;
 
             try {
                 const response = await fetch(`${API_BASE_URL}/auth/login`, {
@@ -266,6 +273,8 @@
 
             } catch (error) {
                 messageEl.textContent = error.message;
+                _isLoggingIn = false; // 실패 시 플래그 리셋 (재시도 가능하게)
+                if (submitBtn) submitBtn.disabled = false;
             }
         });
 

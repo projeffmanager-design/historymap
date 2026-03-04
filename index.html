@@ -1233,6 +1233,54 @@ body.force-mobile .marker-type-selector button {
         pointer-events: auto;
     }
 
+    /* 🚩 [추가] 타임라인 스텝 버튼 */
+    .slider-step-btn {
+        pointer-events: all;
+        width: 28px;
+        height: 28px;
+        background: rgba(20, 14, 6, 0.78);
+        border: 1px solid rgba(180, 140, 60, 0.55);
+        border-radius: 5px;
+        color: #c8a96e;
+        font-size: 15px;
+        line-height: 1;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        transition: background 0.15s, border-color 0.15s, color 0.15s;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.45);
+        backdrop-filter: blur(2px);
+    }
+    .slider-step-btn:hover {
+        background: rgba(45, 32, 10, 0.92);
+        border-color: rgba(210, 168, 80, 0.85);
+        color: #e8c870;
+    }
+    .slider-step-btn:active, .slider-step-btn.pressing {
+        background: rgba(70, 50, 15, 0.97);
+        border-color: #c8a040;
+        color: #ffe090;
+        box-shadow: 0 0 6px rgba(200,160,60,0.4);
+    }
+    #timeline-step-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    #timeline-slider-wrap {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
     /* 🚩 [추가] 연대표 사이드바 스타일 - 옵셔널 */
     #timeline-sidebar {
         position: fixed;
@@ -4164,11 +4212,21 @@ body.force-mobile .marker-type-selector button {
 
             <!-- 슬라이더 + 눈금바만 블러 배경 적용 -->
             <div style="background: rgba(0, 0, 0, 0.08); backdrop-filter: blur(1px); border-radius: 4px; box-shadow: 0 -1px 3px rgba(0,0,0,0.1); padding: 2px 2px 0;">
-                <!-- 슬라이더 -->
-                <input type="range" id="combinedSlider" min="-60000" max="24359" step="1" value="4800" style="width: 100%; background: transparent; cursor: pointer;">
+                <div id="timeline-step-row">
+                    <!-- 뒤로 1개월 버튼 -->
+                    <button id="sliderStepBack" class="slider-step-btn" title="1개월 뒤로">&#8249;</button>
 
-                <!-- 눈금 + 중국사 마커 바 -->
-                <div id="slider-ticks-bar" style="position: relative; width: 100%; height: 26px; pointer-events: none; margin-top: 1px;"></div>
+                    <div id="timeline-slider-wrap">
+                        <!-- 슬라이더 -->
+                        <input type="range" id="combinedSlider" min="-60000" max="24359" step="1" value="4800" style="width: 100%; background: transparent; cursor: pointer;">
+
+                        <!-- 눈금 + 중국사 마커 바 -->
+                        <div id="slider-ticks-bar" style="position: relative; width: 100%; height: 26px; pointer-events: none; margin-top: 1px;"></div>
+                    </div>
+
+                    <!-- 앞으로 1개월 버튼 -->
+                    <button id="sliderStepFwd" class="slider-step-btn" title="1개월 앞으로">&#8250;</button>
+                </div>
             </div>
           </div>
     
@@ -6263,7 +6321,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                 headers: { 'Authorization': `Bearer ${token}` }
             });
 
-            if (handleApiError(response)) return;
+            if (handleApiError(response, '성 복원')) return;
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
             const result = await response.json();
@@ -6313,7 +6371,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                 headers: { 'Authorization': `Bearer ${token}` }
             });
 
-            if (handleApiError(response)) return;
+            if (handleApiError(response, '성 영구 삭제')) return;
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
             const result = await response.json();
@@ -9428,11 +9486,14 @@ function invalidateCountryLookupCache() {
     // --- 5. 데이터 로드 및 초기화 ---
     
     // 🚩 [추가] API 응답 에러 처리 함수
-    function handleApiError(response) {
-        // 토큰 만료 또는 인증 오류 시 자동 로그아웃 (알림 없이 조용히)
+    function handleApiError(response, actionMsg) {
+        // 토큰 만료 또는 인증 오류 시 자동 로그아웃
         if (response.status === 401 || response.status === 403) {
             console.warn('토큰이 만료되었습니다. 로그아웃합니다.');
-            // alert 제거 - 세션이 거의 만료되지 않으므로 불필요
+            const msg = actionMsg
+                ? `인증이 만료되어 [${actionMsg}] 작업을 완료할 수 없습니다.\n다시 로그인 후 재시도해 주세요.`
+                : '인증이 만료되었습니다. 다시 로그인해 주세요.';
+            alert(msg);
             localStorage.removeItem('token');
             localStorage.removeItem('username');
             localStorage.removeItem('role');
@@ -11453,6 +11514,7 @@ function invalidateCountryLookupCache() {
               
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
+              updateKingLabel(year, month);
           } catch (error) {
               console.error(`❌ 왕 동기화 실패: ${kingId}`, error);
           }
@@ -11469,6 +11531,7 @@ function invalidateCountryLookupCache() {
           }
           const { year, month } = getCurrentYearMonth();
           updateMap(year, month);
+          updateKingLabel(year, month);
       };
       
       window.deleteKingInMemory = (kingId) => {
@@ -11487,6 +11550,7 @@ function invalidateCountryLookupCache() {
           if (found) {
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
+              updateKingLabel(year, month);
           } else {
               console.warn(`⚠️ 삭제할 왕을 찾을 수 없음: ${kingId}`);
           }
@@ -14484,7 +14548,7 @@ function invalidateCountryLookupCache() {
           });
 
           // 🚩 [추가] 토큰 만료 체크
-          if (handleApiError(response)) return;
+          if (handleApiError(response, '성 저장')) return;
 
           if (!response.ok) {
               const errorData = await response.json();
@@ -14577,7 +14641,7 @@ function invalidateCountryLookupCache() {
             });
 
             // 🚩 [추가] 토큰 만료 체크
-            if (handleApiError(response)) return;
+            if (handleApiError(response, '성 휴지통 이동')) return;
 
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
@@ -15461,7 +15525,7 @@ kingSelect.addEventListener('change', () => {
             });
 
             // 🚩 [추가] 토큰 만료 체크
-            if (handleApiError(response)) return;
+            if (handleApiError(response, '왕/인물 저장')) return;
 
             if (!response.ok) {
                 const errorData = await response.json(); 
@@ -15688,7 +15752,7 @@ kingSelect.addEventListener('change', () => {
                 body: JSON.stringify(data) 
             });
             // 🚩 [추가] 토큰 만료 체크
-            if (handleApiError(response)) return;
+            if (handleApiError(response, '도형 저장')) return;
             
             if (!response.ok) throw new Error('그리기 정보 저장 실패');
             
@@ -15722,7 +15786,7 @@ kingSelect.addEventListener('change', () => {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             // 🚩 [추가] 토큰 만료 체크
-            if (handleApiError(response)) return;
+            if (handleApiError(response, '도형 삭제')) return;
             
             if (!response.ok) throw new Error('삭제 실패');
             
@@ -18037,6 +18101,52 @@ kingSelect.addEventListener('change', () => {
 
         combinedSlider.addEventListener('mousedown', stopPlayback);
         combinedSlider.addEventListener('touchstart', stopPlayback);
+
+        // 🚩 [추가] 타임라인 1개월 스텝 버튼 (가속도 지원)
+        (function() {
+            function setupSliderStepBtn(btnId, direction) {
+                const btn = document.getElementById(btnId);
+                if (!btn) return;
+                let _timer = null;
+                let _delay = 400;
+
+                function doStep() {
+                    stopPlayback();
+                    const sl = document.getElementById('combinedSlider');
+                    const newVal = Math.max(parseInt(sl.min), Math.min(parseInt(sl.max), parseInt(sl.value) + direction));
+                    sl.value = newVal;
+                    sl.dispatchEvent(new Event('input', { bubbles: true }));
+                    _delay = Math.max(55, Math.round(_delay * 0.82));
+                    _timer = setTimeout(doStep, _delay);
+                }
+
+                function startPress(e) {
+                    e.preventDefault();
+                    if (_timer) return;
+                    _delay = 400;
+                    btn.classList.add('pressing');
+                    doStep();
+                }
+
+                function endPress() {
+                    if (_timer) { clearTimeout(_timer); _timer = null; }
+                    btn.classList.remove('pressing');
+                    _delay = 400;
+                }
+
+                btn.addEventListener('mousedown', startPress);
+                btn.addEventListener('touchstart', startPress, { passive: false });
+                btn.addEventListener('mouseup', endPress);
+                btn.addEventListener('mouseleave', endPress);
+                btn.addEventListener('touchend', endPress);
+                btn.addEventListener('touchcancel', endPress);
+                // prevent context menu on long press
+                btn.addEventListener('contextmenu', e => e.preventDefault());
+            }
+
+            setupSliderStepBtn('sliderStepBack', -1);
+            setupSliderStepBtn('sliderStepFwd', +1);
+        })();
 
         // 🚩 [수정] 레이어 토글 버튼 이벤트 리스너를 다시 추가합니다.
         layerToggles.addEventListener('click', (e) => {

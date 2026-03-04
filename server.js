@@ -2095,12 +2095,20 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     // 출석 활동 로그 기록 (첫 출석 시에만)
                     logActivity('checkin', user.username, position, null, { points: 1 });
                 } else {
-                    // 첫 출석이 아닌 경우에만 등청 로그 기록
+                    // 오늘 이미 출석한 경우 — 최근 5분 내 중복 checkin 방지
                     await collections.users.updateOne(
                         { _id: user._id },
                         { $set: { position: position } }
                     );
-                    logActivity('checkin', user.username, position, null, {});
+                    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+                    const recentCheckin = await collections.activityLogs.findOne({
+                        type: 'checkin',
+                        actor: user.username,
+                        createdAt: { $gte: fiveMinutesAgo }
+                    });
+                    if (!recentCheckin) {
+                        logActivity('checkin', user.username, position, null, {});
+                    }
                 }
 
                 // 🚩 [추가] 마지막 로그인 시간 업데이트
