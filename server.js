@@ -926,13 +926,23 @@ app.get('/api/kings/:id', verifyToken, async (req, res) => {
             return res.status(400).json({ message: "잘못된 ID 형식입니다." });
         }
         
-        const king = await collections.kings.findOne({ _id: objectId });
-        
+        // 1) 최상위 문서 _id로 조회
+        let doc = await collections.kings.findOne({ _id: objectId });
+        if (doc) {
+            return res.json(doc);
+        }
+
+        // 2) kings 배열 내 개별 왕 _id로 조회 → 해당 왕 객체만 반환
+        doc = await collections.kings.findOne({ "kings._id": objectId });
+        if (!doc) {
+            return res.status(404).json({ message: "왕 정보를 찾을 수 없습니다." });
+        }
+        const king = doc.kings.find(k => k._id.toString() === id);
         if (!king) {
             return res.status(404).json({ message: "왕 정보를 찾을 수 없습니다." });
         }
-        
-        res.json(king);
+        // 클라이언트 동기화에 필요한 country_id도 함께 반환
+        return res.json({ ...king, country_id: doc.country_id.toString() });
     } catch (error) {
         console.error("King 조회 중 오류:", error);
         res.status(500).json({ message: "King 조회 실패", error: error.message });
