@@ -4025,6 +4025,7 @@ body.force-mobile .marker-type-selector button {
               <button id="menu-countryEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">🏛️ 국가 편집</button>
               <button id="menu-kingEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">👑 왕 편집</button>
               <button id="menu-eventEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">📅 이벤트 편집</button>
+              <button id="menu-historyEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">📜 역사 기록 편집</button>
               <button id="menu-trashBtn" style="background: rgba(243,156,18,0.1); border-color: #f39c12; color: #f39c12;">🗑️ 휴지통</button>
               <hr style="border: 0; border-top: 1px solid #5d7185; margin: 8px 0;">
               <button id="menu-exitEditBtn" style="background: rgba(231,76,60,0.1); border-color: #e74c3c; color: #e74c3c;">🚪 편집모드 종료</button>
@@ -16963,7 +16964,10 @@ kingSelect.addEventListener('change', () => {
                 if (menuMonthEl) menuMonthEl.value = month;
 
                 // 🚩 [추가] admin/superuser 전용 버튼 — 열 때마다 권한 재확인
-                const isAdmin = currentUser && (currentUser.role === 'admin' || currentUser.role === 'superuser');
+                // currentUser가 null인 경우 토큰에서 직접 파싱
+                const _menuToken = localStorage.getItem('token') || sessionStorage.getItem('token');
+                const _menuUser = currentUser || (_menuToken ? parseJwt(_menuToken) : null);
+                const isAdmin = _menuUser && (_menuUser.role === 'admin' || _menuUser.role === 'superuser');
                 const userMgmtBtn = document.getElementById('menu-user-management');
                 const terrMgmtBtn = document.getElementById('menu-territory-management');
                 if (userMgmtBtn) userMgmtBtn.style.display = isAdmin ? '' : 'none';
@@ -17681,6 +17685,11 @@ kingSelect.addEventListener('change', () => {
         document.getElementById('menu-trashBtn')?.addEventListener('click', () => {
             toggleHamburgerMenu();
             openTrashModal();
+        });
+
+        document.getElementById('menu-historyEditBtn')?.addEventListener('click', () => {
+            toggleHamburgerMenu();
+            if (typeof openHistoryForm === 'function') openHistoryForm();
         });
 
         document.getElementById('menu-exitEditBtn')?.addEventListener('click', () => {
