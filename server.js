@@ -166,10 +166,20 @@ const logCRUD = (operation, collection, identifier, details = '') => {
 };
 
 // 🚩 [추가] 액티비티 로그 기록 헬퍼 함수
-// type: 'register' | 'submit' | 'review' | 'approve' | 'comment' | 'rankup'
+// type: 'register' | 'submit' | 'review' | 'approve' | 'comment' | 'rankup' | 'checkin' | 'checkout'
 async function logActivity(type, actor, actorPosition, targetName, extra = {}) {
     try {
         const { collections: cols } = await require('./db').connectToDatabase();
+
+        // 🔕 checkin/checkout: 같은 유저의 동일 타입이 10분 내 존재하면 스킵 (도배 방지)
+        if (type === 'checkin' || type === 'checkout') {
+            const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
+            const dup = await cols.activityLogs.findOne({
+                type, actor, createdAt: { $gte: tenMinAgo }
+            });
+            if (dup) return; // 중복 — 기록하지 않음
+        }
+
         await cols.activityLogs.insertOne({
             type,
             actor,
@@ -178,16 +188,31 @@ async function logActivity(type, actor, actorPosition, targetName, extra = {}) {
             extra,
             createdAt: new Date()
         });
-        // FIFO: 15개 초과 시 가장 오래된 것부터 삭제
-        const count = await cols.activityLogs.countDocuments({});
-        if (count > 15) {
+
+        // FIFO 정리: 전체 30개 유지, 단 checkin/checkout은 최대 8개만 보존
+        const total = await cols.activityLogs.countDocuments({});
+        if (total > 30) {
+            const overflow = total - 30;
             const oldest = await cols.activityLogs
                 .find({})
                 .sort({ createdAt: 1 })
-                .limit(count - 15)
+                .limit(overflow)
                 .toArray();
-            const oldIds = oldest.map(d => d._id);
-            await cols.activityLogs.deleteMany({ _id: { $in: oldIds } });
+            await cols.activityLogs.deleteMany({ _id: { $in: oldest.map(d => d._id) } });
+        }
+        // checkin/checkout 각각 최대 8개 보존 (나머지는 삭제)
+        for (const t of ['checkin', 'checkout']) {
+            const tCount = await cols.activityLogs.countDocuments({ type: t });
+            if (tCount > 8) {
+                const overT = await cols.activityLogs
+                    .find({ type: t })
+                    .sort({ createdAt: 1 })
+                    .limit(tCount - 8)
+                    .toArray();
+                if (overT.length > 0) {
+                    await cols.activityLogs.deleteMany({ _id: { $in: overT.map(d => d._id) } });
+                }
+            }
         }
     } catch (e) {
         // non-fatal: 로그 실패가 서비스에 영향 주지 않도록
