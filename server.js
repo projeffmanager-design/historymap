@@ -3478,6 +3478,44 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
     // 필요시 수동으로 scripts/check_and_fix_indexes.js 실행
     console.log('ℹ️ 인덱스는 이미 설정됨 (수동 관리: scripts/check_and_fix_indexes.js)');
 
+    // ── 채팅 메시지 POST (로그인 필요) ───────────────────────────────
+    app.post('/api/chat', verifyToken, async (req, res) => {
+        try {
+            const { message } = req.body;
+            if (!message || !message.trim()) return res.status(400).json({ message: '메시지를 입력하세요.' });
+            const text = message.trim().slice(0, 200);
+
+            const user = await collections.users.findOne({ _id: toObjectId(req.user.userId) });
+            const position = user?.position || req.user.position || '';
+
+            await collections.activityLogs.insertOne({
+                type: 'chat',
+                actor: req.user.username,
+                actorPosition: position,
+                targetName: null,
+                extra: { text },
+                createdAt: new Date()
+            });
+
+            // 채팅만 최대 50개 FIFO 보존
+            const chatCount = await collections.activityLogs.countDocuments({ type: 'chat' });
+            if (chatCount > 50) {
+                const overChat = await collections.activityLogs
+                    .find({ type: 'chat' })
+                    .sort({ createdAt: 1 })
+                    .limit(chatCount - 50)
+                    .toArray();
+                if (overChat.length > 0) {
+                    await collections.activityLogs.deleteMany({ _id: { $in: overChat.map(d => d._id) } });
+                }
+            }
+
+            res.json({ ok: true });
+        } catch (error) {
+            res.status(500).json({ message: '채팅 전송 실패', error: error.message });
+        }
+    });
+
     isAppSetup = true; // Mark setup as complete
 }
 
