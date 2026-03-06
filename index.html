@@ -20655,10 +20655,19 @@ kingSelect.addEventListener('change', () => {
             if (resp.ok) {
                 await fetchLogs(); // 즉시 갱신
             } else {
-                const d = await resp.json();
-                alert(d.message || '전송 실패');
+                // Content-Type이 JSON인 경우만 파싱, 아니면 status 코드로 처리
+                const ct = resp.headers.get('content-type') || '';
+                if (ct.includes('application/json')) {
+                    const d = await resp.json();
+                    alert(d.message || `전송 실패 (${resp.status})`);
+                } else {
+                    alert(`전송 실패 (${resp.status})`);
+                }
             }
-        } catch(err) { console.warn('채팅 전송 오류:', err); }
+        } catch(err) {
+            console.warn('채팅 전송 오류:', err);
+            alert('전송 중 오류가 발생했습니다.');
+        }
     }
 
     document.addEventListener('DOMContentLoaded', function() {
