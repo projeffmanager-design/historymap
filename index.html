@@ -20338,12 +20338,21 @@ kingSelect.addEventListener('change', () => {
      📜 사관 활동 소식 피드 (랭킹 왼쪽, 완전투명, 스크롤 5줄)
      ============================================================ -->
 <div id="activity-feed-panel">
+    <!-- 상단 리사이즈 핸들 -->
+    <div id="activity-feed-resize-handle"></div>
     <div id="activity-feed-header">
         <span>📜 사관 활동 소식</span>
         <button id="activity-feed-close" title="닫기">&times;</button>
     </div>
     <div id="activity-feed-scroll">
         <div id="activity-feed-list"></div>
+    </div>
+    <!-- 채팅 입력창 (로그인 시 표시) -->
+    <div id="activity-chat-form" style="display:none;">
+        <div id="activity-chat-input-row">
+            <input id="activity-chat-input" type="text" maxlength="200" placeholder="메시지 입력 (200자)..." autocomplete="off">
+            <button id="activity-chat-send">전송</button>
+        </div>
     </div>
 </div>
 
@@ -20354,7 +20363,9 @@ kingSelect.addEventListener('change', () => {
     bottom: 90px;    /* 타임슬라이더(~105px) 위 */
     left: 20px;
     width: 280px;
-    max-height: calc(100vh - 240px); /* 위아래 여백 확보 */
+    height: 260px;   /* 기본 높이 (리사이즈로 조절) */
+    min-height: 120px;
+    max-height: calc(100vh - 150px);
     z-index: 999;
     pointer-events: auto;
     font-family: 'Noto Serif KR', serif;
@@ -20368,6 +20379,21 @@ kingSelect.addEventListener('change', () => {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+}
+/* 상단 리사이즈 핸들 */
+#activity-feed-resize-handle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 6px;
+    cursor: ns-resize;
+    z-index: 10;
+    background: transparent;
+    border-radius: 8px 8px 0 0;
+}
+#activity-feed-resize-handle:hover {
+    background: rgba(235,196,100,0.25);
 }
 #activity-feed-header {
     display: flex;
@@ -20406,7 +20432,7 @@ kingSelect.addEventListener('change', () => {
 #activity-feed-scroll::-webkit-scrollbar { display: none; }
 #activity-feed-list {
     display: flex;
-    flex-direction: column;
+    flex-direction: column-reverse; /* 최신이 아래, 오래된 것이 위 */
     gap: 3px;
 }
 .af-item {
@@ -20447,6 +20473,57 @@ kingSelect.addEventListener('change', () => {
     color: rgba(200,186,156,0.65);
     text-shadow: 0 1px 4px rgba(0,0,0,0.95);
 }
+/* 채팅 메시지 스타일 */
+.af-item.af-chat {
+    background: rgba(255,255,255,0.04);
+    border-radius: 5px;
+    padding: 3px 5px;
+}
+.af-chat-text {
+    font-size: 10.5px;
+    color: rgba(255,240,200,0.98);
+    word-break: break-all;
+    flex: 1;
+    line-height: 1.6;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+}
+/* 채팅 입력창 */
+#activity-chat-form {
+    flex-shrink: 0;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    padding: 6px 8px;
+}
+#activity-chat-input-row {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+}
+#activity-chat-input {
+    flex: 1;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 4px;
+    color: #f5e9d2;
+    font-size: 11px;
+    padding: 4px 7px;
+    outline: none;
+    font-family: 'Noto Serif KR', serif;
+    min-width: 0;
+}
+#activity-chat-input::placeholder { color: rgba(200,186,156,0.5); }
+#activity-chat-input:focus { border-color: rgba(235,196,100,0.5); background: rgba(255,255,255,0.12); }
+#activity-chat-send {
+    background: rgba(235,196,100,0.18);
+    border: 1px solid rgba(235,196,100,0.4);
+    color: rgba(235,196,100,0.95);
+    border-radius: 4px;
+    font-size: 11px;
+    padding: 4px 9px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+#activity-chat-send:hover { background: rgba(235,196,100,0.3); }
 @keyframes af-fadein {
     from { opacity: 0; transform: translateX(5px); }
     to   { opacity: 1; transform: translateX(0); }
@@ -20457,8 +20534,7 @@ kingSelect.addEventListener('change', () => {
 (function() {
     'use strict';
 
-    const VISIBLE_ROWS  = 5;   // 화면에 보이는 줄 수
-    const POLL_INTERVAL = 30000;
+    const POLL_INTERVAL = 10000; // 채팅 포함이므로 10초 폴링
 
     const TYPE_CONFIG = {
         register:      { icon: '🎉' },
@@ -20470,6 +20546,7 @@ kingSelect.addEventListener('change', () => {
         rankup:        { icon: '⭐' },
         checkin:       { icon: '🏛️' },
         checkout:      { icon: '🌙' },
+        chat:          { icon: '💬' },
     };
 
     function e(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -20529,8 +20606,20 @@ kingSelect.addEventListener('change', () => {
             list.innerHTML = '<div class="af-empty">아직 기록된 활동이 없습니다.</div>';
             return;
         }
-        // 최신 순으로 렌더 (서버가 -1 정렬이므로 그대로)
+        // 서버는 최신순(-1 정렬)으로 줌 → 그대로 렌더하면 column-reverse에 의해 최신이 아래에 표시됨
         list.innerHTML = logs.map(log => {
+            if (log.type === 'chat') {
+                const actor = `<span class="af-actor">${e(log.actor || '?')}</span>`;
+                const pos   = log.actorPosition
+                    ? `<span style="color:rgba(205,182,144,0.78);font-size:9px;">[${e(log.actorPosition)}]</span> `
+                    : '';
+                const text  = e((log.extra && log.extra.text) ? log.extra.text : '');
+                return `<div class="af-item af-chat">
+                    <span class="af-icon">💬</span>
+                    <span class="af-chat-text">${pos}${actor}: ${text}</span>
+                    <span class="af-time">${relativeTime(log.createdAt)}</span>
+                </div>`;
+            }
             const cfg = TYPE_CONFIG[log.type] || { icon: '📌' };
             return `<div class="af-item">
                 <span class="af-icon">${cfg.icon}</span>
@@ -20538,45 +20627,149 @@ kingSelect.addEventListener('change', () => {
                 <span class="af-time">${relativeTime(log.createdAt)}</span>
             </div>`;
         }).join('');
-        // 새 로그 추가 시 맨 위(최신)로 스크롤
+        // column-reverse 레이아웃에서 최신(맨 아래)이 보이도록 스크롤 맨 아래로
         const scroll = document.getElementById('activity-feed-scroll');
-        if (scroll) scroll.scrollTop = 0;
+        if (scroll) scroll.scrollTop = scroll.scrollHeight;
     }
 
-    let _lastLogId = null;
-    let _allLogs   = [];
-
-    async function fetchLogs(silent) {
+    async function fetchLogs() {
         try {
-            const resp = await fetch('/api/activity-logs?limit=30');
+            const resp = await fetch('/api/activity-logs?limit=50');
             if (!resp.ok) return;
             const logs = await resp.json();
             if (!Array.isArray(logs)) return;
-            _allLogs = logs;
-            const newestId = logs.length > 0 ? String(logs[0]._id) : null;
-            _lastLogId = newestId;
             renderLogs(logs);
         } catch (e) { /* 무시 */ }
     }
 
-    document.addEventListener('DOMContentLoaded', function() {
-        fetchLogs(true);  // DB 로그 렌더링
-        setInterval(() => fetchLogs(false), POLL_INTERVAL);
+    // 채팅 전송
+    async function sendChat(text) {
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        if (!token) { alert('로그인 후 채팅 가능합니다.'); return; }
+        try {
+            const resp = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ message: text })
+            });
+            if (resp.ok) {
+                await fetchLogs(); // 즉시 갱신
+            } else {
+                const d = await resp.json();
+                alert(d.message || '전송 실패');
+            }
+        } catch(err) { console.warn('채팅 전송 오류:', err); }
+    }
 
-        // ✕ 닫기 버튼 — 패널 숨기고 레이어 체크박스도 연동
+    document.addEventListener('DOMContentLoaded', function() {
+        fetchLogs();
+        setInterval(fetchLogs, POLL_INTERVAL);
+
+        // 로그인 여부에 따라 채팅 입력창 표시
+        function updateChatFormVisibility() {
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            const chatForm = document.getElementById('activity-chat-form');
+            if (chatForm) chatForm.style.display = token ? '' : 'none';
+        }
+        updateChatFormVisibility();
+        // storage 이벤트 감지 (다른 탭 로그인/아웃)
+        window.addEventListener('storage', updateChatFormVisibility);
+        // 주기적으로도 체크 (같은 탭 내 로그인)
+        setInterval(updateChatFormVisibility, 3000);
+
+        // 전송 버튼
+        const sendBtn = document.getElementById('activity-chat-send');
+        const chatInput = document.getElementById('activity-chat-input');
+        async function doSend() {
+            const text = chatInput?.value?.trim();
+            if (!text) return;
+            chatInput.value = '';
+            chatInput.disabled = true;
+            if (sendBtn) sendBtn.disabled = true;
+            await sendChat(text);
+            chatInput.disabled = false;
+            if (sendBtn) sendBtn.disabled = false;
+            chatInput.focus();
+        }
+        if (sendBtn) sendBtn.addEventListener('click', doSend);
+        if (chatInput) {
+            chatInput.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); doSend(); }
+            });
+        }
+
+        // ✕ 닫기 버튼
         const closeBtn = document.getElementById('activity-feed-close');
         if (closeBtn) {
             closeBtn.addEventListener('click', function() {
                 const panel = document.getElementById('activity-feed-panel');
                 if (panel) panel.style.display = 'none';
-                // 레이어 체크박스 연동
                 const cb = document.getElementById('menu-layer-activity-feed');
                 if (cb) { cb.checked = false; cb.dispatchEvent(new Event('change')); }
             });
         }
+
+        // ── 상단 핸들로 패널 높이 리사이즈 ──────────────────────────
+        (function() {
+            const handle = document.getElementById('activity-feed-resize-handle');
+            const panel  = document.getElementById('activity-feed-panel');
+            if (!handle || !panel) return;
+
+            let startY = 0, startH = 0, dragging = false;
+
+            handle.addEventListener('mousedown', function(ev) {
+                ev.preventDefault();
+                dragging = true;
+                startY = ev.clientY;
+                startH = panel.offsetHeight;
+                document.body.style.userSelect = 'none';
+            });
+
+            document.addEventListener('mousemove', function(ev) {
+                if (!dragging) return;
+                // 위로 드래그 → 높이 증가, 아래로 드래그 → 높이 감소
+                const delta = startY - ev.clientY;
+                const minH = parseInt(getComputedStyle(panel).minHeight) || 120;
+                const maxH = window.innerHeight - 150;
+                const newH = Math.max(minH, Math.min(maxH, startH + delta));
+                panel.style.height = newH + 'px';
+                // 리사이즈 후 스크롤을 최신(맨 아래)으로 유지
+                const scroll = document.getElementById('activity-feed-scroll');
+                if (scroll) scroll.scrollTop = scroll.scrollHeight;
+            });
+
+            document.addEventListener('mouseup', function() {
+                if (dragging) {
+                    dragging = false;
+                    document.body.style.userSelect = '';
+                }
+            });
+
+            // 터치 지원
+            handle.addEventListener('touchstart', function(ev) {
+                const t = ev.touches[0];
+                dragging = true;
+                startY = t.clientY;
+                startH = panel.offsetHeight;
+            }, { passive: true });
+
+            document.addEventListener('touchmove', function(ev) {
+                if (!dragging) return;
+                const t = ev.touches[0];
+                const delta = startY - t.clientY;
+                const minH = parseInt(getComputedStyle(panel).minHeight) || 120;
+                const maxH = window.innerHeight - 150;
+                const newH = Math.max(minH, Math.min(maxH, startH + delta));
+                panel.style.height = newH + 'px';
+                const scroll = document.getElementById('activity-feed-scroll');
+                if (scroll) scroll.scrollTop = scroll.scrollHeight;
+            }, { passive: true });
+
+            document.addEventListener('touchend', function() { dragging = false; });
+        })();
     });
 
-    window.refreshActivityFeed = function() { fetchLogs(false); };
+    window.refreshActivityFeed = function() { fetchLogs(); };
 })();
 </script>
 
