@@ -20557,25 +20557,45 @@ kingSelect.addEventListener('change', () => {
             ? `<span style="color:rgba(205,182,144,0.78);font-size:10px;">[${e(log.actorPosition)}]</span> `
             : '';
         const target = log.targetName ? `<span class="af-target">${e(log.targetName)}</span>` : '';
+        const extra  = log.extra || {};
+
+        // 카테고리 한글 변환
+        const CATEGORY_LABEL = {
+            'historical_site': '역사유적',
+            'historical_record': '사관기록',
+            'natural_feature': '자연지형',
+            'battle': '전투',
+            'capital': '도읍',
+        };
+        const catLabel = extra.category ? (CATEGORY_LABEL[extra.category] || extra.category) : null;
+        const catBadge = catLabel
+            ? `<span style="font-size:9px;color:rgba(180,210,255,0.85);background:rgba(80,120,200,0.2);border-radius:3px;padding:0 4px;margin-left:3px;">${e(catLabel)}</span>`
+            : '';
+
+        // 검토 의견 (있을 경우)
+        const commentTxt = extra.comment
+            ? `<div style="font-size:9.5px;color:rgba(220,200,160,0.85);margin-top:2px;padding-left:14px;font-style:italic;">"${e(extra.comment)}"</div>`
+            : '';
+
         switch (log.type) {
             case 'register':
                 return `${pos}${actor} 사관으로 임관하셨습니다. 🎊`;
             case 'submit':
-                return `${pos}${actor}님이 ${target ? target + ' ' : ''}기록을 제출하셨습니다.`;
+                return `${pos}${actor}님이 ${target ? target + ' ' : ''}기록을 제출하셨습니다.${catBadge}`;
             case 'review':
-                return `${pos}${actor}님이 ${target ? target + ' ' : ''}검토를 완료하셨습니다.`;
+                return `${pos}${actor}님이 ${target ? target + ' ' : ''}검토를 완료하셨습니다.${catBadge}${commentTxt}`;
             case 'review_reject':
-                return `${pos}${actor}님이 ${target ? target + ' ' : ''}기록을 반려하셨습니다.`;
+                return `${pos}${actor}님이 ${target ? target + ' ' : ''}기록을 <span style="color:#ff9980;">반려</span>하셨습니다.${catBadge}${commentTxt}`;
             case 'approve':
-                return `${pos}${actor}님이 ${target ? target + '의 ' : ''}<span class="af-restore">복원에 성공</span>하셨습니다! 🎉`;
+                return `${pos}${actor}님이 ${target ? target + '의 ' : ''}<span class="af-restore">복원에 성공</span>하셨습니다! 🎉${catBadge}`;
             case 'comment':
                 return `${pos}${actor}님이 ${target ? target + '에 ' : ''}의견을 등록하셨습니다.`;
             case 'rankup': {
-                const np = (log.extra && log.extra.newPosition) ? log.extra.newPosition : (log.actorPosition || '');
+                const np = extra.newPosition ? extra.newPosition : (log.actorPosition || '');
                 return `${pos}${actor}님이 <span class="af-special">${e(np)}</span>으로 승급하셨습니다! 🎊`;
             }
             case 'checkin': {
-                const pts = (log.extra && log.extra.points) ? log.extra.points : 0;
+                const pts = extra.points ? extra.points : 0;
                 const ptsTxt = pts > 0 ? ` 공적 <span class="af-restore">+${pts}점</span>` : '';
                 return `${pos}${actor} 사관님께서 <span class="af-special">등청</span>하셨습니다.${ptsTxt}`;
             }
