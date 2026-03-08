@@ -8337,6 +8337,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     // 🚩 승인 버튼 (동수국사 이상 또는 admin/superuser)
                     if (canApprove && (contrib.status === 'reviewed' || contrib.status === 'pending')) {
                         adminControls += `<button onclick="approveContribution('${contrib._id}')" class="button-style primary" style="padding: 2px 6px; font-size: 11px; margin-left: 5px; background-color: #27ae60;">✅ 최종 승인</button>`;
+                        adminControls += `<button onclick="rejectFinalContribution('${contrib._id}')" class="button-style" style="padding: 2px 6px; font-size: 11px; margin-left: 5px; background-color: #c0392b;">🚫 최종 반려</button>`;
                     }
                     
                     // 🚩 마커 변환 버튼 (동수국사 이상 또는 admin/superuser) - approved 상태에서 castle이 없을 때 수동 변환용
@@ -19261,6 +19262,36 @@ kingSelect.addEventListener('change', () => {
             }
         };
 
+        // 🚩 [추가] 최종 반려 함수 (동수국사 이상 또는 admin/superuser)
+        window.rejectFinalContribution = async (id) => {
+            const comment = prompt('최종 반려 사유를 입력하세요. (선택사항)');
+            if (comment === null) return; // 취소 시 중단
+
+            if (!confirm(`이 기여를 최종 반려하시겠습니까?${comment ? '\n\n반려 사유: ' + comment : ''}`)) return;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/contributions/${id}/reject-final`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ comment })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    alert('🚫 ' + data.message);
+                    // 모달 닫기 및 목록 새로고침
+                    const modal = document.getElementById('contributionDetailModal');
+                    if (modal) modal.style.display = 'none';
+                    await window.loadContributions();
+                    if (typeof displayContributions === 'function') displayContributions();
+                } else {
+                    alert('❌ ' + (data.message || '반려 실패'));
+                }
+            } catch (error) {
+                console.error('최종 반려 오류:', error);
+                alert('오류가 발생했습니다: ' + error.message);
+            }
+        };
+
         // 🚩 [추가] 본인 사료 삭제 함수 (승인 전에만 가능)
         window.deleteMyContribution = async (id) => {
             if (!confirm('정말로 이 사료를 삭제하시겠습니까?\n\n⚠️ 삭제된 사료는 복구할 수 없으며, 사료 제출 점수(3점)가 차감됩니다.')) return;
@@ -19634,6 +19665,7 @@ kingSelect.addEventListener('change', () => {
                         // 승인 버튼 (동수국사 이상 또는 admin/superuser) - pending 또는 reviewed 상태
                         if (canApprove && (contribution.status === 'pending' || contribution.status === 'reviewed')) {
                             adminControls += `<button onclick="event.stopPropagation(); approveContribution('${contribution._id}')" class="button-style primary" style="padding: 2px 6px; font-size: 11px; margin-left: 5px; background-color: #27ae60;">✅ 최종 승인</button>`;
+                            adminControls += `<button onclick="event.stopPropagation(); rejectFinalContribution('${contribution._id}')" class="button-style" style="padding: 2px 6px; font-size: 11px; margin-left: 5px; background-color: #c0392b;">🚫 최종 반려</button>`;
                         }
                         
                         // 마커 변환 버튼 (동수국사 이상 또는 admin/superuser) - approved 상태에서만

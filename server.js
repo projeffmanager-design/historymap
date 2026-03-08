@@ -3986,6 +3986,57 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
     }
 });
 
+// 🚩 [추가] 최종 반려 API (동수국사 이상 또는 admin/superuser)
+app.put('/api/contributions/:id/reject-final', verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { comment } = req.body;
+        const userId = req.user.userId;
+
+        const contribution = await collections.contributions.findOne({ _id: toObjectId(id) });
+        if (!contribution) return res.status(404).json({ message: "기여를 찾을 수 없습니다." });
+        if (contribution.status === 'approved') {
+            return res.status(400).json({ message: "이미 최종 승인된 기여는 반려할 수 없습니다." });
+        }
+
+        const user = await collections.users.findOne({ _id: toObjectId(userId) });
+        if (!user) return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+
+        const isAdmin = user.role === 'admin' || user.role === 'superuser';
+        const approverPositions = RANK_CONFIG.roles.approvers;
+        const hasApproverPosition = approverPositions.includes(user.position);
+
+        if (!isAdmin && !hasApproverPosition) {
+            return res.status(403).json({
+                message: `반려 권한이 없습니다. (동수국사(종2품) 이상 또는 관리자만 가능, 현재: ${user.position})`
+            });
+        }
+
+        await collections.contributions.updateOne(
+            { _id: toObjectId(id) },
+            {
+                $set: {
+                    status: 'rejected',
+                    approverId: toObjectId(userId),
+                    approverUsername: user.username,
+                    approvedAt: new Date(),
+                    rejectComment: comment || null
+                }
+            }
+        );
+
+        logActivity('review_reject', user.username, user.position || '', contribution.name || '사관 기록', {
+            comment: comment || null,
+            category: contribution.category || null,
+            isFinal: true
+        });
+
+        res.json({ message: "기여가 최종 반려되었습니다." });
+    } catch (error) {
+        res.status(500).json({ message: "반려 실패", error: error.message });
+    }
+});
+
 // ============================================================
 // 💬 MARKER COMMENTS (마커 의견) API
 // ============================================================
