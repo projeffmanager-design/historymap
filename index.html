@@ -12123,7 +12123,13 @@ function invalidateCountryLookupCache() {
 
       countryColors = {};
       countries.forEach(c => { countryColors[c.name] = c.color; });
-      countries.sort((a, b) => { return a.name.localeCompare(b.name, 'ko'); });
+      countries.sort((a, b) => {
+        // 건국연도(start) 오름차순 — start가 없는 국가는 맨 뒤
+        const sa = (a.start != null && !isNaN(a.start)) ? a.start : Infinity;
+        const sb = (b.start != null && !isNaN(b.start)) ? b.start : Infinity;
+        if (sa !== sb) return sa - sb;
+        return a.name.localeCompare(b.name, 'ko'); // 건국연도 같으면 이름순
+      });
       
       // 🚩 [제거] kings 변환 로직은 백그라운드 로딩 함수 내부로 이동됨
 
