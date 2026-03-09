@@ -167,9 +167,27 @@ const logCRUD = (operation, collection, identifier, details = '') => {
 
 // 🚩 [추가] 액티비티 로그 기록 헬퍼 함수
 // type: 'register' | 'submit' | 'review' | 'approve' | 'comment' | 'rankup' | 'checkin' | 'checkout'
-async function logActivity(type, actor, actorPosition, targetName, extra = {}) {
+// userId(옵션): 전달 시 DB에서 실시간 직급을 계산하여 actorPosition을 덮어씀
+async function logActivity(type, actor, actorPosition, targetName, extra = {}, userId = null) {
     try {
         const { collections: cols } = await require('./db').connectToDatabase();
+
+        // 🚩 userId가 있으면 DB에서 실시간 직급 계산 (토큰 캐시 직급 오류 방지)
+        if (userId) {
+            try {
+                const { ObjectId } = require('mongodb');
+                const uid = typeof userId === 'string' ? new ObjectId(userId) : userId;
+                const u = await cols.users.findOne({ _id: uid }, { projection: { contributionStats: 1, approvedCount: 1, totalCount: 1, totalVotes: 1, reviewScore: 1, approvalScore: 1, designated_rank: 1 } });
+                if (u) {
+                    const sc = (u.totalCount || 0) * RANK_CONFIG.scoreWeights.submitCount
+                             + (u.approvedCount || 0) * RANK_CONFIG.scoreWeights.approvedCount
+                             + (u.totalVotes || 0)
+                             + (u.reviewScore || 0)
+                             + (u.approvalScore || 0);
+                    actorPosition = getRealtimePosition(sc, null, u.designated_rank || null);
+                }
+            } catch (_) { /* 실패 시 기존 actorPosition 유지 */ }
+        }
 
         // 🔕 checkin/checkout: 같은 유저의 동일 타입이 10분 내 존재하면 스킵 (도배 방지)
         if (type === 'checkin' || type === 'checkout') {
@@ -2953,7 +2971,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const createdContribution = { ...newContribution, _id: result.insertedId };
 
                 // 🚩 [추가] 기여 제출 액티비티 로그
-                logActivity('submit', effectiveUsername, req.user.position || '', newContribution.name || '사관 기록', { category });
+                logActivity('submit', effectiveUsername, req.user.position || '', newContribution.name || '사관 기록', { category }, req.user.userId);
                 
                 res.status(201).json({ 
                     message: category === 'historical_record' ? "사관 기록이 접수되었습니다. 검토 후 반영됩니다." : "역사 복원 제안이 접수되었습니다. 검토 후 지도에 반영됩니다.",
@@ -3154,7 +3172,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                             // 🚩 [수정] logActivity를 return 전에 호출
                             logActivity('approve', req.user.username, req.user.position || '', contribution.name || '사관 기록', {
                                 category: contribution.category || null
-                            });
+                            }, req.user.userId);
                             return res.json({ message, castle: insertedCastle });
                         } catch (castleError) {
                             console.error('❌ [승인→Castle] castle 삽입 실패:', castleError.message);
@@ -3168,7 +3186,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (status === 'approved') {
                     logActivity('approve', req.user.username, req.user.position || '', contribution.name || '사관 기록', {
                         category: contribution.category || null
-                    });
+                    }, req.user.userId);
                 }
                 res.json({ message });
             } catch (error) {
@@ -3724,7 +3742,7 @@ app.put('/api/contributions/:id/review', verifyToken, async (req, res) => {
         logActivity(reviewVerb, user.username, user.position || '', contribution.name || '사관 기록', {
             comment: comment || null,
             category: contribution.category || null
-        });
+        }, userId);
 
         res.json({ message: `기여가 ${status === 'approved' ? '검토 완료' : '검토 거부'}되었습니다.` });
     } catch (error) {
@@ -4023,7 +4041,7 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
         // 🚩 [추가] 최종 승인 액티비티 로그
         logActivity('approve', user.username, user.position || '', contribution.name || '사관 기록', {
             category: contribution.category || null
-        });
+        }, userId);
 
         res.json({ message: "기여가 최종 승인되었습니다. 성 마커로 변환되었습니다.", castle: insertedCastle });
     } catch (error) {
@@ -4075,7 +4093,7 @@ app.put('/api/contributions/:id/reject-final', verifyToken, async (req, res) => 
             comment: comment || null,
             category: contribution.category || null,
             isFinal: true
-        });
+        }, userId);
 
         res.json({ message: "기여가 최종 반려되었습니다." });
     } catch (error) {
@@ -4154,7 +4172,7 @@ app.post('/api/marker-comments', verifyToken, async (req, res) => {
         try {
             const castleDoc = await collections.castle.findOne({ _id: toObjectId(castle_id) }, { projection: { name: 1 } });
             const castleName = castleDoc ? castleDoc.name : castle_id;
-            logActivity('comment', req.user.username, req.user.position || '', castleName, {});
+            logActivity('comment', req.user.username, req.user.position || '', castleName, {}, req.user.userId);
         } catch (_) {}
 
         res.json({ ...comment, _id: result.insertedId });
