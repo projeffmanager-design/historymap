@@ -2063,7 +2063,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 });
 
                 // 🚩 [추가] 임관 액티비티 로그
-                logActivity('register', username, position || '참봉', null, {});
+                await logActivity('register', username, position || '참봉', null, {});
 
                 res.status(201).json({ message: "사용자 등록 성공" });
             } catch (error) {
@@ -2146,7 +2146,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     );
                     console.log(`출석 포인트 지급: ${user.username} (+1점)`);
                     // 출석 활동 로그 기록 (첫 출석 시에만)
-                    logActivity('checkin', user.username, position, null, { points: 1 });
+                    await logActivity('checkin', user.username, position, null, { points: 1 });
                 } else {
                     // 오늘 이미 출석한 경우 — 최근 5분 내 중복 checkin 방지
                     await collections.users.updateOne(
@@ -2160,7 +2160,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         createdAt: { $gte: fiveMinutesAgo }
                     });
                     if (!recentCheckin) {
-                        logActivity('checkin', user.username, position, null, {});
+                        await logActivity('checkin', user.username, position, null, {});
                     }
                 }
 
@@ -2193,7 +2193,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             try {
                 const username = req.user.username;
                 const position = req.user.position || '';
-                logActivity('checkout', username, position, null, {});
+                await logActivity('checkout', username, position, null, {});
                 res.json({ message: '퇴청 기록 완료' });
             } catch (e) {
                 res.json({ message: 'ok' });
@@ -2766,7 +2766,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (designated_rank !== null) {
                     const targetUser = await collections.users.findOne({ _id }, { projection: { username: 1 } });
                     if (targetUser) {
-                        logActivity('rankup', targetUser.username, rankNames[designated_rank], null, { newPosition: rankNames[designated_rank] });
+                        await logActivity('rankup', targetUser.username, rankNames[designated_rank], null, { newPosition: rankNames[designated_rank] });
                     }
                 }
 
@@ -2971,7 +2971,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const createdContribution = { ...newContribution, _id: result.insertedId };
 
                 // 🚩 [추가] 기여 제출 액티비티 로그
-                logActivity('submit', effectiveUsername, req.user.position || '', newContribution.name || '사관 기록', { category }, req.user.userId);
+                await logActivity('submit', effectiveUsername, req.user.position || '', newContribution.name || '사관 기록', { category }, req.user.userId);
                 
                 res.status(201).json({ 
                     message: category === 'historical_record' ? "사관 기록이 접수되었습니다. 검토 후 반영됩니다." : "역사 복원 제안이 접수되었습니다. 검토 후 지도에 반영됩니다.",
@@ -3131,6 +3131,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (existingCastle) {
                     console.log(`⚠️ [승인→Castle 스킵] '${contribution.name}' 이미 castle 존재 (ID: ${existingCastle._id})`);
                     const message = '검토가 완료되었습니다.';
+                    await logActivity('approve', req.user.username, req.user.position || '', contribution.name || '사관 기록', {
+                        category: contribution.category || null
+                    }, req.user.userId);
                     return res.json({ message, castle: existingCastle });
                 }
 
@@ -3169,8 +3172,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 invalidateCastleCache(); // 🚩 서버 캐시 즉시 무효화                            // 삽입된 castle 데이터를 응답에 포함
                             const insertedCastle = await collections.castle.findOne({ _id: castleResult.insertedId });
                             const message = '검토가 완료되었습니다.';
-                            // 🚩 [수정] logActivity를 return 전에 호출
-                            logActivity('approve', req.user.username, req.user.position || '', contribution.name || '사관 기록', {
+                            // 🚩 [수정] logActivity를 return 전에 await 호출
+                            await logActivity('approve', req.user.username, req.user.position || '', contribution.name || '사관 기록', {
                                 category: contribution.category || null
                             }, req.user.userId);
                             return res.json({ message, castle: insertedCastle });
@@ -3184,7 +3187,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const message = status === 'approved' ? '검토가 완료되었습니다.' : '검토가 거부되었습니다.';
                 // 🚩 [추가] 승인 시 활동 소식 피드에 기록
                 if (status === 'approved') {
-                    logActivity('approve', req.user.username, req.user.position || '', contribution.name || '사관 기록', {
+                    await logActivity('approve', req.user.username, req.user.position || '', contribution.name || '사관 기록', {
                         category: contribution.category || null
                     }, req.user.userId);
                 }
@@ -3739,7 +3742,7 @@ app.put('/api/contributions/:id/review', verifyToken, async (req, res) => {
 
         // 🚩 [추가] 검토 액티비티 로그
         const reviewVerb = status === 'approved' ? 'review' : 'review_reject';
-        logActivity(reviewVerb, user.username, user.position || '', contribution.name || '사관 기록', {
+        await logActivity(reviewVerb, user.username, user.position || '', contribution.name || '사관 기록', {
             comment: comment || null,
             category: contribution.category || null
         }, userId);
@@ -4039,7 +4042,7 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
         }
 
         // 🚩 [추가] 최종 승인 액티비티 로그
-        logActivity('approve', user.username, user.position || '', contribution.name || '사관 기록', {
+        await logActivity('approve', user.username, user.position || '', contribution.name || '사관 기록', {
             category: contribution.category || null
         }, userId);
 
@@ -4089,7 +4092,7 @@ app.put('/api/contributions/:id/reject-final', verifyToken, async (req, res) => 
             }
         );
 
-        logActivity('review_reject', user.username, user.position || '', contribution.name || '사관 기록', {
+        await logActivity('review_reject', user.username, user.position || '', contribution.name || '사관 기록', {
             comment: comment || null,
             category: contribution.category || null,
             isFinal: true
@@ -4172,7 +4175,7 @@ app.post('/api/marker-comments', verifyToken, async (req, res) => {
         try {
             const castleDoc = await collections.castle.findOne({ _id: toObjectId(castle_id) }, { projection: { name: 1 } });
             const castleName = castleDoc ? castleDoc.name : castle_id;
-            logActivity('comment', req.user.username, req.user.position || '', castleName, {}, req.user.userId);
+            await logActivity('comment', req.user.username, req.user.position || '', castleName, {}, req.user.userId);
         } catch (_) {}
 
         res.json({ ...comment, _id: result.insertedId });
