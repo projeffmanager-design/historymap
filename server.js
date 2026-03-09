@@ -177,13 +177,25 @@ async function logActivity(type, actor, actorPosition, targetName, extra = {}, u
             try {
                 const { ObjectId } = require('mongodb');
                 const uid = typeof userId === 'string' ? new ObjectId(userId) : userId;
-                const u = await cols.users.findOne({ _id: uid }, { projection: { contributionStats: 1, approvedCount: 1, totalCount: 1, totalVotes: 1, reviewScore: 1, approvalScore: 1, designated_rank: 1 } });
+                const u = await cols.users.findOne({ _id: uid }, { projection: { username: 1, reviewScore: 1, approvalScore: 1, attendancePoints: 1, designated_rank: 1 } });
                 if (u) {
-                    const sc = (u.totalCount || 0) * RANK_CONFIG.scoreWeights.submitCount
-                             + (u.approvedCount || 0) * RANK_CONFIG.scoreWeights.approvedCount
-                             + (u.totalVotes || 0)
-                             + (u.reviewScore || 0)
-                             + (u.approvalScore || 0);
+                    // contributions 컬렉션에서 직접 집계 (로그인과 동일한 방식)
+                    const contribAgg = await cols.contributions.aggregate([
+                        { $match: { $or: [{ userId: uid }, { username: u.username }] } },
+                        { $group: {
+                            _id: null,
+                            totalCount:    { $sum: 1 },
+                            approvedCount: { $sum: { $cond: [{ $eq: ['$status', 'approved'] }, 1, 0] } },
+                            totalVotes:    { $sum: { $ifNull: ['$votes', 0] } }
+                        }}
+                    ]).toArray();
+                    const stats = contribAgg[0] || { totalCount: 0, approvedCount: 0, totalVotes: 0 };
+                    const sc = (stats.totalCount    * RANK_CONFIG.scoreWeights.submitCount)
+                             + (stats.approvedCount * RANK_CONFIG.scoreWeights.approvedCount)
+                             + stats.totalVotes
+                             + (u.reviewScore    || 0)
+                             + (u.approvalScore  || 0)
+                             + (u.attendancePoints || 0);
                     actorPosition = getRealtimePosition(sc, null, u.designated_rank || null);
                 }
             } catch (_) { /* 실패 시 기존 actorPosition 유지 */ }
