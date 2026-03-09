@@ -3151,6 +3151,10 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 invalidateCastleCache(); // 🚩 서버 캐시 즉시 무효화                            // 삽입된 castle 데이터를 응답에 포함
                             const insertedCastle = await collections.castle.findOne({ _id: castleResult.insertedId });
                             const message = '검토가 완료되었습니다.';
+                            // 🚩 [수정] logActivity를 return 전에 호출
+                            logActivity('approve', req.user.username, req.user.position || '', contribution.name || '사관 기록', {
+                                category: contribution.category || null
+                            });
                             return res.json({ message, castle: insertedCastle });
                         } catch (castleError) {
                             console.error('❌ [승인→Castle] castle 삽입 실패:', castleError.message);
@@ -3674,6 +3678,7 @@ app.put('/api/layer-settings', verifyAdmin, async (req, res) => {
 // 🚩 [추가] 기여물 검토
 app.put('/api/contributions/:id/review', verifyToken, async (req, res) => {
     try {
+        await setupRoutesAndCollections();
         const { id } = req.params;
         const { status, comment } = req.body;
         const userId = req.user.userId;
@@ -3801,6 +3806,7 @@ app.delete('/api/contributions/:id/comments/:commentId', verifyToken, async (req
 // �🚩 [추가] 최종 승인 API (동수국사 이상만 가능)
 app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
     try {
+        await setupRoutesAndCollections();
         const { id } = req.params;
         const { comment } = req.body;
         const userId = req.user.userId;
@@ -4028,6 +4034,7 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
 // 🚩 [추가] 최종 반려 API (동수국사 이상 또는 admin/superuser)
 app.put('/api/contributions/:id/reject-final', verifyToken, async (req, res) => {
     try {
+        await setupRoutesAndCollections();
         const { id } = req.params;
         const { comment } = req.body;
         const userId = req.user.userId;
