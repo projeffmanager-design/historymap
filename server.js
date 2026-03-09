@@ -2872,7 +2872,20 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         app.post('/api/contributions', verifyToken, async (req, res) => {
             try {
                 const { name, lat, lng, description, category, evidence, year, source, content,
-                        placeType, is_natural_feature, natural_feature_type, country_id, start_year, end_year, is_capital, new_country_name } = req.body;
+                        placeType, is_natural_feature, natural_feature_type, country_id, start_year, end_year, is_capital, new_country_name,
+                        _forceUsername, _forceUserId } = req.body;
+
+                // 🚩 [추가] 관리자가 대신 기여자 이름/ID를 지정할 수 있음
+                const isAdmin = req.user.position === 'admin';
+                let effectiveUsername = req.user.username;
+                let effectiveUserId = req.user.userId;
+                if (isAdmin && _forceUsername) {
+                    effectiveUsername = _forceUsername;
+                    // _forceUserId가 있으면 사용, 없으면 admin userId 유지
+                    if (_forceUserId) {
+                        try { effectiveUserId = _forceUserId; } catch(e) {}
+                    }
+                }
                 
                 // 🚩 [검증] 성/도시인 경우 연도와 국가 필수
                 if (!is_natural_feature && category !== 'historical_record') {
@@ -2888,8 +2901,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 let newContribution;
                 if (category === 'historical_record') {
                     newContribution = {
-                        userId: toObjectId(req.user.userId),
-                        username: req.user.username,
+                        userId: toObjectId(effectiveUserId),
+                        username: effectiveUsername,
                         name, year, source, content, category, evidence,
                         status: 'pending',
                         votes: 0,
@@ -2901,8 +2914,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 } else {
                     // 지도 기반 기여 (성/도시 + 자연지물)
                     newContribution = {
-                        userId: toObjectId(req.user.userId),
-                        username: req.user.username,
+                        userId: toObjectId(effectiveUserId),
+                        username: effectiveUsername,
                         name: (name || '').trim(),
                         lat, lng, description, category, evidence,
                         placeType: placeType || 'city',
@@ -2940,7 +2953,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const createdContribution = { ...newContribution, _id: result.insertedId };
 
                 // 🚩 [추가] 기여 제출 액티비티 로그
-                logActivity('submit', req.user.username, req.user.position || '', newContribution.name || '사관 기록', { category });
+                logActivity('submit', effectiveUsername, req.user.position || '', newContribution.name || '사관 기록', { category });
                 
                 res.status(201).json({ 
                     message: category === 'historical_record' ? "사관 기록이 접수되었습니다. 검토 후 반영됩니다." : "역사 복원 제안이 접수되었습니다. 검토 후 지도에 반영됩니다.",

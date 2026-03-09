@@ -4928,7 +4928,10 @@ body.force-mobile .marker-type-selector button {
       <div id="castleHistorySection" style="border:1px solid #00aaff; padding:10px; margin-top:10px; border-radius:4px;">
         <h4>📜 성/도시 역사 기록</h4>
         <div id="castleHistoryList" style="max-height:250px; overflow-y:auto; padding-right:5px;"></div>
-        <button type="button" id="addCastleHistoryBtn" style="margin-top:5px;">역사 기록 추가</button>
+        <div style="display:flex; gap:6px; margin-top:5px; flex-wrap:wrap;">
+          <button type="button" id="addCastleHistoryBtn">역사 기록 추가</button>
+          <button type="button" id="copyHistoryFromCastleBtn" style="background:#1a5276; border-color:#2980b9; font-size:11px;" title="다른 마커의 역사기록을 이 폼에 복사합니다">📋 다른 마커에서 복사</button>
+        </div>
       </div>
       <!-- [자연·지명·군대] 단순 기간 -->
       <div id="simpleDateSection" style="display:none;">
@@ -5096,6 +5099,7 @@ body.force-mobile .marker-type-selector button {
       <br>
       <div class="form-actions" style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
         <button type="button" id="revertContributionBtn" class="danger" style="display:none; background-color: #e67e22; border-color: #d35400;">기여로 되돌리기</button>
+        <button type="button" id="registerAsContributionBtn" style="display:none; background-color: #1a5276; border-color: #2980b9; font-size:11px;" title="이 마커를 사관 기여로 재등록하여 기여점수를 부여합니다">🔁 기여로 재등록</button>
         <button type="button" id="cloneCastle" class="primary" style="display:none;">복제</button>
         <button type="button" id="deleteCastle" class="danger" style="display:none;">🗑️ 휴지통</button>
         <button type="button" id="cancelCastle">취소</button>
@@ -13735,6 +13739,7 @@ function invalidateCountryLookupCache() {
       openForm('castleForm'); // 🚩 [수정] openForm 함수 사용
       addCastleForm.reset();
       document.getElementById('deleteCastle').style.display = 'none';
+      document.getElementById('registerAsContributionBtn').style.display = 'none';
       
       // 🚩 [추가] 커스텀 아이콘 필드 초기화
       document.getElementById('customIcon').value = '';
@@ -13960,6 +13965,7 @@ function invalidateCountryLookupCache() {
         openForm('castleForm'); // 🚩 [수정] openForm 함수 사용
         document.getElementById('cloneCastle').style.display = 'inline-block'; // 🚩 [추가] 편집 시 복제 버튼 표시
         document.getElementById('deleteCastle').style.display = 'inline-block';
+        document.getElementById('registerAsContributionBtn').style.display = 'inline-block'; // 🚩 [추가] 기여로 재등록 버튼
         
         // 🚩 [추가] 기여 변환 관련 필드 초기화
         document.getElementById('originContributionId').value = '';
@@ -14406,6 +14412,176 @@ function invalidateCountryLookupCache() {
         }
     };
 
+    // ────────────────────────────────────────────────────────
+    // 📋 다른 마커에서 역사기록 복사
+    // ────────────────────────────────────────────────────────
+    document.getElementById('copyHistoryFromCastleBtn').addEventListener('click', () => {
+        // 검색 모달 생성
+        const existing = document.getElementById('copyHistoryModal');
+        if (existing) existing.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'copyHistoryModal';
+        modal.style.cssText = `
+            position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+            background:#1e2d3d; border:1px solid #2980b9; border-radius:8px;
+            padding:18px; z-index:99999; min-width:320px; max-width:420px;
+            box-shadow:0 4px 24px rgba(0,0,0,0.6); color:#d8cfc4;
+        `;
+        modal.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <b>📋 다른 마커에서 역사기록 복사</b>
+                <button onclick="document.getElementById('copyHistoryModal').remove()" style="background:none;border:none;color:#aaa;font-size:16px;cursor:pointer;">✕</button>
+            </div>
+            <div style="font-size:11px; color:#8fa8c0; margin-bottom:8px;">마커 이름으로 검색하여 역사기록을 가져옵니다.</div>
+            <input id="copyHistorySearchInput" type="text" placeholder="마커 이름 검색..."
+                style="width:100%; box-sizing:border-box; padding:6px 8px; background:#0d1b2a; border:1px solid #2980b9; color:#d8cfc4; border-radius:4px; margin-bottom:8px;">
+            <div id="copyHistorySearchResults" style="max-height:200px; overflow-y:auto; font-size:12px;"></div>
+        `;
+        document.body.appendChild(modal);
+
+        const input = document.getElementById('copyHistorySearchInput');
+        const results = document.getElementById('copyHistorySearchResults');
+
+        const renderResults = (query) => {
+            const q = query.trim().toLowerCase();
+            const matched = castles.filter(c =>
+                c._id !== editingCastleKey &&
+                c.history && c.history.length > 0 &&
+                c.name && c.name.toLowerCase().includes(q)
+            ).slice(0, 20);
+
+            if (!q) {
+                results.innerHTML = '<div style="color:#8fa8c0; padding:4px;">이름을 입력하세요.</div>';
+                return;
+            }
+            if (matched.length === 0) {
+                results.innerHTML = '<div style="color:#8fa8c0; padding:4px;">결과 없음</div>';
+                return;
+            }
+            results.innerHTML = matched.map(c => {
+                const histCount = c.history.length;
+                return `<div class="copy-history-item" data-id="${c._id}"
+                    style="padding:6px 8px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.07); display:flex; justify-content:space-between; align-items:center;"
+                    onmouseover="this.style.background='rgba(41,128,185,0.2)'" onmouseout="this.style.background=''">
+                    <span>${c.name}</span>
+                    <span style="color:#8fa8c0; font-size:10px;">역사기록 ${histCount}개</span>
+                </div>`;
+            }).join('');
+
+            results.querySelectorAll('.copy-history-item').forEach(el => {
+                el.addEventListener('click', () => {
+                    const targetCastle = castles.find(c => c._id === el.dataset.id);
+                    if (!targetCastle || !targetCastle.history) return;
+
+                    const appendMode = confirm(
+                        `'${targetCastle.name}'의 역사기록 ${targetCastle.history.length}개를 가져옵니다.\n\n` +
+                        `[확인] 현재 역사기록에 추가\n[취소] 현재 역사기록을 모두 교체`
+                    );
+
+                    if (!appendMode) {
+                        // 교체 모드
+                        document.getElementById('castleHistoryList').innerHTML = '';
+                    }
+
+                    sortHistoryByStart(targetCastle.history).forEach(h => addCastleHistoryRow(h));
+                    modal.remove();
+                    alert(`'${targetCastle.name}'의 역사기록 ${targetCastle.history.length}개를 ${appendMode ? '추가' : '교체'}했습니다.`);
+                });
+            });
+        };
+
+        input.addEventListener('input', () => renderResults(input.value));
+        renderResults('');
+        input.focus();
+    });
+
+    // ────────────────────────────────────────────────────────
+    // 🔁 기존 마커를 기여(contribution)로 재등록
+    // ────────────────────────────────────────────────────────
+    document.getElementById('registerAsContributionBtn').addEventListener('click', async () => {
+        if (!editingCastleKey) return;
+        const castle = castles.find(c => c._id === editingCastleKey);
+        if (!castle) return alert('마커 정보를 찾을 수 없습니다.');
+
+        const contributor = prompt(
+            `'${castle.name}' 마커를 사관 기여로 재등록합니다.\n\n기여자 사관 이름을 입력하세요 (비워두면 관리자 본인):`
+        );
+        if (contributor === null) return; // 취소
+
+        const username = contributor.trim() || (currentUser?.username || '관리자');
+
+        if (!confirm(
+            `'${castle.name}'을 사관 기여로 재등록합니다.\n기여자: ${username}\n\n` +
+            `기여 승인 시 해당 사관에게 기여점수(+10점)가 부여됩니다.\n` +
+            `(기존 마커는 그대로 유지됩니다)\n\n계속하시겠습니까?`
+        )) return;
+
+        try {
+            // 1. 기여 데이터 구성 (기존 마커 정보 기반)
+            const historyRows = castle.history && castle.history.length > 0 ? castle.history : [];
+            const firstHistory = historyRows[0] || {};
+            const contribData = {
+                name: castle.name,
+                lat: castle.lat,
+                lng: castle.lng,
+                description: castle.desc || '',
+                category: 'place',
+                evidence: `관리자 재등록 - 기존 마커 ID: ${castle._id}`,
+                placeType: castle.is_capital ? 'capital' : 'city',
+                is_natural_feature: !!castle.is_natural_feature,
+                natural_feature_type: castle.natural_feature_type || null,
+                country_id: firstHistory.country_id || castle.country_id || null,
+                start_year: firstHistory.start_year || castle.built_year || null,
+                end_year: firstHistory.end_year || castle.destroyed_year || null,
+                is_capital: !!castle.is_capital,
+                // 기여자를 강제 지정하기 위한 추가 필드
+                _forceUsername: username,
+                _sourceCastleId: castle._id,
+            };
+
+            const resp = await fetch(`${API_BASE_URL}/contributions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(contribData)
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.message || `서버 오류 ${resp.status}`);
+            }
+
+            const result = await resp.json();
+
+            // 2. 기존 마커에 originContributionId 기록 (선택)
+            const linkResp = await fetch(`${API_BASE_URL}/castle/${castle._id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    ...castle,
+                    originContributionId: result.contribution?._id || null,
+                    originContributor: username
+                })
+            });
+
+            // 3. 메모리 업데이트
+            contributions = await fetchData('contributions');
+            const { year, month } = getCurrentYearMonth();
+            updateMap(year, month);
+
+            alert(`✅ 기여 재등록 완료!\n기여자: ${username}\n이제 사료 목록에서 검토·승인하면 기여점수가 부여됩니다.`);
+        } catch (e) {
+            console.error(e);
+            alert(`기여 재등록 실패: ${e.message}`);
+        }
+    });
+
     // 성 폼 제출 (저장/업데이트)
     addCastleForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -14705,6 +14881,7 @@ function invalidateCountryLookupCache() {
         document.querySelector('#castleForm h3').textContent = `'${originalCastleName}' 복제하여 정보 추가`;
         document.getElementById('deleteCastle').style.display = 'none';
         document.getElementById('cloneCastle').style.display = 'none';
+        document.getElementById('registerAsContributionBtn').style.display = 'none';
         document.querySelector('#addCastleForm button[type="submit"]').textContent = '추가';
 
         // 🚩 [수정] 역사 기록 행 추가 제거 - 기존 데이터만 유지
@@ -19182,6 +19359,7 @@ kingSelect.addEventListener('change', () => {
             openForm('castleForm');
             document.getElementById('cloneCastle').style.display = 'none';
             document.getElementById('deleteCastle').style.display = 'none';
+            document.getElementById('registerAsContributionBtn').style.display = 'none';
 
             // 🚩 기여 정보를 hidden input에 세팅 (저장 시 자동 approved 처리)
             document.getElementById('originContributionId').value = contrib._id;
