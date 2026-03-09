@@ -5820,6 +5820,7 @@ body.force-mobile .marker-type-selector button {
     // zIndex를 낮게 설정하여 마커 등 다른 오브젝트 선택을 방해하지 않도록 합니다.
     map.createPane('drawingPane');
     map.getPane('drawingPane').style.zIndex = 450; // overlayPane(400)보다 약간 위, markerPane(600)보다 아래
+    map.getPane('drawingPane').style.pointerEvents = 'auto'; // 🚩 [수정] 클릭 이벤트 수신 허용
 
     // 🚩 [추가] 지명(label)만을 위한 최상위 pane 생성
     if (!map.getPane('labelPane')) {
@@ -5831,6 +5832,7 @@ body.force-mobile .marker-type-selector button {
     if (!map.getPane('riverPane')) {
         map.createPane('riverPane');
         map.getPane('riverPane').style.zIndex = 420;
+        map.getPane('riverPane').style.pointerEvents = 'auto'; // 🚩 [수정] 클릭 이벤트 수신 허용
     }
 
     let castleLayerGroup = L.layerGroup().addTo(map); 
@@ -8475,7 +8477,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 
                 case 'river': // 🚩 [추가] 강 스타일
                     layer = L.geoJSON(drawing.geojson, {
-                        style: { color: "#3498db", weight: 6, opacity: 0.7 }, // 파란색
+                        style: { color: "#3498db", weight: 6, opacity: 0.7, pane: 'drawingPane' }, // 파란색
+                        pane: 'drawingPane', // 🚩 [수정] drawingPane에 그려서 영토 다각형 위에 표시 → 클릭 가능
                         onEachFeature: function (feature, layer) {
                             bindDrawingEvents(layer, drawing);
                         }
