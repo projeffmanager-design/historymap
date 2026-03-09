@@ -2352,6 +2352,23 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     isGuest: { $ne: true }
                 });
 
+                // DB 컬렉션별 도큐먼트 수
+                const [
+                    dbCastle,
+                    dbContribs,
+                    dbUsers,
+                    dbCountries,
+                    dbActivityLogs,
+                    dbLoginLogs,
+                ] = await Promise.all([
+                    collections.castle.countDocuments({}),
+                    collections.contributions.countDocuments({}),
+                    collections.users.countDocuments({}),
+                    collections.countries.countDocuments({}),
+                    collections.activityLogs.countDocuments({}),
+                    collections.loginLogs ? collections.loginLogs.countDocuments({}) : Promise.resolve(0),
+                ]);
+
                 res.json({
                     summary: {
                         totalUsers,
@@ -2369,6 +2386,15 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     monthlyTrend,
                     recentActivity,
                     rankDistribution,
+                    dbStats: {
+                        castle:       dbCastle,
+                        contributions: dbContribs,
+                        users:        dbUsers,
+                        countries:    dbCountries,
+                        activityLogs: dbActivityLogs,
+                        loginLogs:    dbLoginLogs,
+                        total:        dbCastle + dbContribs + dbUsers + dbCountries + dbActivityLogs + dbLoginLogs,
+                    },
                 });
             } catch (error) {
                 console.error('대시보드 통계 오류:', error);
