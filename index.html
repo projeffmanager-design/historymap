@@ -5699,7 +5699,18 @@ body.force-mobile .marker-type-selector button {
         container.appendChild(wrapper);
     })();
 
-    // 🚩 [핵심 수정] 모바일 뷰일 때 기본 줌 레벨을 다르게 설정합니다.
+    // �️ [이미지 URL 변환] GitHub blob URL → raw.githubusercontent.com URL로 변환
+    // GitHub blob URL은 브라우저 <img src>에서 직접 사용 시 리다이렉트로 인해 로딩 실패할 수 있음
+    function toRawImageUrl(url) {
+        if (!url) return url;
+        // https://github.com/owner/repo/blob/branch/path?raw=true → https://raw.githubusercontent.com/owner/repo/branch/path
+        return url.replace(
+            /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^?]+)\?raw=true$/,
+            'https://raw.githubusercontent.com/$1/$2/$3'
+        );
+    }
+
+    // �🚩 [핵심 수정] 모바일 뷰일 때 기본 줌 레벨을 다르게 설정합니다.
     const isMobileOnLoad = window.innerWidth <= 967;
 
     // 🚀 [모바일 메모리 최적화] 모바일에서 console.log 억제 — 문자열 생성/GC 부하 제거
@@ -6050,7 +6061,7 @@ body.force-mobile .marker-type-selector button {
 
             const countryColor = country.color || '#ffffff';
             const flagHtmlMacro = country.flag
-                ? `<img src="${country.flag}" class="country-flag-img" style="width:18px;height:12px;margin-right:4px;vertical-align:middle;border:0.5px solid rgba(255,255,255,0.3);">`
+                ? `<img src="${toRawImageUrl(country.flag)}" class="country-flag-img" style="width:18px;height:12px;margin-right:4px;vertical-align:middle;border:0.5px solid rgba(255,255,255,0.3);">`
                 : '';
             // 민족 토글이 켜져 있고 ethnicity 데이터가 있으면 국가명 하단에 소자 표시
             const ethnicHtml = (layerVisibility.ethnicLabel && country.ethnicity)
@@ -6575,7 +6586,7 @@ function getKingByYear(countryName, year, month) {
             const countryColor = country.color || 'gray'; 
 
             if (country.flag) {
-                iconHtml = `<img src="${country.flag}" class="country-flag-img" style="width: 18px; height: 12px; border: 1px solid #ccc; margin-right: 5px; vertical-align: middle;">`;
+                iconHtml = `<img src="${toRawImageUrl(country.flag)}" class="country-flag-img" style="width: 18px; height: 12px; border: 1px solid #ccc; margin-right: 5px; vertical-align: middle;">`;
             } else {
                 const sealChar = country.sealText || (()=>{ const n=country.name||''; const hanja=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hanja.length) return hanja.slice(-1)[0]; const hangul=(n.match(/[가-힣]/g)||[]); return hangul.length ? hangul.slice(-1)[0] : '?'; })();
                 const _sealTxtColor = (()=>{ try{ const h=(countryColor||'').replace(/^#/,''); const hx=h.length===3?h.split('').map(c=>c+c).join(''):h; if(hx.length!==6)return '#fff'; const lum=0.2126*parseInt(hx.slice(0,2),16)+0.7152*parseInt(hx.slice(2,4),16)+0.0722*parseInt(hx.slice(4,6),16); return lum>160?'#1a1a1a':'#ffffff'; }catch(e){return '#ffffff';} })();
@@ -7138,7 +7149,7 @@ function getKingByYear(countryName, year, month) {
         if (newCastle.custom_icon) {
             const iconWidth = newCastle.icon_width || 32;
             const iconHeight = newCastle.icon_height || 32;
-            const customIconHtml = `<img src="${newCastle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+            const customIconHtml = `<img src="${toRawImageUrl(newCastle.custom_icon)}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
             const labelIcon = L.divIcon({
                 className: 'custom-icon-marker',
                 html: customIconHtml,
@@ -7238,7 +7249,7 @@ function getKingByYear(countryName, year, month) {
             const _mscaleC = window._currentMarkerScale || 1;
             const _ciw = Math.round(iconWidth * _mscaleC);
             const _cih = Math.round(iconHeight * _mscaleC);
-            const customIconHtml = `<img src="${newCastle.custom_icon}" style="width: ${_ciw}px; height: ${_cih}px; object-fit: contain;">`;
+            const customIconHtml = `<img src="${toRawImageUrl(newCastle.custom_icon)}" style="width: ${_ciw}px; height: ${_cih}px; object-fit: contain;">`;
             const totalW = Math.max(_ciw, 40);
             const totalH = _cih + 14;
             const featureIcon = L.divIcon({
@@ -7279,7 +7290,7 @@ function getKingByYear(countryName, year, month) {
             ? `<br><small style="font-size:11px; color:#9aabbd;">사관: ${newCastle.createdBy}</small>`
             : '';
         
-        const popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${newCastle.desc}</span>` : ''}${newCastle.photo ? `<br><img src="${newCastle.photo}" style="max-width:240px;max-height:180px;object-fit:cover;margin-top:6px;border-radius:4px;border:1px solid rgba(180,140,80,0.3);">` : ''}${editorInfoHtml}${buildCommentBtn(newCastle._id, castleName)}</div>`;
+        const popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${newCastle.desc}</span>` : ''}${newCastle.photo ? `<br><img src="${toRawImageUrl(newCastle.photo)}" style="max-width:240px;max-height:180px;object-fit:cover;margin-top:6px;border-radius:4px;border:1px solid rgba(180,140,80,0.3);">` : ''}${editorInfoHtml}${buildCommentBtn(newCastle._id, castleName)}</div>`;
         
         marker.bindPopup(popupHtml, {
             className: 'compact-popup',
@@ -7339,7 +7350,7 @@ function getKingByYear(countryName, year, month) {
         if (newCastle.custom_icon) {
             const iconWidth = newCastle.icon_width || 32;
             const iconHeight = newCastle.icon_height || 32;
-            const customIconHtml = `<img src="${newCastle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+            const customIconHtml = `<img src="${toRawImageUrl(newCastle.custom_icon)}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
             const labelIcon = L.divIcon({
                 className: 'custom-icon-marker',
                 html: customIconHtml,
@@ -7447,7 +7458,7 @@ function getKingByYear(countryName, year, month) {
                   if (castle.custom_icon) {
                       const iconWidth = castle.icon_width || 32;
                       const iconHeight = castle.icon_height || 32;
-                      const customIconHtml = `<img src="${castle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+                      const customIconHtml = `<img src="${toRawImageUrl(castle.custom_icon)}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
                       const labelIcon = L.divIcon({
                           className: 'custom-icon-marker',
                           html: customIconHtml,
@@ -7543,7 +7554,7 @@ function getKingByYear(countryName, year, month) {
             const _mscaleC2 = window._currentMarkerScale || 1;
             const _ciw2 = Math.round(iconWidth * _mscaleC2);
             const _cih2 = Math.round(iconHeight * _mscaleC2);
-            const rawIconUrl = newCastle.custom_icon.replace(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)\?raw=true$/, 'https://raw.githubusercontent.com/$1/$2/$3');
+            const rawIconUrl = toRawImageUrl(newCastle.custom_icon);
             const customIconHtml = `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:0;"><img src="${rawIconUrl}" style="width:${_ciw2}px;height:${_cih2}px;object-fit:contain;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));" onerror="this.style.display='none'"><span style="color:#f0e6c8;font-family:'Nanum Myeongjo',serif;font-weight:400;font-size:10px;white-space:nowrap;margin-top:0;text-shadow:0px 0px 2px rgba(0,0,0,0.9),0px 0px 4px rgba(0,0,0,0.8);">${castleName}</span></div>`;
             const totalW = Math.max(_ciw2, 40);
             const totalH = _cih2 + 14;
@@ -7587,7 +7598,7 @@ function getKingByYear(countryName, year, month) {
             ? `<br><small style="font-size:11px; color:#9aabbd;">사관: ${creatorName}</small>`
             : '';
         
-        const popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${newCastle.desc}</span>` : ''}${newCastle.photo ? `<br><img src="${newCastle.photo}" style="max-width:240px;max-height:180px;object-fit:cover;margin-top:6px;border-radius:4px;border:1px solid rgba(180,140,80,0.3);">` : ''}${creatorInfoHtml}${buildCommentBtn(newCastle._id, castleName)}</div>`;
+        const popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${newCastle.desc}</span>` : ''}${newCastle.photo ? `<br><img src="${toRawImageUrl(newCastle.photo)}" style="max-width:240px;max-height:180px;object-fit:cover;margin-top:6px;border-radius:4px;border:1px solid rgba(180,140,80,0.3);">` : ''}${creatorInfoHtml}${buildCommentBtn(newCastle._id, castleName)}</div>`;
         
         marker.bindPopup(popupHtml, {
             className: 'compact-popup',
@@ -8721,7 +8732,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 if (castle.custom_icon) {
                     const iconWidth = castle.icon_width || 32;
                     const iconHeight = castle.icon_height || 32;
-                    const customIconHtml = `<img src="${castle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+                    const customIconHtml = `<img src="${toRawImageUrl(castle.custom_icon)}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
                     const labelIcon = L.divIcon({
                         className: 'custom-icon-marker',
                         html: customIconHtml,
@@ -8937,7 +8948,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     : '';
                 
                 // 🚩 [v2.0.6] 콤팩트 팝업
-                popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${castle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${castle.photo}" style="max-width:240px;max-height:180px;object-fit:cover;margin-top:6px;border-radius:4px;border:1px solid rgba(180,140,80,0.3);">` : ''}${_naturalCreatorHtml}${buildCommentBtn(castle._id, castleName)}</div>`;
+                popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${castle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:240px;max-height:180px;object-fit:cover;margin-top:6px;border-radius:4px;border:1px solid rgba(180,140,80,0.3);">` : ''}${_naturalCreatorHtml}${buildCommentBtn(castle._id, castleName)}</div>`;
                                 
                 marker.bindPopup(popupHtml, {
                     className: 'compact-popup',
@@ -9173,7 +9184,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const battleColor = countryInfo?.color || 'white';
                 const customIconHtml = `
                 <div style="display:inline-flex;flex-direction:column;align-items:center;gap:0;">
-                  <img src="${castle.custom_icon}" style="width:${iconWidth}px;height:${iconHeight}px;object-fit:contain;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));" onerror="this.style.display='none'">
+                  <img src="${toRawImageUrl(castle.custom_icon)}" style="width:${iconWidth}px;height:${iconHeight}px;object-fit:contain;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));" onerror="this.style.display='none'">
                   <span style="color:#f0e6c8;font-family:'Nanum Myeongjo',serif;font-weight:400;font-size:10px;white-space:nowrap;margin-top:0;text-shadow:0px 0px 2px rgba(0,0,0,0.9),0px 0px 4px rgba(0,0,0,0.8);">${castleName}</span>
                 </div>`;
                 const battleIcon = L.divIcon({
@@ -9209,7 +9220,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 ? `<br><small style="font-size:11px;color:#9aabbd;">마지막 수정: ${castle.lastModifiedBy}</small>` 
                 : (castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">생성자: ${castle.createdBy}</small>` : '');
             
-            popupHtml = `<b>⚔ ${castleName}</b><br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px; max-height:100px; object-fit:cover; border-radius:4px; border:1px solid rgba(180,140,80,0.3); margin-top:4px;">` : ""}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
+            popupHtml = `<b>⚔ ${castleName}</b><br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px; max-height:100px; object-fit:cover; border-radius:4px; border:1px solid rgba(180,140,80,0.3); margin-top:4px;">` : ""}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
             
             marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
             
@@ -9305,7 +9316,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         popupHtml = _capitalImgHtml
                 + `<b>${castleName}</b><br>${flagHtml} <span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8; cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px;">${countryName}</span>${countryEthnicity}<br><span style="color:#9aabbd;font-size:11px;">존속: ${builtText} ~ ${destroyedText}</span>` 
                 + (castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${castle.desc}</span>` : "") 
-                + (castle.photo ? `<br><img src="${castle.photo}" style="max-width:150px; max-height:100px; object-fit:cover; border-radius:4px; border:1px solid rgba(180,140,80,0.3); margin-top:4px;">` : "") 
+                + (castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px; max-height:100px; object-fit:cover; border-radius:4px; border:1px solid rgba(180,140,80,0.3); margin-top:4px;">` : "") 
                 + kingHtml
                 + editorInfoHtml
                 + buildCommentBtn(castle._id, castleName);
@@ -9318,7 +9329,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const dotColor = currentCountry?.color || 'white';
                 const totalH = iconHeight + 14; // 이미지 + 텍스트 높이
                 const customMarkerHtml = `<div style="display: flex; flex-direction: column; align-items: center; gap: 0px;">
-                    <img src="${castle.custom_icon}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain; filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.5)); margin-bottom: -4px;">
+                    <img src="${toRawImageUrl(castle.custom_icon)}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain; filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.5)); margin-bottom: -4px;">
                     <div class="city-marker-text" style="color:#f0e6c8; font-family:'Nanum Myeongjo',serif; font-weight:400; font-size:10px; white-space:nowrap; padding-bottom:1px; text-shadow: 0px 0px 2px rgba(0,0,0,0.9), 0px 0px 4px rgba(0,0,0,0.8);">${castleName}</div>
                 </div>`;
                 const customIcon = L.divIcon({
