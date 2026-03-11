@@ -69,7 +69,7 @@ const RANK_CONFIG = {
         { minScore: 120,  name: '주서',     fullName: '주서(注書)',                  grade: '정8품' },
         { minScore: 60,   name: '검열',     fullName: '검열(檢閱)',                  grade: '종8품' },
         { minScore: 30,   name: '정자',     fullName: '정자(正字)',                  grade: '정9품' },
-        { minScore: 0,    name: '수분권지', fullName: '수분권지(修分權知)',          grade: '수습'  },
+        { minScore: 0,    name: '수분권지', fullName: '수분권지(修分權知)',          grade: '종9품' },
     ],
     // 권한 그룹 (name 기준으로 비교)
     roles: {
@@ -80,12 +80,13 @@ const RANK_CONFIG = {
     }
 };
 
-// RANK_CONFIG 헬퍼: 점수 → fullName 반환 (재상급 제외, 자동직급만)
+// RANK_CONFIG 헬퍼: 점수 → "품계 직급명(한자)" 반환 (재상급 제외, 자동직급만)
 const getPosition = (score) => {
     for (const tier of RANK_CONFIG.tiers) {
-        if (score >= tier.minScore) return tier.fullName;
+        if (score >= tier.minScore) return `${tier.grade} ${tier.fullName}`;
     }
-    return RANK_CONFIG.tiers[RANK_CONFIG.tiers.length - 1].fullName;
+    const last = RANK_CONFIG.tiers[RANK_CONFIG.tiers.length - 1];
+    return `${last.grade} ${last.fullName}`;
 };
 
 // RANK_CONFIG 헬퍼: 점수 + 순위 + 지정직급 → 실시간 직급 name 반환
@@ -94,15 +95,15 @@ const getRealtimePosition = (score, rank, designatedRank = null) => {
     // admin 지정 재상급이 있으면 점수 무관하게 우선 적용
     if (designatedRank) {
         const mt = RANK_CONFIG.ministerTiers.find(t => t.rank === designatedRank);
-        if (mt) return mt.name;
+        if (mt) return `${mt.grade} ${mt.fullName}`;
     }
     for (const mt of RANK_CONFIG.ministerTiers) {
-        if (rank === mt.rank && score >= mt.minScore) return mt.name;
+        if (rank === mt.rank && score >= mt.minScore) return `${mt.grade} ${mt.fullName}`;
     }
     for (const tier of RANK_CONFIG.tiers) {
-        if (score >= tier.minScore) return tier.name;
+        if (score >= tier.minScore) return `${tier.grade} ${tier.fullName}`;
     }
-    return RANK_CONFIG.tiers[RANK_CONFIG.tiers.length - 1].name;
+    return `${RANK_CONFIG.tiers[RANK_CONFIG.tiers.length - 1].grade} ${RANK_CONFIG.tiers[RANK_CONFIG.tiers.length - 1].fullName}`;
 };
 
 // RANK_CONFIG 헬퍼: MongoDB $switch branches 동적 생성 (랭킹 aggregation용)
@@ -113,13 +114,14 @@ const buildPositionSwitch = () => {
             { $multiply: [{ $ifNull: ["$contributionStats.approvedCount", 0] }, RANK_CONFIG.scoreWeights.approvedCount] },
             { $ifNull: ["$contributionStats.totalVotes", 0] },
             { $ifNull: ["$reviewScore", 0] },
-            { $ifNull: ["$approvalScore", 0] }
+            { $ifNull: ["$approvalScore", 0] },
+            { $ifNull: ["$attendancePoints", 0] }  // ⚡ 출석 점수 포함
         ]
     };
     const branches = RANK_CONFIG.tiers
         .filter(t => t.minScore > 0)
-        .map(t => ({ case: { $gte: [scoreExpr, t.minScore] }, then: t.name }));
-    return { branches, default: RANK_CONFIG.tiers[RANK_CONFIG.tiers.length - 1].name };
+        .map(t => ({ case: { $gte: [scoreExpr, t.minScore] }, then: `${t.grade} ${t.fullName}` }));
+    return { branches, default: `${RANK_CONFIG.tiers[RANK_CONFIG.tiers.length - 1].grade} ${RANK_CONFIG.tiers[RANK_CONFIG.tiers.length - 1].fullName}` };
 };
 
 // 헬퍼 함수: Geometry로부터 bbox 계산
@@ -2258,6 +2260,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         }
                     );
                     await logActivity('checkin', user.username, position, null, { points: 1 });
+                    invalidateRankingsCache(); // 출석 점수 변경 → 랭킹 캐시 무효화
                     return res.json({ attended: true, message: '출석 완료 (+1점)' });
                 } else {
                     // 이미 출석한 날
@@ -2888,67 +2891,62 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const query = {};
                 if (status) query.status = status;
                 if (userId) {
-                    // ObjectId로 변환하여 검색
-                    try {
-                        query.userId = toObjectId(userId);
-                    } catch (e) {
-                        // ObjectId 변환 실패 시 문자열로 검색
-                        query.userId = userId;
-                    }
+                    try { query.userId = toObjectId(userId); }
+                    catch (e) { query.userId = userId; }
                 }
-                
-                const contributions = await collections.contributions.find(query).sort({ createdAt: -1 }).toArray();
-                
-                // votedBy의 사용자 ID를 사용자 이름으로 변환 및 reviewer 정보 추가
-                const contributionsWithNames = await Promise.all(contributions.map(async (contrib) => {
-                    let result = { ...contrib };
-                    
-                    // 🚩 [추가] username이 없는 경우 userId로 조회하여 추가
-                    if (!result.username && result.userId) {
-                        try {
-                            const user = await collections.users.findOne({ _id: toObjectId(result.userId) });
-                            if (user && user.username) {
-                                result.username = user.username;
-                            }
-                        } catch (e) {
-                            console.error('❌ username 조회 실패:', e);
-                        }
+
+                const contributions = await collections.contributions.find(query)
+                    .sort({ createdAt: -1 })
+                    .toArray();
+
+                if (contributions.length === 0) return res.json([]);
+
+                // ⚡ 배치 처리: userId 집합을 한 번에 조회 (N+1 → 1쿼리)
+                const allUserIds = [...new Set(contributions.flatMap(c => {
+                    const ids = [];
+                    if (c.userId)     ids.push(String(c.userId));
+                    if (c.reviewerId) ids.push(String(c.reviewerId));
+                    if (c.reviewedBy) ids.push(String(c.reviewedBy));
+                    if (c.approverId) ids.push(String(c.approverId));
+                    if (c.votedBy)    c.votedBy.forEach(id => ids.push(String(id)));
+                    return ids;
+                }))];
+
+                const userDocs = await collections.users.find(
+                    { _id: { $in: allUserIds.map(id => { try { return toObjectId(id); } catch { return id; } }) } },
+                    { projection: { username: 1 } }
+                ).toArray();
+                const userMap = Object.fromEntries(userDocs.map(u => [String(u._id), u.username]));
+
+                const result = contributions.map(contrib => {
+                    const r = { ...contrib };
+
+                    // username 보정
+                    if (!r.username && r.userId) r.username = userMap[String(r.userId)] || null;
+
+                    // votedBy → 이름 배열
+                    if (r.votedBy && r.votedBy.length > 0) {
+                        r.votedBy = r.votedBy.map(id => userMap[String(id)] || String(id));
                     }
-                    
-                    // votedBy 처리
-                    if (contrib.votedBy && contrib.votedBy.length > 0) {
-                        const voters = await collections.users.find({ 
-                            _id: { $in: contrib.votedBy.map(id => toObjectId(id)) } 
-                        }).project({ username: 1 }).toArray();
-                        const voterNames = voters.map(voter => voter.username);
-                        result.votedBy = voterNames;
-                    }
-                    
-                    // reviewer 정보 처리
-                    // 검토가 완료된 경우에만 검토자 이름을 표시
+
+                    // 검토자
                     if (contrib.reviewerId && contrib.reviewedAt) {
-                        const reviewer = await collections.users.findOne({ _id: toObjectId(contrib.reviewerId) });
-                        if (reviewer) {
-                            result.reviewerUsername = reviewer.username;
-                            result.reviewComment = contrib.reviewComment || null; // 검토 의견 추가
-                        }
+                        r.reviewerUsername = userMap[String(contrib.reviewerId)] || null;
+                        r.reviewComment    = contrib.reviewComment || null;
                     }
-                    
-                    // reviewedBy 정보 처리 (승인자)
+
+                    // 승인자 (reviewedBy 필드)
                     if (contrib.reviewedBy) {
-                        const approver = await collections.users.findOne({ _id: toObjectId(contrib.reviewedBy) });
-                        if (approver) {
-                            result.approverUsername = approver.username;
-                        }
+                        r.approverUsername = userMap[String(contrib.reviewedBy)] || null;
                     }
-                    
-                    // 💬 댓글 수 추가
-                    result.commentCount = (contrib.comments || []).length;
-                    
-                    return result;
-                }));
-                
-                res.json(contributionsWithNames);
+
+                    // 댓글 수
+                    r.commentCount = (contrib.comments || []).length;
+
+                    return r;
+                });
+
+                res.json(result);
             } catch (error) {
                 res.status(500).json({ message: "기여 목록 조회 실패", error: error.message });
             }
@@ -3259,6 +3257,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         category: contribution.category || null
                     }, req.user.userId);
                 }
+                invalidateRankingsCache(); // 점수 변경 → 랭킹 캐시 무효화
                 res.json({ message });
             } catch (error) {
                 res.status(500).json({ message: "상태 변경 실패", error: error.message });
@@ -3346,8 +3345,18 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         });
 
         // GET: 명예의 전당 (랭킹)
+        // ⚡ 캐시: 3분간 유지 (매 요청마다 heavy aggregation 재실행 방지)
+        let _rankingsCache = null;
+        let _rankingsCacheTime = 0;
+        const RANKINGS_CACHE_TTL = 3 * 60 * 1000; // 3분
+        function invalidateRankingsCache() { _rankingsCache = null; }
+
         app.get('/api/rankings', async (req, res) => {
             try {
+                // 캐시 히트
+                if (_rankingsCache && Date.now() - _rankingsCacheTime < RANKINGS_CACHE_TTL) {
+                    return res.json(_rankingsCache);
+                }
                 console.log('🏆 [랭킹 조회] 시작');
                 
                 // 랭킹에서 숨길 계정 (관리용 계정 등 비회원)
@@ -3481,45 +3490,95 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     });
                 }
 
-                // 🚩 재상급 직급 - admin 지정 우선 + 점수 순위로 나머지 채움
-                // 1단계: admin이 designated_rank를 부여한 사용자 먼저 처리
-                const designatedSlots = new Set(); // 이미 지정된 재상급 slot
+                // ⚡ aggregation $switch의 position은 attendancePoints 누락 가능성 있으므로
+                // JS 단계에서 실제 score 기준으로 일반 직급을 재설정 (재상급은 아래에서 덮어씀)
                 rankings.forEach((user) => {
-                    // 일반 직급 강제 지정 처리 (재상급 제외, 점수 순위에서도 제외)
+                    if (!user.designated_rank && !user.designated_position) {
+                        user.position = getPosition(user.score);
+                    }
+                });
+
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                // 재상급 직급 결정 규칙
+                //  · designated_rank(admin 수동 지정)는 점수 무관 우선 적용
+                //  · 그 외: 종2품 최소 점수(3100) 이상인 사람 중 점수 상위 4명
+                //    → 각각 rank 1~4 타이틀 부여 (감수국사~동수국사)
+                //  · 재상급 조건 미충족 → 정3품 수찬관으로 자동 강등
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                // 1단계: designated_position / designated_rank 적용
+                // 구버전 형식(품계 없음) → 품계 포함 형식으로 정규화하는 서버 헬퍼
+                const normalizePositionServer = (pos) => {
+                    if (!pos) return pos;
+                    if (/^(정|종)[0-9]품/.test(pos)) return pos; // 이미 품계 포함
+                    // 이름만 있는 경우 tiers에서 찾아 grade 붙이기
+                    for (const t of RANK_CONFIG.tiers) {
+                        if (pos === t.name || pos === t.fullName) return `${t.grade} ${t.fullName}`;
+                    }
+                    for (const mt of RANK_CONFIG.ministerTiers) {
+                        if (pos === mt.name || pos === mt.fullName) return `${mt.grade} ${mt.fullName}`;
+                    }
+                    return pos;
+                };
+
+                const designatedSlots = new Set();
+                rankings.forEach((user) => {
                     if (user.designated_position) {
-                        user.position = user.designated_position;
+                        user.position = normalizePositionServer(user.designated_position);
                         user.isDesignatedPosition = true;
                     }
                     if (user.designated_rank) {
                         const mt = RANK_CONFIG.ministerTiers.find(t => t.rank === user.designated_rank);
                         if (mt) {
-                            user.position = mt.name;
+                            user.position = `${mt.grade} ${mt.fullName}`;
                             user.isMinister = true;
                             user.isDesignated = true;
                             designatedSlots.add(user.designated_rank);
                         }
                     }
-                    // admin/superuser 자동 직급 부여 없음 — designated_rank로만 재상급 받음
                 });
 
-                // 2단계: 지정되지 않은 재상급 자리는 점수 순위로 채움
+                // 2단계: 점수 경쟁으로 빈 재상급 자리 채우기
+                //   · designated_position / designated_rank 적용된 사용자 제외
+                //   · 종2품 최소 점수(3100) 이상이어야 재상급 자격
+                //   · rankings는 이미 score 내림차순 정렬되어 있음
+                const MINISTER_MIN_SCORE = RANK_CONFIG.ministerTiers[RANK_CONFIG.ministerTiers.length - 1].minScore; // 3100
                 let competitiveRank = 1;
-                rankings.forEach((user, index) => {
-                    if (user.isDesignated) return; // designated_rank 부여된 사용자는 이미 처리됨
-                    if (user.isDesignatedPosition) return; // 직급 강제 지정된 사용자도 점수 순위에서 제외
-                    // 지정으로 채워진 slot은 건너뜀
-                    while (designatedSlots.has(competitiveRank)) competitiveRank++;
-                    const mt = RANK_CONFIG.ministerTiers.find(t => t.rank === competitiveRank);
-                    if (mt && user.score >= mt.minScore) {
-                        user.position = mt.name;
-                        user.isMinister = true;
+                rankings.forEach((user) => {
+                    if (user.isDesignated || user.isDesignatedPosition) return;
+
+                    // 빈 slot 찾기 (designated로 채워진 slot 건너뜀)
+                    while (competitiveRank <= RANK_CONFIG.ministerTiers.length && designatedSlots.has(competitiveRank)) {
                         competitiveRank++;
                     }
-                    user.rank = index + 1;
+
+                    if (competitiveRank <= RANK_CONFIG.ministerTiers.length && user.score >= MINISTER_MIN_SCORE) {
+                        // 해당 slot의 개별 minScore도 충족해야 함
+                        const mt = RANK_CONFIG.ministerTiers.find(t => t.rank === competitiveRank);
+                        if (mt && user.score >= mt.minScore) {
+                            user.position = `${mt.grade} ${mt.fullName}`;
+                            user.isMinister = true;
+                            competitiveRank++;
+                        } else {
+                            // 이 slot의 minScore 미달 → 더 이상 재상급 없음 (이후 모두 탈락)
+                            competitiveRank = RANK_CONFIG.ministerTiers.length + 1;
+                            // 이 사용자는 점수 기반 일반 직급으로
+                            user.position = getPosition(user.score);
+                            user.isMinister = false;
+                        }
+                    } else {
+                        // 종2품 최소 점수 미달 또는 모든 slot 채워짐 → 일반 직급
+                        user.position = getPosition(user.score);
+                        user.isMinister = false;
+                    }
                 });
 
                 // rank 최종 정리
                 rankings.forEach((user, index) => { user.rank = index + 1; });
+
+                // 캐시 저장
+                _rankingsCache = rankings;
+                _rankingsCacheTime = Date.now();
 
                 // 모든 사용자 반환
                 res.json(rankings);
