@@ -2214,6 +2214,60 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // 🚩 [추가] POST: 출석 체크 (토큰만 있으면 하루 1회 1점, 로그인 없이도 호출 가능)
+        app.post('/api/auth/attendance', verifyToken, async (req, res) => {
+            try {
+                const uid = req.user.userId;
+                const user = await collections.users.findOne({ _id: new ObjectId(uid) });
+                if (!user) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
+
+                // KST(UTC+9) 기준 오늘 날짜
+                const nowKST = new Date(Date.now() + 9 * 60 * 60 * 1000);
+                const today = nowKST.toISOString().split('T')[0];
+
+                if (!user.lastAttendanceDate || user.lastAttendanceDate !== today) {
+                    // 오늘 첫 출석 — 점수 지급
+                    // 실시간 점수/직급 계산
+                    let score = 0;
+                    try {
+                        const contribAgg = await collections.contributions.aggregate([
+                            { $match: { $or: [{ userId: user._id }, { username: user.username }] } },
+                            { $group: {
+                                _id: null,
+                                totalCount:    { $sum: 1 },
+                                approvedCount: { $sum: { $cond: [{ $eq: ['$status', 'approved'] }, 1, 0] } },
+                                totalVotes:    { $sum: { $ifNull: ['$votes', 0] } }
+                            }}
+                        ]).toArray();
+                        const stats = contribAgg[0] || { totalCount: 0, approvedCount: 0, totalVotes: 0 };
+                        score = (stats.totalCount    * RANK_CONFIG.scoreWeights.submitCount)
+                              + (stats.approvedCount * RANK_CONFIG.scoreWeights.approvedCount)
+                              + stats.totalVotes
+                              + (user.reviewScore    || 0)
+                              + (user.approvalScore  || 0)
+                              + (user.attendancePoints || 0) + 1; // +1 오늘 점수 포함
+                    } catch (e) { /* 점수 계산 실패 시 무시 */ }
+
+                    const position = getRealtimePosition(score, null, user.designated_rank || null);
+
+                    await collections.users.updateOne(
+                        { _id: user._id },
+                        {
+                            $set: { lastAttendanceDate: today, position: position },
+                            $inc: { attendancePoints: 1 }
+                        }
+                    );
+                    await logActivity('checkin', user.username, position, null, { points: 1 });
+                    return res.json({ attended: true, message: '출석 완료 (+1점)' });
+                } else {
+                    // 이미 출석한 날
+                    return res.json({ attended: false, message: '오늘 이미 출석했습니다.' });
+                }
+            } catch (error) {
+                res.status(500).json({ message: '서버 오류', error: error.message });
+            }
+        });
+
         // 🚩 [추가] POST: 게스트 로그인 (비밀번호 없이 입장)
         app.post('/api/auth/guest-login', async (req, res) => {
             try {

@@ -17142,6 +17142,25 @@ kingSelect.addEventListener('change', () => {
                     console.error('⚠️ [DOMContentLoaded] updateTopBarUserInfo() 오류:', err);
                 });
             }, 200); // 200ms 후 실행 (초기화 완료 후)
+
+            // 🚩 [추가] 출석 체크 — 로그인 없이 기존 세션으로 접속해도 하루 1회 1점 지급
+            // 로그인 시(login.html)와 중복 호출되어도 서버에서 당일 중복 방지 처리됨
+            setTimeout(async () => {
+                try {
+                    const attendRes = await fetch('/api/auth/attendance', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    const attendData = await attendRes.json();
+                    if (attendData.attended) {
+                        console.log('✅ [출석] 오늘 첫 접속 — 출석 +1점 지급');
+                    } else {
+                        console.log('ℹ️ [출석] 오늘 이미 출석 완료');
+                    }
+                } catch (e) {
+                    console.warn('⚠️ [출석] 출석 체크 실패:', e);
+                }
+            }, 500); // 500ms 후 실행 (사용자 정보 업데이트 후)
         }
 
     // initializeDrawControl(); // 그리기 컨트롤은 편집모드에서만 활성화
