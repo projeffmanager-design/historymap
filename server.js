@@ -2987,6 +2987,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // POST: 기여 제출 (역사 복원 핀 꼽기)
         app.post('/api/contributions', verifyToken, async (req, res) => {
             try {
+                // 🚩 [추가] 게스트(서긍)는 사관 기록 제출 불가
+                if (req.user.isGuest) {
+                    return res.status(403).json({ message: '송나라 사신 서긍은 사관 기록을 제출할 수 없습니다.' });
+                }
+
                 const { name, lat, lng, description, category, evidence, year, source, content,
                         placeType, is_natural_feature, natural_feature_type, country_id, start_year, end_year, is_capital, new_country_name,
                         _forceUsername, _forceUserId } = req.body;
@@ -3083,6 +3088,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // PUT: 기여 추천 (투표)
         app.put('/api/contributions/:id/vote', verifyToken, async (req, res) => {
             try {
+                // 🚩 [추가] 게스트(서긍)는 추천 불가
+                if (req.user.isGuest) {
+                    return res.status(403).json({ message: '송나라 사신 서긍은 추천할 수 없습니다.' });
+                }
+
                 const { id } = req.params;
                 const userId = req.user.userId;
                 const _id = toObjectId(id);
