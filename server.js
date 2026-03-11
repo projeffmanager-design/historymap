@@ -2143,7 +2143,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const position = getRealtimePosition(score, null, user.designated_rank || null);
 
                 // 🚩 [추가] 출석 포인트 처리 (하루에 1회 1점)
-                const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD 형식
+                // KST(UTC+9) 기준 날짜 계산 (Vercel 서버는 UTC 사용)
+                const nowKST = new Date(Date.now() + 9 * 60 * 60 * 1000);
+                const today = nowKST.toISOString().split('T')[0]; // YYYY-MM-DD (KST 기준)
                 let attendancePoints = 0;
                 
                 if (!user.lastAttendanceDate || user.lastAttendanceDate !== today) {
