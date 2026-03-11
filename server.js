@@ -398,6 +398,7 @@ const incrementPageView = async (pagePath) => {
 app.use(cors()); // 모든 도메인에서 요청 허용 (개발용)
 app.use(express.json({ limit: '50mb' })); // 대용량 GeoJSON 지원 (기본 100kb → 50mb)
 app.use(express.urlencoded({ limit: '50mb', extended: true })); // URL 인코딩된 데이터도 대용량 지원
+app.use(express.text({ type: 'text/plain' })); // sendBeacon beacon-logout 용
 app.use(compression()); // 응답 압축으로 대용량 전송 최적화
 app.use(async (req, res, next) => {
     const trackedPath = resolveTrackedPagePath(req);
@@ -2213,6 +2214,37 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 res.json({ message: '퇴청 기록 완료' });
             } catch (e) {
                 res.json({ message: 'ok' });
+            }
+        });
+
+        // 🚩 [추가] POST: 브라우저 닫기 시 beacon 로그아웃 (sendBeacon용, Content-Type: text/plain)
+        app.post('/api/auth/beacon-logout', async (req, res) => {
+            try {
+                let token = null;
+                // sendBeacon은 text/plain으로 body에 token을 담아 전송
+                if (req.body && typeof req.body === 'string' && req.body.startsWith('token=')) {
+                    token = decodeURIComponent(req.body.slice(6));
+                } else if (req.body && req.body.token) {
+                    token = req.body.token;
+                }
+                if (!token) return res.status(400).json({ message: 'no token' });
+
+                // JWT 검증
+                const jwt = require('jsonwebtoken');
+                let decoded;
+                try {
+                    decoded = jwt.verify(token, process.env.JWT_SECRET);
+                } catch (_) {
+                    return res.status(401).json({ message: 'invalid token' });
+                }
+
+                const username = decoded.username;
+                const userId   = decoded.userId;
+                const position = decoded.position || '';
+                await logActivity('checkout', username, position, null, { source: 'browser_close' }, userId);
+                res.status(200).send('ok');
+            } catch (e) {
+                res.status(500).send('error');
             }
         });
 

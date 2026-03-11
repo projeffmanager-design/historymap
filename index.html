@@ -17180,6 +17180,20 @@ kingSelect.addEventListener('change', () => {
                     console.warn('⚠️ [출석] 출석 체크 실패:', e);
                 }
             }, 500); // 500ms 후 실행 (사용자 정보 업데이트 후)
+
+            // 🚩 [추가] 브라우저 닫기/탭 닫기 시 퇴청 기록 (sendBeacon — 브라우저 닫혀도 전송 보장)
+            const _beaconLogout = () => {
+                const t = localStorage.getItem('token') || sessionStorage.getItem('token');
+                if (!t) return;
+                const body = 'token=' + encodeURIComponent(t);
+                navigator.sendBeacon('/api/auth/beacon-logout', new Blob([body], { type: 'text/plain' }));
+            };
+            // visibilitychange: 탭 비활성화/닫기 시 발생 (모바일 포함)
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden') _beaconLogout();
+            });
+            // pagehide: 페이지 언로드 직전 (beforeunload보다 안정적)
+            window.addEventListener('pagehide', _beaconLogout);
         }
 
     // initializeDrawControl(); // 그리기 컨트롤은 편집모드에서만 활성화
