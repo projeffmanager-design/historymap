@@ -9290,42 +9290,92 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             }
 
 
-            // 4a. 관문 마커 (역사 기록의 관문 체크박스)
-        const isGatewayMarker = activeHistoryRecord?.is_gateway;
-        if (isGatewayMarker && layerVisibility.city) {
-            const gatewayColor = countryInfo?.color || 'white';
-            const gatewayMarkerHtml = `
+            // 4. place_type 기반 특수 마커 (관문, 전장, 주/군/현/성/진)
+        const placeType = activeHistoryRecord?.place_type || 'normal';
+
+        // place_type별 아이콘 설정 (capital은 별도 낙관 마커로 처리)
+        const PLACE_TYPE_CONFIG = {
+            ju:       { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E5%B7%9E.png?raw=true',             size: 30, hanja: '州', label: '주'   },
+            gun:      { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E9%83%A1.png?raw=true',             size: 20, hanja: '郡', label: '군'   },
+            hyeon:    { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E7%B8%A3.png?raw=true',             size: 15, hanja: '縣', label: '현'   },
+            seong:    { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E5%9F%8E.png?raw=true', size: 20, hanja: '城', label: '성'  },
+            jin:      { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E9%8E%AD.png?raw=true', size: 20, hanja: '鎭', label: '진'  },
+            gateway:  { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E1%84%80%E1%85%AA%E1%86%AB.png?raw=true', size: 20, hanja: '關', label: '관' },
+            battle:   { icon: 'https://data.dong-chinese.com/img/sinica/%E6%88%B0_2.png', size: 50, hanja: '戰', label: '전장' },
+        };
+
+        // ── 4a. 왕성(capital): 기존 낙관 마커 ──
+        if (placeType === 'capital' && layerVisibility.city) {
+            const sealChar = countryInfo?.sealText || (()=>{ const n=countryInfo?.name||''; const hanja=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hanja.length) return hanja.slice(-1)[0]; const hangul=(n.match(/[가-힣]/g)||[]); return hangul.length ? hangul.slice(-1)[0] : '?'; })();
+            const sealColor = countryInfo?.color || '#c0392b';
+            const _capitalTxtColor = (typeof getContrastColor==='function') ? getContrastColor(sealColor) : '#ffffff';
+            const capitalIconHtml = `<div class="capital-marker">
+                <img class="capital-marker-img" src="https://github.com/projeffmanager-design/img/blob/main/%E7%8E%8B%E5%9F%8E.png?raw=true" onerror="this.style.display='none'">
+                <div class="capital-marker-bottom">
+                    <div class="capital-seal" style="background-color:${sealColor}; border-color:${sealColor}; filter:brightness(0.75); color:${_capitalTxtColor}; text-shadow:${_capitalTxtColor==='#1a1a1a'?'none':'-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000'};">${sealChar}</div>
+                    <span class="city-name">${castleName}</span>
+                </div>
+            </div>`;
+            const capitalIcon = L.divIcon({
+                className: 'custom-capital-flag-marker',
+                html: capitalIconHtml,
+                iconSize: [100, 60],
+                iconAnchor: [50, 30],
+                popupAnchor: [0, -30]
+            });
+            marker = L.marker([castle.lat, castle.lng], { icon: capitalIcon, zIndexOffset: 1000 });
+
+            const editorInfoHtml = castle.lastModifiedBy
+                ? `<br><small style="font-size:11px;color:#9aabbd;">마지막 수정: ${castle.lastModifiedBy}</small>`
+                : (castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">생성자: ${castle.createdBy}</small>` : '');
+            popupHtml = `<b>🏯 ${castleName}</b><br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
+            marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
+            let capTimeout;
+            marker.on('mouseover', function() { clearTimeout(capTimeout); if (currentOpenPopup && currentOpenPopup !== this) currentOpenPopup.closePopup(); this.openPopup(); currentOpenPopup = this; });
+            marker.on('mouseout', function() { capTimeout = setTimeout(() => { const p=this.getPopup(); if(!p||!p._container||!p._container.matches(':hover')) this.closePopup(); }, 300); });
+            marker.on('click', (e) => { map.flyTo(e.latlng, 10); if (editMode) openCastleForm(castle._id); else if (marker&&marker._popup) marker.openPopup(); });
+            markers.push(marker);
+            marker.addTo(castleLayerGroup);
+            return;
+        }
+
+        // ── 4b. 주/군/현/성/진/관/전장: 아이콘 + 한자 + 이름 ──
+        const ptCfg = PLACE_TYPE_CONFIG[placeType];
+        if (ptCfg && layerVisibility.city) {
+            const sz = ptCfg.size;
+            const hanjaStyle = `color:#f0e6c8;font-weight:bold;font-size:8px;line-height:1;white-space:nowrap;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000,0 0 4px #000,0 0 8px rgba(0,0,0,0.9);`;
+            const nameStyle  = `color:#f0e6c8;font-weight:400;font-family:'Nanum Myeongjo',serif;font-size:10px;white-space:nowrap;text-shadow:0 0 2px rgba(0,0,0,0.9),0 0 4px rgba(0,0,0,0.8);`;
+            const specialMarkerHtml = `
             <div style="display:flex; flex-direction:column; align-items:center; gap:0;">
-              <img src="https://data.dong-chinese.com/img/sinica/%E9%97%9C_4.png" style="width:15px;height:15px;object-fit:contain;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));" onerror="this.style.display='none'">
-              <div style="display:flex;align-items:center;gap:1px;width:max-content;">
-                <div style="width:16px;height:16px;display:flex;align-items:center;justify-content:center;font-size:14px;line-height:1;filter:drop-shadow(1px 1px 2px rgba(0,0,0,0.9));">關</div>
-                <span style="color:${gatewayColor};font-weight:bold;font-size:11px;white-space:nowrap;text-shadow:-1px -1px 2px #000,1px -1px 2px #000,-1px 1px 2px #000,1px 1px 2px #000,0px 0px 3px #000,0px 0px 5px #000;">${castleName}</span>
+              <img src="${ptCfg.icon}" style="width:${sz}px;height:${sz}px;object-fit:contain;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));" onerror="this.style.display='none'">
+              <div style="display:flex;align-items:center;gap:1px;width:max-content;margin-top:1px;">
+                <span style="${hanjaStyle}">${ptCfg.hanja}</span>
+                <span style="${nameStyle}">${castleName}</span>
               </div>
-            </div>
-            `;
-            const gatewayIcon = L.divIcon({
-                className: 'custom-gateway-marker',
-                html: gatewayMarkerHtml,
-                iconSize: [100, 26],
+            </div>`;
+            const specialIcon = L.divIcon({
+                className: `custom-${placeType}-marker`,
+                html: specialMarkerHtml,
+                iconSize: [100, sz],
                 iconAnchor: [50, 5],
                 popupAnchor: [0, -5]
             });
-            marker = L.marker([castle.lat, castle.lng], { icon: gatewayIcon });
+            marker = L.marker([castle.lat, castle.lng], { icon: specialIcon });
 
-            const editorInfoHtml = castle.lastModifiedBy 
-                ? `<br><small style="font-size:11px;color:#9aabbd;">마지막 수정: ${castle.lastModifiedBy}</small>` 
+            const editorInfoHtml = castle.lastModifiedBy
+                ? `<br><small style="font-size:11px;color:#9aabbd;">마지막 수정: ${castle.lastModifiedBy}</small>`
                 : (castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">생성자: ${castle.createdBy}</small>` : '');
-            popupHtml = `<b>🚧 ${castleName}</b><br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px; max-height:100px; object-fit:cover; border-radius:4px; border:1px solid rgba(180,140,80,0.3); margin-top:4px;">` : ""}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
+            popupHtml = `<b>${ptCfg.hanja} ${castleName}</b><br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
             marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
 
-            let gatewayPopupTimeout;
+            let sptTimeout;
             marker.on('mouseover', function() {
-                clearTimeout(gatewayPopupTimeout);
+                clearTimeout(sptTimeout);
                 if (currentOpenPopup && currentOpenPopup !== this) currentOpenPopup.closePopup();
                 this.openPopup(); currentOpenPopup = this;
             });
             marker.on('mouseout', function() {
-                gatewayPopupTimeout = setTimeout(() => {
+                sptTimeout = setTimeout(() => {
                     const popup = this.getPopup();
                     if (!popup || !popup._container || !popup._container.matches(':hover')) this.closePopup();
                 }, 300);
@@ -9338,111 +9388,6 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             markers.push(marker);
             marker.addTo(castleLayerGroup);
             return;
-        }
-
-            // 4. 전장 마커 (독립 타입 또는 역사 기록의 전장 체크박스)
-        // 🚩 전장은 두 가지 형태로 존재: 1) castle.is_battle=true (독립 마커), 2) activeHistoryRecord.is_battle=true (역사 기록의 체크박스)
-        // 🚩 전장은 성/도시 레이어에 포함되어 표시됨 (별도 토글 없음)
-        const isBattleMarker = castle.is_battle || activeHistoryRecord?.is_battle;
-        if (isBattleMarker && layerVisibility.city) {
-            // 전장도 국가 색깔 사용 (이미 위에서 countryInfo 가져옴)
-            const battleColor = countryInfo?.color || 'white';
-            
-            // 🚩 [추가] 커스텀 아이콘이 있으면 사용
-            if (castle.custom_icon) {
-                const iconWidth = castle.icon_width || 32;
-                const iconHeight = castle.icon_height || 32;
-                const battleColor = countryInfo?.color || 'white';
-                const customIconHtml = `
-                <div style="display:inline-flex;flex-direction:column;align-items:center;gap:0;">
-                  <img src="${toRawImageUrl(castle.custom_icon)}" style="width:${iconWidth}px;height:${iconHeight}px;object-fit:contain;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));" onerror="this.style.display='none'">
-                  <span style="color:#f0e6c8;font-family:'Nanum Myeongjo',serif;font-weight:400;font-size:10px;white-space:nowrap;margin-top:0;text-shadow:0px 0px 2px rgba(0,0,0,0.9),0px 0px 4px rgba(0,0,0,0.8);">${castleName}</span>
-                </div>`;
-                const battleIcon = L.divIcon({
-                    className: 'custom-icon-marker',
-                    html: customIconHtml,
-                    iconAnchor: [iconWidth / 2, iconHeight / 2],
-                    popupAnchor: [0, -iconHeight / 2]
-                });
-                marker = L.marker([castle.lat, castle.lng], { icon: battleIcon });
-            } else {
-                // 깃발 성과 유사한 구조: 가로 배치 (아이콘 + 이름), 국가 색깔 사용, 폭발 아이콘은 더 크게
-                const battleMarkerHtml = `
-                <div style="display: inline-flex; flex-direction: column; align-items: center; gap: 0;">
-                  <div style="display: flex; align-items: center; gap: 1px; width: max-content;">
-                    <img src="https://data.dong-chinese.com/img/sinica/%E6%88%B0_2.png" style="width:50px;height:50px;object-fit:contain;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));" onerror="this.style.display='none'">
-                  </div>
-                  <div style="display: flex; align-items: center; gap: 1px; width: max-content; margin-top: 1px;">
-                    <div style="width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; font-size: 18px; line-height: 1; filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.9));">戰</div>
-                    <span class="battle-name" style="color: ${battleColor}; font-weight: bold; font-size: 11px; white-space: nowrap; text-shadow: -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000, 1px 1px 2px #000, 0px 0px 3px #000, 0px 0px 5px #000;">${castleName}</span>
-                  </div>
-                </div>
-                `;
-                
-                const battleIcon = L.divIcon({
-                    className: 'custom-battle-marker',
-                    html: battleMarkerHtml,
-                    iconAnchor: [25, 35] // 아이콘이 커진만큼 앵커도 조정
-                });
-                marker = L.marker([castle.lat, castle.lng], { icon: battleIcon });
-            }
-            
-            const editorInfoHtml = castle.lastModifiedBy 
-                ? `<br><small style="font-size:11px;color:#9aabbd;">마지막 수정: ${castle.lastModifiedBy}</small>` 
-                : (castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">생성자: ${castle.createdBy}</small>` : '');
-            
-            popupHtml = `<b>⚔ ${castleName}</b><br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px; max-height:100px; object-fit:cover; border-radius:4px; border:1px solid rgba(180,140,80,0.3); margin-top:4px;">` : ""}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
-            
-            marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
-            
-            let popupTimeout;
-            
-            marker.on('mouseover', function(e) {
-                clearTimeout(popupTimeout);
-                // 이전 팝업 닫기
-                if (currentOpenPopup && currentOpenPopup !== this) {
-                    currentOpenPopup.closePopup();
-                }
-                this.openPopup();
-                currentOpenPopup = this;
-            });
-            
-            marker.on('popupopen', function(e) {
-                const popup = e.popup;
-                if (popup && popup._container) {
-                    popup._container.addEventListener('mouseenter', function() {
-                        clearTimeout(popupTimeout);
-                    }, { once: true });
-                    popup._container.addEventListener('mouseleave', function() {
-                        if (marker && marker.closePopup) {
-                            marker.closePopup();
-                        }
-                    });
-                }
-            });
-            
-            marker.on('mouseout', function(e) {
-                popupTimeout = setTimeout(() => {
-                    const popup = this.getPopup();
-                    if (!popup || !popup._container || !popup._container.matches(':hover')) {
-                        this.closePopup();
-                    }
-                }, 300);
-            });
-            
-            marker.on('click', (e) => { 
-                map.flyTo(e.latlng, 10);
-                if (editMode) {
-                    openCastleForm(castle._id);
-                } else {
-                    if (marker && marker._popup) {
-                        marker.openPopup();
-                    }
-                }
-            });
-            markers.push(marker);
-            marker.addTo(castleLayerGroup);
-            return; // 전장이면 더 이상 처리하지 않음
         }
         
         // 5. 일반 성/도시 마커 (기존 로직 유지)
@@ -10995,7 +10940,8 @@ function invalidateCountryLookupCache() {
                           castles = allCastlesData.map(castle => {
                               if (castle.history && Array.isArray(castle.history) && castle.history.length > 0) {
                                   const firstHistory = castle.history[0];
-                                  if (firstHistory.start_year !== undefined && firstHistory.country_id) return castle;
+                                  // place_type이 이미 세팅된 경우에만 early return (역호환 처리가 필요 없음)
+                                  if (firstHistory.start_year !== undefined && firstHistory.country_id && firstHistory.place_type !== undefined) return castle;
                               }
                               let processedHistory;
                               const hasHistory = castle.history && Array.isArray(castle.history) && castle.history.length > 0;
@@ -11004,6 +10950,13 @@ function invalidateCountryLookupCache() {
                                       let resolvedCountryId = h.country_id || castle.country_id || '';
                                       if (typeof resolvedCountryId !== 'string') resolvedCountryId = String(resolvedCountryId);
                                       if (!resolvedCountryId && h.country) resolvedCountryId = countryNameMap.get(h.country) || '';
+                                      // place_type 역호환: 기존 is_capital/is_battle/is_gateway → place_type
+                                      let placeType = h.place_type || 'normal';
+                                      if (!h.place_type) {
+                                          if (h.is_capital) placeType = 'capital';
+                                          else if (h.is_battle) placeType = 'battle';
+                                          else if (h.is_gateway) placeType = 'gateway';
+                                      }
                                       return {
                                           name: h.name ?? castle.name ?? '',
                                           country_id: resolvedCountryId,
@@ -11011,12 +10964,19 @@ function invalidateCountryLookupCache() {
                                           start_month: h.start_month ?? castle.built_month ?? 1,
                                           end_year: h.end_year ?? castle.destroyed_year ?? null,
                                           end_month: h.end_month ?? castle.destroyed_month ?? 12,
-                                          is_capital: h.is_capital ?? castle.is_capital ?? false,
-                                          is_battle: h.is_battle ?? false,
-                                          is_gateway: h.is_gateway ?? false
+                                          is_capital: placeType === 'capital',
+                                          is_battle: placeType === 'battle',
+                                          is_gateway: placeType === 'gateway',
+                                          place_type: placeType
                                       };
                                   });
                               } else {
+                                  let placeType = castle.place_type || 'normal';
+                                  if (!castle.place_type) {
+                                      if (castle.is_capital) placeType = 'capital';
+                                      else if (castle.is_battle) placeType = 'battle';
+                                      else if (castle.is_gateway) placeType = 'gateway';
+                                  }
                                   processedHistory = [{
                                       name: castle.name || '',
                                       country_id: castle.country_id || '',
@@ -11024,13 +10984,15 @@ function invalidateCountryLookupCache() {
                                       start_month: castle.built_month || 1,
                                       end_year: castle.destroyed_year,
                                       end_month: castle.destroyed_month || 12,
-                                      is_capital: castle.is_capital || false,
-                                      is_battle: castle.is_battle || false,
-                                      is_gateway: castle.is_gateway || false
+                                      is_capital: placeType === 'capital',
+                                      is_battle: placeType === 'battle',
+                                      is_gateway: placeType === 'gateway',
+                                      place_type: placeType
                                   }];
                               }
                               if (castle.is_capital && !processedHistory.some(h => h.is_capital)) {
                                   processedHistory[0].is_capital = true;
+                                  processedHistory[0].place_type = 'capital';
                               }
                               return { ...castle, history: processedHistory };
                           });
@@ -14246,7 +14208,9 @@ function invalidateCountryLookupCache() {
                 ? castle.history
                 : [{
                     name: castle.name, country_id: castle.country_id,
-                    start_year: castle.built_year, start_month: castle.built_month, end_year: castle.destroyed_year, end_month: castle.destroyed_month, is_capital: castle.is_capital, is_battle: castle.is_battle, is_gateway: castle.is_gateway
+                    start_year: castle.built_year, start_month: castle.built_month, end_year: castle.destroyed_year, end_month: castle.destroyed_month,
+                    is_capital: castle.is_capital, is_battle: castle.is_battle, is_gateway: castle.is_gateway,
+                    place_type: castle.place_type || (castle.is_capital ? 'capital' : castle.is_battle ? 'battle' : castle.is_gateway ? 'gateway' : 'normal')
                 }];
 
             sortHistoryByStart(baseHistory).forEach(h => {
@@ -14427,6 +14391,7 @@ function invalidateCountryLookupCache() {
             history.is_capital = false; // 기본적으로 수도 아님
             history.is_battle = false; // 기본적으로 전장 아님
             history.is_gateway = false; // 기본적으로 관문 아님
+            history.place_type = 'normal'; // 기본적으로 일반
         }
 
         const container = document.getElementById('castleHistoryList');
@@ -14448,9 +14413,20 @@ function invalidateCountryLookupCache() {
             <span style="align-self: flex-end;">~</span>
             <div class="history-field-container history-end-year"><label>종료연도</label><input type="number" class="history-end-year" placeholder="종료" value="${history.end_year ?? ''}"></div>
             <div class="history-field-container history-end-month"><label>월</label><input type="number" class="history-end-month" placeholder="월" min="1" max="12" value="${history.end_month ?? 12}"></div>
-            <div class="history-field-container" style="align-self: flex-end;"><label style="margin-bottom: 8px;">수도</label><input type="checkbox" class="history-is-capital" ${history.is_capital ? 'checked' : ''}></div>
-            <div class="history-field-container" style="align-self: flex-end;"><label style="margin-bottom: 8px;">전장</label><input type="checkbox" class="history-is-battle" ${history.is_battle ? 'checked' : ''}></div>
-            <div class="history-field-container" style="align-self: flex-end;"><label style="margin-bottom: 8px;">관문</label><input type="checkbox" class="history-is-gateway" ${history.is_gateway ? 'checked' : ''}></div>
+            <div class="history-field-container" style="align-self: flex-end; min-width:70px;">
+                <label style="margin-bottom:4px;">유형</label>
+                <select class="history-place-type" style="font-size:11px; padding:2px 3px; background:#1a2535; color:#e0d4b8; border:1px solid rgba(180,140,80,0.4); border-radius:3px;">
+                    <option value="normal"   ${(history.place_type||'normal')==='normal'    ? 'selected':''}>일반</option>
+                    <option value="capital"  ${(history.place_type==='capital'||(history.is_capital&&!history.place_type))  ? 'selected':''}>왕성(王)</option>
+                    <option value="ju"       ${history.place_type==='ju'       ? 'selected':''}>주(州)</option>
+                    <option value="gun"      ${history.place_type==='gun'      ? 'selected':''}>군(郡)</option>
+                    <option value="hyeon"    ${history.place_type==='hyeon'    ? 'selected':''}>현(縣)</option>
+                    <option value="seong"    ${history.place_type==='seong'    ? 'selected':''}>성(城)</option>
+                    <option value="jin"      ${history.place_type==='jin'      ? 'selected':''}>진(鎭)</option>
+                    <option value="gateway"  ${(history.place_type==='gateway'||(history.is_gateway&&!history.place_type))  ? 'selected':''}>관(關)</option>
+                    <option value="battle"   ${(history.place_type==='battle'||(history.is_battle&&!history.place_type))   ? 'selected':''}>전장(戰)</option>
+                </select>
+            </div>
             <button type="button" onclick="this.parentElement.remove()">X</button>
         `;
                 // 폼 제출 시 required 에러 방지: 빈 값이면 required 제거 또는 기본값 설정
@@ -14868,6 +14844,7 @@ function invalidateCountryLookupCache() {
               const isBattleChecked = row.querySelector('input.history-is-battle')?.checked || false;
               console.log('🔍 전장 체크박스 상태:', isBattleChecked, 'for', nameVal);
               
+              const placeType = row.querySelector('select.history-place-type')?.value || 'normal';
               return {
                   name: nameVal,
                   country_id: countryIdVal || '',
@@ -14875,9 +14852,10 @@ function invalidateCountryLookupCache() {
                   start_month: rawStartMonth !== '' ? parseInt(rawStartMonth) : 1,
                   end_year: rawEndYear !== '' ? parseInt(rawEndYear) : null,
                   end_month: rawEndMonth !== '' ? parseInt(rawEndMonth) : 12,
-                  is_capital: row.querySelector('input.history-is-capital').checked,
-                  is_battle: isBattleChecked,
-                  is_gateway: row.querySelector('input.history-is-gateway')?.checked || false
+                  is_capital: placeType === 'capital',
+                  is_battle: placeType === 'battle',
+                  is_gateway: placeType === 'gateway',
+                  place_type: placeType
               };
           });
 
@@ -17371,11 +17349,7 @@ kingSelect.addEventListener('change', () => {
                 const body = 'token=' + encodeURIComponent(t);
                 navigator.sendBeacon('/api/auth/beacon-logout', new Blob([body], { type: 'text/plain' }));
             };
-            // visibilitychange: 탭 비활성화/닫기 시 발생 (모바일 포함)
-            document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'hidden') _beaconLogout();
-            });
-            // pagehide: 페이지 언로드 직전 (beforeunload보다 안정적)
+            // pagehide: 페이지 언로드 직전에만 퇴청 기록 (탭 전환/창 최소화 시 오발송 방지)
             window.addEventListener('pagehide', _beaconLogout);
         }
 
