@@ -510,6 +510,24 @@ async function setupRoutesAndCollections() {
                 // 기존 newCastle.country 필드가 있다면 삭제 (마이그레이션 구조 유지)
                 if (newCastle.country) delete newCastle.country;
 
+                // 🚩 [중복 방지] 같은 이름 + 유사 좌표(±0.001도 이내)의 castle이 이미 존재하면 추가 차단
+                if (newCastle.name && newCastle.lat != null && newCastle.lng != null) {
+                    const COORD_TOLERANCE = 0.001;
+                    const duplicateCastle = await collections.castle.findOne({
+                        name: newCastle.name,
+                        lat: { $gte: newCastle.lat - COORD_TOLERANCE, $lte: newCastle.lat + COORD_TOLERANCE },
+                        lng: { $gte: newCastle.lng - COORD_TOLERANCE, $lte: newCastle.lng + COORD_TOLERANCE },
+                        $or: [{ deleted: { $exists: false } }, { deleted: false }]
+                    });
+                    if (duplicateCastle) {
+                        console.warn(`⚠️ [중복 Castle 차단] '${newCastle.name}' 동일 이름+좌표 castle 이미 존재 (ID: ${duplicateCastle._id}). 기존 castle을 편집해주세요.`);
+                        return res.status(409).json({
+                            message: `'${newCastle.name}' 이름의 castle이 같은 위치에 이미 존재합니다. 기존 항목을 편집해주세요.`,
+                            existingId: duplicateCastle._id.toString()
+                        });
+                    }
+                }
+
                 const result = await collections.castle.insertOne(newCastle);
                 
                 // � [v3.5] 서버 캐시 무효화
