@@ -2205,12 +2205,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
-        // 🚩 [추가] POST: 퇴청 로그 기록
+        // 🚩 [추가] POST: 퇴청 로그 기록 (로그아웃 버튼 클릭 시에만)
         app.post('/api/auth/logout', verifyToken, async (req, res) => {
             try {
                 const username = req.user.username;
                 const position = req.user.position || '';
-                // logActivity 내부에서 30분 중복 방지 처리
                 await logActivity('checkout', username, position, null, {});
                 res.json({ message: '퇴청 기록 완료' });
             } catch (e) {
@@ -2218,37 +2217,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
-        // 🚩 [추가] POST: 브라우저 닫기 시 beacon 로그아웃 (sendBeacon용, Content-Type: text/plain)
-        app.post('/api/auth/beacon-logout', async (req, res) => {
-            try {
-                let token = null;
-                // sendBeacon은 text/plain으로 body에 token을 담아 전송
-                if (req.body && typeof req.body === 'string' && req.body.startsWith('token=')) {
-                    token = decodeURIComponent(req.body.slice(6));
-                } else if (req.body && req.body.token) {
-                    token = req.body.token;
-                }
-                if (!token) return res.status(400).json({ message: 'no token' });
-
-                // JWT 검증
-                const jwt = require('jsonwebtoken');
-                let decoded;
-                try {
-                    decoded = jwt.verify(token, process.env.JWT_SECRET);
-                } catch (_) {
-                    return res.status(401).json({ message: 'invalid token' });
-                }
-
-                const username = decoded.username;
-                const userId   = decoded.userId;
-                const position = decoded.position || '';
-                // logActivity 내부에서 30분 중복 방지 처리
-                await logActivity('checkout', username, position, null, { source: 'browser_close' }, userId);
-                res.status(200).send('ok');
-            } catch (e) {
-                res.status(500).send('error');
-            }
-        });
+        // beacon-logout 엔드포인트 제거 — pagehide 기반 퇴청 완전 폐기
+        app.post('/api/auth/beacon-logout', (req, res) => res.status(200).send('ok'));
 
         // 🚩 [추가] POST: 출석 체크 (토큰만 있으면 하루 1회 1점, 로그인 없이도 호출 가능)
         app.post('/api/auth/attendance', verifyToken, async (req, res) => {

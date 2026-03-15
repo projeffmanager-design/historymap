@@ -17368,22 +17368,7 @@ kingSelect.addEventListener('change', () => {
                 }
             }, 500); // 500ms 후 실행 (사용자 정보 업데이트 후)
 
-            // 🚩 [추가] 브라우저 닫기/탭 닫기 시 퇴청 기록 (sendBeacon — 브라우저 닫혀도 전송 보장)
-            const _beaconLogout = () => {
-                const t = localStorage.getItem('token') || sessionStorage.getItem('token');
-                if (!t) return;
-                // 클라이언트 중복 방지: 마지막 beacon 전송 후 10분 이내면 차단
-                const lastBeacon = parseInt(localStorage.getItem('_lastBeaconLogout') || '0', 10);
-                const now = Date.now();
-                if (now - lastBeacon < 10 * 60 * 1000) return;
-                localStorage.setItem('_lastBeaconLogout', String(now));
-                const body = 'token=' + encodeURIComponent(t);
-                navigator.sendBeacon('/api/auth/beacon-logout', new Blob([body], { type: 'text/plain' }));
-            };
-            // pagehide: persisted=true(bfcache/새로고침/이동)는 제외, 진짜 닫기만 퇴청
-            window.addEventListener('pagehide', (e) => {
-                if (!e.persisted) _beaconLogout();
-            });
+            // 퇴청은 로그아웃 버튼 클릭 시에만 기록 (pagehide/beacon 완전 제거)
         }
 
     // initializeDrawControl(); // 그리기 컨트롤은 편집모드에서만 활성화
