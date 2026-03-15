@@ -203,11 +203,11 @@ async function logActivity(type, actor, actorPosition, targetName, extra = {}, u
             } catch (_) { /* 실패 시 기존 actorPosition 유지 */ }
         }
 
-        // 🔕 checkin/checkout: 같은 유저의 동일 타입이 10분 내 존재하면 스킵 (도배 방지)
+        // 🔕 checkin/checkout: 같은 유저의 동일 타입이 30분 내 존재하면 스킵 (도배 방지)
         if (type === 'checkin' || type === 'checkout') {
-            const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
+            const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
             const dup = await cols.activityLogs.findOne({
-                type, actor, createdAt: { $gte: tenMinAgo }
+                type, actor, createdAt: { $gte: thirtyMinAgo }
             });
             if (dup) return; // 중복 — 기록하지 않음
         }
@@ -2210,12 +2210,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             try {
                 const username = req.user.username;
                 const position = req.user.position || '';
-                // 3분 내 중복 checkout 방지
-                const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000);
-                const recent = await collections.activityLogs.findOne({ type: 'checkout', actor: username, createdAt: { $gte: threeMinAgo } });
-                if (!recent) {
-                    await logActivity('checkout', username, position, null, {});
-                }
+                // logActivity 내부에서 30분 중복 방지 처리
+                await logActivity('checkout', username, position, null, {});
                 res.json({ message: '퇴청 기록 완료' });
             } catch (e) {
                 res.json({ message: 'ok' });
@@ -2246,12 +2242,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const username = decoded.username;
                 const userId   = decoded.userId;
                 const position = decoded.position || '';
-                // 3분 내 중복 checkout 방지
-                const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000);
-                const recent = await collections.activityLogs.findOne({ type: 'checkout', actor: username, createdAt: { $gte: threeMinAgo } });
-                if (!recent) {
-                    await logActivity('checkout', username, position, null, { source: 'browser_close' }, userId);
-                }
+                // logActivity 내부에서 30분 중복 방지 처리
+                await logActivity('checkout', username, position, null, { source: 'browser_close' }, userId);
                 res.status(200).send('ok');
             } catch (e) {
                 res.status(500).send('error');

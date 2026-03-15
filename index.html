@@ -17357,6 +17357,11 @@ kingSelect.addEventListener('change', () => {
             const _beaconLogout = () => {
                 const t = localStorage.getItem('token') || sessionStorage.getItem('token');
                 if (!t) return;
+                // 클라이언트 중복 방지: 마지막 beacon 전송 후 10분 이내면 차단
+                const lastBeacon = parseInt(localStorage.getItem('_lastBeaconLogout') || '0', 10);
+                const now = Date.now();
+                if (now - lastBeacon < 10 * 60 * 1000) return;
+                localStorage.setItem('_lastBeaconLogout', String(now));
                 const body = 'token=' + encodeURIComponent(t);
                 navigator.sendBeacon('/api/auth/beacon-logout', new Blob([body], { type: 'text/plain' }));
             };
