@@ -17354,8 +17354,10 @@ kingSelect.addEventListener('change', () => {
                 const body = 'token=' + encodeURIComponent(t);
                 navigator.sendBeacon('/api/auth/beacon-logout', new Blob([body], { type: 'text/plain' }));
             };
-            // pagehide: 페이지 언로드 직전에만 퇴청 기록 (탭 전환/창 최소화 시 오발송 방지)
-            window.addEventListener('pagehide', _beaconLogout);
+            // pagehide: persisted=true(bfcache/새로고침/이동)는 제외, 진짜 닫기만 퇴청
+            window.addEventListener('pagehide', (e) => {
+                if (!e.persisted) _beaconLogout();
+            });
         }
 
     // initializeDrawControl(); // 그리기 컨트롤은 편집모드에서만 활성화

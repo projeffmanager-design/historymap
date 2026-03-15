@@ -2210,7 +2210,12 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             try {
                 const username = req.user.username;
                 const position = req.user.position || '';
-                await logActivity('checkout', username, position, null, {});
+                // 3분 내 중복 checkout 방지
+                const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000);
+                const recent = await collections.activityLogs.findOne({ type: 'checkout', actor: username, createdAt: { $gte: threeMinAgo } });
+                if (!recent) {
+                    await logActivity('checkout', username, position, null, {});
+                }
                 res.json({ message: '퇴청 기록 완료' });
             } catch (e) {
                 res.json({ message: 'ok' });
@@ -2241,7 +2246,12 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const username = decoded.username;
                 const userId   = decoded.userId;
                 const position = decoded.position || '';
-                await logActivity('checkout', username, position, null, { source: 'browser_close' }, userId);
+                // 3분 내 중복 checkout 방지
+                const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000);
+                const recent = await collections.activityLogs.findOne({ type: 'checkout', actor: username, createdAt: { $gte: threeMinAgo } });
+                if (!recent) {
+                    await logActivity('checkout', username, position, null, { source: 'browser_close' }, userId);
+                }
                 res.status(200).send('ok');
             } catch (e) {
                 res.status(500).send('error');
