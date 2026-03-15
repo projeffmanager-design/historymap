@@ -9334,25 +9334,44 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             battle:   { icon: 'https://data.dong-chinese.com/img/sinica/%E6%88%B0_2.png', size: 50, hanja: '戰', label: '전장' },
         };
 
-        // ── 4a. 왕성(capital): 기존 낙관 마커 ──
+        // ── 4a. 왕성(capital): 커스텀 아이콘 우선, 없으면 낙관 마커 ──
         if (placeType === 'capital' && layerVisibility.city) {
-            const sealChar = countryInfo?.sealText || (()=>{ const n=countryInfo?.name||''; const hanja=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hanja.length) return hanja.slice(-1)[0]; const hangul=(n.match(/[가-힣]/g)||[]); return hangul.length ? hangul.slice(-1)[0] : '?'; })();
-            const sealColor = countryInfo?.color || '#c0392b';
-            const _capitalTxtColor = (typeof getContrastColor==='function') ? getContrastColor(sealColor) : '#ffffff';
-            const capitalIconHtml = `<div class="capital-marker">
-                <img class="capital-marker-img" src="https://github.com/projeffmanager-design/img/blob/main/%E7%8E%8B%E5%9F%8E.png?raw=true" onerror="this.style.display='none'">
-                <div class="capital-marker-bottom">
-                    <div class="capital-seal" style="background-color:${sealColor}; border-color:${sealColor}; filter:brightness(0.75); color:${_capitalTxtColor}; text-shadow:${_capitalTxtColor==='#1a1a1a'?'none':'-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000'};">${sealChar}</div>
-                    <span class="city-name">${castleName}</span>
-                </div>
-            </div>`;
-            const capitalIcon = L.divIcon({
-                className: 'custom-capital-flag-marker',
-                html: capitalIconHtml,
-                iconSize: [100, 60],
-                iconAnchor: [50, 5],
-                popupAnchor: [0, -5]
-            });
+            let capitalIcon;
+            if (castle.custom_icon) {
+                // 🚩 커스텀 아이콘이 있으면 우선 사용
+                const ciw = castle.icon_width || 32;
+                const cih = castle.icon_height || 32;
+                const capitalCustomHtml = `
+                <div style="display:flex; flex-direction:column; align-items:center; gap:0;">
+                  <img src="${toRawImageUrl(castle.custom_icon)}" style="width:${ciw}px;height:${cih}px;object-fit:contain;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));" onerror="this.style.display='none'">
+                  <div style="color:#f0e6c8;font-weight:400;font-family:'Nanum Myeongjo',serif;font-size:10px;white-space:nowrap;text-shadow:0 0 2px rgba(0,0,0,0.9),0 0 4px rgba(0,0,0,0.8);margin-top:1px;">${castleName}</div>
+                </div>`;
+                capitalIcon = L.divIcon({
+                    className: 'custom-capital-flag-marker',
+                    html: capitalCustomHtml,
+                    iconSize: [Math.max(ciw, 60), cih + 14],
+                    iconAnchor: [Math.max(ciw, 60) / 2, 0],
+                    popupAnchor: [0, 0]
+                });
+            } else {
+                const sealChar = countryInfo?.sealText || (()=>{ const n=countryInfo?.name||''; const hanja=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hanja.length) return hanja.slice(-1)[0]; const hangul=(n.match(/[가-힣]/g)||[]); return hangul.length ? hangul.slice(-1)[0] : '?'; })();
+                const sealColor = countryInfo?.color || '#c0392b';
+                const _capitalTxtColor = (typeof getContrastColor==='function') ? getContrastColor(sealColor) : '#ffffff';
+                const capitalIconHtml = `<div class="capital-marker">
+                    <img class="capital-marker-img" src="https://github.com/projeffmanager-design/img/blob/main/%E7%8E%8B%E5%9F%8E.png?raw=true" onerror="this.style.display='none'">
+                    <div class="capital-marker-bottom">
+                        <div class="capital-seal" style="background-color:${sealColor}; border-color:${sealColor}; filter:brightness(0.75); color:${_capitalTxtColor}; text-shadow:${_capitalTxtColor==='#1a1a1a'?'none':'-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000'};">${sealChar}</div>
+                        <span class="city-name">${castleName}</span>
+                    </div>
+                </div>`;
+                capitalIcon = L.divIcon({
+                    className: 'custom-capital-flag-marker',
+                    html: capitalIconHtml,
+                    iconSize: [100, 60],
+                    iconAnchor: [50, 5],
+                    popupAnchor: [0, -5]
+                });
+            }
             marker = L.marker([castle.lat, castle.lng], { icon: capitalIcon, zIndexOffset: 1000 });
 
             const editorInfoHtml = castle.lastModifiedBy
