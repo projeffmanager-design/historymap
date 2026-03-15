@@ -9356,14 +9356,29 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const _hanjaColor = dotColor || '#f0e6c8';
             const hanjaStyle = `color:${_hanjaColor};font-weight:bold;font-size:10px;line-height:1;white-space:nowrap;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000,0 0 4px #000,0 0 8px rgba(0,0,0,0.9);`;
             const nameStyle  = `color:#f0e6c8;font-weight:400;font-family:'Nanum Myeongjo',serif;font-size:10px;white-space:nowrap;text-shadow:0 0 2px rgba(0,0,0,0.9),0 0 4px rgba(0,0,0,0.8);`;
-            const specialMarkerHtml = `
-            <div style="display:flex; flex-direction:column; align-items:center; gap:0;">
-              <img src="${ptCfg.icon}" style="width:${sz}px;height:${sz}px;object-fit:contain;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));" onerror="this.style.display='none'">
-              <div style="display:flex;align-items:center;gap:1px;width:max-content;margin-top:1px;">
-                <span style="${hanjaStyle}">${ptCfg.hanja}</span>
-                <span style="${nameStyle}">${castleName}</span>
-              </div>
-            </div>`;
+
+            let specialMarkerHtml;
+            if (castle.custom_icon) {
+                // 커스텀 아이콘이 있으면 place_type 아이콘 대신 사용
+                const ciw = castle.icon_width || sz;
+                const cih = castle.icon_height || sz;
+                specialMarkerHtml = `
+                <div style="display:flex; flex-direction:column; align-items:center; gap:0;">
+                  <img src="${toRawImageUrl(castle.custom_icon)}" style="width:${ciw}px;height:${cih}px;object-fit:contain;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));" onerror="this.style.display='none'">
+                  <div style="display:flex;align-items:center;gap:1px;width:max-content;margin-top:1px;">
+                    <span style="${nameStyle}">${castleName}</span>
+                  </div>
+                </div>`;
+            } else {
+                specialMarkerHtml = `
+                <div style="display:flex; flex-direction:column; align-items:center; gap:0;">
+                  <img src="${ptCfg.icon}" style="width:${sz}px;height:${sz}px;object-fit:contain;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));" onerror="this.style.display='none'">
+                  <div style="display:flex;align-items:center;gap:1px;width:max-content;margin-top:1px;">
+                    <span style="${hanjaStyle}">${ptCfg.hanja}</span>
+                    <span style="${nameStyle}">${castleName}</span>
+                  </div>
+                </div>`;
+            }
             const specialIcon = L.divIcon({
                 className: `custom-${placeType}-marker`,
                 html: specialMarkerHtml,
