@@ -4156,13 +4156,28 @@ body.force-mobile .marker-type-selector button {
           <button id="menu-account-management">계정 관리</button>
           <button id="menu-user-management" style="display:none;">회원 관리</button>
           <button id="menu-territory-management" style="display:none;">영토 관리</button>
-          <button id="menu-logout" class="danger">로그아웃</button>
+          <hr style="border: 0; border-top: 2px solid rgba(231,76,60,0.4); margin: 12px 0 8px 0;">
+          <button id="menu-logout" class="danger" style="margin-top:4px; opacity:0.85;">🚪 로그아웃</button>
       </div>
 
       <!-- 버전 정보 -->
       <div style="margin-top:16px; padding-top:12px; border-top:1px solid rgba(93,113,133,0.4); text-align:center;">
           <span id="hamburger-version-label" style="font-size:11px; color:#5d7185; font-family:'Courier New',monospace; letter-spacing:0.5px;">v3.6.15</span>
       </div>
+  </div>
+
+  <!-- 🚩 [추가] 로그아웃 확인 모달 (2단계 방지) -->
+  <div id="logout-confirm-modal" style="display:none; position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,0.65); align-items:center; justify-content:center;">
+    <div style="background:#1e2a38; border:2px solid #e74c3c; border-radius:12px; padding:28px 24px; max-width:320px; width:90%; text-align:center; box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+      <div style="font-size:2rem; margin-bottom:8px;">🚪</div>
+      <div style="font-size:1.1rem; font-weight:bold; color:#e74c3c; margin-bottom:8px;">로그아웃 확인</div>
+      <div style="font-size:0.85rem; color:#aab8c2; margin-bottom:20px;">정말 로그아웃하시겠습니까?<br>퇴청이 기록됩니다.</div>
+      <div style="display:flex; gap:10px; justify-content:center;">
+        <button id="logout-cancel-btn" style="flex:1; padding:10px; border-radius:8px; background:rgba(93,113,133,0.3); border:1px solid #5d7185; color:#aab8c2; font-size:0.95rem; cursor:pointer;">취소</button>
+        <button id="logout-confirm-btn" style="flex:1; padding:10px; border-radius:8px; background:rgba(231,76,60,0.15); border:2px solid #e74c3c; color:#e74c3c; font-size:0.95rem; font-weight:bold; cursor:pointer; transition:background 0.2s;" disabled>로그아웃</button>
+      </div>
+      <div id="logout-countdown" style="font-size:0.75rem; color:#5d7185; margin-top:10px;">3초 후 버튼 활성화됩니다</div>
+    </div>
   </div>
 
   <!-- 🚩 [수정] 컨트롤러들을 별도의 wrapper로 분리 -->
@@ -18039,34 +18054,61 @@ kingSelect.addEventListener('change', () => {
             });
         }
         
-        // 🚩 [추가] 햄버거 메뉴 - 로그아웃 버튼
+        // 🚩 [수정] 햄버거 메뉴 - 로그아웃 버튼 → 2단계 확인 모달
         const menuLogoutBtn = document.getElementById('menu-logout');
         if (menuLogoutBtn) {
             menuLogoutBtn.addEventListener('click', () => {
-                if (confirm('로그아웃하시겠습니까?')) {
-                    // 퇴청 토스트 표시 후 로그아웃
-                    let logoutUsername = '';
-                    let logoutPosition = '';
-                    const logoutToken = localStorage.getItem('token') || sessionStorage.getItem('token');
-                    try {
-                        if (logoutToken) {
-                            const p = JSON.parse(atob(logoutToken.split('.')[1]));
-                            logoutUsername = p.username || '';
-                            logoutPosition = p.position || '';
-                        }
-                    } catch(e) {}
+                toggleHamburgerMenu();
+                // 모달 표시
+                const modal = document.getElementById('logout-confirm-modal');
+                const confirmBtn = document.getElementById('logout-confirm-btn');
+                const countdownEl = document.getElementById('logout-countdown');
+                if (!modal || !confirmBtn || !countdownEl) return;
 
-                    // 퇴청 활동 로그 API 호출
+                confirmBtn.disabled = true;
+                confirmBtn.style.opacity = '0.4';
+                modal.style.display = 'flex';
+
+                // 3초 카운트다운
+                let remaining = 3;
+                countdownEl.textContent = `${remaining}초 후 버튼 활성화됩니다`;
+                const timer = setInterval(() => {
+                    remaining--;
+                    if (remaining > 0) {
+                        countdownEl.textContent = `${remaining}초 후 버튼 활성화됩니다`;
+                    } else {
+                        clearInterval(timer);
+                        confirmBtn.disabled = false;
+                        confirmBtn.style.opacity = '1';
+                        countdownEl.textContent = '';
+                    }
+                }, 1000);
+
+                // 취소
+                document.getElementById('logout-cancel-btn').onclick = () => {
+                    clearInterval(timer);
+                    modal.style.display = 'none';
+                };
+                // 배경 클릭으로도 취소
+                modal.onclick = (e) => {
+                    if (e.target === modal) {
+                        clearInterval(timer);
+                        modal.style.display = 'none';
+                    }
+                };
+
+                // 확인 → 실제 로그아웃
+                confirmBtn.onclick = () => {
+                    if (confirmBtn.disabled) return;
+                    modal.style.display = 'none';
+                    const logoutToken = localStorage.getItem('token') || sessionStorage.getItem('token');
                     if (logoutToken) {
                         fetch('/api/auth/logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + logoutToken } }).catch(() => {});
                     }
-
-                    // 바로 로그아웃
                     localStorage.removeItem('token');
                     sessionStorage.removeItem('token');
                     window.location.href = 'login.html';
-                }
-                toggleHamburgerMenu();
+                };
             });
         }
         
