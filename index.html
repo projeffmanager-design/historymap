@@ -5271,7 +5271,7 @@ body.force-mobile .marker-type-selector button {
       <!-- [성/도시·전장] 역사 기록 -->
       <div id="castleHistorySection" style="border:1px solid #00aaff; padding:10px; margin-top:10px; border-radius:4px;">
         <h4>📜 성/도시 역사 기록</h4>
-        <div id="castleHistoryList" style="max-height:250px; overflow-y:auto; padding-right:5px;"></div>
+        <div id="castleHistoryList" style="max-height:400px; overflow-y:auto; padding-right:4px;"></div>
         <div style="display:flex; gap:6px; margin-top:5px; flex-wrap:wrap;">
           <button type="button" id="addCastleHistoryBtn">역사 기록 추가</button>
           <button type="button" id="copyHistoryFromCastleBtn" style="background:#1a5276; border-color:#2980b9; font-size:11px;" title="다른 마커의 역사기록을 이 폼에 복사합니다">📋 다른 마커에서 복사</button>
@@ -5380,44 +5380,81 @@ body.force-mobile .marker-type-selector button {
         <button type="button" onclick="addPathPoint()" style="margin-top:5px;">경로 지점 추가</button>
       </div>
       <style>
+          /* ── 역사 기록 행 레이아웃 ── */
           .history-record-row {
-              display: flex; /* 🚩 [수정] flexbox 레이아웃으로 변경 */
-              flex-wrap: nowrap; /* 🚩 [추가] 한 줄로 표시 */
-              align-items: center; /* 🚩 [추가] 세로 중앙 정렬 */
-              gap: 5px;
+              display: flex;
+              flex-direction: column;
+              gap: 6px;
               width: 100%;
-
-              margin-bottom: 10px; /* 🚩 [수정] 행 간 간격 조정 */
-              padding-bottom: 10px; /* 🚩 [추가] 행 아래에 패딩 추가 */
-              border-bottom: 1px solid #4e5d6c; /* 🚩 [추가] 행 구분선 */
+              margin-bottom: 10px;
+              padding: 10px;
+              background: rgba(0,0,0,0.18);
+              border: 1px solid rgba(180,140,80,0.2);
+              border-radius: 6px;
+              box-sizing: border-box;
           }
-
-          /* 🚩 [추가] 각 입력 필드를 감싸는 컨테이너 스타일 */
+          /* 1행: 이름 | 국가 | 유형 | [X] */
+          .history-row-line1 {
+              display: grid;
+              grid-template-columns: 1fr 1fr auto auto;
+              gap: 6px;
+              align-items: end;
+          }
+          /* 2행: 시작연도 | 시작월 | ~ | 종료연도 | 종료월 */
+          .history-row-line2 {
+              display: flex;
+              align-items: end;
+              gap: 5px;
+          }
+          .history-row-line2 .tilde {
+              align-self: flex-end;
+              padding-bottom: 6px;
+              color: #bdc3c7;
+              font-size: 13px;
+          }
+          /* 공통 필드 컨테이너 */
           .history-field-container {
               display: flex;
               flex-direction: column;
           }
           .history-field-container label {
               font-size: 11px;
-              color: #bdc3c7;
+              color: #9aacbc;
               margin-bottom: 3px;
+              white-space: nowrap;
           }
-          /* 🚩 [수정] 각 입력 필드의 너비를 flex 속성으로 지정 (레이블 추가에 따른 조정) */
-          /* 🚩 [추가] 자동 완성 결과 목록 스타일 */
+          /* 연도/월 고정 너비 */
+          .history-field-container.history-start-year,
+          .history-field-container.history-end-year   { width: 72px; flex-shrink: 0; }
+          .history-field-container.history-start-month,
+          .history-field-container.history-end-month  { width: 50px; flex-shrink: 0; }
+          /* X 버튼 */
+          .history-delete-btn {
+              align-self: flex-end;
+              flex-shrink: 0;
+              width: 28px; height: 28px;
+              padding: 0;
+              margin: 0;
+              background-color: #c0392b;
+              color: #fff;
+              border: none;
+              border-radius: 4px;
+              cursor: pointer;
+              font-size: 13px;
+              line-height: 28px;
+              text-align: center;
+          }
+          .history-delete-btn:hover { background-color: #e74c3c; }
+          /* 유형 select */
+          .history-place-type-container { min-width: 75px; }
+          /* 자동완성 */
           .autocomplete-results {
-              display: none; position: absolute; top: 100%; left: 0; right: 0; 
-              background: #3e4a56; border: 1px solid #5d7185; 
+              display: none; position: absolute; top: 100%; left: 0; right: 0;
+              background: #3e4a56; border: 1px solid #5d7185;
               z-index: 1002; max-height: 150px; overflow-y: auto;
           }
           .autocomplete-item { padding: 8px; cursor: pointer; }
           .autocomplete-item:hover { background-color: #5d7185; }
-          .history-field-container.history-name { flex: 1 1 100px; }
-          .history-field-container.history-country { flex: 1 1 100px; }
-          .history-field-container.history-start-year { flex: 0 1 75px; } /* 🚩 [수정] 6digit 크기 (55px->75px) */
-          .history-field-container.history-start-month { flex: 0 1 55px; } /* 🚩 [수정] 4digit 크기 (35px->55px) */
-          .history-field-container.history-end-year { flex: 0 1 75px; } /* 🚩 [수정] 6digit 크기 (55px->75px) */
-          .history-field-container.history-end-month { flex: 0 1 55px; } /* 🚩 [수정] 4digit 크기 (35px->55px) */
-          .history-record-row button { align-self: flex-end; flex-shrink: 0; width: 30px; padding: 5px; margin: 0; background-color: #e74c3c; }
           .history-record-row input[type="checkbox"] { width: auto; margin: 0; }
       </style>
         <style>
@@ -6729,7 +6766,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                     <div class="odp-tl-period">${period}</div>
                     <div class="odp-tl-name">${hName}${plLabel}</div>
                     ${hCountryName ? `<div class="odp-tl-country">${hFlag}${hCountryName}</div>` : ''}
-                    ${hNote ? `<div class="odp-tl-note">${hNote}</div>` : ''}
+                    ${hNote ? `<div class="odp-tl-comment">📝 ${hNote}</div>` : ''}
                     ${hComment ? `<div class="odp-tl-comment">💬 ${hComment}</div>` : ''}
                 </li>`;
             }).join('');
@@ -14891,28 +14928,57 @@ function invalidateCountryLookupCache() {
         // 🚩 [수정] 각 입력 필드 위에 레이블 추가
         // 🚩 [핵심 수정] 국가 선택을 <select>에서 자동 완성 <input>으로 변경
         row.innerHTML = `
-            <div class="history-field-container history-name"><label>이름</label><input type="text" class="history-name" name="history-name" placeholder="이름" value="${history.name || ''}" required></div>
-            <div class="history-field-container history-country" style="position: relative;"><label>국가</label><input type="text" class="history-country-name" placeholder="국가명 입력..." autocomplete="off" value="${countryName}"><input type="hidden" class="history-country-id" value="${history.country_id || ''}"><div class="autocomplete-results"></div></div>
-            <div class="history-field-container history-start-year"><label>시작연도</label><input type="number" class="history-start-year" name="history-start-year" placeholder="시작" value="${history.start_year ?? ''}" required></div>
-            <div class="history-field-container history-start-month"><label>월</label><input type="number" class="history-start-month" name="history-start-month" placeholder="월" min="1" max="12" value="${history.start_month || 1}" required></div>
-            <span style="align-self: flex-end;">~</span>
-            <div class="history-field-container history-end-year"><label>종료연도</label><input type="number" class="history-end-year" placeholder="종료" value="${history.end_year ?? ''}"></div>
-            <div class="history-field-container history-end-month"><label>월</label><input type="number" class="history-end-month" placeholder="월" min="1" max="12" value="${history.end_month ?? 12}"></div>
-            <div class="history-field-container" style="align-self: flex-end; min-width:70px;">
-                <label style="margin-bottom:4px;">유형</label>
-                <select class="history-place-type" style="font-size:11px; padding:2px 3px; background:#1a2535; color:#e0d4b8; border:1px solid rgba(180,140,80,0.4); border-radius:3px;">
-                    <option value="normal"   ${(history.place_type||'normal')==='normal'    ? 'selected':''}>일반</option>
-                    <option value="capital"  ${(history.place_type==='capital'||(history.is_capital&&!history.place_type))  ? 'selected':''}>왕성(王)</option>
-                    <option value="ju"       ${history.place_type==='ju'       ? 'selected':''}>주(州)</option>
-                    <option value="gun"      ${history.place_type==='gun'      ? 'selected':''}>군(郡)</option>
-                    <option value="hyeon"    ${history.place_type==='hyeon'    ? 'selected':''}>현(縣)</option>
-                    <option value="seong"    ${history.place_type==='seong'    ? 'selected':''}>성(城)</option>
-                    <option value="jin"      ${history.place_type==='jin'      ? 'selected':''}>진(鎭)</option>
-                    <option value="gateway"  ${(history.place_type==='gateway'||(history.is_gateway&&!history.place_type))  ? 'selected':''}>관(關)</option>
-                    <option value="battle"   ${(history.place_type==='battle'||(history.is_battle&&!history.place_type))   ? 'selected':''}>전장(戰)</option>
-                </select>
+            <!-- 1행: 이름 | 국가 | 유형 | X -->
+            <div class="history-row-line1">
+                <div class="history-field-container history-name">
+                    <label>이름</label>
+                    <input type="text" class="history-name" name="history-name" placeholder="이름" value="${history.name || ''}" required>
+                </div>
+                <div class="history-field-container history-country" style="position:relative;">
+                    <label>국가</label>
+                    <input type="text" class="history-country-name" placeholder="국가명 입력..." autocomplete="off" value="${countryName}">
+                    <input type="hidden" class="history-country-id" value="${history.country_id || ''}">
+                    <div class="autocomplete-results"></div>
+                </div>
+                <div class="history-field-container history-place-type-container">
+                    <label>유형</label>
+                    <select class="history-place-type" style="font-size:11px; padding:3px 4px; background:#1a2535; color:#e0d4b8; border:1px solid rgba(180,140,80,0.4); border-radius:3px; height:28px;">
+                        <option value="normal"   ${(history.place_type||'normal')==='normal'    ? 'selected':''}>일반</option>
+                        <option value="capital"  ${(history.place_type==='capital'||(history.is_capital&&!history.place_type))  ? 'selected':''}>왕성(王)</option>
+                        <option value="ju"       ${history.place_type==='ju'       ? 'selected':''}>주(州)</option>
+                        <option value="gun"      ${history.place_type==='gun'      ? 'selected':''}>군(郡)</option>
+                        <option value="hyeon"    ${history.place_type==='hyeon'    ? 'selected':''}>현(縣)</option>
+                        <option value="seong"    ${history.place_type==='seong'    ? 'selected':''}>성(城)</option>
+                        <option value="jin"      ${history.place_type==='jin'      ? 'selected':''}>진(鎭)</option>
+                        <option value="gateway"  ${(history.place_type==='gateway'||(history.is_gateway&&!history.place_type))  ? 'selected':''}>관(關)</option>
+                        <option value="battle"   ${(history.place_type==='battle'||(history.is_battle&&!history.place_type))   ? 'selected':''}>전장(戰)</option>
+                    </select>
+                </div>
+                <button type="button" class="history-delete-btn" onclick="this.closest('.history-record-row').remove()">✕</button>
             </div>
-            <button type="button" onclick="this.parentElement.remove()">X</button>
+            <!-- 2행: 시작연도 | 시작월 ~ 종료연도 | 종료월 -->
+            <div class="history-row-line2">
+                <div class="history-field-container history-start-year">
+                    <label>시작연도</label>
+                    <input type="number" class="history-start-year" name="history-start-year" placeholder="연도" value="${history.start_year ?? ''}" required>
+                </div>
+                <div class="history-field-container history-start-month">
+                    <label>월</label>
+                    <input type="number" class="history-start-month" name="history-start-month" placeholder="월" min="1" max="12" value="${history.start_month || 1}" required>
+                </div>
+                <span class="tilde">~</span>
+                <div class="history-field-container history-end-year">
+                    <label>종료연도</label>
+                    <input type="number" class="history-end-year" placeholder="연도" value="${history.end_year ?? ''}">
+                </div>
+                <div class="history-field-container history-end-month">
+                    <label>월</label>
+                    <input type="number" class="history-end-month" placeholder="월" min="1" max="12" value="${history.end_month ?? 12}">
+                </div>
+            </div>
+            <!-- 3행: 코멘트 -->
+            <textarea class="history-notes" placeholder="📝 코멘트 (선택 사항)" rows="2"
+                style="width:100%; box-sizing:border-box; background:rgba(0,0,0,0.25); border:1px solid rgba(180,140,80,0.2); border-radius:4px; color:#c8dbe8; font-size:12px; padding:5px 8px; resize:vertical; line-height:1.6; outline:none;">${(history.notes || history.note || '').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
         `;
                 // 폼 제출 시 required 에러 방지: 빈 값이면 required 제거 또는 기본값 설정
                 setTimeout(() => {
@@ -15341,7 +15407,8 @@ function invalidateCountryLookupCache() {
                   is_capital: placeType === 'capital',
                   is_battle: placeType === 'battle',
                   is_gateway: placeType === 'gateway',
-                  place_type: placeType
+                  place_type: placeType,
+                  notes: row.querySelector('textarea.history-notes')?.value?.trim() || ''
               };
           });
 
