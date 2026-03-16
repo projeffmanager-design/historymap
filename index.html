@@ -5184,7 +5184,7 @@ body.force-mobile .marker-type-selector button {
         <div class="form-row">
           <label for="naturalFeatureType">지물 종류:</label>
           <select id="naturalFeatureType" style="flex:1; min-width:150px;">
-            <option value="mountain">산/숲</option>
+            <option value="mountain">산/숲🏔️</option>
             <option value="sea">바다/호수</option>
             <option value="river">강/내륙</option>
             <option value="mudflat">뻘/늪</option>
@@ -5303,8 +5303,8 @@ body.force-mobile .marker-type-selector button {
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
       <!-- [성/도시·지명·전장] 설명 -->
       <div class="form-row" id="castleDescRow" style="flex-direction:column; align-items:stretch; gap:4px;">
-        <label for="castleDescEditor" style="margin-bottom:2px;">설명:</label>
         <!-- 리치 에디터 툴바 -->
+         <br>
         <div id="castleDescToolbar" style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:3px;">
           <button type="button" onclick="document.execCommand('bold')" title="굵게" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#ecf0f1;padding:3px 8px;border-radius:4px;cursor:pointer;font-weight:bold;font-size:12px;">B</button>
           <button type="button" onclick="document.execCommand('italic')" title="기울임" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#ecf0f1;padding:3px 8px;border-radius:4px;cursor:pointer;font-style:italic;font-size:12px;">I</button>
@@ -6578,6 +6578,12 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     }
 
     // ── 설명 에디터 헬퍼 함수들 ──────────────────────────────
+
+    // desc에서 <img> 태그 제거 (팝업 전용 — 상세보기에서는 이미지 표시)
+    function stripImgTags(html) {
+        if (!html) return '';
+        return html.replace(/<img[^>]*>/gi, '').replace(/<figure[^>]*>[\s\S]*?<\/figure>/gi, '').trim();
+    }
 
     // contenteditable → hidden textarea 동기화
     function syncDescFromEditor() {
@@ -7861,7 +7867,7 @@ function getKingByYear(countryName, year, month) {
             ? `<br><small style="font-size:11px; color:#9aabbd;">사관: ${newCastle.createdBy}</small>`
             : '';
         
-        const popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${newCastle.desc}</span>` : ''}${editorInfoHtml}${buildCommentBtn(newCastle._id, castleName)}</div>`;
+        const popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${stripImgTags(newCastle.desc)}</span>` : ''}${editorInfoHtml}${buildCommentBtn(newCastle._id, castleName)}</div>`;
         
         marker.bindPopup(popupHtml, {
             className: 'compact-popup',
@@ -8169,7 +8175,7 @@ function getKingByYear(countryName, year, month) {
             ? `<br><small style="font-size:11px; color:#9aabbd;">사관: ${creatorName}</small>`
             : '';
         
-        const popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${newCastle.desc}</span>` : ''}${creatorInfoHtml}${buildCommentBtn(newCastle._id, castleName)}</div>`;
+        const popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${stripImgTags(newCastle.desc)}</span>` : ''}${creatorInfoHtml}${buildCommentBtn(newCastle._id, castleName)}</div>`;
         
         marker.bindPopup(popupHtml, {
             className: 'compact-popup',
@@ -9342,7 +9348,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     ? `<br><small>마지막 수정: ${castle.lastModifiedBy}</small>` 
                     : (castle.createdBy ? `<br><small>생성자: ${castle.createdBy}</small>` : '');
                 
-                popupHtml = `<b>지역명: ${castleName}</b><br>기간: ${builtText} ~ ${destroyedText}<br>설명: ${castle.desc ?? ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
+                popupHtml = `<b>지역명: ${castleName}</b><br>기간: ${builtText} ~ ${destroyedText}<br>설명: ${stripImgTags(castle.desc ?? '')}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
                 
                 marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
                 
@@ -9519,7 +9525,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     : '';
                 
                 // 🚩 [v2.0.6] 콤팩트 팝업
-                popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${castle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:240px;max-height:180px;object-fit:cover;margin-top:6px;border-radius:4px;border:1px solid rgba(180,140,80,0.3);">` : ''}${_naturalCreatorHtml}${buildCommentBtn(castle._id, castleName)}</div>`;
+                popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${castle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${stripImgTags(castle.desc)}</span>` : ''}${_naturalCreatorHtml}${buildCommentBtn(castle._id, castleName)}</div>`;
                                 
                 marker.bindPopup(popupHtml, {
                     className: 'compact-popup',
@@ -9586,7 +9592,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     marker = L.marker([markerLat, markerLng], { icon: flagIcon });
                     
                     const flagHtml = countryInfo.flag ? `<img src="${countryInfo.flag}" class="country-flag-img" style="width: 20px; height: 13px; border: 1px solid #ccc; vertical-align: middle; margin-right: 5px;">` : '';
-                    const descriptionHtml = castle.desc ? `<br>설명: ${castle.desc}` : '';
+                    const descriptionHtml = castle.desc ? `<br>설명: ${stripImgTags(castle.desc)}` : '';
                     const metaInfo = [];
                     if (castle.createdBy) metaInfo.push(`생성자: ${castle.createdBy}`);
                     if (castle.lastModifiedBy) metaInfo.push(`마지막 수정: ${castle.lastModifiedBy}`);
@@ -9679,7 +9685,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 
                 const flagHtml = countryInfo.flag ? `<img src="${countryInfo.flag}" class="country-flag-img" style="width: 20px; height: 13px; border: 1px solid #ccc; vertical-align: middle; margin-right: 5px;">` : '';
 
-                const descriptionHtml = castle.desc ? `<br>설명: ${castle.desc}` : '';
+                const descriptionHtml = castle.desc ? `<br>설명: ${stripImgTags(castle.desc)}` : '';
                 const metaInfo = [];
                 if (castle.createdBy) metaInfo.push(`생성자: ${castle.createdBy}`);
                 if (castle.lastModifiedBy) metaInfo.push(`마지막 수정: ${castle.lastModifiedBy}`);
@@ -9792,7 +9798,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const editorInfoHtml = castle.lastModifiedBy
                 ? `<br><small style="font-size:11px;color:#9aabbd;">마지막 수정: ${castle.lastModifiedBy}</small>`
                 : (castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">생성자: ${castle.createdBy}</small>` : '');
-            popupHtml = `<b>🏯 ${castleName}</b><br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
+            popupHtml = `<b>🏯 ${castleName}</b><br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${stripImgTags(castle.desc)}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
             marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
             let capTimeout;
             marker.on('mouseover', function() { clearTimeout(capTimeout); if (currentOpenPopup && currentOpenPopup !== this) currentOpenPopup.closePopup(); this.openPopup(); currentOpenPopup = this; });
@@ -9845,7 +9851,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const editorInfoHtml = castle.lastModifiedBy
                 ? `<br><small style="font-size:11px;color:#9aabbd;">마지막 수정: ${castle.lastModifiedBy}</small>`
                 : (castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">생성자: ${castle.createdBy}</small>` : '');
-            popupHtml = `<b>${ptCfg.hanja} ${castleName}</b><br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${castle.desc}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
+            popupHtml = `<b>${ptCfg.hanja} ${castleName}</b><br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${stripImgTags(castle.desc)}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
             marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
 
             let sptTimeout;
@@ -9911,7 +9917,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         const _capitalImgHtml = '';
         popupHtml = _capitalImgHtml
                 + `<b>${castleName}</b><br>${flagHtml} <span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8; cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px;">${countryName}</span>${countryEthnicity}<br><span style="color:#9aabbd;font-size:11px;">존속: ${builtText} ~ ${destroyedText}</span>` 
-                + (castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${castle.desc}</span>` : "") 
+                + (castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${stripImgTags(castle.desc)}</span>` : "") 
                 + (castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px; max-height:100px; object-fit:cover; border-radius:4px; border:1px solid rgba(180,140,80,0.3); margin-top:4px;">` : "") 
                 + kingHtml
                 + editorInfoHtml
@@ -16618,13 +16624,18 @@ kingSelect.addEventListener('change', () => {
         const url = isUpdate ? `${API_BASE_URL}/drawings/${drawingId}` : `${API_BASE_URL}/drawings`;
         const method = isUpdate ? 'PUT' : 'POST';
 
+        const geoJsonRaw = document.getElementById('drawingGeoJson').value;
+        if (!geoJsonRaw) {
+            return alert("지도에 도형을 먼저 그려주세요. 그리기 도구로 선 또는 폴리곤을 그린 후 저장하세요.");
+        }
+
         const data = {
             name: document.getElementById('drawingName').value,
             type: document.getElementById('drawingType').value,
             color: document.getElementById('drawingColor').value, // 🚩 [추가] 색상 필드
             start_year: parseInt(document.getElementById('drawingStartYear').value),
             end_year: document.getElementById('drawingEndYear').value ? parseInt(document.getElementById('drawingEndYear').value) : null,
-            geojson: JSON.parse(document.getElementById('drawingGeoJson').value)
+            geojson: JSON.parse(geoJsonRaw)
         };
 
         if (!data.name || isNaN(data.start_year)) {
@@ -16643,6 +16654,17 @@ kingSelect.addEventListener('change', () => {
             if (!response.ok) throw new Error('그리기 정보 저장 실패');
             
             document.getElementById('drawingForm').style.display = 'none';
+            
+            // 강 타입 저장 후 강 레이어가 꺼져있으면 자동으로 켜서 바로 보이게 함
+            if (data.type === 'river' && !layerVisibility.rivers) {
+                layerVisibility.rivers = true;
+                // PC 체크박스 동기화
+                const riversCb = document.querySelector('input[data-layer="rivers"]');
+                if (riversCb) riversCb.checked = true;
+                // 모바일 버튼 동기화
+                const riversBtn = document.querySelector('[data-layer-type="rivers"]');
+                if (riversBtn) riversBtn.classList.add('active');
+            }
             
             // 🚩 [최적화] 전체 fetch 대신 메모리에서 증분 업데이트
             if (isUpdate) {
