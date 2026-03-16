@@ -2380,6 +2380,11 @@ body.force-mobile .marker-type-selector button {
             white-space: pre-wrap; border-left: 2px solid rgba(180,140,80,0.35);
             padding-left: 10px;
         }
+        .odp-desc img {
+            max-width: 100%; border-radius: 5px;
+            margin: 6px 0; display: block;
+            border: 1px solid rgba(180,140,80,0.2);
+        }
         .odp-section-title {
             font-size: 12px; font-weight: 700;
             color: #d4a843; letter-spacing: 0.08em;
@@ -5291,9 +5296,24 @@ body.force-mobile .marker-type-selector button {
            · 군대: 병력 수 + 장수 사진
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
       <!-- [성/도시·지명·전장] 설명 -->
-      <div class="form-row" id="castleDescRow">
-        <label for="castleDesc">설명:</label>
-        <textarea id="castleDesc" rows="3"></textarea>
+      <div class="form-row" id="castleDescRow" style="flex-direction:column; align-items:stretch; gap:4px;">
+        <label for="castleDescEditor" style="margin-bottom:2px;">설명:</label>
+        <!-- 리치 에디터 툴바 -->
+        <div id="castleDescToolbar" style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:3px;">
+          <button type="button" onclick="document.execCommand('bold')" title="굵게" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#ecf0f1;padding:3px 8px;border-radius:4px;cursor:pointer;font-weight:bold;font-size:12px;">B</button>
+          <button type="button" onclick="document.execCommand('italic')" title="기울임" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#ecf0f1;padding:3px 8px;border-radius:4px;cursor:pointer;font-style:italic;font-size:12px;">I</button>
+          <button type="button" onclick="document.execCommand('underline')" title="밑줄" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#ecf0f1;padding:3px 8px;border-radius:4px;cursor:pointer;text-decoration:underline;font-size:12px;">U</button>
+          <button type="button" onclick="insertDescImage()" title="이미지 URL 삽입" style="background:rgba(180,140,80,0.15);border:1px solid rgba(180,140,80,0.4);color:#d4a843;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:12px;">🖼 이미지</button>
+          <span style="font-size:11px;color:#7a93a8;align-self:center;margin-left:4px;">이미지 복붙(Ctrl+V) 가능</span>
+        </div>
+        <!-- contenteditable 에디터 영역 -->
+        <div id="castleDescEditor" contenteditable="true"
+          style="min-height:80px; max-height:280px; overflow-y:auto; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.18); border-radius:5px; padding:8px 10px; color:#ecf0f1; font-size:13px; line-height:1.7; outline:none; word-break:break-word; white-space:pre-wrap; box-sizing:border-box;"
+          oninput="syncDescFromEditor()"
+          onpaste="handleDescPaste(event)">
+        </div>
+        <!-- 실제 저장용 hidden textarea (기존 로직 호환) -->
+        <textarea id="castleDesc" rows="3" style="display:none;"></textarea>
       </div>
       <!-- [성/도시·지명·전장] 사진 URL -->
       <div class="form-row" id="castlePhotoRow">
@@ -5302,9 +5322,14 @@ body.force-mobile .marker-type-selector button {
       </div>
       <!-- [자연] 설명 + 사진 URL -->
       <div id="naturalContentDetails" style="display:none; flex-direction:column; gap:0;">
-        <div class="form-row">
-          <label for="naturalDescProxy">설명:</label>
-          <textarea id="naturalDescProxy" rows="3" placeholder="팝업에 표시할 설명 (선택)" style="flex:1; resize:vertical;"
+        <div class="form-row" style="flex-direction:column; align-items:stretch; gap:4px;">
+          <label style="margin-bottom:2px;">설명:</label>
+          <div id="naturalDescEditorProxy" contenteditable="true"
+            style="min-height:60px; max-height:200px; overflow-y:auto; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.18); border-radius:5px; padding:8px 10px; color:#ecf0f1; font-size:13px; line-height:1.7; outline:none; word-break:break-word; white-space:pre-wrap; box-sizing:border-box;"
+            oninput="document.getElementById('naturalDescProxy').value=this.innerText; syncDescFromEditor()"
+            onpaste="handleDescPaste(event)">
+          </div>
+          <textarea id="naturalDescProxy" rows="3" style="display:none;"
             oninput="document.getElementById('castleDesc').value=this.value"></textarea>
         </div>
         <div class="form-row">
@@ -6542,6 +6567,64 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         return role === 'superuser' || role === 'admin' || role === '사관' || role === '정사관' || role === '수사관';
     }
 
+    // ── 설명 에디터 헬퍼 함수들 ──────────────────────────────
+
+    // contenteditable → hidden textarea 동기화
+    function syncDescFromEditor() {
+        const editor = document.getElementById('castleDescEditor');
+        const ta = document.getElementById('castleDesc');
+        if (editor && ta) ta.value = editor.innerHTML;
+    }
+
+    // 이미지 URL 입력 삽입
+    function insertDescImage() {
+        const url = prompt('이미지 URL을 입력하세요:');
+        if (!url) return;
+        const editor = document.getElementById('castleDescEditor');
+        if (!editor) return;
+        editor.focus();
+        const img = `<img src="${url}" style="max-width:100%;border-radius:4px;margin:4px 0;display:block;" onerror="this.style.opacity=0.3">`;
+        document.execCommand('insertHTML', false, img);
+        syncDescFromEditor();
+    }
+
+    // 클립보드 붙여넣기 처리 (이미지 데이터 + URL 텍스트)
+    function handleDescPaste(e) {
+        const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+        if (!items) return;
+
+        // 이미지 파일(클립보드 캡처 등) → 서버 업로드 없이 base64 미리보기
+        for (const item of items) {
+            if (item.type.startsWith('image/')) {
+                e.preventDefault();
+                const blob = item.getAsFile();
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const editor = document.getElementById('castleDescEditor');
+                    if (!editor) return;
+                    editor.focus();
+                    const img = `<img src="${ev.target.result}" style="max-width:100%;border-radius:4px;margin:4px 0;display:block;">`;
+                    document.execCommand('insertHTML', false, img);
+                    syncDescFromEditor();
+                };
+                reader.readAsDataURL(blob);
+                return;
+            }
+        }
+        // 텍스트/HTML 붙여넣기는 기본 동작 허용 후 동기화
+        setTimeout(syncDescFromEditor, 0);
+    }
+
+    // 에디터 초기화 (폼 열 때 호출)
+    function loadDescToEditor(htmlContent) {
+        const editor = document.getElementById('castleDescEditor');
+        const ta = document.getElementById('castleDesc');
+        if (!editor || !ta) return;
+        // desc 내용을 에디터에 표시 (plain text면 그대로, HTML이면 그대로)
+        editor.innerHTML = htmlContent || '';
+        ta.value = htmlContent || '';
+    }
+
     function closeDetailPanel() {
         const panel = document.getElementById('object-detail-panel');
         if (panel) panel.classList.remove('active');
@@ -6595,7 +6678,8 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         const descEl = document.getElementById('odp-desc');
         const desc = castle.desc || activeHistoryRecord?.desc || activeHistoryRecord?.notes || '';
         if (desc) {
-            descEl.textContent = desc;
+            // HTML 태그(이미지 등) 포함 가능하므로 innerHTML로 렌더링
+            descEl.innerHTML = desc;
             descEl.style.display = '';
         } else {
             descEl.style.display = 'none';
@@ -14495,7 +14579,7 @@ function invalidateCountryLookupCache() {
 
     /** 성 편집 폼 열기 (마커 클릭 시 호출) */
     window.openCastleForm = function(id) {
-        if (!editMode || !(currentUser?.role === 'superuser' || currentUser?.role === 'admin')) return; 
+        if (!canEditObjects()) return; 
         const castle = castles.find(c => c._id === id);
         map.closePopup();
         if (!castle) return alert("성 정보를 찾을 수 없습니다.");
@@ -14529,6 +14613,7 @@ function invalidateCountryLookupCache() {
         document.getElementById('castleLat').value = castle.lat;
         document.getElementById('castleLng').value = castle.lng;
         document.getElementById('castleDesc').value = castle.desc ?? '';
+        loadDescToEditor(castle.desc ?? '');
         document.getElementById('castlePhoto').value = castle.photo ?? '';
         // 🚩 [추가] 커스텀 아이콘 필드 로드
         document.getElementById('customIcon').value = castle.custom_icon ?? '';
@@ -14846,6 +14931,7 @@ function invalidateCountryLookupCache() {
         document.getElementById('castleLat').value = contrib.lat;
         document.getElementById('castleLng').value = contrib.lng;
         document.getElementById('castleDesc').value = contrib.description + (contrib.evidence ? `\n\n[증거/참고] ${contrib.evidence}` : "");
+        loadDescToEditor(contrib.description + (contrib.evidence ? `\n\n[증거/참고] ${contrib.evidence}` : ""));
         
         // 🚩 [핵심] 원본 기여자 정보 설정
         document.getElementById('originContributionId').value = contrib._id;
@@ -15185,7 +15271,7 @@ function invalidateCountryLookupCache() {
         lat: parseFloat(document.getElementById('castleLat').value),
         lng: parseFloat(document.getElementById('castleLng').value),
         photo: document.getElementById('castlePhoto').value || null,
-        desc: document.getElementById('castleDesc').value,
+        desc: (document.getElementById('castleDescEditor')?.innerHTML || document.getElementById('castleDesc').value) || '',
         is_capital: false, // 🚩 [수정] 최상위 is_capital은 더 이상 사용하지 않음
         is_battle: selectedType === 'battle',
         is_military_flag: selectedType === 'military',
@@ -19993,6 +20079,7 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('castleLat').value = contrib.lat ?? '';
             document.getElementById('castleLng').value = contrib.lng ?? '';
             document.getElementById('castleDesc').value = contrib.description || contrib.desc || '';
+            loadDescToEditor(contrib.description || contrib.desc || '');
             document.getElementById('castlePhoto').value = contrib.photo || '';
             document.getElementById('customIcon').value = '';
             document.getElementById('iconWidth').value = '';
