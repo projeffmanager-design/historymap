@@ -5330,9 +5330,17 @@ body.force-mobile .marker-type-selector button {
       <div id="naturalContentDetails" style="display:none; flex-direction:column; gap:0;">
         <div class="form-row" style="flex-direction:column; align-items:stretch; gap:4px;">
           <label style="margin-bottom:2px;">설명:</label>
+          <!-- 리치 에디터 툴바 (자연용) -->
+          <div id="naturalDescToolbar" style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:3px;">
+            <button type="button" onclick="document.execCommand('bold')" title="굵게" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#ecf0f1;padding:3px 8px;border-radius:4px;cursor:pointer;font-weight:bold;font-size:12px;">B</button>
+            <button type="button" onclick="document.execCommand('italic')" title="기울임" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#ecf0f1;padding:3px 8px;border-radius:4px;cursor:pointer;font-style:italic;font-size:12px;">I</button>
+            <button type="button" onclick="document.execCommand('underline')" title="밑줄" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#ecf0f1;padding:3px 8px;border-radius:4px;cursor:pointer;text-decoration:underline;font-size:12px;">U</button>
+            <button type="button" onclick="insertNaturalDescImage()" title="이미지 URL 삽입" style="background:rgba(180,140,80,0.15);border:1px solid rgba(180,140,80,0.4);color:#d4a843;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:12px;">🖼 이미지</button>
+            <span style="font-size:11px;color:#7a93a8;align-self:center;margin-left:4px;">이미지 복붙(Ctrl+V) 가능</span>
+          </div>
           <div id="naturalDescEditorProxy" contenteditable="true"
-            style="min-height:60px; max-height:200px; overflow-y:auto; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.18); border-radius:5px; padding:8px 10px; color:#ecf0f1; font-size:13px; line-height:1.7; outline:none; word-break:break-word; white-space:pre-wrap; box-sizing:border-box;"
-            oninput="document.getElementById('naturalDescProxy').value=this.innerText; syncDescFromEditor()"
+            style="min-height:80px; max-height:280px; overflow-y:auto; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.18); border-radius:5px; padding:8px 10px; color:#ecf0f1; font-size:13px; line-height:1.7; outline:none; word-break:break-word; white-space:pre-wrap; box-sizing:border-box;"
+            oninput="syncNaturalDesc(this)"
             onpaste="handleDescPaste(event)">
           </div>
           <textarea id="naturalDescProxy" rows="3" style="display:none;"
@@ -6629,7 +6637,20 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         if (editor && ta) ta.value = editor.innerHTML;
     }
 
-    // 이미지 URL 입력 삽입
+    // 자연 설명 에디터 → proxy textarea + castleDesc + castleDescEditor 동기화
+    function syncNaturalDesc(editorEl) {
+        const html = editorEl.innerHTML;
+        // <br> 하나만 있는 빈 상태는 빈 문자열로 처리
+        const cleanHtml = (html === '<br>' || html === '<br/>') ? '' : html;
+        const proxyTa = document.getElementById('naturalDescProxy');
+        const castleDescTa = document.getElementById('castleDesc');
+        const castleDescEditor = document.getElementById('castleDescEditor');
+        if (proxyTa) proxyTa.value = cleanHtml;
+        if (castleDescTa) castleDescTa.value = cleanHtml;
+        if (castleDescEditor) castleDescEditor.innerHTML = cleanHtml;
+    }
+
+    // 이미지 URL 입력 삽입 (성/도시/지명/전장 에디터용)
     function insertDescImage() {
         const url = prompt('이미지 URL을 입력하세요:');
         if (!url) return;
@@ -6641,8 +6662,22 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         syncDescFromEditor();
     }
 
+    // 이미지 URL 입력 삽입 (자연 에디터용)
+    function insertNaturalDescImage() {
+        const url = prompt('이미지 URL을 입력하세요:');
+        if (!url) return;
+        const editor = document.getElementById('naturalDescEditorProxy');
+        if (!editor) return;
+        editor.focus();
+        const img = `<img src="${url}" style="max-width:100%;border-radius:4px;margin:4px 0;display:block;" onerror="this.style.opacity=0.3">`;
+        document.execCommand('insertHTML', false, img);
+        syncNaturalDesc(editor);
+    }
+
     // 클립보드 붙여넣기 처리 (이미지 데이터 + URL 텍스트)
     function handleDescPaste(e) {
+        const targetEl = e.currentTarget || e.target;
+        const isNaturalEditor = targetEl?.id === 'naturalDescEditorProxy';
         const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
         if (!items) return;
 
@@ -6653,19 +6688,28 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                 const blob = item.getAsFile();
                 const reader = new FileReader();
                 reader.onload = (ev) => {
-                    const editor = document.getElementById('castleDescEditor');
+                    const editor = isNaturalEditor
+                        ? document.getElementById('naturalDescEditorProxy')
+                        : document.getElementById('castleDescEditor');
                     if (!editor) return;
                     editor.focus();
                     const img = `<img src="${ev.target.result}" style="max-width:100%;border-radius:4px;margin:4px 0;display:block;">`;
                     document.execCommand('insertHTML', false, img);
-                    syncDescFromEditor();
+                    if (isNaturalEditor) syncNaturalDesc(editor); else syncDescFromEditor();
                 };
                 reader.readAsDataURL(blob);
                 return;
             }
         }
         // 텍스트/HTML 붙여넣기는 기본 동작 허용 후 동기화
-        setTimeout(syncDescFromEditor, 0);
+        setTimeout(() => {
+            if (isNaturalEditor) {
+                const el = document.getElementById('naturalDescEditorProxy');
+                if (el) syncNaturalDesc(el);
+            } else {
+                syncDescFromEditor();
+            }
+        }, 0);
     }
 
     // 에디터 초기화 (폼 열 때 호출)
@@ -14560,17 +14604,23 @@ function invalidateCountryLookupCache() {
             const commonIconHeight = document.getElementById('iconHeight').value;
             
             // ── 설명/사진 수집 (타입에 따라 다른 필드에서 읽기) ──
+            // 군대는 설명 필드가 없으므로 군대 ↔ 다른 타입 전환 시 설명/사진에 손대지 않음
             let commonDesc = '';
             let commonPhoto = '';
-            if (prevType === 'natural') {
-                commonDesc = document.getElementById('naturalDescProxy')?.value || '';
-                commonPhoto = document.getElementById('naturalPhotoProxy')?.value || '';
-            } else if (prevType === 'military') {
-                commonDesc = '';
-                commonPhoto = '';
-            } else {
-                commonDesc = document.getElementById('castleDesc').value || '';
-                commonPhoto = document.getElementById('castlePhoto').value || '';
+            const isMilitaryTransition = (prevType === 'military' || newType === 'military');
+
+            if (!isMilitaryTransition) {
+                if (prevType === 'natural') {
+                    // contenteditable 에디터 우선, 없으면 textarea proxy
+                    const naturalDescEditorProxy = document.getElementById('naturalDescEditorProxy');
+                    commonDesc = naturalDescEditorProxy?.innerHTML || document.getElementById('naturalDescProxy')?.value || '';
+                    commonPhoto = document.getElementById('naturalPhotoProxy')?.value || '';
+                } else {
+                    // castleDescEditor(contenteditable)를 우선 읽고, 없으면 castleDesc textarea
+                    const castleDescEditor = document.getElementById('castleDescEditor');
+                    commonDesc = castleDescEditor?.innerHTML || document.getElementById('castleDesc').value || '';
+                    commonPhoto = document.getElementById('castlePhoto').value || '';
+                }
             }
             
             // ── 연도 수집 (역사기록 또는 단순기간에서 읽기) ──
@@ -14591,19 +14641,34 @@ function invalidateCountryLookupCache() {
                 endMonth = document.getElementById('simpleEndMonth').value || '';
             }
             
-            // ── 타입 전환 실행 ──
+            // ── 타입 전환 실행 (전환 전 현재 에디터 flush, 군대 전환 시 제외) ──
+            if (!isMilitaryTransition) {
+                if (prevType === 'natural') {
+                    const el = document.getElementById('naturalDescEditorProxy');
+                    if (el) syncNaturalDesc(el);
+                } else {
+                    syncDescFromEditor();
+                }
+            }
             setActiveMarkerType(newType);
             
-            // ── 새 타입 필드에 수집한 값 채우기 ──
-            // 설명/사진
-            if (newType === 'natural') {
-                const naturalDescProxy = document.getElementById('naturalDescProxy');
-                const naturalPhotoProxy = document.getElementById('naturalPhotoProxy');
-                if (naturalDescProxy) naturalDescProxy.value = commonDesc;
-                if (naturalPhotoProxy) naturalPhotoProxy.value = commonPhoto;
-            } else if (newType !== 'military') {
-                document.getElementById('castleDesc').value = commonDesc;
-                document.getElementById('castlePhoto').value = commonPhoto;
+            // ── 새 타입 필드에 수집한 값 채우기 (군대 전환 시 설명/사진 건드리지 않음) ──
+            if (!isMilitaryTransition) {
+                if (newType === 'natural') {
+                    const naturalDescProxy = document.getElementById('naturalDescProxy');
+                    const naturalPhotoProxy = document.getElementById('naturalPhotoProxy');
+                    const naturalDescEditorProxy = document.getElementById('naturalDescEditorProxy');
+                    if (naturalDescProxy) naturalDescProxy.value = commonDesc;
+                    if (naturalPhotoProxy) naturalPhotoProxy.value = commonPhoto;
+                    // ★ 자연 설명 에디터(contenteditable)에도 동기화
+                    if (naturalDescEditorProxy) naturalDescEditorProxy.innerHTML = commonDesc;
+                } else {
+                    document.getElementById('castleDesc').value = commonDesc;
+                    document.getElementById('castlePhoto').value = commonPhoto;
+                    // ★ castleDescEditor(contenteditable)에도 동기화
+                    const castleDescEditor = document.getElementById('castleDescEditor');
+                    if (castleDescEditor) castleDescEditor.innerHTML = commonDesc;
+                }
             }
             
             // 연도
@@ -14764,8 +14829,11 @@ function invalidateCountryLookupCache() {
                 // 자연마커 proxy 필드 동기화 (naturalContentDetails 내)
                 const naturalPhotoProxy = document.getElementById('naturalPhotoProxy');
                 const naturalDescProxy = document.getElementById('naturalDescProxy');
+                const naturalDescEditorProxy = document.getElementById('naturalDescEditorProxy');
                 if (naturalPhotoProxy) naturalPhotoProxy.value = castle.photo ?? '';
                 if (naturalDescProxy) naturalDescProxy.value = castle.desc ?? '';
+                // ★ 자연 설명 에디터(contenteditable)에도 내용 로드
+                if (naturalDescEditorProxy) naturalDescEditorProxy.innerHTML = castle.desc ?? '';
             }
         }
         
