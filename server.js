@@ -3230,7 +3230,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     console.log(`⚠️ [승인→Castle 스킵] '${contribution.name}' 이미 castle 존재 (ID: ${existingCastle._id})`);
                     const message = '검토가 완료되었습니다.';
                     await logActivity('approve', req.user.username, req.user.position || '', contribution.name || '사관 기록', {
-                        category: contribution.category || null
+                        category: contribution.category || null, isNew: false
                     }, req.user.userId);
                     return res.json({ message, castle: existingCastle });
                 }
@@ -3272,7 +3272,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                             const message = '검토가 완료되었습니다.';
                             // 🚩 [수정] logActivity를 return 전에 await 호출
                             await logActivity('approve', req.user.username, req.user.position || '', contribution.name || '사관 기록', {
-                                category: contribution.category || null
+                                category: contribution.category || null, isNew: true
                             }, req.user.userId);
                             return res.json({ message, castle: insertedCastle });
                         } catch (castleError) {
@@ -3286,7 +3286,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 // 🚩 [추가] 승인 시 활동 소식 피드에 기록
                 if (status === 'approved') {
                     await logActivity('approve', req.user.username, req.user.position || '', contribution.name || '사관 기록', {
-                        category: contribution.category || null
+                        category: contribution.category || null, isNew: false
                     }, req.user.userId);
                 }
                 invalidateRankingsCache(); // 점수 변경 → 랭킹 캐시 무효화
@@ -4202,7 +4202,7 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
 
         // 🚩 [추가] 최종 승인 액티비티 로그
         await logActivity('approve', user.username, user.position || '', contribution.name || '사관 기록', {
-            category: contribution.category || null
+            category: contribution.category || null, isNew: true
         }, userId);
 
         res.json({ message: "기여가 최종 승인되었습니다. 성 마커로 변환되었습니다.", castle: insertedCastle });
