@@ -5116,8 +5116,24 @@ body.force-mobile .marker-type-selector button {
             <!-- 사관 의견 섹션 -->
             <div id="odp-comments-section" style="display:none;">
                 <div class="odp-section-title">💬 사관 의견</div>
-                <div id="odp-comments-list" style="font-size:13px; color:#c8d8e8; line-height:1.7;"></div>
-                <button id="odp-comments-more-btn" onclick="window._odpOpenComments && window._odpOpenComments()" style="display:none; margin-top:8px; background:rgba(180,140,80,0.1); border:1px solid rgba(180,140,80,0.3); color:#d4a843; font-size:12px; padding:5px 12px; border-radius:4px; cursor:pointer; width:100%;">💬 의견 모두 보기 / 작성</button>
+                <!-- 댓글 목록 -->
+                <div id="odp-comments-list" style="font-size:13px; color:#c8d8e8; line-height:1.7; max-height:240px; overflow-y:auto;"></div>
+                <!-- 더보기 버튼 (3개 초과 시) -->
+                <button id="odp-comments-more-btn" onclick="window._odpOpenComments && window._odpOpenComments()" style="display:none; margin-top:6px; background:rgba(180,140,80,0.08); border:1px solid rgba(180,140,80,0.25); color:#d4a843; font-size:12px; padding:4px 10px; border-radius:4px; cursor:pointer; width:100%;">💬 전체 보기</button>
+                <!-- 의견 입력창 -->
+                <div id="odp-comments-input-area" style="display:none; margin-top:10px;">
+                    <textarea id="odp-comment-input" placeholder="의견을 입력하세요..." maxlength="500"
+                        style="width:100%; box-sizing:border-box; background:rgba(255,255,255,0.06); border:1px solid rgba(180,140,80,0.3); border-radius:6px; color:#e8f0f8; font-size:13px; padding:8px 10px; resize:vertical; min-height:70px; outline:none; font-family:inherit;" rows="3"></textarea>
+                    <div style="display:flex; justify-content:flex-end; align-items:center; margin-top:5px; gap:8px;">
+                        <span id="odp-comment-charcount" style="font-size:11px; color:#6a7f8e;">0 / 500</span>
+                        <button onclick="window._odpSubmitComment && window._odpSubmitComment()"
+                            style="background:rgba(180,140,80,0.2); border:1px solid rgba(180,140,80,0.5); color:#d4a843; font-size:12px; padding:5px 14px; border-radius:5px; cursor:pointer; font-weight:600;">등록</button>
+                    </div>
+                </div>
+                <!-- 비로그인 안내 -->
+                <div id="odp-comments-login-notice" style="display:none; margin-top:8px; font-size:12px; color:#6a7f8e; text-align:center; padding:8px 0;">
+                    로그인 후 의견을 남길 수 있습니다.
+                </div>
             </div>
         </div>
         <!-- 편집 버튼 바 (권한 있을 때만 표시) -->
@@ -6868,39 +6884,116 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         const commentsSec = document.getElementById('odp-comments-section');
         const commentsList = document.getElementById('odp-comments-list');
         const commentsMoreBtn = document.getElementById('odp-comments-more-btn');
+        const commentsInputArea = document.getElementById('odp-comments-input-area');
+        const commentsLoginNotice = document.getElementById('odp-comments-login-notice');
+        const odpCommentInput = document.getElementById('odp-comment-input');
+        const odpCharCount = document.getElementById('odp-comment-charcount');
         const castleId = castle._id;
-        commentsSec.style.display = 'none';
-        commentsList.innerHTML = '';
+        // 초기화
+        commentsSec.style.display = '';
+        commentsList.innerHTML = '<div style="color:#6a7f8e;font-size:12px;text-align:center;padding:10px 0;">불러오는 중...</div>';
         commentsMoreBtn.style.display = 'none';
+        if (odpCommentInput) { odpCommentInput.value = ''; }
+        if (odpCharCount) { odpCharCount.textContent = '0 / 500'; }
+
+        // 글자 수 카운터
+        if (odpCommentInput && !odpCommentInput._odpListener) {
+            odpCommentInput._odpListener = true;
+            odpCommentInput.addEventListener('input', function() {
+                if (odpCharCount) odpCharCount.textContent = `${this.value.length} / 500`;
+            });
+        }
 
         const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-        if (token && castleId) {
+
+        // 비로그인 처리
+        if (!token) {
+            commentsList.innerHTML = '';
+            commentsInputArea.style.display = 'none';
+            commentsLoginNotice.style.display = '';
+            window._odpOpenComments = () => openMarkerCommentModal(castleId, castle.name || '');
+            window._odpSubmitComment = null;
+            return;
+        }
+
+        commentsLoginNotice.style.display = 'none';
+        commentsInputArea.style.display = '';
+
+        // 등록 함수
+        window._odpSubmitComment = async function() {
+            const text = odpCommentInput ? odpCommentInput.value.trim() : '';
+            if (!text) return;
+            const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+            if (!tok) return;
+            try {
+                const res = await fetch('/api/marker-comments', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}` },
+                    body: JSON.stringify({ castle_id: castleId, text })
+                });
+                if (!res.ok) { const err = await res.json(); alert(err.message || '등록 실패'); return; }
+                if (odpCommentInput) odpCommentInput.value = '';
+                if (odpCharCount) odpCharCount.textContent = '0 / 500';
+                // 배지 카운트 갱신
+                try {
+                    const id = String(castleId);
+                    window._commentCounts = window._commentCounts || {};
+                    window._commentCounts[id] = (window._commentCounts[id] || 0) + 1;
+                    const btnBadge = document.getElementById(`mc-btn-badge-${id}`);
+                    if (btnBadge) { btnBadge.style.display = 'inline-block'; btnBadge.textContent = window._commentCounts[id] > 99 ? '99+' : window._commentCounts[id]; }
+                    (allCastleMarkers || []).forEach(m => { try { if (m && m._castleData && String(m._castleData._id) === id) placeBadgeOnMarker(m, id); } catch(e){} });
+                } catch(e) {}
+                if (typeof window.refreshActivityFeed === 'function') window.refreshActivityFeed();
+                // 댓글 목록 새로고침
+                window._odpReloadComments && window._odpReloadComments();
+            } catch(e) { alert('등록 중 오류가 발생했습니다.'); }
+        };
+
+        // 댓글 로드 함수
+        window._odpReloadComments = function() {
             fetch(`/api/marker-comments/${castleId}`, { headers: { 'Authorization': `Bearer ${token}` } })
                 .then(r => r.ok ? r.json() : Promise.reject())
                 .then(comments => {
-                    if (!comments || comments.length === 0) return;
-                    commentsSec.style.display = '';
-                    // 최신 3개 미리보기
+                    if (!comments || comments.length === 0) {
+                        commentsList.innerHTML = '<div style="color:#6a7f8e;font-size:12px;text-align:center;padding:10px 0;">아직 의견이 없습니다. 첫 번째 의견을 남겨보세요!</div>';
+                        commentsMoreBtn.style.display = 'none';
+                        return;
+                    }
                     const preview = comments.slice(-3).reverse();
                     commentsList.innerHTML = preview.map(c => {
                         const date = new Date(c.created_at).toLocaleDateString('ko-KR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+                        const canDel = currentUser && (currentUser.username === c.author || currentUser.role === 'admin' || currentUser.role === 'superuser');
+                        const delBtn = canDel ? `<button onclick="window._odpDeleteComment('${c._id}')" style="float:right;background:none;border:none;color:#e74c3c;font-size:11px;cursor:pointer;padding:0 2px;">삭제</button>` : '';
                         return `<div style="padding:6px 0; border-bottom:1px solid rgba(180,140,80,0.1);">
+                            ${delBtn}
                             <span style="font-size:11px; color:#d4a843; font-weight:600;">${escapeHtml(c.author)}</span>
                             <span style="font-size:10px; color:#6a7f8e; margin-left:6px;">${date}</span>
                             <div style="font-size:12px; color:#c8d8e8; margin-top:2px; white-space:pre-wrap;">${escapeHtml(c.text)}</div>
                         </div>`;
                     }).join('');
                     if (comments.length > 3) {
-                        commentsMoreBtn.textContent = `💬 의견 모두 보기 (${comments.length}개) / 작성`;
+                        commentsMoreBtn.textContent = `💬 전체 보기 (${comments.length}개)`;
                         commentsMoreBtn.style.display = '';
                     } else {
-                        commentsMoreBtn.textContent = '💬 의견 작성';
-                        commentsMoreBtn.style.display = '';
+                        commentsMoreBtn.style.display = 'none';
                     }
                     window._odpOpenComments = () => openMarkerCommentModal(castleId, castle.name || '');
                 })
-                .catch(() => {});
-        }
+                .catch(() => { commentsList.innerHTML = '<div style="color:#e74c3c;font-size:12px;text-align:center;padding:10px 0;">의견을 불러오지 못했습니다.</div>'; });
+        };
+
+        // 댓글 삭제 함수
+        window._odpDeleteComment = async function(commentId) {
+            if (!confirm('이 의견을 삭제할까요?')) return;
+            const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+            try {
+                const res = await fetch(`/api/marker-comments/${commentId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${tok}` } });
+                if (!res.ok) { alert('삭제 실패'); return; }
+                window._odpReloadComments && window._odpReloadComments();
+            } catch(e) { alert('삭제 중 오류가 발생했습니다.'); }
+        };
+
+        window._odpReloadComments();
     }
 
     function openEditPanel(formId) {
