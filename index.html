@@ -6967,7 +6967,10 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
             const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
             if (!tok) return;
             fetch(`/api/marker-comments/${castleId}`, { headers: { 'Authorization': `Bearer ${tok}` } })
-                .then(r => r.ok ? r.json() : Promise.reject())
+                .then(r => {
+                    if (!r.ok) { console.warn('[ODP] marker-comments fetch 실패:', r.status, castleId); return Promise.reject(r.status); }
+                    return r.json();
+                })
                 .then(comments => {
                     if (!comments || comments.length === 0) {
                         commentsList.innerHTML = '<div style="color:#6a7f8e;font-size:12px;text-align:center;padding:10px 0;">아직 의견이 없습니다. 첫 번째 의견을 남겨보세요!</div>';
@@ -6994,7 +6997,12 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                     }
                     window._odpOpenComments = () => openMarkerCommentModal(castleId, castle.name || '');
                 })
-                .catch(() => { commentsList.innerHTML = '<div style="color:#e74c3c;font-size:12px;text-align:center;padding:10px 0;">의견을 불러오지 못했습니다.</div>'; });
+                .catch((status) => { 
+                    console.warn('[ODP] marker-comments 오류:', status, castleId);
+                    commentsList.innerHTML = status === 401 || status === 403
+                        ? '<div style="color:#9aabbd;font-size:12px;text-align:center;padding:10px 0;">세션이 만료되었습니다. 다시 로그인해 주세요.</div>'
+                        : '<div style="color:#e74c3c;font-size:12px;text-align:center;padding:10px 0;">의견을 불러오지 못했습니다.</div>';
+                });
         };
 
         // 댓글 삭제 함수
@@ -10044,11 +10052,22 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const editorInfoHtml = castle.lastModifiedBy
                 ? `<br><small style="font-size:11px;color:#9aabbd;">마지막 수정: ${castle.lastModifiedBy}</small>`
                 : (castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">생성자: ${castle.createdBy}</small>` : '');
-            popupHtml = `<b>🏯 ${castleName}</b><br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${stripImgTags(castle.desc)}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
+            const _capFlagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" style="height:11px;vertical-align:middle;margin-right:3px;border:1px solid rgba(180,140,80,0.3);border-radius:1px;">` : '';
+            const _capCountryHtml = countryName && countryName !== '알 수 없음' ? `<br>${_capFlagHtml}<span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;">${countryName}</span>` : '';
+            popupHtml = `<b>🏯 ${castleName}</b>${_capCountryHtml}<br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${stripImgTags(castle.desc)}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
             marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
             let capTimeout;
             marker.on('mouseover', function() { clearTimeout(capTimeout); if (currentOpenPopup && currentOpenPopup !== this) currentOpenPopup.closePopup(); this.openPopup(); currentOpenPopup = this; });
             marker.on('mouseout', function() { capTimeout = setTimeout(() => { const p=this.getPopup(); if(!p||!p._container||!p._container.matches(':hover')) this.closePopup(); }, 300); });
+            marker.on('popupopen', function(e) {
+                const popup = e.popup;
+                if (popup && popup._container) {
+                    popup._container.addEventListener('mouseenter', () => clearTimeout(capTimeout), { once: true });
+                    popup._container.addEventListener('mouseleave', () => { if (marker && marker.closePopup) marker.closePopup(); });
+                    const link = popup._container.querySelector('.country-name-link');
+                    if (link) { link.addEventListener('click', (ev) => { ev.stopPropagation(); const cId = link.dataset.countryId; const cInfo = getCountryInfoById(cId) || getCountryInfo(link.textContent.trim()); if (cInfo) showCountryInfoModal(cInfo); }, { once: true }); }
+                }
+            });
             marker.on('click', (e) => { map.flyTo(e.latlng, 10); openDetailPanel(castle, activeHistoryRecord, countryInfo); if (editMode) openCastleForm(castle._id); });
             markers.push(marker);
             marker.addTo(castleLayerGroup);
@@ -10097,7 +10116,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const editorInfoHtml = castle.lastModifiedBy
                 ? `<br><small style="font-size:11px;color:#9aabbd;">마지막 수정: ${castle.lastModifiedBy}</small>`
                 : (castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">생성자: ${castle.createdBy}</small>` : '');
-            popupHtml = `<b>${ptCfg.hanja} ${castleName}</b><br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${stripImgTags(castle.desc)}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
+            const _sptFlagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" style="height:11px;vertical-align:middle;margin-right:3px;border:1px solid rgba(180,140,80,0.3);border-radius:1px;">` : '';
+            const _sptCountryHtml = countryName && countryName !== '알 수 없음' ? `<br>${_sptFlagHtml}<span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;">${countryName}</span>` : '';
+            popupHtml = `<b>${ptCfg.hanja} ${castleName}</b>${_sptCountryHtml}<br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${stripImgTags(castle.desc)}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
             marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
 
             let sptTimeout;
@@ -10111,6 +10132,15 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     const popup = this.getPopup();
                     if (!popup || !popup._container || !popup._container.matches(':hover')) this.closePopup();
                 }, 300);
+            });
+            marker.on('popupopen', function(e) {
+                const popup = e.popup;
+                if (popup && popup._container) {
+                    popup._container.addEventListener('mouseenter', () => clearTimeout(sptTimeout), { once: true });
+                    popup._container.addEventListener('mouseleave', () => { if (marker && marker.closePopup) marker.closePopup(); });
+                    const link = popup._container.querySelector('.country-name-link');
+                    if (link) { link.addEventListener('click', (ev) => { ev.stopPropagation(); const cId = link.dataset.countryId; const cInfo = getCountryInfoById(cId) || getCountryInfo(link.textContent.trim()); if (cInfo) showCountryInfoModal(cInfo); }, { once: true }); }
+                }
             });
             marker.on('click', (e) => {
                 map.flyTo(e.latlng, 10);
