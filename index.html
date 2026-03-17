@@ -2312,6 +2312,13 @@ body.force-mobile .marker-type-selector button {
         #object-detail-panel.active {
             right: 0;
         }
+        @media (max-width: 480px) {
+            #object-detail-panel {
+                width: 100vw;
+                right: -100vw;
+                border-left: none;
+            }
+        }
         #object-detail-panel::-webkit-scrollbar { width: 5px; }
         #object-detail-panel::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
         #object-detail-panel::-webkit-scrollbar-thumb { background: rgba(180,140,80,0.35); border-radius: 3px; }
@@ -5105,6 +5112,13 @@ body.force-mobile .marker-type-selector button {
                 <div class="odp-section-title">📜 역사 기록</div>
                 <ul class="odp-timeline" id="odp-timeline"></ul>
             </div>
+
+            <!-- 사관 의견 섹션 -->
+            <div id="odp-comments-section" style="display:none;">
+                <div class="odp-section-title">💬 사관 의견</div>
+                <div id="odp-comments-list" style="font-size:13px; color:#c8d8e8; line-height:1.7;"></div>
+                <button id="odp-comments-more-btn" onclick="window._odpOpenComments && window._odpOpenComments()" style="display:none; margin-top:8px; background:rgba(180,140,80,0.1); border:1px solid rgba(180,140,80,0.3); color:#d4a843; font-size:12px; padding:5px 12px; border-radius:4px; cursor:pointer; width:100%;">💬 의견 모두 보기 / 작성</button>
+            </div>
         </div>
         <!-- 편집 버튼 바 (권한 있을 때만 표시) -->
         <div class="odp-edit-bar" id="odp-edit-bar" style="display:none;">
@@ -6734,9 +6748,14 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         // ── 히어로 이미지 ──
         const heroImg = document.getElementById('odp-hero-img');
         const heroPlaceholder = document.getElementById('odp-hero-placeholder');
-        const photo = castle.photo || activeHistoryRecord?.photo;
+        // 군대는 general_photo를 히어로로, 아니면 castle.photo
+        const photo = castle.is_military_flag
+            ? (castle.general_photo || castle.photo || activeHistoryRecord?.photo)
+            : (castle.photo || activeHistoryRecord?.photo);
         heroImg.style.display = 'none';
         heroPlaceholder.style.display = 'flex';
+        // 군대 placeholder 아이콘 교체
+        heroPlaceholder.textContent = castle.is_military_flag ? '⚔️' : '🏯';
         if (photo) {
             heroImg.src = toRawImageUrl(photo);
         } else {
@@ -6844,6 +6863,44 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
 
         // ── 패널 열기 (다른 편집 패널 닫지 않음, 오른쪽이라 겹치지 않음) ──
         panel.classList.add('active');
+
+        // ── 사관 의견 미리보기 로드 ──
+        const commentsSec = document.getElementById('odp-comments-section');
+        const commentsList = document.getElementById('odp-comments-list');
+        const commentsMoreBtn = document.getElementById('odp-comments-more-btn');
+        const castleId = castle._id;
+        commentsSec.style.display = 'none';
+        commentsList.innerHTML = '';
+        commentsMoreBtn.style.display = 'none';
+
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        if (token && castleId) {
+            fetch(`/api/marker-comments/${castleId}`, { headers: { 'Authorization': `Bearer ${token}` } })
+                .then(r => r.ok ? r.json() : Promise.reject())
+                .then(comments => {
+                    if (!comments || comments.length === 0) return;
+                    commentsSec.style.display = '';
+                    // 최신 3개 미리보기
+                    const preview = comments.slice(-3).reverse();
+                    commentsList.innerHTML = preview.map(c => {
+                        const date = new Date(c.created_at).toLocaleDateString('ko-KR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+                        return `<div style="padding:6px 0; border-bottom:1px solid rgba(180,140,80,0.1);">
+                            <span style="font-size:11px; color:#d4a843; font-weight:600;">${escapeHtml(c.author)}</span>
+                            <span style="font-size:10px; color:#6a7f8e; margin-left:6px;">${date}</span>
+                            <div style="font-size:12px; color:#c8d8e8; margin-top:2px; white-space:pre-wrap;">${escapeHtml(c.text)}</div>
+                        </div>`;
+                    }).join('');
+                    if (comments.length > 3) {
+                        commentsMoreBtn.textContent = `💬 의견 모두 보기 (${comments.length}개) / 작성`;
+                        commentsMoreBtn.style.display = '';
+                    } else {
+                        commentsMoreBtn.textContent = '💬 의견 작성';
+                        commentsMoreBtn.style.display = '';
+                    }
+                    window._odpOpenComments = () => openMarkerCommentModal(castleId, castle.name || '');
+                })
+                .catch(() => {});
+        }
     }
 
     function openEditPanel(formId) {
