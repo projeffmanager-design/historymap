@@ -6801,10 +6801,23 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
             ? `<span>📅 ${builtY}년${destroyedY ? ` ~ ${destroyedY}년` : ''}</span>`
             : '';
         const countryName = countryInfo?.name || activeHistoryRecord?.country_name || '';
+        const countryId = countryInfo?._id || countryInfo?.id || castle.country_id || activeHistoryRecord?.country_id || '';
         const countryFlag = countryInfo?.flag ? `<img src="${countryInfo.flag}" style="height:13px;vertical-align:middle;margin-right:3px;border:1px solid #556;"> ` : '';
-        const countryText = countryName ? `<span>${countryFlag}${countryName}</span>` : '';
+        const countryText = countryName
+            ? `<span class="odp-country-link" data-country-id="${countryId}" style="color:#7eb8e8; cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px;">${countryFlag}${countryName}</span>`
+            : '';
         const creatorText = castle.createdBy ? `<span>✍️ ${castle.createdBy}</span>` : '';
         metaEl.innerHTML = [periodText, countryText, creatorText].filter(Boolean).join('');
+        // 국가명 클릭 → 국가 정보 모달
+        const countryLink = metaEl.querySelector('.odp-country-link');
+        if (countryLink) {
+            countryLink.addEventListener('click', function(ev) {
+                ev.stopPropagation();
+                const cId = this.dataset.countryId;
+                const cInfo = (cId ? getCountryInfoById(cId) : null) || getCountryInfo(countryName);
+                if (cInfo) showCountryInfoModal(cInfo);
+            });
+        }
 
         // ── 설명 ──
         const descEl = document.getElementById('odp-desc');
