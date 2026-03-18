@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>영토 관리 시스템</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 0;
+            margin: 0;
+        }
+        
+        /* 🚩 [추가] 팝업 전용 헤더 */
+        .popup-header {
+            position: sticky;
+            top: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 15px 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        .popup-header h1 {
+            margin: 0;
+            font-size: 1.8em;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        
+        .container {
+            max-width: 100%;
+            margin: 0;
+            background: white;
+            border-radius: 0;
+            box-shadow: none;
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            text-align: center;
+            position: relative;
+            display: none; /* 🚩 팝업 헤더가 대신하므로 숨김 */
+        }
+        .header .back-btn {
+            position: absolute;
+            left: 30px;
+            top: 50%;
+            transform: translateY(-50%);
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .header .back-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: white;
+        }
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        .header p {
+            opacity: 0.9;
+            font-size: 16px;
+        }
+        .content {
+            padding: 40px;
+        }
+        .section {
+            margin-bottom: 40px;
+            padding: 30px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            border-left: 5px solid #667eea;
+        }
+        .section h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+        }
+        .section h2::before {
+            content: '📍';
+            margin-right: 10px;
+            font-size: 28px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #555;
+            font-size: 14px;
+        }
+        input, textarea, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        textarea {
+            font-family: monospace;
+            min-height: 150px;
+            resize: vertical;
+        }
+        .button-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 25px;
+        }
+        button {
+            flex: 1;
+            padding: 15px 30px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #218838;
+            transform: translateY(-2px);
+        }
+        .log-area {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 10px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 5px 0;
+            border-bottom: 1px solid #333;
+        }
+        .log-success { color: #4ec9b0; }
+        .log-error { color: #f48771; }
+        .log-info { color: #569cd6; }
+        .log-warning { color: #dcdcaa; }
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .info-box h3 {
+            color: #1976d2;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        .info-box ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        .info-box li {
+            padding: 5px 0;
+            color: #555;
+        }
+        .info-box li::before {
+            content: '✓ ';
+            color: #4caf50;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 15px;
+            display: none;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 768px) {
+            .grid { grid-template-columns: 1fr; }
+            .button-group { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+    <!-- 🚩 [추가] 팝업 전용 헤더 -->
+    <div class="popup-header">
+        <h1>🗺️ 영토 관리 시스템</h1>
+    </div>
+    
+    <div class="container">
+        <div class="header">
+            <a href="javascript:history.back()" class="back-btn">← 돌아가기</a>
+            <h1>🗺️ 영토 관리 시스템</h1>
+            <p>GeoJSON/OSM 링크를 입력하면 자동으로 변환하여 MongoDB에 저장합니다</p>
+        </div>
+
+        <div class="content">
+            <form id="territoryForm" onsubmit="return false;" novalidate>
+                <!-- 정보 섹션 -->
+                <div class="info-box">
+                    <h3>🎯 자동 처리 항목</h3>
+                    <ul>
+                        <li>GeoJSON 검증 및 변환</li>
+                        <li>Bounding Box (bbox) 자동 계산</li>
+                        <li>시간 범위 (start_year, end_year) 자동 설정</li>
+                        <li>MongoDB 인덱스 자동 적용</li>
+                        <li>중복 확인 및 업데이트</li>
+                        <li>OpenStreetMap 보기: <a href="https://www.openstreetmap.org/#map=5/35.69/116.50" target="_blank" rel="noopener noreferrer">https://www.openstreetmap.org/#map=5/35.69/116.50</a></li>
+                    </ul>
+                </div>
+
+                <!-- 0. 인증 -->
+                <div class="section">
+                    <h2>🔐 인증</h2>
+                    <div class="form-group">
+                        <label>JWT 토큰 (자동 감지됨)</label>
+                        <input type="password" id="jwt_token" placeholder="자동으로 로그인 세션에서 가져옵니다" readonly style="background: #e9ecef;">
+                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                            💡 이미 로그인한 경우 자동으로 감지됩니다. 수동 입력 시 readonly 해제 후 붙여넣기
+                        </small>
+                    </div>
+                </div>
+
+                <!-- 1. GeoJSON 입력 -->
+                <div class="section">
+                    <h2>지리 데이터</h2>
+                    <div class="form-group">
+                        <label>입력 방식 선택</label>
+                        <select id="input_method" onchange="toggleInputMethod()">
+                            <option value="geojson">GeoJSON 직접 입력</option>
+                            <option value="osm">OSM Relation ID</option>
+                            <option value="url">GeoJSON URL</option>
+                        </select>
+                    </div>
+
+                    <div id="geojson_input" class="form-group">
+                        <label>GeoJSON 데이터 *</label>
+                        <textarea id="geojson" placeholder='{"type":"Feature","geometry":{"type":"Polygon","coordinates":[...]}}'></textarea>
+                    </div>
+
+                    <div id="osm_input" class="form-group" style="display:none;">
+                        <label>OSM Relation ID *</label>
+                        <input type="text" id="osm_id" placeholder="예: 49903 (Laos)">
+                        <div style="display:flex; gap:10px; margin-top:10px;">
+                            <button class="btn-secondary" onclick="fetchFromOSM()" style="flex:1;">
+                                🌍 OSM에서 가져오기
+                            </button>
+                            <button class="btn-warning" onclick="deleteByOSM()" style="flex:1; background:#dc3545; color:white;">
+                                🗑️ OSM으로 기존 영토 삭제
+                            </button>
+                            <button class="btn-secondary" onclick="openOSMMap()" style="flex:1; background:#17a2b8; color:white;">OSM 지도 열기</button>
+                            <button class="btn-secondary" onclick="intersectPreview()" style="flex:1; background:#6f42c1; color:white;">이 영역과 교차하는 영토 검색</button>
+                        </div>
+                    </div>
+
+                    <div id="url_input" class="form-group" style="display:none;">
+                        <label>GeoJSON URL *</label>
+                        <input type="text" id="geojson_url" placeholder="https://example.com/data.geojson">
+                        <button class="btn-secondary" onclick="fetchFromURL()" style="margin-top: 10px;">
+                            📥 URL에서 가져오기
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 2. 기본 정보 입력 -->
+                <div class="section">
+                    <h2>기본 정보</h2>
+                    <div class="grid">
+                        <div class="form-group">
+                            <label>영문 이름 *</label>
+                            <input type="text" id="name" placeholder="예: Laos" required>
+                        </div>
+                        <div class="form-group">
+                            <label>한글 이름 *</label>
+                            <input type="text" id="name_ko" placeholder="예: 라오스" required>
+                        </div>
+                    </div>
+                    <div class="grid">
+                        <div class="form-group">
+                            <label>코드</label>
+                            <input type="text" id="code" placeholder="예: LA (선택사항)">
+                        </div>
+                        <div class="form-group">
+                            <label>타입</label>
+                            <select id="type">
+                                <option value="country">국가 (Country)</option>
+                                <option value="admin_area">행정구역 (Admin Area)</option>
+                                <option value="historical">역사적 영토</option>
+                                <option value="cultural">문화권</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="grid">
+                        <div class="form-group">
+                            <label>시작 연도</label>
+                            <input type="number" id="start_year" value="-3000" placeholder="-3000">
+                        </div>
+                        <div class="form-group">
+                            <label>종료 연도</label>
+                            <input type="number" id="end_year" value="3000" placeholder="3000">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. 실행 버튼 -->
+                <div class="section">
+                    <h2>실행</h2>
+                    <div class="button-group">
+                        <button class="btn-primary" onclick="processAndSave()">
+                            ✅ 처리 및 저장
+                        </button>
+                        <button class="btn-secondary" onclick="validateOnly()">
+                            🔍 검증만 하기
+                        </button>
+                        <button class="btn-success" onclick="exportJSON()">
+                            📤 JSON 내보내기
+                        </button>
+                    </div>
+                    <div class="progress-bar" id="progress">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                </div>
+
+                <!-- 4. 로그 -->
+                <div class="section">
+                    <h2>처리 로그</h2>
+                    <div class="log-area" id="log"></div>
+                </div>
+
+                <!-- 교차 검색 결과 -->
+                <div id="intersect_results" style="display:none; margin-top:14px; background:#f8f9fa; border-radius:10px; border:1px solid #dee2e6; overflow:hidden;">
+                    <!-- 헤더 -->
+                    <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:#6f42c1; color:white;">
+                        <span style="font-weight:700; font-size:14px;">🔎 교차 검색 결과</span>
+                        <button onclick="document.getElementById('intersect_results').style.display='none'"
+                            style="flex:none; padding:3px 10px; font-size:12px; font-weight:600; background:rgba(255,255,255,0.2); color:white; border:1px solid rgba(255,255,255,0.4); border-radius:5px; cursor:pointer; line-height:1.4;">✕ 닫기</button>
+                    </div>
+                    <!-- 결과 목록 -->
+                    <div id="intersect_results_list" style="max-height:320px; overflow-y:auto; padding:8px 0;"></div>
+                    <!-- 액션 버튼 -->
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; padding:10px 14px; border-top:1px solid #dee2e6; background:#fff;">
+                        <button onclick="selectAllIntersect(true)"
+                            style="flex:none; padding:6px 14px; font-size:13px; font-weight:600; background:#6c757d; color:white; border:none; border-radius:6px; cursor:pointer; line-height:1.4;">모두 선택</button>
+                        <button onclick="selectAllIntersect(false)"
+                            style="flex:none; padding:6px 14px; font-size:13px; font-weight:600; background:#adb5bd; color:white; border:none; border-radius:6px; cursor:pointer; line-height:1.4;">선택 해제</button>
+                        <button onclick="backupThenDeleteSelectedIntersect()"
+                            style="flex:none; padding:6px 14px; font-size:13px; font-weight:600; background:#198754; color:white; border:none; border-radius:6px; cursor:pointer; line-height:1.4;">💾 백업 후 삭제</button>
+                        <button onclick="deleteSelectedFromIntersect()"
+                            style="flex:none; padding:6px 14px; font-size:13px; font-weight:600; background:#dc3545; color:white; border:none; border-radius:6px; cursor:pointer; line-height:1.4;">🗑️ 선택 삭제</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // 환경 감지 개선 (file:// 프로토콜 대응)
+        const isLocal = window.location.hostname === 'localhost' 
+                     || window.location.hostname === '127.0.0.1'
+                     || window.location.protocol === 'file:';
+        
+        // 항상 같은 호스트의 /api를 사용 (로컬이든 프로덕션이든 동일 서버)
+        const API_BASE = (window.location.protocol === 'file:')
+            ? 'http://localhost:3000/api'
+            : `${window.location.origin}/api`;
+
+        // 환경 정보 로깅
+        console.log('🌍 환경 감지:', {
+            hostname: window.location.hostname,
+            protocol: window.location.protocol,
+            isLocal: isLocal,
+            API_BASE: API_BASE
+        });
+
+        // 페이지 로드 시 자동 토큰 감지
+        window.addEventListener('DOMContentLoaded', () => {
+            // 환경 정보 표시
+            log(`🌍 환경: ${isLocal ? '로컬 개발' : '프로덕션'}`, 'info');
+            log(`📡 API: ${API_BASE}`, 'info');
+            
+            // 파일 시스템 경고
+            if (window.location.protocol === 'file:') {
+                log('⚠️  파일에서 직접 열렸습니다. 로컬 서버 사용을 권장합니다.', 'error');
+                log('💡 http://localhost:3000/territory_manager.html 로 접속하세요', 'info');
+            }
+            
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            const tokenInput = document.getElementById('jwt_token');
+            
+            if (token) {
+                tokenInput.value = token.substring(0, 20) + '...'; // 일부만 표시
+                tokenInput.dataset.fullToken = token; // 전체 토큰 저장
+                log('✓ JWT 토큰 자동 감지됨', 'success');
+            } else {
+                tokenInput.placeholder = '로그인이 필요합니다. index.html에서 먼저 로그인하세요.';
+                tokenInput.style.background = '#fff3cd';
+                log('⚠️  로그인 토큰이 없습니다', 'error');
+            }
+        });
+
+        // 토큰 수동 입력 활성화
+        document.addEventListener('DOMContentLoaded', () => {
+            const tokenInput = document.getElementById('jwt_token');
+            tokenInput.addEventListener('dblclick', () => {
+                tokenInput.removeAttribute('readonly');
+                tokenInput.style.background = 'white';
+                tokenInput.placeholder = '여기에 JWT 토큰을 붙여넣으세요';
+                log('수동 입력 모드 활성화', 'info');
+            });
+        });
+
+        function log(message, type = 'info') {
+            const logArea = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            const timestamp = new Date().toLocaleTimeString('ko-KR');
+            entry.textContent = `[${timestamp}] ${message}`;
+            logArea.appendChild(entry);
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+
+        function toggleInputMethod() {
+            const method = document.getElementById('input_method').value;
+            const nameKoField = document.getElementById('name_ko');
+
+            // 입력 방식에 따른 필드 표시
+            document.getElementById('geojson_input').style.display = method === 'geojson' ? 'block' : 'none';
+            document.getElementById('osm_input').style.display = method === 'osm' ? 'block' : 'none';
+            document.getElementById('url_input').style.display = method === 'url' ? 'block' : 'none';
+
+            // OSM 입력 방식일 때는 한글 이름 필수 입력 해제
+            if (method === 'osm') {
+                nameKoField.removeAttribute('required');
+                nameKoField.placeholder = '예: 라오스 (OSM에서 자동 채우기 가능)';
+                log('💡 OSM 입력 방식: 한글 이름은 선택사항입니다 (OSM에서 자동으로 채워집니다)', 'info');
+            } else {
+                nameKoField.setAttribute('required', 'required');
+                nameKoField.placeholder = '예: 라오스';
+            }
+        }
+
+        async function fetchFromOSM() {
+            const osmId = document.getElementById('osm_id').value.trim();
+            if (!osmId) {
+                log('OSM Relation ID를 입력해주세요', 'error');
+                return;
+            }
+
+            // OSM ID 형식 검증 (숫자만)
+            if (!/^\d+$/.test(osmId)) {
+                log('OSM ID는 숫자만 입력해주세요 (예: 2297418)', 'error');
+                return;
+            }
+
+            log(`🔍 OSM Relation ${osmId}에서 정보 조회 중...`, 'info');
+            setProgress(20);
+
+            try {
+                // 1. Overpass API로 상세 정보 조회 (더 정확한 한국어/영어 이름)
+                const overpassQuery = `
+                    [out:json][timeout:25];
+                    relation(${osmId});
+                    out body;
+                `;
+
+                const overpassResponse = await fetch('https://overpass-api.de/api/interpreter', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'User-Agent': 'KoreaHistoryMap/1.0'
+                    },
+                    body: `data=${encodeURIComponent(overpassQuery)}`
+                });
+
+                if (!overpassResponse.ok) {
+                    throw new Error(`Overpass API 오류: ${overpassResponse.status}`);
+                }
+
+                const overpassData = await overpassResponse.json();
+                setProgress(50);
+
+                if (!overpassData.elements || overpassData.elements.length === 0) {
+                    throw new Error('OSM에서 해당 Relation을 찾을 수 없습니다');
+                }
+
+                const relation = overpassData.elements[0];
+                const tags = relation.tags || {};
+
+                // 이름 정보 추출 (우선순위: name > name:ko > name:en)
+                const name = tags.name || tags['name:ko'] || tags['name:en'] || `OSM Relation ${osmId}`;
+                const nameKo = tags['name:ko'] || tags.name || '';
+                const nameEn = tags['name:en'] || tags.name || '';
+
+                // admin_level 설정
+                const adminLevel = tags.admin_level ? parseInt(tags.admin_level) : 4;
+
+                // 폼 필드 자동 채우기
+                document.getElementById('name').value = nameEn || name; // 영문 이름
+                document.getElementById('name_ko').value = nameKo || name; // 한글 이름
+
+                // 추가 정보 설정
+                document.getElementById('code').value = osmId;
+
+                // 타입 설정 (admin_level에 따라)
+                let type = 'province';
+                if (adminLevel === 2) type = 'country';
+                else if (adminLevel >= 6) type = 'admin_area';
+                else if (adminLevel <= 3) type = 'country';
+                document.getElementById('type').value = type;
+
+                // OSM ID 저장
+                let osmIdField = document.getElementById('osm_id_hidden');
+                if (!osmIdField) {
+                    osmIdField = document.createElement('input');
+                    osmIdField.type = 'hidden';
+                    osmIdField.id = 'osm_id_hidden';
+                    osmIdField.name = 'osm_id';
+                    // territoryForm may not exist if the page doesn't use a <form> element.
+                    // Append to a safe container instead (prefer the form if present).
+                    const territoryForm = document.getElementById('territoryForm') || document.querySelector('.container') || document.body;
+                    territoryForm.appendChild(osmIdField);
+                    if (!document.getElementById('territoryForm')) {
+                        console.warn('territoryForm element not found; appended osm_id_hidden to .container or body');
+                    }
+                }
+                osmIdField.value = `r${osmId}`;
+
+                // 2. GeoJSON 데이터 가져오기 (Nominatim 우선 → Overpass geom fallback)
+                setProgress(80);
+                let geometryLoaded = false;
+
+                // 2-a. Nominatim 시도
+                try {
+                    const geoUrl = `https://nominatim.openstreetmap.org/lookup?osm_ids=R${osmId}&format=geojson&polygon_geojson=1`;
+                    const geoResponse = await fetch(geoUrl, { headers: { 'User-Agent': 'KoreaHistoryMap/1.0' } });
+                    if (geoResponse.ok) {
+                        const geoData = await geoResponse.json();
+                        if (geoData.features && geoData.features.length > 0) {
+                            const feature = geoData.features[0];
+                            const g = feature.geometry || feature;
+                            if (g && g.coordinates && g.coordinates.length > 0) {
+                                document.getElementById('geojson').value = JSON.stringify(feature, null, 2);
+                                const computedBbox = calculateBBox(g);
+                                if (computedBbox) {
+                                    document.getElementById('osm_bbox_hidden')?.remove();
+                                    const b = document.createElement('input');
+                                    b.type = 'hidden'; b.id = 'osm_bbox_hidden'; b.name = 'osm_bbox';
+                                    b.value = JSON.stringify(computedBbox);
+                                    document.getElementById('territoryForm').appendChild(b);
+                                }
+                                geometryLoaded = true;
+                                log('  📐 Nominatim에서 GeoJSON 로드 완료', 'info');
+                            }
+                        }
+                    }
+                } catch (e) {
+                    log('  ⚠️ Nominatim 요청 실패, Overpass fallback 시도...', 'warning');
+                }
+
+                // 2-b. Nominatim에서 coordinates가 없으면 Overpass geom으로 fallback
+                if (!geometryLoaded) {
+                    log('  🔄 Overpass API로 폴리곤 직접 요청 중...', 'info');
+                    try {
+                        const overpassGeoQuery = `[out:json][timeout:60];relation(${osmId});out geom;`;
+                        const overpassGeoResp = await fetch('https://overpass-api.de/api/interpreter', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'KoreaHistoryMap/1.0' },
+                            body: `data=${encodeURIComponent(overpassGeoQuery)}`
+                        });
+                        if (!overpassGeoResp.ok) throw new Error(`Overpass geom 오류: ${overpassGeoResp.status}`);
+                        const overpassGeoData = await overpassGeoResp.json();
+                        const rel = overpassGeoData.elements && overpassGeoData.elements[0];
+                        if (rel && rel.members) {
+                            // outer way들의 좌표를 모아 MultiPolygon 구성
+                            const outerRings = rel.members
+                                .filter(m => m.type === 'way' && m.role === 'outer' && m.geometry)
+                                .map(m => m.geometry.map(p => [p.lon, p.lat]));
+                            if (outerRings.length > 0) {
+                                const geomType = outerRings.length === 1 ? 'Polygon' : 'MultiPolygon';
+                                const coords = geomType === 'Polygon' ? outerRings : outerRings.map(r => [r]);
+                                const feature = {
+                                    type: 'Feature',
+                                    properties: rel.tags || {},
+                                    geometry: { type: geomType, coordinates: coords }
+                                };
+                                document.getElementById('geojson').value = JSON.stringify(feature, null, 2);
+                                const computedBbox = calculateBBox(feature.geometry);
+                                if (computedBbox) {
+                                    document.getElementById('osm_bbox_hidden')?.remove();
+                                    const b = document.createElement('input');
+                                    b.type = 'hidden'; b.id = 'osm_bbox_hidden'; b.name = 'osm_bbox';
+                                    b.value = JSON.stringify(computedBbox);
+                                    document.getElementById('territoryForm').appendChild(b);
+                                }
+                                geometryLoaded = true;
+                                log(`  📐 Overpass에서 GeoJSON 로드 완료 (${geomType}, outer rings: ${outerRings.length})`, 'info');
+                            }
+                        }
+                    } catch (e2) {
+                        log(`  ❌ Overpass geom 실패: ${e2.message}`, 'error');
+                    }
+                }
+
+                if (!geometryLoaded) {
+                    log('⚠️ 폴리곤 데이터를 가져오지 못했습니다. GeoJSON을 수동으로 붙여넣어 주세요.', 'warning');
+                }
+
+                setProgress(100);
+                log(`✅ OSM 데이터 로드 완료: ${name}`, 'success');
+                log(`  🇰🇷 한글: ${nameKo || '자동 설정됨'}`, 'info');
+                log(`  🇺🇸 영문: ${nameEn}`, 'info');
+                log(`  🏷️  행정단계: ${adminLevel}`, 'info');
+                log(`  📊 타입: ${type}`, 'info');
+
+                // 미리보기 기능은 현재 사용 중지됨
+                // 자동으로 미리보기 열기 (사용자 편의)
+                // try {
+                //     previewByOSM();
+                // } catch (e) {
+                //     // 무시 - 미리보기 로드 실패 시 수동으로 시도하도록 함
+                // }
+
+                // 한글 이름이 제대로 설정되었는지 확인
+                if (!nameKo || nameKo === nameEn) {
+                    log('💡 한글 이름이 자동으로 설정되었습니다. 필요시 수동으로 수정해주세요.', 'warning');
+                }
+
+            } catch (error) {
+                log(`❌ OSM 데이터 로드 실패: ${error.message}`, 'error');
+                setProgress(0);
+            }
+        }
+
+        async function fetchFromURL() {
+            const url = document.getElementById('geojson_url').value.trim();
+            if (!url) {
+                log('URL을 입력해주세요', 'error');
+                return;
+            }
+
+            log('URL에서 데이터 가져오는 중...', 'info');
+            setProgress(30);
+
+            try {
+                const response = await fetch(url);
+
+                // HTTP 오류 체크
+                if (!response.ok) {
+                    // 가능한 경우 응답 본문의 짧은 스니펫을 가져와서 에러 메시지에 포함
+                    const text = await response.text().catch(() => '');
+                    const snippet = (text || '').slice(0, 200).replace(/\s+/g, ' ');
+                    throw new Error(`HTTP ${response.status} ${response.statusText}${snippet ? ' — 응답 일부: ' + snippet : ''}`);
+                }
+
+                // Content-Type 검사 (일반적인 GeoJSON/JSON 타입 허용)
+                const contentType = (response.headers.get('content-type') || '').toLowerCase();
+                if (!/application\/(geo\+)?json|json/.test(contentType)) {
+                    // HTML 에러 페이지가 반환되는 경우 친절한 메시지 제공
+                    const text = await response.text().catch(() => '');
+                    if (text.trim().startsWith('<')) {
+                        throw new Error('응답이 HTML입니다 (404 페이지 또는 리디렉션). URL이 올바르고 서버가 GeoJSON을 반환하는지 확인하세요.');
+                    }
+
+                    // Content-Type이 이상하지만 본문이 JSON일 수 있으므로 시도해본다
+                    try {
+                        const parsed = JSON.parse(text);
+                        const geojson = JSON.stringify(parsed, null, 2);
+                        document.getElementById('geojson').value = geojson;
+                        log('✓ URL 데이터 로드 완료 (Content-Type 비표준이지만 JSON 파싱 성공)', 'success');
+                        setProgress(100);
+                        return;
+                    } catch (e) {
+                        throw new Error('서버 응답이 JSON/GeoJSON이 아닙니다. (Content-Type=' + contentType + ')');
+                    }
+                }
+
+                // 정상적인 JSON/GeoJSON 파싱
+                const data = await response.json();
+                const geojson = JSON.stringify(data, null, 2);
+                document.getElementById('geojson').value = geojson;
+                log('✓ URL 데이터 로드 완료', 'success');
+                setProgress(100);
+            } catch (error) {
+                // 네트워크 또는 CORS 오류 메시지 보완
+                let msg = error.message || String(error);
+                if (msg.includes('Failed to fetch')) {
+                    msg = '네트워크 오류 또는 CORS 차단: 서버가 외부 요청을 허용하는지 확인하세요 (브라우저 콘솔의 네트워크 탭 확인)';
+                }
+                log(`URL 로드 실패: ${msg}`, 'error');
+                setProgress(0);
+            }
+        }
+
+        function calculateBBox(geometry) {
+            if (!geometry || !geometry.coordinates) return null;
+
+            let minLat = Infinity, maxLat = -Infinity;
+            let minLng = Infinity, maxLng = -Infinity;
+
+            const processCoords = (coords) => {
+                if (typeof coords[0] === 'number') {
+                    // [lng, lat] 형식
+                    const [lng, lat] = coords;
+                    if (lat < minLat) minLat = lat;
+                    if (lat > maxLat) maxLat = lat;
+                    if (lng < minLng) minLng = lng;
+                    if (lng > maxLng) maxLng = lng;
+                } else {
+                    // 중첩 배열
+                    coords.forEach(processCoords);
+                }
+            };
+
+            processCoords(geometry.coordinates);
+
+            return { minLat, maxLat, minLng, maxLng };
+        }
+
+        function validateOnly() {
+            log('=== 검증 시작 ===', 'info');
+            const data = collectFormData();
+            if (!data) return;
+
+            log('✓ 기본 정보 검증 완료', 'success');
+            log(`  - 이름: ${data.name} (${data.name_ko})`, 'info');
+            log(`  - 타입: ${data.type}`, 'info');
+            log(`  - 시간 범위: ${data.start_year} ~ ${data.end_year}`, 'info');
+            log(`✓ GeoJSON 검증 완료`, 'success');
+            log(`  - Type: ${data.geometry.type}`, 'info');
+            log(`  - BBox: [${data.bbox.minLat.toFixed(2)}, ${data.bbox.minLng.toFixed(2)}] → [${data.bbox.maxLat.toFixed(2)}, ${data.bbox.maxLng.toFixed(2)}]`, 'info');
+            log('=== 검증 완료 ===', 'success');
+        }
+
+        function collectFormData() {
+            const name = document.getElementById('name').value.trim();
+            const name_ko = document.getElementById('name_ko').value.trim();
+            const geojsonText = document.getElementById('geojson').value.trim();
+            const osmId = document.getElementById('osm_id_hidden')?.value;
+
+            // OSM ID가 있는 경우: name만 필수, name_ko는 선택
+            // OSM ID가 없는 경우: 기존처럼 name과 name_ko 모두 필수
+            const isOsmImport = !!osmId;
+            if (!name || !geojsonText || (!isOsmImport && !name_ko)) {
+                const required = isOsmImport ? '이름, GeoJSON' : '이름, 한국어 이름, GeoJSON';
+                log(`${required}을(를) 모두 입력해주세요`, 'error');
+                return null;
+            }
+
+            let geojsonData;
+            try {
+                geojsonData = JSON.parse(geojsonText);
+            } catch (e) {
+                log('GeoJSON 파싱 실패: 올바른 JSON 형식이 아닙니다', 'error');
+                return null;
+            }
+
+            const geometry = geojsonData.geometry || geojsonData;
+            if (!geometry.coordinates) {
+                log('GeoJSON에 coordinates가 없습니다', 'error');
+                return null;
+            }
+
+            const bbox = calculateBBox(geometry);
+            if (!bbox) {
+                log('BBox 계산 실패', 'error');
+                return null;
+            }
+
+            const data = {
+                name,
+                // name_en may not exist in the minimal form UI; fall back to English name = name
+                name_en: document.getElementById('name_en')?.value?.trim() || name,
+                name_ko: name_ko || name, // OSM import시 name_ko가 없으면 name으로 대체
+                code: document.getElementById('code').value.trim(),
+                type: document.getElementById('type').value,
+                // admin_level and country are optional in the UI; use defaults when missing
+                admin_level: parseInt(document.getElementById('admin_level')?.value) || 4,
+                country: document.getElementById('country')?.value?.trim() || name,
+                geometry,
+                bbox,
+                start_year: parseInt(document.getElementById('start_year').value) || -5000,
+                end_year: parseInt(document.getElementById('end_year').value) || 3000,
+                properties: {
+                    source: isOsmImport ? 'OSM Import' : 'TerritoryManager',
+                    import_date: new Date().toISOString()
+                }
+            };
+
+            // OSM ID가 있는 경우 추가
+            if (osmId) {
+                data.osm_id = osmId;
+            }
+            return data;
+        }
+
+        async function processAndSave() {
+            log('=== 처리 시작 ===', 'info');
+            setProgress(10);
+
+            const data = collectFormData();
+            if (!data) {
+                setProgress(0);
+                return;
+            }
+
+            setProgress(30);
+            log('✓ 데이터 검증 완료', 'success');
+
+            // start, end 필드도 추가 (프론트엔드 호환성)
+            data.start = data.start_year;
+            data.end = data.end_year;
+
+            setProgress(50);
+            log('MongoDB에 저장 중...', 'info');
+
+            try {
+                // 토큰 가져오기 (우선순위: dataset → localStorage → sessionStorage)
+                const tokenInput = document.getElementById('jwt_token');
+                let token = tokenInput.dataset.fullToken || tokenInput.value;
+                if (!token || token.includes('...')) {
+                    token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                }
+                
+                if (!token) {
+                    throw new Error('JWT 토큰이 없습니다. 먼저 로그인하세요.');
+                }
+                
+                log(`API 호출: POST ${API_BASE}/territories`, 'info');
+                
+                const response = await fetch(`${API_BASE}/territories`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                setProgress(80);
+
+                if (response.ok) {
+                    const result = await response.json();
+                    log('✓ MongoDB 저장 완료', 'success');
+                    log(`  - ID: ${result._id || result.insertedId}`, 'info');
+                    setProgress(100);
+                    log('=== 처리 완료 ===', 'success');
+                    log('💡 index.html을 새로고침하여 지도에서 확인하세요', 'info');
+                } else {
+                    const errorText = await response.text();
+                    let errorMsg = `HTTP ${response.status}: ${response.statusText}`;
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        errorMsg = errorJson.message || errorMsg;
+                    } catch (e) {
+                        if (errorText) errorMsg += ` - ${errorText}`;
+                    }
+                    log(`저장 실패: ${errorMsg}`, 'error');
+                    setProgress(0);
+                }
+            } catch (error) {
+                let errorMsg = error.message;
+                if (error.message === 'Failed to fetch') {
+                    errorMsg = '서버 연결 실패. 다음을 확인하세요:\n' +
+                              '  1. 서버가 실행 중인지 확인 (npm start)\n' +
+                              '  2. 로컬: http://localhost:3000 접속 가능 여부\n' +
+                              '  3. 프로덕션: Vercel 배포 상태 확인';
+                }
+                log(`저장 실패: ${errorMsg}`, 'error');
+                setProgress(0);
+            }
+        }
+
+        function exportJSON() {
+            const data = collectFormData();
+            if (!data) return;
+
+            const json = JSON.stringify(data, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${data.name}_territory.json`;
+            a.click();
+            log(`✓ JSON 파일 내보내기: ${data.name}_territory.json`, 'success');
+        }
+
+        function setProgress(percent) {
+            const progressBar = document.getElementById('progress');
+            const progressFill = document.getElementById('progress-fill');
+            progressBar.style.display = percent > 0 ? 'block' : 'none';
+            progressFill.style.width = `${percent}%`;
+        }
+
+        // 초기화
+        log('영토 관리 시스템 준비 완료', 'success');
+
+        async function deleteByOSM() {
+            const osmId = document.getElementById('osm_id').value.trim();
+            if (!osmId) {
+                log('삭제할 OSM Relation ID를 입력해주세요', 'error');
+                return;
+            }
+
+            if (!/^-?\d+$/.test(osmId)) {
+                log('OSM ID는 숫자만 입력해주세요 (예: 2697305)', 'error');
+                return;
+            }
+
+            const confirmed = confirm(`OSM Relation ${osmId}으로 연결된 영토를 삭제합니다. 계속 진행하시겠습니까? (복구 불가능)`);
+            if (!confirmed) return;
+
+            setProgress(10);
+            log(`🗑️ OSM Relation ${osmId}으로 연결된 영토 삭제 중...`, 'info');
+
+            try {
+                const tokenInput = document.getElementById('jwt_token');
+                let token = tokenInput.dataset.fullToken || tokenInput.value;
+                if (!token || token.includes('...')) {
+                    token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                }
+                if (!token) {
+                    log('JWT 토큰이 없습니다. 먼저 로그인하세요.', 'error');
+                    setProgress(0);
+                    return;
+                }
+
+                const response = await fetch(`${API_BASE}/territories/by-osm/${encodeURIComponent(osmId)}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                setProgress(60);
+
+                if (response.ok) {
+                    const result = await response.json();
+                    log(`✓ 삭제 완료: ${result.deletedCount}개 삭제됨`, 'success');
+                    setProgress(100);
+                } else {
+                    const text = await response.text();
+                    log(`삭제 실패: HTTP ${response.status} - ${text}`, 'error');
+                    setProgress(0);
+                }
+            } catch (error) {
+                log(`삭제 중 오류: ${error.message}`, 'error');
+                setProgress(0);
+            }
+        }
+
+        async function intersectPreview() {
+            // Read bbox from hidden osm_bbox_hidden that's set when geojson is loaded
+            const bboxInput = document.getElementById('osm_bbox_hidden');
+            if (!bboxInput) {
+                log('먼저 OSM에서 GeoJSON을 가져와 영역을 로드하세요', 'error');
+                return;
+            }
+            const bbox = JSON.parse(bboxInput.value);
+
+            setProgress(10);
+            log('🔎 영역 교차 영토 검색 중...', 'info');
+
+            try {
+                const tokenInput = document.getElementById('jwt_token');
+                let token = tokenInput.dataset.fullToken || tokenInput.value;
+                if (!token || token.includes('...')) token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                if (!token) { log('JWT 토큰이 없습니다. 먼저 로그인하세요.', 'error'); setProgress(0); return; }
+
+                const response = await fetch(`${API_BASE}/territories/intersect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ bbox })
+                });
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    log(`교차 검색 실패: HTTP ${response.status} - ${text}`, 'error');
+                    setProgress(0);
+                    return;
+                }
+
+                const result = await response.json();
+                const list = result.territories || [];
+                const container = document.getElementById('intersect_results_list');
+                container.innerHTML = '';
+
+                if (list.length === 0) {
+                    container.innerHTML = '<div style="padding:16px; text-align:center; color:#888; font-size:13px;">이 영역과 교차하는 영토가 없습니다.</div>';
+                } else {
+                    list.forEach((t, i) => {
+                        const div = document.createElement('div');
+                        div.style.cssText = `
+                            display:flex; align-items:flex-start; gap:10px;
+                            padding:9px 14px;
+                            border-bottom:1px solid #e9ecef;
+                            background:${i % 2 === 0 ? '#fff' : '#f8f9fa'};
+                        `;
+                        div.innerHTML = `
+                            <input type="checkbox" class="intersect-checkbox" data-id="${t._id}"
+                                style="width:16px; height:16px; margin-top:3px; flex-shrink:0; cursor:pointer; accent-color:#6f42c1;">
+                            <div style="flex:1; min-width:0;">
+                                <div style="font-size:14px; font-weight:600; color:#212529; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                                    ${t.name} <span style="font-weight:400; color:#666;">(${t.name_ko || '-'})</span>
+                                </div>
+                                <div style="margin-top:3px; display:flex; flex-wrap:wrap; gap:4px;">
+                                    <span style="font-size:11px; background:#e9ecef; color:#495057; padding:1px 7px; border-radius:10px;">${t.type || '-'}</span>
+                                    <span style="font-size:11px; background:#e3f2fd; color:#1565c0; padding:1px 7px; border-radius:10px;">${t.start_year ?? '-'} ~ ${t.end_year ?? '-'}</span>
+                                    ${t.osm_id ? `<span style="font-size:11px; background:#f3e5f5; color:#6a1b9a; padding:1px 7px; border-radius:10px;">osm:${t.osm_id}</span>` : ''}
+                                </div>
+                            </div>
+                        `;
+                        container.appendChild(div);
+                    });
+                }
+
+                document.getElementById('intersect_results').style.display = 'block';
+                setProgress(100);
+                log(`✓ 교차 검색 완료: ${list.length}개 항목`, 'success');
+            } catch (error) {
+                log(`교차 검색 실패: ${error.message}`, 'error');
+                setProgress(0);
+            }
+        }
+
+        function selectAllIntersect(yes) {
+            document.querySelectorAll('.intersect-checkbox').forEach(cb => cb.checked = !!yes);
+        }
+
+        async function deleteSelectedFromIntersect() {
+            const checked = Array.from(document.querySelectorAll('.intersect-checkbox:checked'));
+            if (checked.length === 0) { log('삭제할 항목을 하나 이상 선택하세요', 'error'); return; }
+            const ids = checked.map(cb => cb.getAttribute('data-id'));
+            const confirmed = confirm(`선택된 ${ids.length}개의 영토를 삭제합니다. 계속 진행하시겠습니까? (복구 불가능)`);
+            if (!confirmed) return;
+            setProgress(10); log(`🗑️ 선택된 ${ids.length}개 삭제 중...`, 'info');
+            try {
+                const tokenInput = document.getElementById('jwt_token');
+                let token = tokenInput.dataset.fullToken || tokenInput.value;
+                if (!token || token.includes('...')) token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                if (!token) { log('JWT 토큰이 없습니다. 먼저 로그인하세요.', 'error'); setProgress(0); return; }
+                const promises = ids.map(id => fetch(`${API_BASE}/territories/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } }));
+                const results = await Promise.all(promises);
+                let deleted = 0; for (const r of results) if (r.ok) deleted++;
+                log(`✓ 삭제 완료: ${deleted}/${ids.length} 항목이 삭제되었습니다`, 'success');
+                setProgress(100);
+                // refresh
+                document.getElementById('intersect_results').style.display = 'none';
+            } catch (error) { log(`삭제 중 오류: ${error.message}`, 'error'); setProgress(0); }
+        }
+
+        async function backupThenDeleteSelectedIntersect() {
+            const checked = Array.from(document.querySelectorAll('.intersect-checkbox:checked'));
+            if (checked.length === 0) { log('백업 및 삭제할 항목을 하나 이상 선택하세요', 'error'); return; }
+            const ids = checked.map(cb => cb.getAttribute('data-id'));
+            const confirmed = confirm(`선택된 ${ids.length}개의 영토를 백업한 뒤 삭제합니다. 계속 진행하시겠습니까?`);
+            if (!confirmed) return;
+            setProgress(10); log(`💾 선택된 ${ids.length}개 백업 중...`, 'info');
+            try {
+                const tokenInput = document.getElementById('jwt_token');
+                let token = tokenInput.dataset.fullToken || tokenInput.value;
+                if (!token || token.includes('...')) token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                if (!token) { log('JWT 토큰이 없습니다. 먼저 로그인하세요.', 'error'); setProgress(0); return; }
+                const fetches = ids.map(id => fetch(`${API_BASE}/territories/${encodeURIComponent(id)}`, { method: 'GET', headers: { 'Authorization': `Bearer ${token}` } }).then(r => { if (!r.ok) throw new Error(`ID ${id} 조회 실패: ${r.status}`); return r.json(); }));
+                const docs = await Promise.all(fetches);
+                const osmIdVal = document.getElementById('osm_id').value.trim() || 'backup';
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const filename = `territory_backup_${osmIdVal}_${timestamp}.json`;
+                const blob = new Blob([JSON.stringify(docs, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+                log(`✓ 백업 다운로드 완료: ${filename}`, 'success'); setProgress(60);
+                const confirmedDelete = confirm(`백업이 완료되었습니다. 선택된 ${ids.length}개를 지금 삭제하시겠습니까? (복구 불가능)`);
+                if (!confirmedDelete) { setProgress(0); return; }
+                setProgress(70); log(`🗑️ 선택된 ${ids.length}개 삭제 중...`, 'info');
+                const promises = ids.map(id => fetch(`${API_BASE}/territories/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } }));
+                const results = await Promise.all(promises); let deleted = 0; for (const r of results) if (r.ok) deleted++;
+                log(`✓ 삭제 완료: ${deleted}/${ids.length} 항목이 삭제되었습니다`, 'success'); setProgress(100);
+                document.getElementById('intersect_results').style.display = 'none';
+            } catch (error) { log(`백업/삭제 중 오류: ${error.message}`, 'error'); setProgress(0); }
+        }
+    </script>
+</body>
+</html>
