@@ -2289,13 +2289,366 @@ body.force-mobile .marker-type-selector button {
         /* drawingForm 스타일은 파일 상단에 통합됨 */
 
         /* ════════════════════════════════════════
+           🏛️ 국가 상세 패널 (오른쪽 슬라이드)
+           ════════════════════════════════════════ */
+        #country-detail-panel {
+            position: fixed;
+            top: 0;
+            right: -560px;
+            width: 520px;
+            height: 100vh;
+            background: rgba(14, 22, 32, 0.98);
+            backdrop-filter: blur(14px);
+            color: #ecf0f1;
+            border-left: 1px solid rgba(180,140,80,0.35);
+            z-index: 1103;
+            box-shadow: -6px 0 30px rgba(0,0,0,0.7);
+            transition: right 0.32s cubic-bezier(0.22,0.61,0.36,1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+        #country-detail-panel.active { right: 0; }
+        @media (max-width: 480px) {
+            #country-detail-panel { width: 100vw; right: -100vw; border-left: none; }
+        }
+        #country-detail-panel::-webkit-scrollbar { width: 5px; }
+
+        /* 히어로 배너 */
+        .cdp-hero {
+            position: relative;
+            height: 160px;
+            flex-shrink: 0;
+            overflow: hidden;
+            display: flex;
+            align-items: flex-end;
+        }
+        .cdp-hero-bg {
+            position: absolute; inset: 0;
+            background: linear-gradient(135deg, #1a2635 0%, #0e1822 100%);
+        }
+        .cdp-hero-bg.has-flag {
+            background-size: cover;
+            background-position: center;
+            filter: blur(8px) brightness(0.45);
+            transform: scale(1.08);
+        }
+        .cdp-hero-gradient {
+            position: absolute; bottom: 0; left: 0; right: 0; height: 100px;
+            background: linear-gradient(transparent, rgba(14,22,32,0.98));
+        }
+        .cdp-hero-content {
+            position: relative; z-index: 2;
+            display: flex; align-items: center; gap: 12px;
+            padding: 0 18px 16px 18px; width: 100%; box-sizing: border-box;
+        }
+        .cdp-flag-img {
+            height: 44px; border: 1px solid rgba(255,255,255,0.25);
+            border-radius: 3px; flex-shrink: 0;
+        }
+        .cdp-flag-seal {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 44px; height: 44px; border-radius: 6px;
+            font-size: 22px; color: #fff;
+            font-family: 'Noto Serif KR', serif; flex-shrink: 0;
+        }
+        .cdp-name {
+            font-family: 'Noto Serif KR', serif;
+            font-size: 19px; font-weight: 700;
+            color: #f5e9d2; margin: 0 0 3px; line-height: 1.3;
+        }
+        .cdp-period { font-size: 12px; color: #9aabbd; }
+        .cdp-close-btn {
+            position: absolute; top: 10px; right: 10px; z-index: 10;
+            background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2);
+            color: #ecf0f1; width: 30px; height: 30px; border-radius: 50%;
+            cursor: pointer; font-size: 16px; display: flex;
+            align-items: center; justify-content: center;
+            transition: background 0.2s;
+        }
+        .cdp-close-btn:hover { background: rgba(231,76,60,0.75); }
+        .cdp-edit-btn {
+            position: absolute; top: 10px; right: 46px; z-index: 10;
+            background: rgba(52,152,219,0.22); border: 1px solid rgba(52,152,219,0.5);
+            color: #7dc3e8; font-size: 11px; padding: 4px 9px;
+            border-radius: 12px; cursor: pointer; transition: background 0.2s;
+        }
+        .cdp-edit-btn:hover { background: rgba(52,152,219,0.4); }
+
+        /* 탭 바 */
+        .cdp-tab-bar {
+            display: flex; overflow-x: auto; flex-shrink: 0;
+            border-bottom: 1px solid rgba(180,140,80,0.2);
+            background: rgba(20,30,42,0.6);
+            scrollbar-width: none;
+        }
+        .cdp-tab-bar::-webkit-scrollbar { display: none; }
+        .cdp-tab {
+            flex-shrink: 0;
+            padding: 9px 13px;
+            background: none; border: none; border-bottom: 2px solid transparent;
+            color: #7a93a8; font-size: 12px; cursor: pointer;
+            transition: color 0.2s, border-color 0.2s;
+            white-space: nowrap;
+        }
+        .cdp-tab:hover { color: #c8d8e8; }
+        .cdp-tab.active { color: #d4a843; border-bottom-color: #d4a843; }
+
+        /* 본문 */
+        .cdp-body {
+            flex: 1; overflow-y: auto; overflow-x: hidden;
+        }
+        .cdp-body::-webkit-scrollbar { width: 5px; }
+        .cdp-body::-webkit-scrollbar-track { background: rgba(0,0,0,0.15); }
+        .cdp-body::-webkit-scrollbar-thumb { background: rgba(180,140,80,0.3); border-radius: 3px; }
+
+        .cdp-tab-content { display: none; padding: 18px 20px 80px; }
+        .cdp-tab-content.active { display: block; }
+
+        /* 개요 메타 인포바 */
+        .cdp-meta-bar {
+            display: flex; flex-wrap: wrap; gap: 6px 12px;
+            margin-bottom: 20px; padding: 10px 14px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(180,140,80,0.12);
+            border-radius: 8px;
+        }
+        .cdp-meta-item {
+            display: flex; align-items: center; gap: 5px;
+            font-size: 12px;
+        }
+        .cdp-meta-key {
+            color: #7a93a8; font-size: 10px;
+            text-transform: uppercase; letter-spacing: 0.06em;
+        }
+        .cdp-meta-val { color: #dce8f0; font-weight: 500; }
+        .cdp-meta-sep { color: rgba(180,140,80,0.35); }
+
+        /* 개요 섹션 (건국/멸망/본문 공통) */
+        .cdp-ov-section {
+            margin-bottom: 6px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .cdp-ov-section-hd {
+            display: flex; align-items: center; gap: 7px;
+            padding: 10px 14px;
+            background: rgba(255,255,255,0.035);
+            border-bottom: 1px solid rgba(180,140,80,0.1);
+        }
+        .cdp-ov-found .cdp-ov-section-hd { background: rgba(52,152,75,0.08); border-bottom-color: rgba(52,152,75,0.2); }
+        .cdp-ov-fall   .cdp-ov-section-hd { background: rgba(180,60,50,0.09);  border-bottom-color: rgba(180,60,50,0.22); }
+        .cdp-ov-section-icon { font-size: 14px; line-height: 1; }
+        .cdp-ov-section-label {
+            font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+            text-transform: uppercase; color: #d4a843;
+        }
+        .cdp-ov-found .cdp-ov-section-label { color: #5ec87a; }
+        .cdp-ov-fall   .cdp-ov-section-label { color: #e07070; }
+        .cdp-ov-section-year {
+            font-size: 12px; color: #9aabbd; margin-left: 2px;
+        }
+        .cdp-ov-edit-btn {
+            margin-left: auto; background: none; border: none;
+            color: #7a93a8; font-size: 12px; cursor: pointer;
+            padding: 2px 6px; border-radius: 4px;
+            transition: background 0.15s, color 0.15s;
+        }
+        .cdp-ov-edit-btn:hover { background: rgba(255,255,255,0.08); color: #d4a843; }
+        .cdp-ov-section-body {
+            padding: 12px 14px;
+            font-size: 13px; color: #c8d8e8; line-height: 1.85;
+            white-space: pre-wrap; min-height: 0;
+        }
+        .cdp-ov-section-body:empty::before {
+            content: '—'; color: rgba(255,255,255,0.18); font-style: italic; font-size: 12px;
+        }
+        .cdp-ov-edit-inline {
+            padding: 12px 14px;
+            background: rgba(0,0,0,0.15);
+            border-top: 1px solid rgba(180,140,80,0.1);
+        }
+        .cdp-ov-edit-inline textarea,
+        .cdp-ov-edit-inline input[type="text"] {
+            width: 100%; box-sizing: border-box;
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(180,140,80,0.2);
+            color: #dce8f0; border-radius: 5px; padding: 8px 10px;
+            font-size: 12px; resize: vertical; font-family: inherit;
+        }
+        .cdp-ov-edit-inline textarea:focus,
+        .cdp-ov-edit-inline input[type="text"]:focus {
+            outline: none; border-color: rgba(212,168,67,0.5);
+        }
+        .cdp-ov-edit-actions {
+            display: flex; gap: 8px; margin-top: 8px;
+        }
+
+        /* (구) cdp-info-grid — 하위 호환 유지 */
+        .cdp-info-grid { display: none; }
+        .cdp-info-cell, .cdp-info-label, .cdp-info-value { display: none; }
+
+        /* 섹션 타이틀 */
+        .cdp-section-title {
+            font-size: 11px; font-weight: 700; color: #d4a843;
+            letter-spacing: 0.08em; text-transform: uppercase;
+            margin: 18px 0 10px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .cdp-section-title::after {
+            content: ''; flex: 1; height: 1px;
+            background: rgba(180,140,80,0.2);
+        }
+
+        /* 설명 */
+        .cdp-desc {
+            font-size: 13px; color: #c8d8e8; line-height: 1.85;
+            white-space: pre-wrap;
+            border-left: 2px solid rgba(180,140,80,0.3);
+            padding-left: 10px;
+        }
+
+        /* 왕 계보 타임라인 */
+        .cdp-kings-timeline { list-style: none; margin: 0; padding: 0; }
+        .cdp-king-item {
+            position: relative; padding: 0 0 16px 24px;
+            border-left: 2px solid rgba(180,140,80,0.2);
+        }
+        .cdp-king-item:last-child { border-left-color: transparent; padding-bottom: 0; }
+        .cdp-king-dot {
+            position: absolute; left: -5px; top: 5px;
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #d4a843; border: 2px solid rgba(14,22,32,0.98);
+        }
+        .cdp-king-item.cdp-king-current .cdp-king-dot {
+            background: #00e5a0; border-color: rgba(0,229,160,0.4);
+            box-shadow: 0 0 8px 2px rgba(0,229,160,0.55);
+            width: 10px; height: 10px; left: -6px;
+        }
+        .cdp-king-item.cdp-king-current {
+            border-left-color: rgba(0,229,160,0.35);
+        }
+        .cdp-king-item.cdp-king-current .cdp-king-order {
+            color: #00e5a0;
+        }
+        .cdp-king-item.cdp-king-current .cdp-king-name {
+            color: #9effd8;
+        }
+        .cdp-king-item.cdp-king-current .cdp-king-period {
+            color: #60c9a0;
+        }
+        .cdp-king-current-badge {
+            display: inline-block; font-size: 9px;
+            background: rgba(0,229,160,0.15); color: #00e5a0;
+            border: 1px solid rgba(0,229,160,0.35); border-radius: 8px;
+            padding: 0 6px; margin-left: 6px; vertical-align: middle;
+            line-height: 16px; letter-spacing: 0.02em;
+        }
+        .cdp-king-order {
+            font-size: 11px; color: #d4a843; font-weight: 600;
+            letter-spacing: 0.04em; margin-bottom: 2px;
+        }
+        .cdp-king-name {
+            font-size: 14px; color: #f5e9d2; font-weight: 700;
+            font-family: 'Noto Serif KR', serif;
+        }
+        .cdp-king-period { font-size: 11px; color: #9aabbd; margin-top: 2px; }
+        .cdp-king-desc {
+            font-size: 12px; color: #9aabbd; margin-top: 5px;
+            white-space: pre-wrap; line-height: 1.65;
+            background: rgba(180,140,80,0.06);
+            border-left: 2px solid rgba(180,140,80,0.25);
+            padding: 4px 8px; border-radius: 0 4px 4px 0;
+        }
+
+        /* 군사/행정/인물 공통 텍스트 */
+        .cdp-richtext {
+            font-size: 13px; color: #c8d8e8; line-height: 1.85;
+            white-space: pre-wrap;
+        }
+        .cdp-empty {
+            text-align: center; color: #5a7080; font-size: 13px;
+            padding: 40px 20px;
+        }
+
+        /* 인물 카드 */
+        .cdp-figure-card {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(180,140,80,0.12);
+            border-radius: 7px; padding: 11px 14px; margin-bottom: 10px;
+        }
+        .cdp-figure-name {
+            font-size: 14px; color: #f5e9d2; font-weight: 700;
+            font-family: 'Noto Serif KR', serif; margin-bottom: 2px;
+        }
+        .cdp-figure-role {
+            font-size: 11px; color: #d4a843;
+            background: rgba(180,140,80,0.1);
+            border: 1px solid rgba(180,140,80,0.25);
+            padding: 1px 6px; border-radius: 8px;
+            display: inline-block; margin-bottom: 6px;
+        }
+        .cdp-figure-desc {
+            font-size: 12px; color: #9aabbd; line-height: 1.7;
+        }
+
+        /* 편집 폼 */
+        .cdp-edit-form { padding-top: 4px; }
+        .cdp-field-group { margin-bottom: 14px; }
+        .cdp-field-group label {
+            display: block; font-size: 11px; color: #9aabbd;
+            margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.05em;
+        }
+        .cdp-field-group input,
+        .cdp-field-group textarea {
+            width: 100%; box-sizing: border-box;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(180,140,80,0.2);
+            color: #dce8f0; border-radius: 5px;
+            padding: 8px 10px; font-size: 13px; line-height: 1.6;
+            font-family: inherit; resize: vertical; outline: none;
+        }
+        .cdp-field-group input:focus,
+        .cdp-field-group textarea:focus {
+            border-color: rgba(180,140,80,0.5);
+            background: rgba(255,255,255,0.09);
+        }
+        .cdp-edit-actions {
+            display: flex; gap: 8px; margin-top: 6px;
+        }
+        .cdp-save-btn {
+            flex: 1; padding: 8px;
+            background: rgba(39,174,96,0.2);
+            border: 1px solid rgba(39,174,96,0.4);
+            color: #5dbb7f; border-radius: 5px; cursor: pointer;
+            font-size: 13px; transition: background 0.2s;
+        }
+        .cdp-save-btn:hover { background: rgba(39,174,96,0.35); }
+        .cdp-cancel-btn {
+            padding: 8px 16px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: #7a93a8; border-radius: 5px; cursor: pointer;
+            font-size: 13px; transition: background 0.2s;
+        }
+        .cdp-cancel-btn:hover { background: rgba(255,255,255,0.1); }
+        .cdp-tab-edit-btn {
+            float: right; font-size: 11px;
+            background: rgba(52,152,219,0.15);
+            border: 1px solid rgba(52,152,219,0.35);
+            color: #7dc3e8; padding: 2px 8px; border-radius: 10px;
+            cursor: pointer; transition: background 0.2s; margin-top: -2px;
+        }
+        .cdp-tab-edit-btn:hover { background: rgba(52,152,219,0.3); }
+
+        /* ════════════════════════════════════════
            🗺️ 오브젝트 상세 패널 (오른쪽 슬라이드)
            ════════════════════════════════════════ */
         #object-detail-panel {
             position: fixed;
             top: 0;
-            right: -480px;
-            width: 440px;
+            right: -560px;
+            width: 520px;
             height: 100vh;
             background: rgba(20, 30, 42, 0.97);
             backdrop-filter: blur(12px);
@@ -5145,16 +5498,171 @@ body.force-mobile .marker-type-selector button {
     </div>
 
     <!-- 🚩 국가 정보 모달 -->
-    <div id="country-info-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:3000; align-items:center; justify-content:center;">
-        <div style="position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6);" id="country-info-modal-backdrop"></div>
-        <div style="position:relative; background:#1e2a38; border:1px solid rgba(255,255,255,0.15); border-radius:10px; padding:24px; max-width:500px; width:90%; max-height:80vh; overflow-y:auto; box-shadow:0 8px 32px rgba(0,0,0,0.5); z-index:1;">
-            <button id="country-info-modal-close" style="position:absolute; top:12px; right:14px; background:none; border:none; color:#9aabbd; font-size:20px; cursor:pointer; line-height:1;">✕</button>
-            <div id="country-info-modal-flag" style="margin-bottom:10px;"></div>
-            <h2 id="country-info-modal-name" style="margin:0 0 4px; font-size:20px; color:#f5e9d2; font-family:'Noto Serif KR',serif;"></h2>
-            <div id="country-info-modal-meta" style="font-size:12px; color:#9aabbd; margin-bottom:16px;"></div>
-            <div id="country-info-modal-desc" style="font-size:14px; color:#d0e0f0; line-height:1.8; white-space:pre-wrap;"></div>
+    <!-- 🏛️ 국가 상세 패널 (오른쪽 슬라이드) -->
+    <div id="country-detail-panel">
+        <!-- 히어로 배너 -->
+        <div class="cdp-hero" id="cdp-hero-wrap">
+            <div class="cdp-hero-bg" id="cdp-hero-bg"></div>
+            <div class="cdp-hero-gradient"></div>
+            <button class="cdp-close-btn" id="cdp-close-btn">✕</button>
+            <div class="cdp-hero-content">
+                <div id="cdp-flag-wrap"></div>
+                <div>
+                    <h2 id="cdp-name" class="cdp-name"></h2>
+                    <div id="cdp-period" class="cdp-period"></div>
+                </div>
+            </div>
+            <!-- 관리자 편집 버튼 -->
+            <button class="cdp-edit-btn" id="cdp-edit-btn" style="display:none;" title="국가 정보 편집">✏️ 편집</button>
         </div>
-    </div>
+
+        <!-- 탭 바 -->
+        <div class="cdp-tab-bar">
+            <button class="cdp-tab active" data-tab="overview">📋 개요</button>
+            <button class="cdp-tab" data-tab="kings">👑 왕계보</button>
+            <button class="cdp-tab" data-tab="military">⚔️ 군사</button>
+            <button class="cdp-tab" data-tab="admin">🏛️ 행정</button>
+            <button class="cdp-tab" data-tab="figures">🧑‍🏫 인물</button>
+        </div>
+
+        <!-- 탭 콘텐츠 -->
+        <div class="cdp-body">
+
+            <!-- ① 개요 탭 -->
+            <div class="cdp-tab-content active" id="cdp-tab-overview">
+                <div id="cdp-overview-content">
+                    <!-- 메타 인포바 (민족·수도·거점 한 줄) -->
+                    <div class="cdp-meta-bar" id="cdp-meta-bar"></div>
+
+                    <!-- 개요 본문 -->
+                    <div class="cdp-ov-section" id="cdp-ov-desc-wrap">
+                        <div class="cdp-ov-section-hd">
+                            <span class="cdp-ov-section-icon">📖</span>
+                            <span class="cdp-ov-section-label">개요</span>
+                            <button class="cdp-ov-edit-btn" id="cdp-ov-edit-desc-btn" style="display:none;">✏️</button>
+                        </div>
+                        <div class="cdp-ov-section-body cdp-desc" id="cdp-desc"></div>
+                        <div class="cdp-ov-edit-inline" id="cdp-ov-edit-desc" style="display:none;">
+                            <textarea id="cdp-edit-desc" rows="5" placeholder="국가 전반에 대한 설명..."></textarea>
+                            <div class="cdp-ov-edit-actions">
+                                <button class="cdp-save-btn" id="cdp-save-desc">💾 저장</button>
+                                <button class="cdp-cancel-btn" id="cdp-cancel-desc">취소</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 건국 섹션 -->
+                    <div class="cdp-ov-section cdp-ov-found" id="cdp-ov-found-wrap">
+                        <div class="cdp-ov-section-hd">
+                            <span class="cdp-ov-section-icon">🏛️</span>
+                            <span class="cdp-ov-section-label">건국</span>
+                            <span class="cdp-ov-section-year" id="cdp-found-year"></span>
+                            <button class="cdp-ov-edit-btn" id="cdp-ov-edit-found-btn" style="display:none;">✏️</button>
+                        </div>
+                        <div class="cdp-ov-section-body" id="cdp-found-detail"></div>
+                        <div class="cdp-ov-edit-inline" id="cdp-ov-edit-found" style="display:none;">
+                            <div class="cdp-field-group">
+                                <label>수도</label>
+                                <input type="text" id="cdp-edit-capital" placeholder="건국 당시 수도">
+                            </div>
+                            <div class="cdp-field-group">
+                                <label>주요 거점 (쉼표 구분)</label>
+                                <input type="text" id="cdp-edit-bases" placeholder="거점1, 거점2, ...">
+                            </div>
+                            <div class="cdp-field-group">
+                                <label>건국 배경 / 상세</label>
+                                <textarea id="cdp-edit-founding" rows="5" placeholder="건국 배경, 창업자, 과정 등..."></textarea>
+                            </div>
+                            <div class="cdp-ov-edit-actions">
+                                <button class="cdp-save-btn" id="cdp-save-found">💾 저장</button>
+                                <button class="cdp-cancel-btn" id="cdp-cancel-found">취소</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 멸망 섹션 -->
+                    <div class="cdp-ov-section cdp-ov-fall" id="cdp-ov-fall-wrap">
+                        <div class="cdp-ov-section-hd">
+                            <span class="cdp-ov-section-icon">⚔️</span>
+                            <span class="cdp-ov-section-label">멸망</span>
+                            <span class="cdp-ov-section-year" id="cdp-fall-year"></span>
+                            <button class="cdp-ov-edit-btn" id="cdp-ov-edit-fall-btn" style="display:none;">✏️</button>
+                        </div>
+                        <div class="cdp-ov-section-body" id="cdp-fall-detail"></div>
+                        <div class="cdp-ov-edit-inline" id="cdp-ov-edit-fall" style="display:none;">
+                            <div class="cdp-field-group">
+                                <label>멸망 원인 / 경위</label>
+                                <textarea id="cdp-edit-fall" rows="5" placeholder="멸망 이유, 정복 세력, 내부 붕괴 등..."></textarea>
+                            </div>
+                            <div class="cdp-ov-edit-actions">
+                                <button class="cdp-save-btn" id="cdp-save-fall">💾 저장</button>
+                                <button class="cdp-cancel-btn" id="cdp-cancel-fall">취소</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- (하위 호환용 빈 요소) -->
+                <div id="cdp-edit-overview" style="display:none;"></div>
+            </div>
+
+            <!-- ② 왕계보 탭 -->
+            <div class="cdp-tab-content" id="cdp-tab-kings">
+                <div id="cdp-kings-list"></div>
+            </div>
+
+            <!-- ③ 군사 탭 -->
+            <div class="cdp-tab-content" id="cdp-tab-military">
+                <div id="cdp-military-content"></div>
+                <!-- 군사 편집 폼 (관리자) -->
+                <div class="cdp-edit-form" id="cdp-edit-military-form" style="display:none;">
+                    <div class="cdp-field-group">
+                        <label>군사 체계</label>
+                        <textarea id="cdp-edit-military" rows="10" placeholder="군사 체계, 병종, 규모 등..."></textarea>
+                    </div>
+                    <div class="cdp-edit-actions">
+                        <button class="cdp-save-btn" id="cdp-save-military">💾 저장</button>
+                        <button class="cdp-cancel-btn" id="cdp-cancel-military">취소</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ④ 행정 탭 -->
+            <div class="cdp-tab-content" id="cdp-tab-admin">
+                <div id="cdp-admin-content"></div>
+                <!-- 행정 편집 폼 (관리자) -->
+                <div class="cdp-edit-form" id="cdp-edit-admin-form" style="display:none;">
+                    <div class="cdp-field-group">
+                        <label>행정 체계</label>
+                        <textarea id="cdp-edit-admin" rows="10" placeholder="행정 구역, 관직 체계 등..."></textarea>
+                    </div>
+                    <div class="cdp-edit-actions">
+                        <button class="cdp-save-btn" id="cdp-save-admin">💾 저장</button>
+                        <button class="cdp-cancel-btn" id="cdp-cancel-admin">취소</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ⑤ 인물 탭 -->
+            <div class="cdp-tab-content" id="cdp-tab-figures">
+                <div id="cdp-figures-content"></div>
+                <!-- 인물 편집 폼 (관리자) -->
+                <div class="cdp-edit-form" id="cdp-edit-figures-form" style="display:none;">
+                    <div class="cdp-field-group">
+                        <label>주요 인물 (JSON 배열 또는 텍스트)</label>
+                        <textarea id="cdp-edit-figures" rows="10" placeholder='[{"name":"인물명","role":"역할","desc":"설명"}]'></textarea>
+                    </div>
+                    <div class="cdp-edit-actions">
+                        <button class="cdp-save-btn" id="cdp-save-figures">💾 저장</button>
+                        <button class="cdp-cancel-btn" id="cdp-cancel-figures">취소</button>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- /.cdp-body -->
+    </div><!-- /#country-detail-panel -->
+
+    <!-- 기존 호환성을 위한 빈 레거시 요소 -->
+    <div id="country-info-modal" style="display:none;"></div>
 
     <!-- 🚩 역사 기록 투명 박스 (오른쪽 상단 탑바 바로 아래, 왕패널 오른쪽) -->
     <div id="map-history-panel" class="expanded" style="position: fixed; top: 60px; right: 10px; width: 320px; height: 260px; min-width: 200px; min-height: 120px; z-index: 1000; background: rgba(30, 42, 56, 0.40); backdrop-filter: blur(3px); padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); overflow: hidden; pointer-events: auto; display: none; box-sizing: border-box;">
@@ -6771,6 +7279,11 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     function openDetailPanel(castle, activeHistoryRecord, countryInfo) {
         const panel = document.getElementById('object-detail-panel');
         if (!panel) return;
+        // 국가 상세 패널이 열려있으면 닫기
+        const cdp = document.getElementById('country-detail-panel');
+        if (cdp && cdp.classList.contains('active')) {
+            cdp.classList.remove('active');
+        }
 
         // ── 히어로 이미지 ──
         const heroImg = document.getElementById('odp-hero-img');
@@ -16447,39 +16960,430 @@ function invalidateCountryLookupCache() {
         }
     }
 
-    // 🚩 국가 정보 모달 초기화
-    document.getElementById('country-info-modal-close').addEventListener('click', () => {
-        document.getElementById('country-info-modal').style.display = 'none';
-    });
-    document.getElementById('country-info-modal-backdrop').addEventListener('click', () => {
-        document.getElementById('country-info-modal').style.display = 'none';
-    });
+    // ══════════════════════════════════════════════════════
+    // 🏛️ 국가 상세 패널 (Country Detail Panel)
+    // ══════════════════════════════════════════════════════
+    (function() {
+        const panel = document.getElementById('country-detail-panel');
+        let _currentCInfo = null; // 현재 열린 국가 정보
 
-    function showCountryInfoModal(cInfo) {
-        const modal = document.getElementById('country-info-modal');
-        const sealChar = cInfo.sealText || (()=>{ const n=cInfo.name||''; const hanja=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hanja.length) return hanja.slice(-1)[0]; const hangul=(n.match(/[가-힣]/g)||[]); return hangul.length ? hangul.slice(-1)[0] : '?'; })();
-        const sealColor = cInfo.color || '#c0392b';
-        const flagEl = document.getElementById('country-info-modal-flag');
-        flagEl.innerHTML = cInfo.flag
-            ? `<img src="${cInfo.flag}" style="height:36px; border:1px solid rgba(255,255,255,0.2); border-radius:3px;">`
-            : `<span style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;background:${sealColor};border-radius:4px;font-size:18px;color:#fff;font-family:'Noto Serif KR',serif;">${sealChar}</span>`;
-        document.getElementById('country-info-modal-name').textContent = cInfo.name;
-        const startStr = `${cInfo.start}년${cInfo.start_month && cInfo.start_month !== 1 ? ` ${cInfo.start_month}월` : ''}`;
-        const endStr = cInfo.end ? `${cInfo.end}년${cInfo.end_month && cInfo.end_month !== 12 ? ` ${cInfo.end_month}월` : ''}` : '현재';
-        let meta = `${startStr} ~ ${endStr}`;
-        if (cInfo.ethnicity) meta += ` · ${cInfo.ethnicity}`;
-        document.getElementById('country-info-modal-meta').textContent = meta;
-        const desc = cInfo.description || '';
-        const descEl = document.getElementById('country-info-modal-desc');
-        if (desc) {
-            descEl.style.display = 'block';
-            descEl.textContent = desc;
-        } else {
-            descEl.style.display = 'none';
-            descEl.textContent = '';
+        // ── 닫기 ──
+        document.getElementById('cdp-close-btn').addEventListener('click', closeCountryPanel);
+        function closeCountryPanel() {
+            panel.classList.remove('active');
+            _currentCInfo = null;
         }
-        modal.style.display = 'flex';
-    }
+        window.closeCountryPanel = closeCountryPanel;
+
+        // ── 탭 전환 ──
+        panel.querySelectorAll('.cdp-tab').forEach(btn => {
+            btn.addEventListener('click', () => {
+                panel.querySelectorAll('.cdp-tab').forEach(b => b.classList.remove('active'));
+                panel.querySelectorAll('.cdp-tab-content').forEach(c => c.classList.remove('active'));
+                btn.classList.add('active');
+                const tabId = 'cdp-tab-' + btn.dataset.tab;
+                document.getElementById(tabId).classList.add('active');
+            });
+        });
+
+        // ── 편집 버튼 (헤더 전체 편집 → 개요 탭으로, 개요 섹션 편집 버튼 열기) ──
+        const editBtn = document.getElementById('cdp-edit-btn');
+        editBtn.addEventListener('click', () => {
+            if (!_currentCInfo) return;
+            // 개요 탭으로 전환
+            panel.querySelectorAll('.cdp-tab').forEach(b => b.classList.remove('active'));
+            panel.querySelectorAll('.cdp-tab-content').forEach(c => c.classList.remove('active'));
+            panel.querySelector('[data-tab="overview"]').classList.add('active');
+            document.getElementById('cdp-tab-overview').classList.add('active');
+            // 개요 섹션 편집 폼 열기
+            _openDescEdit(_currentCInfo);
+        });
+
+        // 개요 본문 편집
+        function _openDescEdit(cInfo) {
+            document.getElementById('cdp-ov-edit-desc').style.display = 'block';
+            document.getElementById('cdp-edit-desc').value = cInfo.description || '';
+        }
+        document.getElementById('cdp-ov-edit-desc-btn').addEventListener('click', () => {
+            if (!_currentCInfo) return;
+            _openDescEdit(_currentCInfo);
+        });
+        document.getElementById('cdp-cancel-desc').addEventListener('click', () => {
+            document.getElementById('cdp-ov-edit-desc').style.display = 'none';
+        });
+        document.getElementById('cdp-save-desc').addEventListener('click', async () => {
+            if (!_currentCInfo) return;
+            const desc = document.getElementById('cdp-edit-desc').value.trim();
+            await _saveOvField({ description: desc });
+        });
+
+        // 건국 섹션 편집
+        document.getElementById('cdp-ov-edit-found-btn').addEventListener('click', () => {
+            if (!_currentCInfo) return;
+            document.getElementById('cdp-ov-edit-found').style.display = 'block';
+            document.getElementById('cdp-edit-capital').value = _currentCInfo.capital || '';
+            document.getElementById('cdp-edit-bases').value = (_currentCInfo.bases || []).join(', ');
+            document.getElementById('cdp-edit-founding').value = _currentCInfo.founding || '';
+        });
+        document.getElementById('cdp-cancel-found').addEventListener('click', () => {
+            document.getElementById('cdp-ov-edit-found').style.display = 'none';
+        });
+        document.getElementById('cdp-save-found').addEventListener('click', async () => {
+            if (!_currentCInfo) return;
+            const capital = document.getElementById('cdp-edit-capital').value.trim();
+            const basesRaw = document.getElementById('cdp-edit-bases').value.trim();
+            const bases = basesRaw ? basesRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+            const founding = document.getElementById('cdp-edit-founding').value.trim();
+            await _saveOvField({ capital, bases, founding });
+        });
+
+        // 멸망 섹션 편집
+        document.getElementById('cdp-ov-edit-fall-btn').addEventListener('click', () => {
+            if (!_currentCInfo) return;
+            document.getElementById('cdp-ov-edit-fall').style.display = 'block';
+            document.getElementById('cdp-edit-fall').value = _currentCInfo.fall || '';
+        });
+        document.getElementById('cdp-cancel-fall').addEventListener('click', () => {
+            document.getElementById('cdp-ov-edit-fall').style.display = 'none';
+        });
+        document.getElementById('cdp-save-fall').addEventListener('click', async () => {
+            if (!_currentCInfo) return;
+            const fall = document.getElementById('cdp-edit-fall').value.trim();
+            await _saveOvField({ fall });
+        });
+
+        // 공통 개요 저장
+        async function _saveOvField(patch) {
+            try {
+                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                const merged = { ..._currentCInfo, ...patch };
+                const res = await fetch(`/api/countries/${encodeURIComponent(_currentCInfo._id || _currentCInfo.name)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify(merged)
+                });
+                if (!res.ok) throw new Error(await res.text());
+                Object.assign(_currentCInfo, patch);
+                const idx = countries.findIndex(c => String(c._id) === String(_currentCInfo._id));
+                if (idx >= 0) Object.assign(countries[idx], patch);
+                _renderOverview(_currentCInfo);
+            } catch(e) { alert('저장 실패: ' + e.message); }
+        }
+
+
+        // ── 군사 편집 ──
+        document.getElementById('cdp-cancel-military').addEventListener('click', () => {
+            document.getElementById('cdp-military-content').style.display = 'block';
+            document.getElementById('cdp-edit-military-form').style.display = 'none';
+        });
+        document.getElementById('cdp-save-military').addEventListener('click', async () => {
+            if (!_currentCInfo) return;
+            const val = document.getElementById('cdp-edit-military').value.trim();
+            await _saveField('military', val);
+        });
+
+        // ── 행정 편집 ──
+        document.getElementById('cdp-cancel-admin').addEventListener('click', () => {
+            document.getElementById('cdp-admin-content').style.display = 'block';
+            document.getElementById('cdp-edit-admin-form').style.display = 'none';
+        });
+        document.getElementById('cdp-save-admin').addEventListener('click', async () => {
+            if (!_currentCInfo) return;
+            const val = document.getElementById('cdp-edit-admin').value.trim();
+            await _saveField('administration', val);
+        });
+
+        // ── 인물 편집 ──
+        document.getElementById('cdp-cancel-figures').addEventListener('click', () => {
+            document.getElementById('cdp-figures-content').style.display = 'block';
+            document.getElementById('cdp-edit-figures-form').style.display = 'none';
+        });
+        document.getElementById('cdp-save-figures').addEventListener('click', async () => {
+            if (!_currentCInfo) return;
+            const raw = document.getElementById('cdp-edit-figures').value.trim();
+            let val = raw;
+            try { val = JSON.parse(raw); } catch(e) { /* 텍스트 그대로 */ }
+            await _saveField('figures', val);
+        });
+
+        async function _saveField(field, value) {
+            try {
+                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                const res = await fetch(`/api/countries/${encodeURIComponent(_currentCInfo._id || _currentCInfo.name)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ ..._currentCInfo, [field]: value })
+                });
+                if (!res.ok) throw new Error(await res.text());
+                _currentCInfo = { ..._currentCInfo, [field]: value };
+                const idx = countries.findIndex(c => String(c._id) === String(_currentCInfo._id));
+                if (idx >= 0) countries[idx][field] = value;
+                if (field === 'military') {
+                    _renderMilitary(_currentCInfo);
+                    document.getElementById('cdp-military-content').style.display = 'block';
+                    document.getElementById('cdp-edit-military-form').style.display = 'none';
+                } else if (field === 'administration') {
+                    _renderAdmin(_currentCInfo);
+                    document.getElementById('cdp-admin-content').style.display = 'block';
+                    document.getElementById('cdp-edit-admin-form').style.display = 'none';
+                } else if (field === 'figures') {
+                    _renderFigures(_currentCInfo);
+                    document.getElementById('cdp-figures-content').style.display = 'block';
+                    document.getElementById('cdp-edit-figures-form').style.display = 'none';
+                }
+            } catch(e) { alert('저장 실패: ' + e.message); }
+        }
+
+        // ── 탭별 편집 버튼 클릭 핸들러 등록 ──
+        function _bindTabEditBtns(cInfo) {
+            const militaryEditBtn = document.getElementById('cdp-military-edit-btn');
+            const adminEditBtn    = document.getElementById('cdp-admin-edit-btn');
+            const figuresEditBtn  = document.getElementById('cdp-figures-edit-btn');
+            if (militaryEditBtn) militaryEditBtn.onclick = () => {
+                document.getElementById('cdp-military-content').style.display = 'none';
+                document.getElementById('cdp-edit-military-form').style.display = 'block';
+                document.getElementById('cdp-edit-military').value = typeof cInfo.military === 'string' ? cInfo.military : (cInfo.military || '');
+            };
+            if (adminEditBtn) adminEditBtn.onclick = () => {
+                document.getElementById('cdp-admin-content').style.display = 'none';
+                document.getElementById('cdp-edit-admin-form').style.display = 'block';
+                document.getElementById('cdp-edit-admin').value = typeof cInfo.administration === 'string' ? cInfo.administration : (cInfo.administration || '');
+            };
+            if (figuresEditBtn) figuresEditBtn.onclick = () => {
+                document.getElementById('cdp-figures-content').style.display = 'none';
+                document.getElementById('cdp-edit-figures-form').style.display = 'block';
+                const figs = cInfo.figures;
+                document.getElementById('cdp-edit-figures').value = typeof figs === 'string' ? figs : (figs ? JSON.stringify(figs, null, 2) : '');
+            };
+        }
+
+        // ── 렌더 함수 ──
+        function _esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+        function _renderOverview(cInfo) {
+            const isAdmin = currentUser && (currentUser.role === 'admin' || currentUser.role === 'superuser');
+
+            // ── 연도 포맷 헬퍼 ──
+            const fmtY = (y, m) => {
+                if (y == null) return null;
+                let s = `${Math.abs(y)}년 ${y < 0 ? 'B.C.' : 'A.D.'}`;
+                if (m && m !== 1 && m !== 12) s += ` ${m}월`;
+                return s;
+            };
+
+            // ── 메타 인포바 (민족·수도·거점) ──
+            const metaBar = document.getElementById('cdp-meta-bar');
+            const metaItems = [];
+            if (cInfo.ethnicity) metaItems.push(`<span class="cdp-meta-item"><span class="cdp-meta-key">민족</span><span class="cdp-meta-val">${_esc(cInfo.ethnicity)}</span></span>`);
+            if (cInfo.capital)   metaItems.push(`<span class="cdp-meta-item"><span class="cdp-meta-key">수도</span><span class="cdp-meta-val">${_esc(cInfo.capital)}</span></span>`);
+            if (cInfo.bases && cInfo.bases.length) metaItems.push(`<span class="cdp-meta-item"><span class="cdp-meta-key">거점</span><span class="cdp-meta-val">${cInfo.bases.map(_esc).join(' · ')}</span></span>`);
+            metaBar.innerHTML = metaItems.join(`<span class="cdp-meta-sep">|</span>`);
+            metaBar.style.display = metaItems.length ? '' : 'none';
+
+            // ── 개요 본문 ──
+            document.getElementById('cdp-desc').textContent = cInfo.description || '';
+            document.getElementById('cdp-ov-edit-desc-btn').style.display = isAdmin ? '' : 'none';
+
+            // ── 건국 섹션 ──
+            const foundYearEl = document.getElementById('cdp-found-year');
+            const foundDetailEl = document.getElementById('cdp-found-detail');
+            const foundY = fmtY(cInfo.start, cInfo.start_month);
+            foundYearEl.textContent = foundY ? `(${foundY})` : '';
+            foundDetailEl.textContent = cInfo.founding || '';
+            document.getElementById('cdp-ov-edit-found-btn').style.display = isAdmin ? '' : 'none';
+
+            // ── 멸망 섹션 ──
+            const fallYearEl = document.getElementById('cdp-fall-year');
+            const fallDetailEl = document.getElementById('cdp-fall-detail');
+            const fallY = fmtY(cInfo.end, cInfo.end_month);
+            fallYearEl.textContent = fallY ? `(${fallY})` : '(현재)';
+            fallDetailEl.textContent = cInfo.fall || '';
+            document.getElementById('cdp-ov-edit-fall-btn').style.display = isAdmin ? '' : 'none';
+            // 현재 존재하는 국가면 멸망 섹션 흐리게
+            document.getElementById('cdp-ov-fall-wrap').style.opacity = (cInfo.end == null || cInfo.end >= 2020) ? '0.45' : '1';
+
+            // 인라인 편집 폼 모두 닫기
+            document.getElementById('cdp-ov-edit-desc').style.display = 'none';
+            document.getElementById('cdp-ov-edit-found').style.display = 'none';
+            document.getElementById('cdp-ov-edit-fall').style.display = 'none';
+            document.getElementById('cdp-overview-content').style.display = 'block';
+        }
+
+        function _renderKings(cInfo) {
+            const container = document.getElementById('cdp-kings-list');
+
+            // kings 전역 객체: { country_id_string: [{name, start, end, start_month, end_month, summary}, ...] }
+            const countryId = String(cInfo._id || '');
+            const kingsMap = (typeof kings !== 'undefined' && kings && typeof kings === 'object') ? kings : {};
+            const myKings = (kingsMap[countryId] || []).slice().sort((a, b) => (a.start || 0) - (b.start || 0));
+
+            if (!myKings.length) {
+                container.innerHTML = `<div class="cdp-empty">등록된 왕 정보가 없습니다.</div>`;
+                return;
+            }
+
+            const fmtYear = y => {
+                if (y == null) return '?';
+                return y < 0 ? `${Math.abs(y)} B.C.` : `${y} A.D.`;
+            };
+
+            // 현재 지도 연도
+            const { year: mapYear, month: mapMonth } = (typeof getCurrentYearMonth === 'function')
+                ? getCurrentYearMonth()
+                : { year: 0, month: 1 };
+
+            const items = myKings.map((k, i) => {
+                const name    = _esc(k.name || '이름 미상');
+                const sy      = k.start;
+                const ey      = k.end;
+                const sm      = k.start_month != null ? k.start_month : 1;
+                const em      = k.end_month   != null ? k.end_month   : 12;
+                const period  = (sy != null || ey != null) ? `${fmtYear(sy)} ~ ${fmtYear(ey)}` : '기간 미상';
+                const summary = k.summary || '';
+
+                // 현재 시점에 재위 중인 왕 판별
+                const startOk = (sy == null) || (mapYear > sy) || (mapYear === sy && mapMonth >= sm);
+                const endOk   = (ey == null) || (mapYear < ey) || (mapYear === ey && mapMonth <= em);
+                const isCurrent = startOk && endOk;
+
+                const currentClass = isCurrent ? ' cdp-king-current' : '';
+                const currentBadge = isCurrent ? `<span class="cdp-king-current-badge">현재 재위</span>` : '';
+
+                return `
+                <li class="cdp-king-item${currentClass}">
+                    <div class="cdp-king-dot"></div>
+                    <div class="cdp-king-order">제${i + 1}대</div>
+                    <div class="cdp-king-name">${name}${currentBadge}</div>
+                    <div class="cdp-king-period">재위 ${_esc(period)}</div>
+                    ${summary ? `<div class="cdp-king-desc">${_esc(summary)}</div>` : ''}
+                </li>`;
+            }).join('');
+            container.innerHTML = `<ul class="cdp-kings-timeline">${items}</ul>`;
+        }
+
+        function _renderMilitary(cInfo) {
+            const isAdmin = currentUser && (currentUser.role === 'admin' || currentUser.role === 'superuser');
+            const el = document.getElementById('cdp-military-content');
+            const editBtnHtml = isAdmin ? `<button class="cdp-tab-edit-btn" id="cdp-military-edit-btn">✏️ 편집</button>` : '';
+            if (cInfo.military) {
+                if (typeof cInfo.military === 'string') {
+                    el.innerHTML = `<div class="cdp-section-title">⚔️ 군사 체계 ${editBtnHtml}</div><div class="cdp-richtext">${_esc(cInfo.military)}</div>`;
+                } else {
+                    el.innerHTML = `<div class="cdp-section-title">⚔️ 군사 체계 ${editBtnHtml}</div><div class="cdp-richtext">${_esc(JSON.stringify(cInfo.military, null, 2))}</div>`;
+                }
+            } else {
+                el.innerHTML = `${editBtnHtml ? `<div style="text-align:right;margin-bottom:8px;">${editBtnHtml}</div>` : ''}<div class="cdp-empty">군사 체계 정보가 없습니다.<br><span style="font-size:12px;">관리자가 입력할 수 있습니다.</span></div>`;
+            }
+            document.getElementById('cdp-edit-military-form').style.display = 'none';
+            el.style.display = 'block';
+        }
+
+        function _renderAdmin(cInfo) {
+            const isAdmin = currentUser && (currentUser.role === 'admin' || currentUser.role === 'superuser');
+            const el = document.getElementById('cdp-admin-content');
+            const editBtnHtml = isAdmin ? `<button class="cdp-tab-edit-btn" id="cdp-admin-edit-btn">✏️ 편집</button>` : '';
+            if (cInfo.administration) {
+                if (typeof cInfo.administration === 'string') {
+                    el.innerHTML = `<div class="cdp-section-title">🏛️ 행정 체계 ${editBtnHtml}</div><div class="cdp-richtext">${_esc(cInfo.administration)}</div>`;
+                } else {
+                    el.innerHTML = `<div class="cdp-section-title">🏛️ 행정 체계 ${editBtnHtml}</div><div class="cdp-richtext">${_esc(JSON.stringify(cInfo.administration, null, 2))}</div>`;
+                }
+            } else {
+                el.innerHTML = `${editBtnHtml ? `<div style="text-align:right;margin-bottom:8px;">${editBtnHtml}</div>` : ''}<div class="cdp-empty">행정 체계 정보가 없습니다.<br><span style="font-size:12px;">관리자가 입력할 수 있습니다.</span></div>`;
+            }
+            document.getElementById('cdp-edit-admin-form').style.display = 'none';
+            el.style.display = 'block';
+        }
+
+        function _renderFigures(cInfo) {
+            const isAdmin = currentUser && (currentUser.role === 'admin' || currentUser.role === 'superuser');
+            const el = document.getElementById('cdp-figures-content');
+            const editBtnHtml = isAdmin ? `<button class="cdp-tab-edit-btn" id="cdp-figures-edit-btn">✏️ 편집</button>` : '';
+            if (cInfo.figures) {
+                let figs = cInfo.figures;
+                let html = '';
+                if (typeof figs === 'string') {
+                    try { figs = JSON.parse(figs); } catch(e) { /* 텍스트 */ }
+                }
+                if (Array.isArray(figs)) {
+                    html = figs.map(f => {
+                        const name = _esc(f.name || '?');
+                        const role = f.role ? `<span class="cdp-figure-role">${_esc(f.role)}</span>` : '';
+                        const desc = f.desc ? `<div class="cdp-figure-desc">${_esc(f.desc)}</div>` : '';
+                        return `<div class="cdp-figure-card"><div class="cdp-figure-name">${name}</div>${role}${desc}</div>`;
+                    }).join('');
+                } else {
+                    html = `<div class="cdp-richtext">${_esc(typeof figs === 'string' ? figs : JSON.stringify(figs, null, 2))}</div>`;
+                }
+                el.innerHTML = `<div style="text-align:right;margin-bottom:8px;">${editBtnHtml}</div>${html}`;
+            } else {
+                el.innerHTML = `${editBtnHtml ? `<div style="text-align:right;margin-bottom:8px;">${editBtnHtml}</div>` : ''}<div class="cdp-empty">인물 정보가 없습니다.<br><span style="font-size:12px;">관리자가 입력할 수 있습니다.</span></div>`;
+            }
+            document.getElementById('cdp-edit-figures-form').style.display = 'none';
+            el.style.display = 'block';
+        }
+
+        // ── 공개 함수: 패널 열기 ──
+        function showCountryInfoModal(cInfo) {
+            if (!cInfo) return;
+            _currentCInfo = cInfo;
+            const isAdmin = currentUser && (currentUser.role === 'admin' || currentUser.role === 'superuser');
+
+            // 히어로 배너
+            const sealChar = cInfo.sealText || (()=>{
+                const n = cInfo.name||'';
+                const hanja = (n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]);
+                if (hanja.length) return hanja.slice(-1)[0];
+                const hangul = (n.match(/[가-힣]/g)||[]);
+                return hangul.length ? hangul.slice(-1)[0] : '?';
+            })();
+            const sealColor = cInfo.color || '#c0392b';
+            const heroBg = document.getElementById('cdp-hero-bg');
+            if (cInfo.flag) {
+                heroBg.style.backgroundImage = `url('${cInfo.flag}')`;
+                heroBg.classList.add('has-flag');
+            } else {
+                heroBg.style.backgroundImage = '';
+                heroBg.classList.remove('has-flag');
+                heroBg.style.background = `linear-gradient(135deg, ${sealColor}33 0%, #0e1822 100%)`;
+            }
+            document.getElementById('cdp-flag-wrap').innerHTML = cInfo.flag
+                ? `<img class="cdp-flag-img" src="${cInfo.flag}" alt="">`
+                : `<span class="cdp-flag-seal" style="background:${sealColor};">${sealChar}</span>`;
+            document.getElementById('cdp-name').textContent = cInfo.name || '';
+            const startStr = cInfo.start != null ? `${cInfo.start < 0 ? 'B.C. ' + Math.abs(cInfo.start) : 'A.D. ' + cInfo.start}` : '?';
+            const endStr   = cInfo.end   != null ? `${cInfo.end   < 0 ? 'B.C. ' + Math.abs(cInfo.end)   : 'A.D. ' + cInfo.end}`   : '현재';
+            document.getElementById('cdp-period').textContent = `${startStr} ~ ${endStr}${cInfo.ethnicity ? '  ·  ' + cInfo.ethnicity : ''}`;
+
+            // 편집 버튼 표시/숨김
+            document.getElementById('cdp-edit-btn').style.display = isAdmin ? 'block' : 'none';
+
+            // 첫 탭(개요)으로 초기화
+            panel.querySelectorAll('.cdp-tab').forEach(b => b.classList.remove('active'));
+            panel.querySelectorAll('.cdp-tab-content').forEach(c => c.classList.remove('active'));
+            panel.querySelector('[data-tab="overview"]').classList.add('active');
+            document.getElementById('cdp-tab-overview').classList.add('active');
+
+            // 각 탭 렌더링
+            _renderOverview(cInfo);
+            _renderKings(cInfo);
+            _renderMilitary(cInfo);
+            _renderAdmin(cInfo);
+            _renderFigures(cInfo);
+
+            // 탭 내 편집 버튼 이벤트 (동적 DOM이므로 매번 재등록)
+            setTimeout(() => _bindTabEditBtns(cInfo), 50);
+
+            // 패널 열기 (object-detail-panel이 열려있으면 닫기)
+            const odp = document.getElementById('object-detail-panel');
+            if (odp && odp.classList.contains('active')) {
+                if (typeof closeDetailPanel === 'function') closeDetailPanel();
+            }
+            panel.classList.add('active');
+        }
+
+        window.showCountryInfoModal = showCountryInfoModal;
+    })();
 
     // --- 10. 이벤트 편집 폼 관리 --- (🚩 [신규 추가])
     function populateEventSelect() {
@@ -21753,6 +22657,17 @@ kingSelect.addEventListener('change', () => {
     gap: 4px;
     line-height: 1.5;
     animation: af-fadein 0.45s ease;
+    border-radius: 4px;
+    transition: background 0.18s;
+}
+.af-item[data-clickable="1"] {
+    cursor: pointer;
+}
+.af-item[data-clickable="1"]:hover {
+    background: rgba(255,210,120,0.10);
+}
+.af-item[data-clickable="1"]:hover .af-text {
+    color: #ffe9a0;
 }
 .af-icon {
     font-size: 9px;
@@ -21770,6 +22685,16 @@ kingSelect.addEventListener('change', () => {
 }
 .af-text .af-actor   { color: #fae282; font-weight: 400; text-shadow: 0 1px 5px rgba(0,0,0,1); }
 .af-text .af-target  { color: #92d4ff; font-weight: 400; text-shadow: 0 1px 5px rgba(0,0,0,1); }
+.af-text .af-target-link {
+    color: #92d4ff; font-weight: 400; text-shadow: 0 1px 5px rgba(0,0,0,1);
+    cursor: pointer;
+    border-bottom: 1px dotted rgba(146,212,255,0.5);
+    transition: color 0.15s, border-color 0.15s;
+}
+.af-text .af-target-link:hover {
+    color: #c8eaff;
+    border-bottom-color: rgba(200,234,255,0.7);
+}
 .af-text .af-special { color: #ffbc80; font-weight: 400; text-shadow: 0 1px 5px rgba(0,0,0,1); }
 .af-text .af-restore { color: #90ff90; font-weight: 400; text-shadow: 0 1px 5px rgba(0,0,0,1); }
 .af-time {
@@ -21868,8 +22793,15 @@ kingSelect.addEventListener('change', () => {
         const pos    = log.actorPosition
             ? `<span style="color:rgba(205,182,144,0.78);font-size:10px;">[${e(log.actorPosition)}]</span> `
             : '';
-        const target = log.targetName ? `<span class="af-target">${e(log.targetName)}</span>` : '';
         const extra  = log.extra || {};
+
+        // 지명 링크: castle_id가 있으면 클릭 가능한 링크로, 없으면 일반 span
+        const castleId = extra.castle_id || null;
+        const target = log.targetName
+            ? (castleId
+                ? `<span class="af-target af-target-link" data-castle-id="${e(castleId)}">${e(log.targetName)}</span>`
+                : `<span class="af-target">${e(log.targetName)}</span>`)
+            : '';
 
         // 카테고리 한글 변환
         const CATEGORY_LABEL = {
@@ -21956,7 +22888,12 @@ kingSelect.addEventListener('change', () => {
                 </div>`;
             }
             const cfg = TYPE_CONFIG[log.type] || { icon: '📌' };
-            return `<div class="af-item">
+            // castle_id가 있으면 전체 항목을 클릭 가능하게 (comment 포함 모든 타입)
+            const castleId = (log.extra && log.extra.castle_id) ? log.extra.castle_id : null;
+            const clickableAttrs = castleId
+                ? `data-clickable="1" data-castle-id="${castleId}" title="클릭하여 해당 장소 열기"`
+                : '';
+            return `<div class="af-item" ${clickableAttrs}>
                 <span class="af-icon">${cfg.icon}</span>
                 <span class="af-text">${buildMessage(log)}</span>
                 <span class="af-time">${relativeTime(log.createdAt)}</span>
@@ -22008,6 +22945,77 @@ kingSelect.addEventListener('change', () => {
     document.addEventListener('DOMContentLoaded', function() {
         fetchLogs();
         setInterval(fetchLogs, POLL_INTERVAL);
+
+        // 활동 피드 클릭 이벤트 위임 (항목 전체 클릭 or 지명 링크 클릭 → 마커 이동)
+        const feedScroll = document.getElementById('activity-feed-scroll');
+        if (feedScroll) {
+            feedScroll.addEventListener('click', function(e) {
+                // 지명 링크(.af-target-link) 직접 클릭: 버블링 막고 해당 마커만 열기
+                const targetLink = e.target.closest('.af-target-link[data-castle-id]');
+                if (targetLink) {
+                    e.stopPropagation();
+                    _openFeedMarker(targetLink.dataset.castleId);
+                    return;
+                }
+                // 항목 전체 클릭 (data-castle-id 있는 af-item)
+                const item = e.target.closest('.af-item[data-castle-id]');
+                if (!item) return;
+                _openFeedMarker(item.dataset.castleId);
+            });
+        }
+
+        async function _openFeedMarker(castleId) {
+            // 1) 현재 렌더링된 마커에서 먼저 찾기
+            const markerArr = (typeof allCastleMarkers !== 'undefined') ? allCastleMarkers : [];
+            const m = markerArr.find(x => x && x._castleData && String(x._castleData._id) === castleId);
+            if (m) {
+                m.fire('click');
+                return;
+            }
+
+            // 2) 렌더링되지 않은 경우 — 서버에서 직접 castle 정보를 가져와 패널 열기
+            try {
+                const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+                const res = await fetch(`/api/castle/${castleId}`, {
+                    headers: tok ? { 'Authorization': `Bearer ${tok}` } : {}
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const castle = await res.json();
+
+                // 지도를 해당 위치로 이동
+                if (typeof map !== 'undefined' && castle.lat != null && castle.lng != null) {
+                    map.flyTo([castle.lat, castle.lng], Math.max(map.getZoom(), 8));
+                }
+
+                // 현재 슬라이더 연도의 history record 찾기
+                let activeHistoryRecord = null;
+                if (typeof getActiveHistoryInfo === 'function' && typeof yearMonthToTotalMonths === 'function') {
+                    const yr = parseInt(document.getElementById('yearInput')?.value) || 400;
+                    const mo = parseInt(document.getElementById('monthInput')?.value) || 1;
+                    const totalMonths = yearMonthToTotalMonths(yr, mo);
+                    activeHistoryRecord = getActiveHistoryInfo(castle.history || [], totalMonths);
+                } else if (castle.history && castle.history.length > 0) {
+                    activeHistoryRecord = castle.history[castle.history.length - 1];
+                }
+
+                // 국가 정보 찾기
+                let countryInfo = null;
+                const cArr = (typeof countries !== 'undefined') ? countries : [];
+                if (activeHistoryRecord && activeHistoryRecord.country_id) {
+                    countryInfo = cArr.find(c => String(c._id) === String(activeHistoryRecord.country_id)) || null;
+                }
+
+                // ODP 패널 열기
+                if (typeof openDetailPanel === 'function') {
+                    openDetailPanel(castle, activeHistoryRecord, countryInfo);
+                } else {
+                    alert('해당 마커를 현재 지도에서 찾을 수 없습니다.\n(지도 시간대를 이동하거나 페이지를 새로고침해 주세요.)');
+                }
+            } catch (err) {
+                console.warn('[feed] _openFeedMarker 오류:', err);
+                alert('해당 장소 정보를 불러올 수 없습니다.');
+            }
+        }
 
         // 로그인 여부에 따라 채팅 입력창 표시
         function updateChatFormVisibility() {

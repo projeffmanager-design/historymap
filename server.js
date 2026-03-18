@@ -3230,7 +3230,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     console.log(`⚠️ [승인→Castle 스킵] '${contribution.name}' 이미 castle 존재 (ID: ${existingCastle._id})`);
                     const message = '검토가 완료되었습니다.';
                     await logActivity('approve', req.user.username, req.user.position || '', contribution.name || '사관 기록', {
-                        category: contribution.category || null, isNew: false
+                        category: contribution.category || null, isNew: false, castle_id: existingCastle._id.toString()
                     }, req.user.userId);
                     return res.json({ message, castle: existingCastle });
                 }
@@ -3272,7 +3272,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                             const message = '검토가 완료되었습니다.';
                             // 🚩 [수정] logActivity를 return 전에 await 호출
                             await logActivity('approve', req.user.username, req.user.position || '', contribution.name || '사관 기록', {
-                                category: contribution.category || null, isNew: true
+                                category: contribution.category || null, isNew: true, castle_id: castleResult.insertedId.toString()
                             }, req.user.userId);
                             return res.json({ message, castle: insertedCastle });
                         } catch (castleError) {
@@ -4202,7 +4202,8 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
 
         // 🚩 [추가] 최종 승인 액티비티 로그
         await logActivity('approve', user.username, user.position || '', contribution.name || '사관 기록', {
-            category: contribution.category || null, isNew: true
+            category: contribution.category || null, isNew: true,
+            castle_id: insertedCastle ? insertedCastle._id.toString() : undefined
         }, userId);
 
         res.json({ message: "기여가 최종 승인되었습니다. 성 마커로 변환되었습니다.", castle: insertedCastle });
@@ -4334,7 +4335,7 @@ app.post('/api/marker-comments', verifyToken, async (req, res) => {
         try {
             const castleDoc = await collections.castle.findOne({ _id: toObjectId(castle_id) }, { projection: { name: 1 } });
             const castleName = castleDoc ? castleDoc.name : castle_id;
-            await logActivity('comment', req.user.username, req.user.position || '', castleName, {}, req.user.userId);
+            await logActivity('comment', req.user.username, req.user.position || '', castleName, { castle_id: castle_id.toString() }, req.user.userId);
         } catch (_) {}
 
         res.json({ ...comment, _id: result.insertedId });
