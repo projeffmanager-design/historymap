@@ -1258,6 +1258,36 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         });
 
         // ----------------------------------------------------
+        // 📜 SOURCE RECORDS API 엔드포인트 (사료 원전 기록)
+        // ----------------------------------------------------
+
+        // GET: 연도 범위로 사료 기록 조회 (인증 불필요 - 공개 데이터)
+        app.get('/api/source-records', async (req, res) => {
+            try {
+                const { year, yearFrom, yearTo, source, limit } = req.query;
+                const query = {};
+                if (year !== undefined) {
+                    query.year = parseInt(year);
+                } else if (yearFrom !== undefined || yearTo !== undefined) {
+                    query.year = {};
+                    if (yearFrom !== undefined) query.year.$gte = parseInt(yearFrom);
+                    if (yearTo !== undefined) query.year.$lte = parseInt(yearTo);
+                }
+                if (source) query.source = { $regex: source, $options: 'i' };
+                const lim = limit ? Math.min(parseInt(limit), 500) : 100;
+                const records = await collections.sourceRecords
+                    .find(query)
+                    .sort({ year: 1, month: 1 })
+                    .limit(lim)
+                    .toArray();
+                res.json(records);
+            } catch (error) {
+                console.error("Source records 조회 중 오류:", error);
+                res.status(500).json({ message: "Source records 조회 실패", error: error.message });
+            }
+        });
+
+        // ----------------------------------------------------
         // 🗺️ DRAWINGS API 엔드포인트 (NEW)
         // ----------------------------------------------------
 

@@ -6476,7 +6476,7 @@ body.force-mobile .marker-type-selector button {
         event: false,      // 📖 [최적화] 이벤트 초기 OFF
         timeline: false,   // 🚩 [수정] 연대표 가시성 - 옵셔널로 기본 숨김
         kingPanel: false,  // 🚩 [수정] 왕목록 패널 초기값 OFF
-        historyPanel: false, // 🚩 [수정] 역사기록 패널 초기값 on (되돌림)
+        historyPanel: true, // 🚩 [수정] 역사기록 패널 초기값 ON (사료 기록 표시)
         userContributions: false, // 🚩 [추가] 유저 기여 레이어
         rankingPanel: true,  // 🚩 [추가] 사관 랭킹 패널
         activityFeed: true,  // 🚩 [추가] 사관활동 소식 피드
@@ -11174,6 +11174,11 @@ function invalidateCountryLookupCache() {
                 } else if (layerKey === 'historyPanel') {
                     const historyPanel = document.getElementById('map-history-panel');
                     if (historyPanel) historyPanel.style.display = isEnabled ? 'block' : 'none';
+                    // 패널을 켤 때 현재 연도의 기록 즉시 로드
+                    if (isEnabled) {
+                        const { year } = getCurrentYearMonth();
+                        updateHistoryPanel(year);
+                    }
                 } else if (layerKey === 'rankingPanel') {
                     const el = document.getElementById('rankingDisplay');
                     if (el) el.style.display = isEnabled ? '' : 'none';
@@ -13108,6 +13113,9 @@ function invalidateCountryLookupCache() {
           
           if (layerVisibility.historyPanel) {
               mapHistoryPanel.style.display = 'block';
+              // 초기 표시 시 현재 연도 기록 로드
+              const { year: initYear } = getCurrentYearMonth();
+              updateHistoryPanel(initYear);
           } else {
               mapHistoryPanel.style.display = 'none';
           }
@@ -14970,78 +14978,81 @@ function invalidateCountryLookupCache() {
     }
     
     // --- 7. 역사 기록 패널 업데이트 ---
-    function updateHistoryPanel(year) {
-      const filteredRecords = history.filter(h => h.year === year);
-      
-      // const historyYearTitle = document.getElementById('historyYearTitle'); // 오른쪽 패널 제거
-      let titleText = `${year <= 0 ? ' 기원전' : ' 서기'} ${Math.abs(year)}년 역사 기록`;
-      
-      const firstKoreanRecord = filteredRecords.find(r => r.records?.korean?.content);
-      if (firstKoreanRecord && firstKoreanRecord.event_name) {
-        titleText += ` - ${firstKoreanRecord.event_name}`;
-      }
-      // historyYearTitle.textContent = titleText; // 오른쪽 패널 제거
-
-      // 🚩 [제거] 오른쪽 패널 요소들 (더 이상 사용하지 않음)
-      // const koreanContainer = document.getElementById('koreanRecords');
-      // const foreignContainer = document.getElementById('foreignRecords');
-      // const trueHistoryContainer = document.getElementById('trueHistoryRecords');
-
-      // 🚩 [추가] 생성자/수정자 정보를 표시하는 HTML을 생성하는 헬퍼 함수
-      const createEditorInfoHtml = (record) => {
-          let editorInfo = record.lastModifiedBy
-              ? `마지막 수정: ${record.lastModifiedBy}`
-              : (record.createdBy ? `생성자: ${record.createdBy}` : '');
-
-          // 🚩 [추가] contribution에서 온 기록인 경우 기여자 정보 표시
-          if (record.contribution_id || record.records?.korean?.contribution_id) {
-              const contributor = record.contributor || record.records?.korean?.contributor;
-              if (contributor) {
-                  editorInfo += (editorInfo ? ' | ' : '') + `기여자: ${contributor} 👤`;
-              }
-          }
-
-          return editorInfo
-              ? `<small style="float: right; color: #ecf0f1; font-size: 10px;">${editorInfo}</small>`
-              : '';
-      };
-
-      // 🚩 [제거] 오른쪽 패널용 컨텐츠 생성 코드
-      // const koreanContent = filteredRecords.filter(r => r.records?.korean?.content).map(r => `<div class="record-item"><button onclick="editHistory('${r._id}')" ${editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin') ? '' : 'style="display:none;"'}>편집</button>${createEditorInfoHtml(r)}${r.records.korean.source ? `<span style="font-weight: bold; color: #000000;">출전: ${r.records.korean.source}</span><br>` : ''}${r.records.korean.content.trim()}</div>`).join('') || '기록 없음';
-      // const foreignContent = filteredRecords.filter(r => r.records?.foreign?.content).map(r => `<div class="record-item foreign"><button onclick="editHistory('${r._id}')" ${editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin') ? '' : 'style="display:none;"'}>편집</button>${createEditorInfoHtml(r)}${r.records.foreign.source ? `<span style="font-weight: bold; color: #000000;">출전: ${r.records.foreign.source}</span><br>` : ''}${r.records.foreign.content.trim()}</div>`).join('') || '기록 없음';
-      
-      // koreanContainer.innerHTML = koreanContent;
-      // foreignContainer.innerHTML = foreignContent;
-      // trueHistoryContainer.innerHTML = filteredRecords.filter(r => r.records?.true_history?.content).map(r => `<div class="record-item true_history"><button onclick="editHistory('${r._id}')" ${editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin') ? '' : 'style="display:none;"'}>편집</button>${createEditorInfoHtml(r)}${r.records.true_history.content.trim()}</div>`).join('') || '기록 없음';
-      
-      // 🚩 [수정] 모든 역사기록을 통합하여 표시 (구분 없이)
-      const allRecordsContent = filteredRecords.flatMap(r => {
-          const recordItems = [];
-          if (r.records?.korean?.content) {
-              recordItems.push(`<div class="record-item"><button onclick="editHistory('${r._id}')" ${editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin') ? '' : 'style="display:none;"'}>편집</button>${createEditorInfoHtml(r)}${r.records.korean.source ? `<span style="font-weight: bold; font-size: 11.5px; color: #f0d080; display: inline-block; margin-bottom: 3px;">📖 출전: ${r.records.korean.source}</span><br>` : ''}${r.records.korean.content.trim()}</div>`);
-          }
-          if (r.records?.foreign?.content) {
-              recordItems.push(`<div class="record-item foreign"><button onclick="editHistory('${r._id}')" ${editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin') ? '' : 'style="display:none;"'}>편집</button>${createEditorInfoHtml(r)}${r.records.foreign.source ? `<span style="font-weight: bold; font-size: 11.5px; color: #7dd4f0; display: inline-block; margin-bottom: 3px;">📖 출전: ${r.records.foreign.source}</span><br>` : ''}${r.records.foreign.content.trim()}</div>`);
-          }
-          if (r.records?.true_history?.content) {
-              recordItems.push(`<div class="record-item true_history"><button onclick="editHistory('${r._id}')" ${editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin') ? '' : 'style="display:none;"'}>편집</button>${createEditorInfoHtml(r)}${r.records.true_history.content.trim()}</div>`);
-          }
-          return recordItems;
-      }).join('') || '기록 없음';
-      
-      // 🚩 [추가] 지도 내 역사 기록 패널 업데이트
+    async function updateHistoryPanel(year) {
       const mapHistoryYearTitle = document.getElementById('map-history-year-title');
       const mapAllRecordsContent = document.getElementById('map-all-records-content');
-      if (mapHistoryYearTitle) mapHistoryYearTitle.textContent = titleText;
-      if (mapAllRecordsContent) mapAllRecordsContent.innerHTML = allRecordsContent;
 
-      
-      // 🚩 [수정] 관리자이고 편집 모드일 때만 '기록 추가' 버튼 표시 - 지도 내 패널만 사용
-      // openHistoryFormBtn.style.display = (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) ? 'inline-block' : 'none'; // 오른쪽 패널 제거
+      // 타이틀 업데이트
+      const titleText = `${year <= 0 ? ' 기원전' : ' 서기'} ${Math.abs(year)}년 역사 기록`;
+      if (mapHistoryYearTitle) mapHistoryYearTitle.textContent = titleText;
+
+      // 로딩 표시
+      if (mapAllRecordsContent) {
+        mapAllRecordsContent.innerHTML = '<div style="color:#95a5a6; font-size:11px; padding:8px 0;">불러오는 중...</div>';
+      }
+
+      // 편집 버튼 표시 제어
       const mapOpenHistoryFormBtn = document.getElementById('map-open-history-form-btn');
       if (mapOpenHistoryFormBtn) {
-          mapOpenHistoryFormBtn.style.display = (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) ? 'inline-block' : 'none';
-      } 
+        mapOpenHistoryFormBtn.style.display = (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) ? 'inline-block' : 'none';
+      }
+
+      // 🚩 [신규] source_records API에서 해당 연도의 사료 기록 조회
+      try {
+        const token = localStorage.getItem('token');
+        const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+        const res = await fetch(`/api/source-records?year=${year}&limit=100`, { headers });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const records = await res.json();
+
+        if (!mapAllRecordsContent) return;
+
+        if (!records || records.length === 0) {
+          mapAllRecordsContent.innerHTML = '<div style="color:#95a5a6; font-size:11px; padding:8px 0;">이 연도의 사료 기록 없음</div>';
+          return;
+        }
+
+        // 출전(source)별로 그룹화
+        const grouped = {};
+        records.forEach(r => {
+          const src = r.source || '기타';
+          if (!grouped[src]) grouped[src] = [];
+          grouped[src].push(r);
+        });
+
+        const sourceColors = {
+          '고려사(高麗史)': '#f0d080',
+          '삼국사기(三國史記)': '#80d4f0',
+          '삼국사기(三國史記) 신라본기': '#80d4f0',
+          '삼국사기(三國史記) 고구려본기': '#80d4f0',
+          '삼국사기(三國史記) 백제본기': '#80d4f0',
+          '삼국유사(三國遺事)': '#a0f0a0',
+          '고려사절요(高麗史節要)': '#f0a060',
+        };
+
+        let html = '';
+        for (const [src, recs] of Object.entries(grouped)) {
+          const color = sourceColors[src] || '#c8c8c8';
+          html += `<div style="margin-bottom:10px;">`;
+          html += `<div style="font-weight:bold; font-size:11.5px; color:${color}; margin-bottom:4px; border-bottom:1px solid rgba(255,255,255,0.12); padding-bottom:3px;">📖 ${src} (${recs.length}건)</div>`;
+          recs.forEach(r => {
+            const title = r.title ? `<div style="font-size:11px; color:#ddd; line-height:1.5; margin-bottom:2px;">${r.title}</div>` : '';
+            const content = r.content
+              ? `<div style="font-size:10px; color:#aaa; margin-top:2px; line-height:1.4; word-break:break-all;">${r.content.length > 180 ? r.content.substring(0, 180) + '…' : r.content}</div>`
+              : '';
+            html += `<div style="margin-bottom:6px; padding-bottom:5px; border-bottom:1px solid rgba(255,255,255,0.06);">${title}${content}</div>`;
+          });
+          html += `</div>`;
+        }
+
+        mapAllRecordsContent.innerHTML = html;
+
+      } catch (e) {
+        console.error('updateHistoryPanel fetch error:', e);
+        if (mapAllRecordsContent) {
+          mapAllRecordsContent.innerHTML = '<div style="color:#e74c3c; font-size:11px; padding:8px 0;">기록 로드 실패</div>';
+        }
+      }
     }
 
 
