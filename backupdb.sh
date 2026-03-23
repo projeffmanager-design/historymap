@@ -1,1 +1,0 @@
-../koreahistorydb/backup_mongo.sh
