@@ -443,7 +443,7 @@ async function setupRoutesAndCollections() {
         }
 
         // GET: 모든 성 정보 반환
-        app.get('/api/castle', verifyToken, async (req, res) => { // (collections.castle로 변경)
+        app.get('/api/castle', async (req, res) => { // (collections.castle로 변경)
             try {
                 // 🚩 [추가] label_type 쿼리 파라미터로 필터링 지원
                 const { label_type } = req.query;
@@ -624,7 +624,7 @@ async function setupRoutesAndCollections() {
         });
 
         // 🚩 [신규 추가] GET: 개별 성 정보 조회
-        app.get('/api/castle/:id', verifyToken, async (req, res) => {
+        app.get('/api/castle/:id', async (req, res) => {
             try {
                 const { id } = req.params;
                 // name 또는 _id로 검색
@@ -744,7 +744,7 @@ async function setupRoutesAndCollections() {
 // ----------------------------------------------------
 
 // GET: 모든 장수 정보 반환
-app.get('/api/general', verifyToken, async (req, res) => {
+app.get('/api/general', async (req, res) => {
     try {
         const generals = await collections.general.find({}).toArray();
         res.json(generals);
@@ -808,7 +808,7 @@ app.delete('/api/general/:id', verifyAdmin, async (req, res) => {
         // ----------------------------------------------------
         // 🌍 COUNTRIES API 엔드포인트 (생략 - 기본 기능으로 가정)
         // ----------------------------------------------------
-app.get('/api/countries', verifyToken, async (req, res) => {
+app.get('/api/countries', async (req, res) => {
     try {
         const countries = await collections.countries.find({}).toArray();
         res.json(countries);
@@ -842,7 +842,7 @@ app.post('/api/countries', verifyAdmin, async (req, res) => {
 });
 
 // 🚩 [신규 추가] GET: 개별 국가 정보 조회
-app.get('/api/countries/:name', verifyToken, async (req, res) => {
+app.get('/api/countries/:name', async (req, res) => {
     try {
         const { name } = req.params;
         
@@ -993,7 +993,7 @@ app.post('/api/kings', verifyAdmin, async (req, res) => {
 });
 
 // 🚩 [신규 추가] GET: 개별 왕 정보 조회
-app.get('/api/kings/:id', verifyToken, async (req, res) => {
+app.get('/api/kings/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const objectId = toObjectId(id);
@@ -1098,7 +1098,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // ----------------------------------------------------
         // 📜 HISTORY (역사) API 엔드포인트 (생략 - 기본 기능으로 가정)
         // ----------------------------------------------------
-        app.get('/api/history', verifyToken, async (req, res) => {
+        app.get('/api/history', async (req, res) => {
              // 임시로 기본 성공 응답을 가정합니다.
              try {
                 const history = await collections.history.find({}).toArray();
@@ -1106,6 +1106,23 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
              } catch (error) {
                  res.status(500).json({ message: "History 조회 실패" });
              }
+        });
+
+        // GET: 연도별 역사기록 조회 (공개, 패널용)
+        app.get('/api/history-by-year', async (req, res) => {
+            try {
+                const { year } = req.query;
+                if (year === undefined) return res.status(400).json({ message: "year 파라미터 필요" });
+                const y = parseInt(year);
+                const records = await collections.history
+                    .find({ year: y })
+                    .sort({ month: 1 })
+                    .limit(200)
+                    .toArray();
+                res.json(records);
+            } catch (error) {
+                res.status(500).json({ message: "History 조회 실패", error: error.message });
+            }
         });
 
         // POST: 새 역사 기록 추가
@@ -1177,7 +1194,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // ----------------------------------------------------
 
         // GET: 모든 이벤트 조회
-        app.get('/api/events', verifyToken, async (req, res) => {
+        app.get('/api/events', async (req, res) => {
             try {
                 const events = await collections.events.find({}).sort({ year: 1, month: 1 }).toArray();
                 res.json(events);
@@ -1201,7 +1218,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         });
 
         // 🚩 [신규 추가] GET: 개별 이벤트 정보 조회
-        app.get('/api/events/:id', verifyToken, async (req, res) => {
+        app.get('/api/events/:id', async (req, res) => {
             try {
                 const { id } = req.params;
                 const objectId = toObjectId(id);
@@ -1292,7 +1309,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // ----------------------------------------------------
 
         // GET: 모든 그리기 정보 조회
-        app.get('/api/drawings', verifyToken, async (req, res) => {
+        app.get('/api/drawings', async (req, res) => {
             try {
                 const drawings = await collections.drawings.find({}).toArray();
                 res.json(drawings);
@@ -1316,7 +1333,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         });
 
         // 🚩 [신규 추가] GET: 개별 그리기 정보 조회
-        app.get('/api/drawings/:id', verifyToken, async (req, res) => {
+        app.get('/api/drawings/:id', async (req, res) => {
             try {
                 const { id } = req.params;
                 const objectId = toObjectId(id);
@@ -1373,7 +1390,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         });
 
         // GET: Territory Tiles (Topojson compressed + tile-based) - Optimized
-        app.get('/api/territory-tiles', verifyToken, async (req, res) => {
+        app.get('/api/territory-tiles', async (req, res) => {
             try {
                 const { minLat, maxLat, minLng, maxLng } = req.query;
                 
@@ -4328,8 +4345,8 @@ app.get('/api/marker-comments-counts', async (req, res) => {
     }
 });
 
-// GET: 특정 마커의 의견 목록 조회 (로그인 필요)
-app.get('/api/marker-comments/:castleId', verifyToken, async (req, res) => {
+// GET: 특정 마커의 의견 목록 조회
+app.get('/api/marker-comments/:castleId', async (req, res) => {
     try {
         const { castleId } = req.params;
         const comments = await collections.markerComments

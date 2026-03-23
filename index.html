@@ -14997,54 +14997,98 @@ function invalidateCountryLookupCache() {
         mapOpenHistoryFormBtn.style.display = (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) ? 'inline-block' : 'none';
       }
 
-      // 🚩 [신규] source_records API에서 해당 연도의 사료 기록 조회
       try {
-        const token = localStorage.getItem('token');
-        const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-        const res = await fetch(`/api/source-records?year=${year}&limit=100`, { headers });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const records = await res.json();
+        // 두 컬렉션 병렬 조회
+        const [historyRes, sourceRes] = await Promise.all([
+          fetch(`/api/history-by-year?year=${year}`),
+          fetch(`/api/source-records?year=${year}&limit=100`)
+        ]);
+        const historyRecords = historyRes.ok ? await historyRes.json() : [];
+        const sourceRecords = sourceRes.ok ? await sourceRes.json() : [];
 
         if (!mapAllRecordsContent) return;
 
-        if (!records || records.length === 0) {
-          mapAllRecordsContent.innerHTML = '<div style="color:#95a5a6; font-size:11px; padding:8px 0;">이 연도의 사료 기록 없음</div>';
-          return;
-        }
-
-        // 출전(source)별로 그룹화
-        const grouped = {};
-        records.forEach(r => {
-          const src = r.source || '기타';
-          if (!grouped[src]) grouped[src] = [];
-          grouped[src].push(r);
-        });
-
-        const sourceColors = {
-          '고려사(高麗史)': '#f0d080',
-          '삼국사기(三國史記)': '#80d4f0',
-          '삼국사기(三國史記) 신라본기': '#80d4f0',
-          '삼국사기(三國史記) 고구려본기': '#80d4f0',
-          '삼국사기(三國史記) 백제본기': '#80d4f0',
-          '삼국유사(三國遺事)': '#a0f0a0',
-          '고려사절요(高麗史節要)': '#f0a060',
-        };
-
         let html = '';
-        for (const [src, recs] of Object.entries(grouped)) {
-          const color = sourceColors[src] || '#c8c8c8';
-          html += `<div style="margin-bottom:10px;">`;
-          html += `<div style="font-weight:bold; font-size:11.5px; color:${color}; margin-bottom:4px; border-bottom:1px solid rgba(255,255,255,0.12); padding-bottom:3px;">📖 ${src} (${recs.length}건)</div>`;
-          recs.forEach(r => {
-            const title = r.title ? `<div style="font-size:11px; color:#ddd; line-height:1.5; margin-bottom:2px;">${r.title}</div>` : '';
-            const content = r.content
-              ? `<div style="font-size:10px; color:#aaa; margin-top:2px; line-height:1.4; word-break:break-all;">${r.content.length > 180 ? r.content.substring(0, 180) + '…' : r.content}</div>`
+
+        // ── 섹션 1: history 컬렉션 (연구 기록) ──
+        if (historyRecords.length > 0) {
+          html += `<div style="margin-bottom:14px;">`;
+          html += `<div style="font-weight:bold; font-size:12px; color:#e8c97a; margin-bottom:6px; border-bottom:1px solid rgba(232,201,122,0.35); padding-bottom:4px;">📚 역사 연구 기록 (${historyRecords.length}건)</div>`;
+          historyRecords.forEach(r => {
+            const name = r.event_name
+              ? `<div style="font-size:11.5px; color:#f5e9d2; font-weight:bold; margin-bottom:3px;">${r.event_name}</div>`
               : '';
-            html += `<div style="margin-bottom:6px; padding-bottom:5px; border-bottom:1px solid rgba(255,255,255,0.06);">${title}${content}</div>`;
+            let body = '';
+            if (r.records?.korean?.content) {
+              const src = r.records.korean.source
+                ? `<span style="font-size:9.5px; color:#f0d080; margin-right:4px;">[${r.records.korean.source}]</span>`
+                : '';
+              const txt = r.records.korean.content.length > 160
+                ? r.records.korean.content.substring(0, 160) + '…'
+                : r.records.korean.content;
+              body += `<div style="font-size:10px; color:#ccc; margin-top:2px; line-height:1.5;">${src}${txt}</div>`;
+            }
+            if (r.records?.foreign?.content) {
+              const src = r.records.foreign.source
+                ? `<span style="font-size:9.5px; color:#80d4f0; margin-right:4px;">[${r.records.foreign.source}]</span>`
+                : '';
+              const txt = r.records.foreign.content.length > 120
+                ? r.records.foreign.content.substring(0, 120) + '…'
+                : r.records.foreign.content;
+              body += `<div style="font-size:10px; color:#b0cce0; margin-top:2px; line-height:1.5;">${src}${txt}</div>`;
+            }
+            if (r.records?.true_history?.content) {
+              const txt = r.records.true_history.content.length > 120
+                ? r.records.true_history.content.substring(0, 120) + '…'
+                : r.records.true_history.content;
+              body += `<div style="font-size:10px; color:#a0e0a0; margin-top:2px; line-height:1.5; border-left:2px solid #a0e0a0; padding-left:5px;">${txt}</div>`;
+            }
+            html += `<div style="margin-bottom:8px; padding-bottom:7px; border-bottom:1px solid rgba(255,255,255,0.07);">${name}${body}</div>`;
           });
           html += `</div>`;
         }
 
+        // ── 섹션 2: source_records 컬렉션 (원전 사료) ──
+        if (sourceRecords.length > 0) {
+          const sourceColors = {
+            '고려사(高麗史)': '#f0d080',
+            '삼국사기(三國史記)': '#80d4f0',
+            '삼국사기(三國史記) 신라본기': '#80d4f0',
+            '삼국사기(三國史記) 고구려본기': '#80d4f0',
+            '삼국사기(三國史記) 백제본기': '#80d4f0',
+            '삼국유사(三國遺事)': '#a0f0a0',
+            '고려사절요(高麗史節要)': '#f0a060',
+          };
+          const grouped = {};
+          sourceRecords.forEach(r => {
+            const src = r.source || '기타';
+            if (!grouped[src]) grouped[src] = [];
+            grouped[src].push(r);
+          });
+          html += `<div style="margin-bottom:10px;">`;
+          html += `<div style="font-weight:bold; font-size:12px; color:#c8c8c8; margin-bottom:6px; border-bottom:1px solid rgba(200,200,200,0.2); padding-bottom:4px;">📖 원전 사료 (${sourceRecords.length}건)</div>`;
+          for (const [src, recs] of Object.entries(grouped)) {
+            const color = sourceColors[src] || '#c8c8c8';
+            html += `<div style="margin-bottom:9px;">`;
+            html += `<div style="font-size:11px; color:${color}; margin-bottom:3px; font-weight:bold;">${src} (${recs.length}건)</div>`;
+            recs.forEach(r => {
+              const title = r.title
+                ? `<div style="font-size:11px; color:#ddd; line-height:1.5; margin-bottom:2px;">${r.title}</div>`
+                : '';
+              const content = r.content
+                ? `<div style="font-size:10px; color:#aaa; margin-top:2px; line-height:1.4; word-break:break-all;">${r.content.length > 180 ? r.content.substring(0, 180) + '…' : r.content}</div>`
+                : '';
+              html += `<div style="margin-bottom:5px; padding-bottom:4px; border-bottom:1px solid rgba(255,255,255,0.05);">${title}${content}</div>`;
+            });
+            html += `</div>`;
+          }
+          html += `</div>`;
+        }
+
+        if (!html) {
+          mapAllRecordsContent.innerHTML = '<div style="color:#95a5a6; font-size:11px; padding:8px 0;">이 연도의 기록 없음</div>';
+          return;
+        }
         mapAllRecordsContent.innerHTML = html;
 
       } catch (e) {
