@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.50',          // [v3.6.50] custom_icon iconAnchor X를 totalW→실제 이미지너비 기준으로 수정 (줌아웃 우측 밀림 버그)
+        APP_VERSION: '3.6.58',          // [v3.6.58] 자막 위치 중앙→랭킹 위 중간(bottom:260px)으로 이동
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
     
@@ -4672,6 +4672,7 @@ body.force-mobile .marker-type-selector button {
           <label><input type="checkbox" id="menu-layer-contributions" checked> 사관 사료</label>
           <label><input type="checkbox" id="menu-layer-ranking" checked> 사관 랭킹</label>
           <label><input type="checkbox" id="menu-layer-activity-feed" checked> 활동 소식</label>
+          <label><input type="checkbox" id="menu-layer-caption" checked> 🎬 역사 자막</label>
           </div>
       </div>
       
@@ -6502,6 +6503,7 @@ body.force-mobile .marker-type-selector button {
         userContributions: false, // 🚩 [추가] 유저 기여 레이어
         rankingPanel: true,  // 🚩 [추가] 사관 랭킹 패널
         activityFeed: true,  // 🚩 [추가] 사관활동 소식 피드
+        captionPanel: true,  // 🚩 [추가] 역사 서사 자막 패널 (기본 ON)
         eventSidebar: false, // 🚩 [과제2] 사건목록 사이드바 토글
         // 🔄 [호환성] 기존 'label'은 placeLabel로 매핑
         get label() { return this.placeLabel; },
@@ -11091,7 +11093,8 @@ function invalidateCountryLookupCache() {
                 'menu-layer-king': 'kingPanel',
                 'menu-layer-history': 'historyPanel',
                 'menu-layer-ranking': 'rankingPanel',
-                'menu-layer-activity-feed': 'activityFeed'
+                'menu-layer-activity-feed': 'activityFeed',
+                'menu-layer-caption': 'captionPanel'
             };
             Object.entries(layerCheckboxMap).forEach(([cbId, layerKey]) => {
                 const cb = document.getElementById(cbId);
@@ -11208,6 +11211,13 @@ function invalidateCountryLookupCache() {
                 } else if (layerKey === 'activityFeed') {
                     const el = document.getElementById('activity-feed-panel');
                     if (el) el.style.display = isEnabled ? '' : 'none';
+                } else if (layerKey === 'captionPanel') {
+                    if (typeof toggleHistoryCaption === 'function') toggleHistoryCaption(isEnabled);
+                    if (isEnabled) {
+                        // 자막 즉시 갱신
+                        const { year } = getCurrentYearMonth();
+                        updateHistoryPanel(year);
+                    }
                 } else if (layerKey === 'eventSidebar') {
                     const eventSidebar = document.getElementById('event-sidebar');
                     if (eventSidebar) {
@@ -15335,9 +15345,11 @@ function invalidateCountryLookupCache() {
 
         if (!html) {
           mapAllRecordsContent.innerHTML = '<div style="color:#95a5a6; font-size:12px; padding:8px 0;">이 연도의 기록 없음</div>';
+          updateHistoryCaption(year, [], []);
           return;
         }
         mapAllRecordsContent.innerHTML = html;
+        updateHistoryCaption(year, historyRecords, sourceRecords);
     }
 
 
@@ -19656,7 +19668,8 @@ kingSelect.addEventListener('change', () => {
             'menu-layer-king': 'kingPanel',
             'menu-layer-history': 'historyPanel',
             'menu-layer-ranking': 'rankingPanel',
-            'menu-layer-activity-feed': 'activityFeed'
+            'menu-layer-activity-feed': 'activityFeed',
+            'menu-layer-caption': 'captionPanel'
         };
         
         Object.keys(layerCheckboxes).forEach(checkboxId => {
@@ -19691,6 +19704,12 @@ kingSelect.addEventListener('change', () => {
                     } else if (layerName === 'activityFeed') {
                         const el = document.getElementById('activity-feed-panel');
                         if (el) el.style.display = checkbox.checked ? '' : 'none';
+                    } else if (layerName === 'captionPanel') {
+                        if (typeof toggleHistoryCaption === 'function') toggleHistoryCaption(checkbox.checked);
+                        if (checkbox.checked) {
+                            const { year } = getCurrentYearMonth();
+                            updateHistoryPanel(year);
+                        }
                     } else {
                         const { year, month } = getCurrentYearMonth();
                         updateMap(year, month);
@@ -22891,6 +22910,17 @@ kingSelect.addEventListener('change', () => {
 </script>
 
 <!-- ============================================================
+     🎬 역사 서사 자막 (오른쪽 중앙, 스타워즈 스크롤 스타일)
+     ============================================================ -->
+<div id="history-caption-panel">
+    <div id="history-caption-fade-top"></div>
+    <div id="history-caption-scroll">
+        <div id="history-caption-inner"></div>
+    </div>
+    <div id="history-caption-fade-bottom"></div>
+</div>
+
+<!-- ============================================================
      📜 사관 활동 소식 피드 (랭킹 왼쪽, 완전투명, 스크롤 5줄)
      ============================================================ -->
 <div id="activity-feed-panel">
@@ -22918,6 +22948,70 @@ kingSelect.addEventListener('change', () => {
         </div>
     </div>
 </div>
+
+<style>
+/* ── 역사 서사 자막 패널 ─────────────────────────────────────── */
+#history-caption-panel {
+    position: fixed;
+    bottom: 260px;
+    right: 20px;
+    width: 25vw;
+    min-width: 220px;
+    max-width: 420px;
+    height: 120px;
+    min-height: 120px;
+    z-index: 997;
+    pointer-events: none;
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    background: transparent;
+}
+#history-caption-fade-top {
+    display: none;
+}
+#history-caption-fade-bottom {
+    display: none;
+}
+#history-caption-scroll {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+}
+#history-caption-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 10px 16px 40px;
+    /* 애니메이션은 JS로 제어 */
+}
+.history-caption-item {
+    font-family: 'Nanum Myeongjo', 'Noto Serif KR', serif;
+    font-size: 14px;
+    line-height: 1.85;
+    color: rgba(255, 255, 255, 1);
+    text-align: center;
+    letter-spacing: 0.03em;
+    text-shadow:
+        0 0 6px rgba(0,0,0,1),
+        0 0 12px rgba(0,0,0,0.9),
+        0 2px 4px rgba(0,0,0,0.8);
+    white-space: pre-wrap;
+    word-break: keep-all;
+    will-change: opacity;
+}
+.history-caption-year {
+    font-size: 11px;
+    color: rgba(220, 200, 160, 1);
+    text-align: center;
+    font-family: 'Nanum Myeongjo', serif;
+    text-shadow:
+        0 0 6px rgba(0,0,0,1),
+        0 0 10px rgba(0,0,0,0.8);
+    margin-bottom: 4px;
+    will-change: opacity;
+}
+</style>
 
 <style>
 /* ── 사관 활동 소식 피드 ─────────────────────────────────────── */
@@ -23626,6 +23720,249 @@ kingSelect.addEventListener('change', () => {
     });
 
     window.refreshActivityFeed = function() { fetchLogs(); };
+})();
+</script>
+
+<!-- ============================================================
+     🎬 역사 서사 자막 JS
+     ============================================================ -->
+<script>
+(function() {
+    'use strict';
+
+    let _captionRAF = null;       // requestAnimationFrame ID
+    let _captionScrollY = 0;      // 현재 렌더 위치 (lerp 적용)
+    let _captionTargetY = 0;      // 목표 스크롤 위치
+    let _captionScrollSpeed = 0.5; // px/frame (목표가 증가하는 속도)
+    let _captionActive = false;
+    let _captionPaused = false;
+
+    // 자막 패널 표시 여부 (레이어 컨트롤에서 제어 가능하도록 전역 노출)
+    window._historyCaptionVisible = true; // 기본 ON
+
+    function getCaptionPanel() { return document.getElementById('history-caption-panel'); }
+    function getCaptionInner() { return document.getElementById('history-caption-inner'); }
+
+    // ── 한자 비율 체크: 한자가 50% 이상이면 true (한문 전용 텍스트) ──
+    function isChineseOnly(text) {
+        if (!text) return true;
+        const chineseChars = (text.match(/[\u4E00-\u9FFF\u3400-\u4DBF]/g) || []).length;
+        const totalChars = text.replace(/\s/g, '').length;
+        return totalChars > 0 && (chineseChars / totalChars) > 0.5;
+    }
+
+    // ── 텍스트 수집: 한국어 내용만 추출 (한자 50% 이상 제외) ──
+    function buildCaptionLines(year, historyRecords, sourceRecords) {
+        const lines = [];
+
+        // 연도 헤더
+        const yearLabel = year <= 0
+            ? `기원전 ${Math.abs(year)}년`
+            : `서기 ${year}년`;
+        lines.push({ type: 'year', text: yearLabel });
+
+        // history 기록 — 한국어만
+        historyRecords.forEach(r => {
+            if (r.event_name && !isChineseOnly(r.event_name))
+                lines.push({ type: 'title', text: r.event_name });
+            if (r.records?.korean?.content && !isChineseOnly(r.records.korean.content))
+                lines.push({ type: 'body', text: r.records.korean.content });
+        });
+
+        // source_records — chinese_original 제외, 한자 50% 이상 제외
+        sourceRecords.forEach(r => {
+            if (r.content_type === 'chinese_original') return;
+            if (r.title && !isChineseOnly(r.title))
+                lines.push({ type: 'title', text: r.title });
+            if (r.content && !isChineseOnly(r.content))
+                lines.push({ type: 'body', text: r.content });
+        });
+
+        return lines;
+    }
+
+    // ── DOM 빌드 ──
+    function buildCaptionDOM(lines) {
+        const inner = getCaptionInner();
+        if (!inner) return;
+        inner.innerHTML = '';
+
+        lines.forEach(line => {
+            const el = document.createElement('div');
+            if (line.type === 'year') {
+                el.className = 'history-caption-year';
+                el.textContent = '── ' + line.text + ' ──';
+            } else if (line.type === 'title') {
+                el.className = 'history-caption-item';
+                el.style.fontWeight = 'bold';
+                el.style.fontSize = '15px';
+                el.textContent = line.text;
+            } else {
+                el.className = 'history-caption-item';
+                // 3줄씩 끊기: 긴 내용은 줄바꿈
+                const maxLen = 60;
+                if (line.text.length > maxLen) {
+                    // 문장 단위로 자르기
+                    const chunks = [];
+                    let remaining = line.text;
+                    while (remaining.length > maxLen) {
+                        // 마침표/쉼표 기준으로 자르기
+                        let cut = remaining.lastIndexOf('。', maxLen);
+                        if (cut < 20) cut = remaining.lastIndexOf(',', maxLen);
+                        if (cut < 20) cut = remaining.lastIndexOf(' ', maxLen);
+                        if (cut < 20) cut = maxLen;
+                        chunks.push(remaining.slice(0, cut + 1).trim());
+                        remaining = remaining.slice(cut + 1).trim();
+                    }
+                    if (remaining) chunks.push(remaining);
+                    el.textContent = chunks.join('\n');
+                } else {
+                    el.textContent = line.text;
+                }
+            }
+            inner.appendChild(el);
+        });
+
+        // 맨 아래에 여백용 빈 블록 추가 (끝까지 스크롤되도록)
+        const spacer = document.createElement('div');
+        spacer.style.height = '80px';
+        inner.appendChild(spacer);
+    }
+
+    // ── 스크롤 애니메이션 ──
+    function startScroll() {
+        if (_captionRAF) cancelAnimationFrame(_captionRAF);
+        _captionScrollY = 0;
+        _captionTargetY = 0;
+        _captionActive = true;
+
+        const inner = getCaptionInner();
+        const panel = getCaptionPanel();
+        if (!inner || !panel) return;
+
+        // 총 스크롤 가능 거리 (빌드 직후라 scrollHeight가 아직 0일 수 있어 rAF 1회 후 갱신)
+        let totalH = inner.scrollHeight;
+        const viewH = panel.clientHeight || 120;
+        const fadeTop = 36;    // 상단 fade 구간 (px) — 강하게
+        const fadeBot = 36;    // 하단 fade 구간 (px) — 강하게
+
+        function applyFade() {
+            const items = inner.querySelectorAll('.history-caption-item, .history-caption-year');
+            const isYearEl = el => el.classList.contains('history-caption-year');
+            items.forEach(item => {
+                const itemTop    = item.offsetTop - _captionScrollY;
+                const itemBottom = itemTop + item.offsetHeight;
+
+                // 상단 fade (3차 곡선 — 급격히 사라짐)
+                let aTop = 1;
+                if (itemBottom <= 0) {
+                    aTop = 0;
+                } else if (itemTop < fadeTop) {
+                    const t = Math.max(0, Math.min(1, itemBottom / fadeTop));
+                    aTop = t * t * t; // 3차
+                }
+
+                // 하단 fade (아이템이 viewH 근처에서 사라짐)
+                let aBot = 1;
+                const distFromBottom = viewH - itemTop;
+                if (distFromBottom < fadeBot && distFromBottom >= 0) {
+                    const t = Math.max(0, Math.min(1, distFromBottom / fadeBot));
+                    aBot = t * t * t; // 3차
+                } else if (distFromBottom < 0) {
+                    aBot = 0;
+                }
+
+                const a = Math.min(aTop, aBot);
+                if (isYearEl(item)) {
+                    item.style.color       = `rgba(220,200,160,${a.toFixed(3)})`;
+                    item.style.textShadow  = `0 0 6px rgba(0,0,0,${a.toFixed(3)}), 0 0 10px rgba(0,0,0,${(a*0.8).toFixed(3)})`;
+                } else {
+                    item.style.color       = `rgba(255,255,255,${a.toFixed(3)})`;
+                    item.style.textShadow  = `0 0 6px rgba(0,0,0,${a.toFixed(3)}), 0 0 12px rgba(0,0,0,${(a*0.9).toFixed(3)}), 0 2px 4px rgba(0,0,0,${(a*0.8).toFixed(3)})`;
+                }
+            });
+        }
+
+        function tick() {
+            if (!_captionActive) return;
+            if (!_captionPaused) {
+                totalH = inner.scrollHeight; // 매 프레임 갱신 (초기 0 방지)
+                const maxScroll = Math.max(0, totalH - viewH + 40);
+
+                // 목표 위치를 조금씩 전진
+                _captionTargetY += _captionScrollSpeed;
+
+                // 끝에 도달 → 처음으로 순간 이동 (끊김 없이)
+                if (_captionTargetY >= maxScroll) {
+                    _captionTargetY = 0;
+                    _captionScrollY = 0;
+                }
+
+                // lerp: 현재 위치가 목표를 부드럽게 따라감 (끊김 없는 easing)
+                _captionScrollY += (_captionTargetY - _captionScrollY) * 0.08;
+
+                inner.style.transform = `translateY(${-_captionScrollY.toFixed(2)}px)`;
+                applyFade();
+            }
+            _captionRAF = requestAnimationFrame(tick);
+        }
+        _captionRAF = requestAnimationFrame(tick);
+    }
+
+    function stopScroll() {
+        _captionActive = false;
+        if (_captionRAF) {
+            cancelAnimationFrame(_captionRAF);
+            _captionRAF = null;
+        }
+    }
+
+    // ── 외부에서 호출되는 메인 함수 ──
+    window.updateHistoryCaption = function(year, historyRecords, sourceRecords) {
+        const panel = getCaptionPanel();
+        const inner = getCaptionInner();
+        if (!panel || !inner) return;
+
+        // 레이어 visibility 확인 (layerVisibility 또는 fallback 플래그)
+        const isVisible = (typeof layerVisibility !== 'undefined' && layerVisibility.captionPanel)
+                       || window._historyCaptionVisible;
+        if (!isVisible) return;
+
+        stopScroll();
+
+        const lines = buildCaptionLines(year, historyRecords, sourceRecords);
+        if (lines.length <= 1) {
+            panel.style.display = 'none';
+            return;
+        }
+
+        panel.style.display = 'flex';
+        buildCaptionDOM(lines);
+
+        // 빌드 후 레이아웃 계산을 위해 한 프레임 대기
+        requestAnimationFrame(() => {
+            const viewH = panel.clientHeight || 120;
+            // 첫 줄이 패널 맨 아래에서 올라오도록 inner 상단에 viewH 패딩 추가
+            const inner2 = getCaptionInner();
+            if (inner2) inner2.style.paddingTop = viewH + 'px';
+            inner.style.transform = 'translateY(0px)';
+            startScroll();
+        });
+    };
+
+    // ── 자막 표시/숨김 토글 ──
+    window.toggleHistoryCaption = function(visible) {
+        window._historyCaptionVisible = visible;
+        // layerVisibility가 접근 가능하면 동기화
+        if (typeof layerVisibility !== 'undefined') layerVisibility.captionPanel = visible;
+        const panel = getCaptionPanel();
+        if (!panel) return;
+        if (!visible) {
+            panel.style.display = 'none';
+            stopScroll();
+        }
+    };
+
 })();
 </script>
 
