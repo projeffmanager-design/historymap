@@ -759,6 +759,11 @@ async function setupRoutesAndCollections() {
 // ⚔️ GENERAL (장수) API 엔드포인트 (NEW)
 // ----------------------------------------------------
 
+// GET: 앱 버전 반환 (login.html 등 외부 페이지용)
+app.get('/api/app-version', (req, res) => {
+    res.json({ version: '3.6.58' });
+});
+
 // GET: 모든 장수 정보 반환
 app.get('/api/general', async (req, res) => {
     try {
