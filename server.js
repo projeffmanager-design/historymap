@@ -1347,6 +1347,53 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // DELETE: source_records 단건 삭제 (관리자 전용)
+        app.delete('/api/source-records/:id', verifyAdmin, async (req, res) => {
+            try {
+                const _id = toObjectId(req.params.id);
+                if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+                const result = await collections.sourceRecords.deleteOne({ _id });
+                if (result.deletedCount === 0) {
+                    return res.status(404).json({ message: "사료 기록을 찾을 수 없습니다." });
+                }
+                res.json({ message: "사료 기록 삭제 성공" });
+            } catch (error) {
+                console.error("Source records 삭제 오류:", error);
+                res.status(500).json({ message: "사료 기록 삭제 실패", error: error.message });
+            }
+        });
+
+        // POST: source_records 추가 (관리자 전용)
+        app.post('/api/source-records', verifyAdmin, async (req, res) => {
+            try {
+                const data = req.body;
+                if (data._id) delete data._id;
+                const result = await collections.sourceRecords.insertOne(data);
+                res.status(201).json({ id: result.insertedId });
+            } catch (error) {
+                console.error("Source records 추가 오류:", error);
+                res.status(500).json({ message: "사료 기록 추가 실패", error: error.message });
+            }
+        });
+
+        // PUT: source_records 수정 (관리자 전용)
+        app.put('/api/source-records/:id', verifyAdmin, async (req, res) => {
+            try {
+                const _id = toObjectId(req.params.id);
+                if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+                const data = req.body;
+                if (data._id) delete data._id;
+                const result = await collections.sourceRecords.updateOne({ _id }, { $set: data });
+                if (result.matchedCount === 0) {
+                    return res.status(404).json({ message: "사료 기록을 찾을 수 없습니다." });
+                }
+                res.json({ message: "사료 기록 수정 성공" });
+            } catch (error) {
+                console.error("Source records 수정 오류:", error);
+                res.status(500).json({ message: "사료 기록 수정 실패", error: error.message });
+            }
+        });
+
         // ----------------------------------------------------
         // 🗺️ DRAWINGS API 엔드포인트 (NEW)
         // ----------------------------------------------------

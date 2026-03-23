@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.38',          // [v3.6.38] 역사기록패널 1cm 아래, 왕목록패널 1cm 왼쪽
+        APP_VERSION: '3.6.39',          // [v3.6.39] source_records DELETE/POST/PUT API 추가, 패널 삭제버튼
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
     
@@ -15319,13 +15319,19 @@ function invalidateCountryLookupCache() {
             html += `<div style="font-size:12px; color:${color}; margin-bottom:3px; font-weight:bold;">${src} (${recs.length}건)</div>`;
             recs.forEach(r => {
               const isChinese = r.content_type === 'chinese_original';
-              const title = r.title
-                ? `<div style="font-size:12px; color:#ddd; line-height:1.55; margin-bottom:2px;">${r.title}${isChinese ? ' <span style="font-size:10px;color:#80d4f0;opacity:0.8;">[원문]</span>' : ''}</div>`
+              const deleteBtn = isAdmin
+                ? `<button onclick="deleteSourceRecord('${r._id}')" style="font-size:10px; padding:1px 5px; background:rgba(231,76,60,0.2); border:1px solid #e74c3c; color:#e07070; border-radius:3px; cursor:pointer; flex-shrink:0; margin-left:4px;">🗑</button>`
+                : '';
+              const titleRow = r.title
+                ? `<div style="display:flex; align-items:center; margin-bottom:2px;">`
+                  + `<span style="font-size:12px; color:#ddd; line-height:1.55; flex:1;">${r.title}${isChinese ? ' <span style="font-size:10px;color:#80d4f0;opacity:0.8;">[원문]</span>' : ''}</span>`
+                  + deleteBtn
+                  + `</div>`
                 : '';
               const content = r.content
                 ? `<div style="font-size:11px; color:${isChinese ? '#c8e0c8' : '#aaa'}; margin-top:2px; line-height:1.5; word-break:break-all;${isChinese ? " font-family:'Noto Serif SC',serif; border-left:2px solid rgba(128,212,240,0.3); padding-left:5px;" : ''}">${r.content}</div>`
                 : '';
-              html += `<div style="margin-bottom:5px; padding-bottom:4px; border-bottom:1px solid rgba(255,255,255,0.05);">${title}${content}</div>`;
+              html += `<div style="margin-bottom:5px; padding-bottom:4px; border-bottom:1px solid rgba(255,255,255,0.05);">${titleRow}${content}</div>`;
             });
             html += `</div>`;
           }
@@ -18333,6 +18339,28 @@ kingSelect.addEventListener('change', () => {
             alert(error.message);
         }
     });
+
+    // 원전사료(source_records) 삭제 함수 (패널 내 🗑 버튼에서 호출)
+    window.deleteSourceRecord = async function(id) {
+        if (!editMode || !(currentUser?.role === 'superuser' || currentUser?.role === 'admin')) return;
+        if (!confirm('이 원전 사료 기록을 삭제하시겠습니까?')) return;
+        const year = parseInt(yearInput?.value);
+        try {
+            const res = await fetch(`${API_BASE_URL}/source-records/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || '삭제 실패');
+            }
+            // 캐시 무효화 후 패널 갱신
+            if (!isNaN(year) && _historyPanelCache) _historyPanelCache.delete(year);
+            if (!isNaN(year) && layerVisibility.historyPanel) updateHistoryPanel(year);
+        } catch (error) {
+            alert('사료 기록 삭제 실패: ' + error.message);
+        }
+    };
 
     document.getElementById('addHistoryForm').addEventListener('submit', async (e) => {
         e.preventDefault();
