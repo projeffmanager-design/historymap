@@ -1135,6 +1135,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     .sort({ month: 1 })
                     .limit(200)
                     .toArray();
+                res.set('Cache-Control', 'public, max-age=300'); // 5분 캐시
                 res.json(records);
             } catch (error) {
                 res.status(500).json({ message: "History 조회 실패", error: error.message });
@@ -1326,6 +1327,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     .sort({ year: 1, month: 1 })
                     .limit(lim)
                     .toArray();
+                res.set('Cache-Control', 'public, max-age=300'); // 5분 캐시
                 res.json(records);
             } catch (error) {
                 console.error("Source records 조회 중 오류:", error);

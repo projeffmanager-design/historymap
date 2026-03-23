@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.27',          // [v3.6.27] 왼쪽 상단 연도 표시 updateUI에서 항상 업데이트
+        APP_VERSION: '3.6.29',          // [v3.6.29] _historyPanelCache lazy init으로 undefined 크래시 수정
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
     
@@ -14822,6 +14822,9 @@ function invalidateCountryLookupCache() {
     // 🚩 역사 패널 debounce/AbortController 변수 (var: 호이스팅으로 TDZ 완전 방지)
     var _historyPanelTimer = null;
     var _historyPanelAbort = null;
+    var _historyPanelCache;          // lazy init: 첫 사용 시 new Map() 생성
+    var _HISTORY_CACHE_MAX = 20;
+    var _HISTORY_CACHE_TTL = 5 * 60 * 1000;
 
     function updateTime(year, month, cacheOnly = false) {
         // 🚩 [수정] yearInput, monthInput 업데이트는 updateUI에서 처리
@@ -14975,6 +14978,7 @@ function invalidateCountryLookupCache() {
              }
              if (_sliderPendingYear !== null) {
                  updateMap(_sliderPendingYear, _sliderPendingMonth, false, true);
+                 scheduleHistoryPanelUpdate(_sliderPendingYear); // 🚩 슬라이더 조작 완료 시 역사패널 동기화
                  _sliderLastMapYear = _sliderPendingYear;
                  _sliderLastMapMonth = _sliderPendingMonth;
                  _sliderPendingYear = null;
@@ -15093,7 +15097,16 @@ function invalidateCountryLookupCache() {
         // 이전 예약 취소
         if (_historyPanelTimer) clearTimeout(_historyPanelTimer);
 
-        // 200ms 내 추가 변경이 없으면 fetch
+        // 캐시에 있으면 즉시 렌더링, 없으면 200ms debounce 후 fetch
+        if (!_historyPanelCache) _historyPanelCache = new Map();
+        if (_historyPanelCache.has(year)) {
+            const cached = _historyPanelCache.get(year);
+            if (Date.now() - cached.ts < _HISTORY_CACHE_TTL) {
+                _historyPanelTimer = null;
+                _renderHistoryPanel(year, cached.historyRecords, cached.sourceRecords);
+                return;
+            }
+        }
         _historyPanelTimer = setTimeout(() => {
             _historyPanelTimer = null;
             updateHistoryPanel(year);
@@ -15112,6 +15125,16 @@ function invalidateCountryLookupCache() {
       // 타이틀 업데이트
       const titleText = `${year <= 0 ? ' 기원전' : ' 서기'} ${Math.abs(year)}년 역사 기록`;
       if (mapHistoryYearTitle) mapHistoryYearTitle.textContent = titleText;
+
+      // 캐시 히트 확인 (fetch 전)
+      if (!_historyPanelCache) _historyPanelCache = new Map();
+      if (_historyPanelCache.has(year)) {
+        const cached = _historyPanelCache.get(year);
+        if (Date.now() - cached.ts < _HISTORY_CACHE_TTL) {
+          _renderHistoryPanel(year, cached.historyRecords, cached.sourceRecords);
+          return;
+        }
+      }
 
       // 로딩 표시
       if (mapAllRecordsContent) {
@@ -15136,9 +15159,36 @@ function invalidateCountryLookupCache() {
         // fetch 완료 후 다시 연도가 바뀐 경우 덮어쓰지 않음
         if (signal.aborted) return;
 
-        if (!mapAllRecordsContent) return;
+        // 캐시 저장 (LRU: 초과 시 가장 오래된 항목 제거)
+        _historyPanelCache.set(year, { historyRecords, sourceRecords, ts: Date.now() });
+        if (_historyPanelCache.size > _HISTORY_CACHE_MAX) {
+          const firstKey = _historyPanelCache.keys().next().value;
+          _historyPanelCache.delete(firstKey);
+        }
 
-        let html = '';
+        _renderHistoryPanel(year, historyRecords, sourceRecords);
+
+      } catch (e) {
+        // AbortError는 정상적인 취소 — 로그/UI 업데이트 생략
+        if (e.name === 'AbortError') return;
+        console.error('updateHistoryPanel fetch error:', e);
+        const mapAllRecordsContent = document.getElementById('map-all-records-content');
+        if (mapAllRecordsContent) {
+          mapAllRecordsContent.innerHTML = '<div style="color:#e74c3c; font-size:12px; padding:8px 0;">기록 로드 실패</div>';
+        }
+      }
+    }
+
+    function _renderHistoryPanel(year, historyRecords, sourceRecords) {
+      const mapAllRecordsContent = document.getElementById('map-all-records-content');
+      if (!mapAllRecordsContent) return;
+
+      // 타이틀 재갱신 (캐시 경로에서도 호출 가능하므로)
+      const mapHistoryYearTitle = document.getElementById('map-history-year-title');
+      const titleText = `${year <= 0 ? ' 기원전' : ' 서기'} ${Math.abs(year)}년 역사 기록`;
+      if (mapHistoryYearTitle) mapHistoryYearTitle.textContent = titleText;
+
+      let html = '';
 
         // ── 섹션 1: history 컬렉션 (연구 기록) ──
         const isAdmin = editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin');
@@ -15259,15 +15309,6 @@ function invalidateCountryLookupCache() {
           return;
         }
         mapAllRecordsContent.innerHTML = html;
-
-      } catch (e) {
-        // AbortError는 정상적인 취소 — 로그/UI 업데이트 생략
-        if (e.name === 'AbortError') return;
-        console.error('updateHistoryPanel fetch error:', e);
-        if (mapAllRecordsContent) {
-          mapAllRecordsContent.innerHTML = '<div style="color:#e74c3c; font-size:12px; padding:8px 0;">기록 로드 실패</div>';
-        }
-      }
     }
 
 
