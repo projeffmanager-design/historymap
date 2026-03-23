@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.35',          // [v3.6.35] 삼국사기 history→source_records 이동, 원문/번역 구분 렌더링
+        APP_VERSION: '3.6.36',          // [v3.6.36] ‹ › 이동 연도 단위로 변경 (월 무시)
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
     
@@ -11997,7 +11997,8 @@ function invalidateCountryLookupCache() {
           
           // 🚀 [최적화] 시간 목록 생성 (history 없이 events만 먼저)
           showLoadingStatus('역사의 시간축을 정렬하고 있습니다...', 60);
-          const eventTimes = events.map(e => yearMonthToTotalMonths(e.year, e.month || 1));
+          // 🚩 [v3.6.36] 연도 단위로만 저장 (월 무시 → ‹ › 버튼이 연도 단위로 이동)
+          const eventTimes = [...new Set(events.map(e => e.year))].map(y => yearMonthToTotalMonths(y, 1));
           historyEventTimes = [...new Set(eventTimes)].sort((a, b) => a - b);
           console.log(`📅 연대표 시간 목록 (events만): ${historyEventTimes.length}개 시점`);
           
@@ -12201,17 +12202,19 @@ function invalidateCountryLookupCache() {
                   
                   // 🚀 [최적화] 시간 목록 재생성을 requestIdleCallback으로 지연 (1,605개 시점 = DOM 부하)
                   const updateTimeline = async () => {
-                      const historyTimes = history.map(h => yearMonthToTotalMonths(h.year, h.month || 1));
-                      const eventTimes = events.map(e => yearMonthToTotalMonths(e.year, e.month || 1));
+                      // 🚩 [v3.6.36] 연도 단위로만 저장 (월 무시 → ‹ › 버튼이 연도 단위로 이동)
+                      const historyYearSet = new Set(history.map(h => h.year));
+                      const eventYearSet = new Set(events.map(e => e.year));
                       // 🚩 source_records 연도 목록도 포함 (‹ › 버튼 탐색용)
-                      let sourceTimes = [];
+                      let sourceYearSet = new Set();
                       try {
                           const srcYears = await fetch('/api/source-records/years').then(r => r.json());
-                          sourceTimes = srcYears.map(y => yearMonthToTotalMonths(y, 1));
+                          srcYears.forEach(y => sourceYearSet.add(y));
                           console.log(`📜 source_records 연도 ${srcYears.length}개 시간 목록에 추가`);
                       } catch(e) { console.warn('source-records/years 로드 실패:', e); }
-                      historyEventTimes = [...new Set([...historyTimes, ...eventTimes, ...sourceTimes])].sort((a, b) => a - b);
-                      console.log(`✅ 연대표 시간 목록 업데이트 완료: ${historyEventTimes.length}개 시점`);
+                      const allYears = [...new Set([...historyYearSet, ...eventYearSet, ...sourceYearSet])];
+                      historyEventTimes = allYears.map(y => yearMonthToTotalMonths(y, 1)).sort((a, b) => a - b);
+                      console.log(`✅ 연대표 시간 목록 업데이트 완료: ${historyEventTimes.length}개 연도`);
                   };
                   
                   // 브라우저가 한가할 때 실행 (또는 2초 타임아웃)
@@ -13079,29 +13082,29 @@ function invalidateCountryLookupCache() {
       // 🚩 [수정] 이전/다음 역사 이동 함수로 추출
       const gotoPrevHistory = () => {
           const year = parseInt(yearInput.value);
-          const month = parseInt(monthInput.value);
-          const currentTotalMonths = yearMonthToTotalMonths(year, month);
+          // 🚩 [v3.6.36] 연도 단위 이동: 현재 연도의 1월 기준으로 비교
+          const currentTotalMonths = yearMonthToTotalMonths(year, 1);
           
           // 현재 시점보다 이전의 기록들 중 가장 나중의 시간을 찾습니다.
           const prevTime = historyEventTimes.filter(t => t < currentTotalMonths).pop();
 
           if (prevTime !== undefined) {
-              const { year: targetYear, month: targetMonth } = totalMonthsToYearMonth(prevTime);
-              updateTime(targetYear, targetMonth);
+              const { year: targetYear } = totalMonthsToYearMonth(prevTime);
+              updateTime(targetYear, 1);
           }
       };
 
       const gotoNextHistory = () => {
           const year = parseInt(yearInput.value);
-          const month = parseInt(monthInput.value);
-          const currentTotalMonths = yearMonthToTotalMonths(year, month);
+          // 🚩 [v3.6.36] 연도 단위 이동: 현재 연도의 1월 기준으로 비교
+          const currentTotalMonths = yearMonthToTotalMonths(year, 1);
 
           // 현재 시점보다 이후의 기록들 중 가장 처음의 시간을 찾습니다.
           const nextTime = historyEventTimes.find(t => t > currentTotalMonths);
 
           if (nextTime !== undefined) {
-              const { year: targetYear, month: targetMonth } = totalMonthsToYearMonth(nextTime);
-              updateTime(targetYear, targetMonth);
+              const { year: targetYear } = totalMonthsToYearMonth(nextTime);
+              updateTime(targetYear, 1);
           }
       };
 
