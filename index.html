@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.25',          // [v3.6.25] 역사패널 연도 연동(layerVisibility), 삼국사기 source 이름 DB 정규화
+        APP_VERSION: '3.6.26',          // [v3.6.26] 패널 리사이즈 방향 수정 — 오른쪽 드래그=커짐, 왼쪽=줄어듦
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
     
@@ -13246,13 +13246,12 @@ function invalidateCountryLookupCache() {
           document.addEventListener('mousemove', (e) => {
               if (!isResizing) return;
               e.preventDefault();
-              // invertX(왼쪽 핸들) 또는 right 기반 패널: 왼쪽 드래그 = 너비 증가
-              const computedStyle = window.getComputedStyle(panel);
-              const hasRight = computedStyle.right && computedStyle.right !== 'auto' && computedStyle.right !== '';
               let newW, newH;
-              if (invertX || hasRight) {
+              if (invertX) {
+                  // invertX: 왼쪽 드래그 = 너비 증가 (left-anchored 패널용)
                   newW = Math.max(minW, Math.min(maxW, startW - (e.clientX - startX)));
               } else {
+                  // 기본: 오른쪽 드래그 = 너비 증가
                   newW = Math.max(minW, Math.min(maxW, startW + (e.clientX - startX)));
               }
               newH = Math.max(minH, Math.min(maxH, startH + (e.clientY - startY)));
@@ -13270,10 +13269,10 @@ function invalidateCountryLookupCache() {
           });
       }
 
-      // 왕 패널 리사이즈 (우하단 핸들, right 고정 → invertX로 우상단 앵커)
-      makePanelResizable('map-king-panel',    'king-panel-resize-handle',    { invertX: true });
-      // 역사 패널 리사이즈 (우하단 핸들, right 고정 → invertX로 우상단 앵커)
-      makePanelResizable('map-history-panel', 'history-panel-resize-handle', { invertX: true });
+      // 왕 패널 리사이즈 (우하단 핸들, right 고정 → 오른쪽 드래그 = 커짐)
+      makePanelResizable('map-king-panel',    'king-panel-resize-handle',    {});
+      // 역사 패널 리사이즈 (우하단 핸들, right 고정 → 오른쪽 드래그 = 커짐)
+      makePanelResizable('map-history-panel', 'history-panel-resize-handle', {});
 
       // 🚩 [수정] 패널 드래그 공통 유틸
       //   - mousedown 에서는 style을 전혀 건드리지 않고 오프셋만 기록
