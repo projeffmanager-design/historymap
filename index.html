@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.33',          // [v3.6.33] 역사기록패널 top 48px, height calc-420px 조정
+        APP_VERSION: '3.6.34',          // [v3.6.34] 삼국사기 한문원문 records.chinese로 이동, 폼/렌더링 chinese 필드 추가
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
     
@@ -6135,6 +6135,16 @@ body.force-mobile .marker-type-selector button {
           <div class="form-row">
             <label for="koreanContent">내용:</label>
             <textarea id="koreanContent" rows="3"></textarea>
+          </div>
+          <hr style="margin: 15px 0;">
+          <h4 style="margin-bottom: 10px;">**1-1. 한문 원문**</h4>
+          <div class="form-row">
+            <label for="chineseSource">출전:</label>
+            <input type="text" id="chineseSource" placeholder="예: 《삼국사기(三國史記)》 신라본기">
+          </div>
+          <div class="form-row">
+            <label for="chineseContent">원문:</label>
+            <textarea id="chineseContent" rows="3" placeholder="한문 원문을 입력하세요"></textarea>
           </div>
           <hr style="margin: 15px 0;">
           <h4 style="margin-bottom: 10px;">**2. 잡국 역사서**</h4>
@@ -15220,6 +15230,12 @@ function invalidateCountryLookupCache() {
                 : '';
               body += `<div style="font-size:11px; color:#ccc; margin-top:2px; line-height:1.55;">${src}${r.records.korean.content}</div>`;
             }
+            if (r.records?.chinese?.content) {
+              const src = r.records.chinese.source
+                ? `<span style="font-size:10.5px; color:#80d4f0; margin-right:4px;">[${r.records.chinese.source}]</span>`
+                : '';
+              body += `<div style="font-size:11px; color:#d4e8d4; margin-top:2px; line-height:1.55; font-family:'Noto Serif SC',serif; border-left:2px solid rgba(128,212,240,0.4); padding-left:5px;">${src}${r.records.chinese.content}</div>`;
+            }
             if (r.records?.foreign?.content) {
               const src = r.records.foreign.source
                 ? `<span style="font-size:10.5px; color:#80d4f0; margin-right:4px;">[${r.records.foreign.source}]</span>`
@@ -16720,6 +16736,7 @@ function invalidateCountryLookupCache() {
             .filter(h =>
                 (h.event_name && h.event_name.toLowerCase().includes(query)) ||
                 (h.records?.korean?.content && h.records.korean.content.toLowerCase().includes(query)) ||
+                (h.records?.chinese?.content && h.records.chinese.content.toLowerCase().includes(query)) ||
                 (h.records?.foreign?.content && h.records.foreign.content.toLowerCase().includes(query)) ||
                 (h.records?.true_history?.content && h.records.true_history.content.toLowerCase().includes(query))
             )
@@ -16828,7 +16845,7 @@ function invalidateCountryLookupCache() {
             .map(c => ({ type: 'castle', text: `[성/도시] ${c.name} (${c.built_year || c.built || 0}년)`, data: c }));
 
         const matchingHistory = history
-            .filter(h => (h.event_name && h.event_name.toLowerCase().includes(query)) || (h.records?.korean?.content && h.records.korean.content.toLowerCase().includes(query)) || (h.records?.foreign?.content && h.records.foreign.content.toLowerCase().includes(query)) || (h.records?.true_history?.content && h.records.true_history.content.toLowerCase().includes(query)))
+            .filter(h => (h.event_name && h.event_name.toLowerCase().includes(query)) || (h.records?.korean?.content && h.records.korean.content.toLowerCase().includes(query)) || (h.records?.chinese?.content && h.records.chinese.content.toLowerCase().includes(query)) || (h.records?.foreign?.content && h.records.foreign.content.toLowerCase().includes(query)) || (h.records?.true_history?.content && h.records.true_history.content.toLowerCase().includes(query)))
             .map(h => ({ type: 'history', text: `[역사] ${h.event_name} (${h.year}년)`, data: h }));
 
         const matchingDrawings = drawings
@@ -18332,6 +18349,10 @@ kingSelect.addEventListener('change', () => {
                     source: document.getElementById('koreanSource').value,
                     content: document.getElementById('koreanContent').value
                 },
+                chinese: {
+                    source: document.getElementById('chineseSource').value,
+                    content: document.getElementById('chineseContent').value
+                },
                 foreign: {
                     source: document.getElementById('foreignSource').value,
                     content: document.getElementById('foreignContent').value
@@ -18443,6 +18464,9 @@ kingSelect.addEventListener('change', () => {
 
         document.getElementById('koreanSource').value = record.records?.korean?.source ?? '';
         document.getElementById('koreanContent').value = record.records?.korean?.content ?? '';
+        
+        document.getElementById('chineseSource').value = record.records?.chinese?.source ?? '';
+        document.getElementById('chineseContent').value = record.records?.chinese?.content ?? '';
         
         document.getElementById('foreignSource').value = record.records?.foreign?.source ?? '';
         document.getElementById('foreignContent').value = record.records?.foreign?.content ?? '';
