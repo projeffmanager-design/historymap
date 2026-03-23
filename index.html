@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.31',          // [v3.6.31] 역사기록패널 bottom→height 고정, 드래그 시 크기 유지
+        APP_VERSION: '3.6.32',          // [v3.6.32] 역사기록 저장/삭제 후 해당 연도만 DB 재조회
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
     
@@ -18288,6 +18288,9 @@ kingSelect.addEventListener('change', () => {
         if (!editingHistoryKey) return;
         if (!confirm('정말로 이 역사 기록을 삭제하시겠습니까?')) return;
 
+        // 삭제 전 연도 저장 (캐시 무효화에 사용)
+        const deletedYear = parseInt(document.getElementById('historyYear').value);
+
         try {
             const response = await fetch(`${API_BASE_URL}/history/${editingHistoryKey}`, {
                 method: 'DELETE',
@@ -18299,7 +18302,12 @@ kingSelect.addEventListener('change', () => {
             if (!response.ok) throw new Error('기록 삭제에 실패했습니다.');
 
             closeEditPanel('historyForm');
-            initialize(); // 데이터 다시 로드
+
+            // 🚩 [수정] 삭제 후에도 해당 연도 캐시만 무효화하고 패널 갱신
+            if (!isNaN(deletedYear) && _historyPanelCache) _historyPanelCache.delete(deletedYear);
+            if (!isNaN(deletedYear) && layerVisibility.historyPanel) {
+                updateHistoryPanel(deletedYear);
+            }
         } catch (error) {
             alert(error.message);
         }
@@ -18394,7 +18402,13 @@ kingSelect.addEventListener('change', () => {
 
 
             closeEditPanel('historyForm');
-            initialize(); 
+
+            // 🚩 [수정] initialize() 전체 재로드 대신, 수정된 연도 캐시만 무효화 후 패널 갱신
+            const savedYear = data.year;
+            if (_historyPanelCache) _historyPanelCache.delete(savedYear);
+            if (layerVisibility.historyPanel) {
+                updateHistoryPanel(savedYear);
+            }
         } catch (error) {
             console.error("History 저장 중 오류:", error);
             alert(`History 저장 실패: ${error.message}`);
