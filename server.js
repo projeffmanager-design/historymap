@@ -1317,6 +1317,18 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // GET: source_records의 연도 목록 (중복 제거, 이전/다음 탐색용)
+        app.get('/api/source-records/years', async (req, res) => {
+            try {
+                const years = await collections.sourceRecords.distinct('year');
+                years.sort((a, b) => a - b);
+                res.json(years);
+            } catch (error) {
+                console.error("Source records 연도 목록 조회 오류:", error);
+                res.status(500).json({ message: "Source records 연도 목록 조회 실패", error: error.message });
+            }
+        });
+
         // ----------------------------------------------------
         // 🗺️ DRAWINGS API 엔드포인트 (NEW)
         // ----------------------------------------------------

@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.20',          // [v3.6.20] 한국고대사료집성 중국25사 3439건 임포트 (史記/漢書/三國志/資治通鑑 등), 역사패널 사서별 색상 추가
+        APP_VERSION: '3.6.21',          // [v3.6.21] 역사패널 버그 3종 수정: debounce+AbortController(race condition), ‹›버튼 source_records연도 포함, 리사이즈 좌우반전 수정(좌하단핸들+invertX)
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
     
@@ -671,6 +671,13 @@ body.force-mobile #map-king-list {
     background-size: 6px 6px;
     background-position: 6px 6px, 12px 6px, 6px 12px, 12px 12px, 12px 0px, 0px 12px;
     background-repeat: no-repeat;
+}
+/* 왼하단 핸들 (right 고정 패널용) */
+.panel-resize-handle-left {
+    right: auto;
+    left: 0;
+    cursor: nesw-resize;
+    border-radius: 0 0 0 8px;
 }
 .panel-resize-handle:hover {
     background-image:
@@ -5686,8 +5693,8 @@ body.force-mobile .marker-type-selector button {
                 <div id="map-all-records-content">기록 없음</div>
             </div>
         </div>
-        <!-- 우하단 리사이즈 핸들 -->
-        <div class="panel-resize-handle" id="history-panel-resize-handle"></div>
+        <!-- 좌하단 리사이즈 핸들 (right 고정 패널: 왼쪽으로 드래그 = 너비 증가) -->
+        <div class="panel-resize-handle panel-resize-handle-left" id="history-panel-resize-handle"></div>
     </div>
 
     <div id="castleForm">
@@ -12178,19 +12185,26 @@ function invalidateCountryLookupCache() {
                       updateHistoryPanel(_hy);
                   }
                   
-                  // �🚀 [최적화] 시간 목록 재생성을 requestIdleCallback으로 지연 (1,605개 시점 = DOM 부하)
-                  const updateTimeline = () => {
+                  // 🚀 [최적화] 시간 목록 재생성을 requestIdleCallback으로 지연 (1,605개 시점 = DOM 부하)
+                  const updateTimeline = async () => {
                       const historyTimes = history.map(h => yearMonthToTotalMonths(h.year, h.month || 1));
                       const eventTimes = events.map(e => yearMonthToTotalMonths(e.year, e.month || 1));
-                      historyEventTimes = [...new Set([...historyTimes, ...eventTimes])].sort((a, b) => a - b);
+                      // 🚩 source_records 연도 목록도 포함 (‹ › 버튼 탐색용)
+                      let sourceTimes = [];
+                      try {
+                          const srcYears = await fetch('/api/source-records/years').then(r => r.json());
+                          sourceTimes = srcYears.map(y => yearMonthToTotalMonths(y, 1));
+                          console.log(`📜 source_records 연도 ${srcYears.length}개 시간 목록에 추가`);
+                      } catch(e) { console.warn('source-records/years 로드 실패:', e); }
+                      historyEventTimes = [...new Set([...historyTimes, ...eventTimes, ...sourceTimes])].sort((a, b) => a - b);
                       console.log(`✅ 연대표 시간 목록 업데이트 완료: ${historyEventTimes.length}개 시점`);
                   };
                   
                   // 브라우저가 한가할 때 실행 (또는 2초 타임아웃)
                   if (window.requestIdleCallback) {
-                      requestIdleCallback(updateTimeline, { timeout: 2000 });
+                      requestIdleCallback(() => updateTimeline(), { timeout: 2000 });
                   } else {
-                      setTimeout(updateTimeline, 500);
+                      setTimeout(() => updateTimeline(), 500);
                   }
               } catch (error) {
                   console.error('❌ history 백그라운드 로드 실패:', error);
@@ -13207,8 +13221,9 @@ function invalidateCountryLookupCache() {
           mapKingPanel.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
       }
 
-      // 🚩 우하단 리사이즈 핸들 공통 함수
-      function makePanelResizable(panelId, handleId, { minW = 200, minH = 100, maxW = 900, maxH = 900 } = {}) {
+      // 🚩 우하단/좌하단 리사이즈 핸들 공통 함수
+      // invertX=true: 핸들이 왼쪽에 있을 때 — 왼쪽 드래그 = 너비 증가
+      function makePanelResizable(panelId, handleId, { minW = 200, minH = 100, maxW = 900, maxH = 900, invertX = false } = {}) {
           const panel = document.getElementById(panelId);
           const handle = document.getElementById(handleId);
           if (!panel || !handle) return;
@@ -13224,18 +13239,18 @@ function invalidateCountryLookupCache() {
               startY = e.clientY;
               startW = panel.offsetWidth;
               startH = panel.offsetHeight;
-              document.body.style.cursor = 'nwse-resize';
+              document.body.style.cursor = invertX ? 'nesw-resize' : 'nwse-resize';
               document.body.style.userSelect = 'none';
           });
 
           document.addEventListener('mousemove', (e) => {
               if (!isResizing) return;
               e.preventDefault();
-              // 패널이 right 기반이면 왼쪽 드래그 = 너비 증가
+              // invertX(왼쪽 핸들) 또는 right 기반 패널: 왼쪽 드래그 = 너비 증가
               const computedStyle = window.getComputedStyle(panel);
               const hasRight = computedStyle.right && computedStyle.right !== 'auto' && computedStyle.right !== '';
               let newW, newH;
-              if (hasRight) {
+              if (invertX || hasRight) {
                   newW = Math.max(minW, Math.min(maxW, startW - (e.clientX - startX)));
               } else {
                   newW = Math.max(minW, Math.min(maxW, startW + (e.clientX - startX)));
@@ -13255,10 +13270,10 @@ function invalidateCountryLookupCache() {
           });
       }
 
-      // 왕 패널 리사이즈
+      // 왕 패널 리사이즈 (우하단 핸들)
       makePanelResizable('map-king-panel',    'king-panel-resize-handle');
-      // 역사 패널 리사이즈
-      makePanelResizable('map-history-panel', 'history-panel-resize-handle');
+      // 역사 패널 리사이즈 (좌하단 핸들 — right 고정 패널이므로 invertX)
+      makePanelResizable('map-history-panel', 'history-panel-resize-handle', { invertX: true });
 
       // 🚩 [수정] 패널 드래그 공통 유틸
       //   - mousedown 에서는 style을 전혀 건드리지 않고 오프셋만 기록
@@ -14563,7 +14578,7 @@ function invalidateCountryLookupCache() {
       if (monthLabelPc) monthLabelPc.textContent = monthStr;
       if (ganjiLabelPc) ganjiLabelPc.textContent = `  ${ganjiText}`; // 여유 공백 추가
       
-      updateHistoryPanel(year);
+      // ℹ️ updateHistoryPanel은 updateTime에서만 호출 (updateUI 단독 호출 시 중복 방지)
       updateKingLabel(year, month);
     }
 
@@ -14813,6 +14828,8 @@ function invalidateCountryLookupCache() {
         checkAndDisplayEvent(year, month);
         // createHistoricalEventMarkers(); // 🚩 [제거] 연도 변경 시 사건 마커 업데이트 - 제거됨
         updateTimelineScroll(); // 🚩 [추가] 연도 변경 시 연대표도 함께 이동
+        // 🚩 역사 패널은 debounce 처리 (연속 변경 시 마지막 값만 fetch)
+        scheduleHistoryPanelUpdate(year);
     }
 
     // 🚩 [수정] 월 입력 필드에서 화살표 키를 눌렀을 때 연도 변경 로직 충돌 해결
@@ -15057,7 +15074,31 @@ function invalidateCountryLookupCache() {
     }
     
     // --- 7. 역사 기록 패널 업데이트 ---
+    // 🚩 debounce + AbortController: 연속 연도 변경 시 마지막 값만 fetch, race condition 방지
+    let _historyPanelTimer = null;
+    let _historyPanelAbort = null;
+
+    function scheduleHistoryPanelUpdate(year) {
+        // 패널이 표시 중이 아니면 스킵
+        const panel = document.getElementById('map-history-panel');
+        if (!panel || panel.style.display === 'none') return;
+
+        // 이전 예약 취소
+        if (_historyPanelTimer) clearTimeout(_historyPanelTimer);
+
+        // 200ms 내 추가 변경이 없으면 fetch
+        _historyPanelTimer = setTimeout(() => {
+            _historyPanelTimer = null;
+            updateHistoryPanel(year);
+        }, 200);
+    }
+
     async function updateHistoryPanel(year) {
+      // 🚩 이전 진행 중인 fetch가 있으면 취소 (race condition 방지)
+      if (_historyPanelAbort) _historyPanelAbort.abort();
+      _historyPanelAbort = new AbortController();
+      const signal = _historyPanelAbort.signal;
+
       const mapHistoryYearTitle = document.getElementById('map-history-year-title');
       const mapAllRecordsContent = document.getElementById('map-all-records-content');
 
@@ -15077,13 +15118,16 @@ function invalidateCountryLookupCache() {
       }
 
       try {
-        // 두 컬렉션 병렬 조회
+        // 두 컬렉션 병렬 조회 (AbortController로 취소 가능)
         const [historyRes, sourceRes] = await Promise.all([
-          fetch(`/api/history-by-year?year=${year}`),
-          fetch(`/api/source-records?year=${year}&limit=100`)
+          fetch(`/api/history-by-year?year=${year}`, { signal }),
+          fetch(`/api/source-records?year=${year}&limit=100`, { signal })
         ]);
         const historyRecords = historyRes.ok ? await historyRes.json() : [];
         const sourceRecords = sourceRes.ok ? await sourceRes.json() : [];
+
+        // fetch 완료 후 다시 연도가 바뀐 경우 덮어쓰지 않음
+        if (signal.aborted) return;
 
         if (!mapAllRecordsContent) return;
 
@@ -15209,6 +15253,8 @@ function invalidateCountryLookupCache() {
         mapAllRecordsContent.innerHTML = html;
 
       } catch (e) {
+        // AbortError는 정상적인 취소 — 로그/UI 업데이트 생략
+        if (e.name === 'AbortError') return;
         console.error('updateHistoryPanel fetch error:', e);
         if (mapAllRecordsContent) {
           mapAllRecordsContent.innerHTML = '<div style="color:#e74c3c; font-size:12px; padding:8px 0;">기록 로드 실패</div>';
