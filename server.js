@@ -1125,6 +1125,19 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // GET: 특정 history 기록 단건 조회
+        app.get('/api/history/:id', async (req, res) => {
+            try {
+                const _id = toObjectId(req.params.id);
+                if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+                const record = await collections.history.findOne({ _id });
+                if (!record) return res.status(404).json({ message: "기록을 찾을 수 없습니다." });
+                res.json(record);
+            } catch (error) {
+                res.status(500).json({ message: "History 단건 조회 실패", error: error.message });
+            }
+        });
+
         // POST: 새 역사 기록 추가
         app.post('/api/history', verifyAdmin, async (req, res) => {
             try {

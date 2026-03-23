@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.17',          // [v3.6.17] 사관 활동 소식 — admin 공지 기능 추가
+        APP_VERSION: '3.6.18',          // [v3.6.18] 역사패널 글씨 크기+1pt, 글자 잘림 제거, 편집 버튼 추가 및 기존 데이터 로드
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
     
@@ -13076,15 +13076,91 @@ function invalidateCountryLookupCache() {
           }
       };
 
-      const openHistoryForm = () => {
-          editingHistoryKey = null;
-          openEditPanel('historyForm');
-          document.getElementById('addHistoryForm').reset();
-          document.getElementById('deleteHistoryBtn').style.display = 'none';
-          document.getElementById('historyYear').value = yearInput.value;
-          document.getElementById('historyMonth').value = monthInput.value;
-          document.getElementById('saveHistoryBtn').textContent = '저장';
+      const openHistoryForm = async () => {
+          const curYear = parseInt(yearInput.value);
+          // 현재 연도의 history 기록 조회
+          let yearRecords = [];
+          try {
+            const res = await fetch(`/api/history-by-year?year=${curYear}`);
+            if (res.ok) yearRecords = await res.json();
+          } catch(e) {}
+
+          if (yearRecords.length === 0) {
+            // 기존 기록 없음 → 새 기록 추가 모드
+            editingHistoryKey = null;
+            openEditPanel('historyForm');
+            document.getElementById('addHistoryForm').reset();
+            document.getElementById('deleteHistoryBtn').style.display = 'none';
+            document.getElementById('historyYear').value = yearInput.value;
+            document.getElementById('historyMonth').value = monthInput.value;
+            document.getElementById('saveHistoryBtn').textContent = '저장';
+          } else if (yearRecords.length === 1) {
+            // 기록 1건 → 바로 편집 모드로 열기
+            editHistory(yearRecords[0]._id);
+          } else {
+            // 기록 여러 건 → 선택 다이얼로그 표시
+            openHistoryFormWithPicker(yearRecords);
+          }
       };
+
+      // 여러 history 기록 중 선택하는 헬퍼
+      function openHistoryFormWithPicker(records) {
+          const existing = document.getElementById('history-record-picker');
+          if (existing) existing.remove();
+
+          const picker = document.createElement('div');
+          picker.id = 'history-record-picker';
+          picker.style.cssText = `
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+            background: #2c3e50; border: 1px solid #5d7185; border-radius: 8px;
+            padding: 16px; z-index: 9999; min-width: 320px; max-width: 500px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+          `;
+          const year = parseInt(yearInput.value);
+          picker.innerHTML = `
+            <div style="font-size:13px; color:#e8c97a; font-weight:bold; margin-bottom:12px;">
+              📜 ${year}년 기록 선택 (${records.length}건)
+            </div>
+            <div id="history-picker-list" style="max-height:280px; overflow-y:auto; margin-bottom:12px;"></div>
+            <div style="display:flex; justify-content:space-between; gap:8px;">
+              <button id="history-picker-new" style="flex:1; padding:6px; background:rgba(46,204,113,0.2); border:1px solid #2ecc71; color:#2ecc71; border-radius:4px; cursor:pointer; font-size:12px;">+ 새 기록 추가</button>
+              <button id="history-picker-close" style="padding:6px 14px; background:rgba(255,255,255,0.1); border:1px solid #7a93a8; color:#ccc; border-radius:4px; cursor:pointer; font-size:12px;">취소</button>
+            </div>
+          `;
+          document.body.appendChild(picker);
+
+          const list = picker.querySelector('#history-picker-list');
+          records.forEach(r => {
+            const item = document.createElement('div');
+            item.style.cssText = `padding:8px 10px; margin-bottom:6px; background:rgba(255,255,255,0.05); border-radius:4px; cursor:pointer; border:1px solid transparent;`;
+            item.innerHTML = `
+              <div style="font-size:12px; color:#f5e9d2; font-weight:bold;">${r.event_name || '(이름 없음)'}</div>
+              <div style="font-size:11px; color:#95a5a6; margin-top:2px;">
+                ${r.year}년 ${r.month || 1}월
+                ${r.records?.korean?.content ? ' · ' + r.records.korean.content.substring(0,40) + '…' : ''}
+              </div>
+            `;
+            item.addEventListener('mouseenter', () => item.style.borderColor = '#3498db');
+            item.addEventListener('mouseleave', () => item.style.borderColor = 'transparent');
+            item.addEventListener('click', () => {
+              picker.remove();
+              editHistory(r._id);
+            });
+            list.appendChild(item);
+          });
+
+          picker.querySelector('#history-picker-new').addEventListener('click', () => {
+            picker.remove();
+            editingHistoryKey = null;
+            openEditPanel('historyForm');
+            document.getElementById('addHistoryForm').reset();
+            document.getElementById('deleteHistoryBtn').style.display = 'none';
+            document.getElementById('historyYear').value = yearInput.value;
+            document.getElementById('historyMonth').value = monthInput.value;
+            document.getElementById('saveHistoryBtn').textContent = '저장';
+          });
+          picker.querySelector('#history-picker-close').addEventListener('click', () => picker.remove());
+      }
 
       // 🚩 [추가] 지도 내 이전/다음/추가 버튼 이벤트 연결
       const mapPrevHistoryBtn = document.getElementById('map-prev-history-btn');
@@ -14988,7 +15064,7 @@ function invalidateCountryLookupCache() {
 
       // 로딩 표시
       if (mapAllRecordsContent) {
-        mapAllRecordsContent.innerHTML = '<div style="color:#95a5a6; font-size:11px; padding:8px 0;">불러오는 중...</div>';
+        mapAllRecordsContent.innerHTML = '<div style="color:#95a5a6; font-size:12px; padding:8px 0;">불러오는 중...</div>';
       }
 
       // 편집 버튼 표시 제어
@@ -15011,37 +15087,35 @@ function invalidateCountryLookupCache() {
         let html = '';
 
         // ── 섹션 1: history 컬렉션 (연구 기록) ──
+        const isAdmin = editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin');
         if (historyRecords.length > 0) {
           html += `<div style="margin-bottom:14px;">`;
-          html += `<div style="font-weight:bold; font-size:12px; color:#e8c97a; margin-bottom:6px; border-bottom:1px solid rgba(232,201,122,0.35); padding-bottom:4px;">📚 역사 연구 기록 (${historyRecords.length}건)</div>`;
+          html += `<div style="font-weight:bold; font-size:13px; color:#e8c97a; margin-bottom:6px; border-bottom:1px solid rgba(232,201,122,0.35); padding-bottom:4px;">📚 역사 연구 기록 (${historyRecords.length}건)</div>`;
           historyRecords.forEach(r => {
+            const editBtn = isAdmin
+              ? `<button onclick="editHistory('${r._id}')" style="font-size:10px; padding:1px 6px; background:rgba(52,152,219,0.25); border:1px solid #3498db; color:#7fb3d3; border-radius:3px; cursor:pointer; flex-shrink:0;">✏️</button>`
+              : '';
             const name = r.event_name
-              ? `<div style="font-size:11.5px; color:#f5e9d2; font-weight:bold; margin-bottom:3px;">${r.event_name}</div>`
+              ? `<div style="display:flex; align-items:center; gap:5px; margin-bottom:3px;">`
+                + `<span style="font-size:12.5px; color:#f5e9d2; font-weight:bold; flex:1;">${r.event_name}</span>`
+                + editBtn
+                + `</div>`
               : '';
             let body = '';
             if (r.records?.korean?.content) {
               const src = r.records.korean.source
-                ? `<span style="font-size:9.5px; color:#f0d080; margin-right:4px;">[${r.records.korean.source}]</span>`
+                ? `<span style="font-size:10.5px; color:#f0d080; margin-right:4px;">[${r.records.korean.source}]</span>`
                 : '';
-              const txt = r.records.korean.content.length > 160
-                ? r.records.korean.content.substring(0, 160) + '…'
-                : r.records.korean.content;
-              body += `<div style="font-size:10px; color:#ccc; margin-top:2px; line-height:1.5;">${src}${txt}</div>`;
+              body += `<div style="font-size:11px; color:#ccc; margin-top:2px; line-height:1.55;">${src}${r.records.korean.content}</div>`;
             }
             if (r.records?.foreign?.content) {
               const src = r.records.foreign.source
-                ? `<span style="font-size:9.5px; color:#80d4f0; margin-right:4px;">[${r.records.foreign.source}]</span>`
+                ? `<span style="font-size:10.5px; color:#80d4f0; margin-right:4px;">[${r.records.foreign.source}]</span>`
                 : '';
-              const txt = r.records.foreign.content.length > 120
-                ? r.records.foreign.content.substring(0, 120) + '…'
-                : r.records.foreign.content;
-              body += `<div style="font-size:10px; color:#b0cce0; margin-top:2px; line-height:1.5;">${src}${txt}</div>`;
+              body += `<div style="font-size:11px; color:#b0cce0; margin-top:2px; line-height:1.55;">${src}${r.records.foreign.content}</div>`;
             }
             if (r.records?.true_history?.content) {
-              const txt = r.records.true_history.content.length > 120
-                ? r.records.true_history.content.substring(0, 120) + '…'
-                : r.records.true_history.content;
-              body += `<div style="font-size:10px; color:#a0e0a0; margin-top:2px; line-height:1.5; border-left:2px solid #a0e0a0; padding-left:5px;">${txt}</div>`;
+              body += `<div style="font-size:11px; color:#a0e0a0; margin-top:2px; line-height:1.55; border-left:2px solid #a0e0a0; padding-left:5px;">${r.records.true_history.content}</div>`;
             }
             html += `<div style="margin-bottom:8px; padding-bottom:7px; border-bottom:1px solid rgba(255,255,255,0.07);">${name}${body}</div>`;
           });
@@ -15066,17 +15140,17 @@ function invalidateCountryLookupCache() {
             grouped[src].push(r);
           });
           html += `<div style="margin-bottom:10px;">`;
-          html += `<div style="font-weight:bold; font-size:12px; color:#c8c8c8; margin-bottom:6px; border-bottom:1px solid rgba(200,200,200,0.2); padding-bottom:4px;">📖 원전 사료 (${sourceRecords.length}건)</div>`;
+          html += `<div style="font-weight:bold; font-size:13px; color:#c8c8c8; margin-bottom:6px; border-bottom:1px solid rgba(200,200,200,0.2); padding-bottom:4px;">📖 원전 사료 (${sourceRecords.length}건)</div>`;
           for (const [src, recs] of Object.entries(grouped)) {
             const color = sourceColors[src] || '#c8c8c8';
             html += `<div style="margin-bottom:9px;">`;
-            html += `<div style="font-size:11px; color:${color}; margin-bottom:3px; font-weight:bold;">${src} (${recs.length}건)</div>`;
+            html += `<div style="font-size:12px; color:${color}; margin-bottom:3px; font-weight:bold;">${src} (${recs.length}건)</div>`;
             recs.forEach(r => {
               const title = r.title
-                ? `<div style="font-size:11px; color:#ddd; line-height:1.5; margin-bottom:2px;">${r.title}</div>`
+                ? `<div style="font-size:12px; color:#ddd; line-height:1.55; margin-bottom:2px;">${r.title}</div>`
                 : '';
               const content = r.content
-                ? `<div style="font-size:10px; color:#aaa; margin-top:2px; line-height:1.4; word-break:break-all;">${r.content.length > 180 ? r.content.substring(0, 180) + '…' : r.content}</div>`
+                ? `<div style="font-size:11px; color:#aaa; margin-top:2px; line-height:1.5; word-break:break-all;">${r.content}</div>`
                 : '';
               html += `<div style="margin-bottom:5px; padding-bottom:4px; border-bottom:1px solid rgba(255,255,255,0.05);">${title}${content}</div>`;
             });
@@ -15086,7 +15160,7 @@ function invalidateCountryLookupCache() {
         }
 
         if (!html) {
-          mapAllRecordsContent.innerHTML = '<div style="color:#95a5a6; font-size:11px; padding:8px 0;">이 연도의 기록 없음</div>';
+          mapAllRecordsContent.innerHTML = '<div style="color:#95a5a6; font-size:12px; padding:8px 0;">이 연도의 기록 없음</div>';
           return;
         }
         mapAllRecordsContent.innerHTML = html;
@@ -15094,7 +15168,7 @@ function invalidateCountryLookupCache() {
       } catch (e) {
         console.error('updateHistoryPanel fetch error:', e);
         if (mapAllRecordsContent) {
-          mapAllRecordsContent.innerHTML = '<div style="color:#e74c3c; font-size:11px; padding:8px 0;">기록 로드 실패</div>';
+          mapAllRecordsContent.innerHTML = '<div style="color:#e74c3c; font-size:12px; padding:8px 0;">기록 로드 실패</div>';
         }
       }
     }
@@ -18181,27 +18255,32 @@ kingSelect.addEventListener('change', () => {
         }
     });
     
-    window.editHistory = function(key) {
-        const record = history.find(h => h._id === key); 
-        if (!record || !editMode || !(currentUser?.role === 'superuser' || currentUser?.role === 'admin')) return; // 🚩 [수정] 권한 체크
+    window.editHistory = async function(key) {
+        if (!editMode || !(currentUser?.role === 'superuser' || currentUser?.role === 'admin')) return;
+
+        // 로컬 캐시에서 먼저 찾고, 없으면 서버에서 조회
+        let record = history.find(h => h._id === key);
+        if (!record) {
+          try {
+            const res = await fetch(`/api/history/${key}`, { headers: { 'Authorization': `Bearer ${token}` } });
+            if (res.ok) record = await res.json();
+          } catch(e) {}
+        }
         if (!record) return alert("기록을 찾을 수 없습니다.");
-        
+
         editingHistoryKey = key;
         openEditPanel('historyForm');
-        document.getElementById('deleteHistoryBtn').style.display = 'inline-block'; // 🚩 [추가] 편집 모드에서는 삭제 버튼 표시
+        document.getElementById('deleteHistoryBtn').style.display = 'inline-block';
         
         document.getElementById('historyKey').value = key;
         document.getElementById('historyMonth').value = record.month;
         document.getElementById('historyYear').value = record.year;
         document.getElementById('historyEvent').value = record.event_name;
-        document.getElementById('historyPhoto').value = record.photo ?? ''; // 🚩 [추가] 사진 URL 채우기
-        document.getElementById('historyComment').value = record.comment ?? ''; // 시대별 코멘트
+        document.getElementById('historyPhoto').value = record.photo ?? '';
+        document.getElementById('historyComment').value = record.comment ?? '';
 
-        // 🚩 [수정] 연결된 이벤트 존재 여부가 아닌, history 데이터에 저장된 create_event 플래그 값으로 체크박스 상태를 설정합니다.
-        // const linkedEvent = events.find(e => e.history_id === key);
         document.getElementById('createEvent').checked = record.create_event || false;
 
-        
         document.getElementById('koreanSource').value = record.records?.korean?.source ?? '';
         document.getElementById('koreanContent').value = record.records?.korean?.content ?? '';
         
