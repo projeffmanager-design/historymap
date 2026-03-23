@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.29',          // [v3.6.29] _historyPanelCache lazy init으로 undefined 크래시 수정
+        APP_VERSION: '3.6.31',          // [v3.6.31] 역사기록패널 bottom→height 고정, 드래그 시 크기 유지
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
     
@@ -714,17 +714,17 @@ body.force-mobile #map-king-list {
     display: none !important;
 }
 
-/* 🚩 [수정] 축소 시 패널 자체를 투명하고 작게, 연대표 우측 하단으로 이동 */
+/* 🚩 [수정] 축소 시 패널 자체를 투명하고 작게, 좌측에 유지 */
 #map-history-panel:not(.expanded) {
     background: transparent !important;
     backdrop-filter: none !important;
     padding: 0 !important;
     width: auto !important;
     height: auto !important;
-    top: 60px !important; /* 🚩 [수정] 탑바 바로 아래 */
-    right: 15px !important;
+    top: 40px !important;
+    left: 20px !important;
+    right: auto !important;
     bottom: auto !important;
-    left: auto !important;
     transform: none !important;
     box-shadow: none !important;
     border: none !important;
@@ -752,9 +752,13 @@ body.force-mobile #map-king-list {
 }
 
 #map-history-panel.expanded {
-    width: 320px;
-    min-width: 220px;
+    width: 280px;
+    min-width: 200px;
+    min-height: 120px;
     padding: 12px !important;
+    display: flex !important;
+    flex-direction: column;
+    /* height는 인라인 style로 관리 (calc(100vh - 400px) 초기값, 드래그 후 px 고정) */
 }
 
 #map-history-panel.expanded #map-history-resizer {
@@ -5430,8 +5434,8 @@ body.force-mobile .marker-type-selector button {
   </div> <!-- mainContainer 종료 -->
 
     <!-- 🚩 [이동] 왕 패널 & 역사 패널: #map(filter 적용) 밖으로 이동 → position:fixed 정상 동작 -->
-    <!-- 🚩 왕 목록 투명 박스 (오른쪽 상단 탑바 바로 아래) -->
-    <div id="map-king-panel" style="position: fixed; top: 60px; right: 330px; width: 560px; height: 260px; min-width: 200px; min-height: 100px; z-index: 998; background: rgba(30, 42, 56, 0.40); backdrop-filter: blur(3px); padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); overflow: hidden; pointer-events: auto; display: none; box-sizing: border-box;">
+    <!-- 🚩 왕 목록 투명 박스 (지도변경 토글바 바로 왼쪽) -->
+    <div id="map-king-panel" style="position: fixed; top: 60px; right: 70px; width: 560px; height: 260px; min-width: 200px; min-height: 100px; z-index: 998; background: rgba(30, 42, 56, 0.40); backdrop-filter: blur(3px); padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); overflow: hidden; pointer-events: auto; display: none; box-sizing: border-box;">
         <div id="map-king-panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.12); padding-bottom: 8px; cursor: grab; user-select: none;">
             <h3 style="margin: 0; font-size: 14px; color: #f5e9d2; letter-spacing: 0.5px;">⠿ 국가별 왕 목록</h3>
             <div style="display: flex; gap: 5px; align-items: center; flex-shrink: 0;">
@@ -5672,8 +5676,8 @@ body.force-mobile .marker-type-selector button {
     <!-- 기존 호환성을 위한 빈 레거시 요소 -->
     <div id="country-info-modal" style="display:none;"></div>
 
-    <!-- 🚩 역사 기록 투명 박스 (오른쪽 상단 탑바 바로 아래, 왕패널 오른쪽) -->
-    <div id="map-history-panel" class="expanded" style="position: fixed; top: 60px; right: 10px; width: 320px; height: 260px; min-width: 200px; min-height: 120px; z-index: 1000; background: rgba(30, 42, 56, 0.40); backdrop-filter: blur(3px); padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); overflow: hidden; pointer-events: auto; display: none; box-sizing: border-box;">
+    <!-- 🚩 역사 기록 투명 박스 (좌상단 연도표시 바로 아래 ~ 사관활동소식 바로 위, 사관활동소식과 동일 너비) -->
+    <div id="map-history-panel" class="expanded" style="position: fixed; top: 40px; left: 20px; width: 280px; height: calc(100vh - 400px); min-width: 200px; min-height: 120px; z-index: 1000; background: rgba(30, 42, 56, 0.40); backdrop-filter: blur(3px); padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); overflow: hidden; pointer-events: auto; display: none; box-sizing: border-box; flex-direction: column;">
         <!-- 드래그 핸들 헤더 -->
         <div id="map-history-panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; cursor: grab; user-select: none;">
             <span style="font-size: 13px; font-weight: bold; color: #f5e9d2; letter-spacing: 0.5px;">⠿ 역사 기록</span>
@@ -5688,7 +5692,7 @@ body.force-mobile .marker-type-selector button {
         <div style="margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 6px; flex-shrink: 0;">
             <h3 style="margin: 0; font-size: 13px; color: #f5e9d2; word-wrap: break-word; white-space: normal;"><span id="map-history-year-title"></span></h3>
         </div>
-        <div id="map-history-records" style="font-size: 12px; line-height: 1.5; color: #ddd; overflow-y: auto; height: calc(100% - 72px);">
+        <div id="map-history-records" style="font-size: 12px; line-height: 1.5; color: #ddd; overflow-y: auto; flex: 1; min-height: 0;">
             <div id="map-all-records">
                 <div id="map-all-records-content">기록 없음</div>
             </div>
@@ -11059,7 +11063,7 @@ function invalidateCountryLookupCache() {
             const kingPanel = document.getElementById('map-king-panel');
             const historyPanel = document.getElementById('map-history-panel');
             if (kingPanel) kingPanel.style.display = layerVisibility.kingPanel ? 'block' : 'none';
-            if (historyPanel) historyPanel.style.display = layerVisibility.historyPanel ? 'block' : 'none';
+            if (historyPanel) historyPanel.style.display = layerVisibility.historyPanel ? 'flex' : 'none';
 
             // 🚩 햄버거 메뉴 체크박스 동기화 (DOMContentLoaded보다 늦게 완료되므로 여기서 재적용)
             const layerCheckboxMap = {
@@ -11181,7 +11185,7 @@ function invalidateCountryLookupCache() {
                     if (kingPanel) kingPanel.style.display = isEnabled ? 'block' : 'none';
                 } else if (layerKey === 'historyPanel') {
                     const historyPanel = document.getElementById('map-history-panel');
-                    if (historyPanel) historyPanel.style.display = isEnabled ? 'block' : 'none';
+                    if (historyPanel) historyPanel.style.display = isEnabled ? 'flex' : 'none';
                     // 패널을 켤 때 현재 연도의 기록 즉시 로드
                     if (isEnabled) {
                         const { year } = getCurrentYearMonth();
@@ -13203,7 +13207,7 @@ function invalidateCountryLookupCache() {
           mapHistoryPanel.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
           
           if (layerVisibility.historyPanel) {
-              mapHistoryPanel.style.display = 'block';
+              mapHistoryPanel.style.display = 'flex';
               // 초기 표시 시 현재 연도 기록 로드
               const { year: initYear } = getCurrentYearMonth();
               updateHistoryPanel(initYear);
@@ -13308,7 +13312,11 @@ function invalidateCountryLookupCache() {
                   needsConversion = false;
                   const rect = panel.getBoundingClientRect();
                   if (clearRight)  panel.style.right  = 'auto';
-                  if (clearBottom) panel.style.bottom = 'auto';
+                  if (clearBottom) {
+                      panel.style.bottom = 'auto';
+                      // calc() 기반 height를 px로 고정 → 드래그 중 크기 변화 없음
+                      panel.style.height = rect.height + 'px';
+                  }
                   // 전환 전 rect 로 left/top 고정 (점프 없음)
                   panel.style.left = rect.left + 'px';
                   panel.style.top  = rect.top  + 'px';
@@ -13330,8 +13338,8 @@ function invalidateCountryLookupCache() {
       // 🚩 [추가] 왕 패널 드래그 이동 (top/right 기반 → left 전환)
       makePanelDraggable('map-king-panel', 'map-king-panel-header', { clearRight: true });
 
-      // 🚩 [추가] 역사 기록 패널 드래그 이동 (right 기반 → left 전환)
-      makePanelDraggable('map-history-panel', 'map-history-panel-header', { clearRight: true });
+      // 🚩 [추가] 역사 기록 패널 드래그 이동 (right/bottom 기반 → left/top 전환)
+      makePanelDraggable('map-history-panel', 'map-history-panel-header', { clearRight: true, clearBottom: true });
 
       // 🚩 [추가] 왕 패널 / 역사 기록 패널 닫기 버튼
       (function() {
@@ -20205,7 +20213,7 @@ kingSelect.addEventListener('change', () => {
             const mapHistoryPanel = document.getElementById('map-history-panel');
             if (mapHistoryPanel) {
                 mapHistoryPanel.classList.remove('expanded');
-                mapHistoryPanel.style.display = layerVisibility.historyPanel ? 'block' : 'none';
+                mapHistoryPanel.style.display = layerVisibility.historyPanel ? 'flex' : 'none';
             }
             
             // 🚩 [수정] 모바일에서 왕목록 패널 — layerVisibility 값 존중
@@ -20217,7 +20225,7 @@ kingSelect.addEventListener('change', () => {
             // 🚩 [수정] PC에서도 layerVisibility 값 존중
             const mapHistoryPanel = document.getElementById('map-history-panel');
             if (mapHistoryPanel) {
-                mapHistoryPanel.style.display = layerVisibility.historyPanel ? 'block' : 'none';
+                mapHistoryPanel.style.display = layerVisibility.historyPanel ? 'flex' : 'none';
             }
             
             const mapKingPanel = document.getElementById('map-king-panel');
@@ -20293,7 +20301,7 @@ kingSelect.addEventListener('change', () => {
                         // 🚩 [추가] 역사기록 패널 토글
                         const historyPanel = document.getElementById('map-history-panel');
                         if (historyPanel) {
-                            historyPanel.style.display = isChecked ? 'block' : 'none';
+                            historyPanel.style.display = isChecked ? 'flex' : 'none';
                         }
                     } else {
                         // 다른 레이어들은 맵 업데이트
@@ -20698,7 +20706,7 @@ kingSelect.addEventListener('change', () => {
                     // 🚩 [추가] 역사기록 패널 토글
                     const historyPanel = document.getElementById('map-history-panel');
                     if (historyPanel) {
-                        historyPanel.style.display = layerVisibility.historyPanel ? 'block' : 'none';
+                        historyPanel.style.display = layerVisibility.historyPanel ? 'flex' : 'none';
                     }
                 } else if (layerType === 'eventSidebar') {
                     // 🚩 [과제2] 사건목록 사이드바 토글
