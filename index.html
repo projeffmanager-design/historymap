@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.18',          // [v3.6.18] 역사패널 글씨 크기+1pt, 글자 잘림 제거, 편집 버튼 추가 및 기존 데이터 로드
+        APP_VERSION: '3.6.19',          // [v3.6.19] 역사패널 가로/세로 자유 리사이즈 (width !important 제거, setProperty 적용)
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
     
@@ -687,7 +687,7 @@ body.force-mobile #map-king-list {
 
 /* 🚩 [추가] PC에서 역사기록 패널 접기/펼치기 기능 */
 #map-history-panel {
-    transition: width 0.3s ease, padding 0.3s ease !important;
+    transition: padding 0.3s ease !important;
 }
 
 #map-history-panel:not(.expanded) {
@@ -745,7 +745,8 @@ body.force-mobile #map-king-list {
 }
 
 #map-history-panel.expanded {
-    width: 320px !important;
+    width: 320px;
+    min-width: 220px;
     padding: 12px !important;
 }
 
@@ -13231,7 +13232,8 @@ function invalidateCountryLookupCache() {
               if (!isResizing) return;
               e.preventDefault();
               // 패널이 right 기반이면 왼쪽 드래그 = 너비 증가
-              const hasRight = panel.style.right && panel.style.right !== 'auto';
+              const computedStyle = window.getComputedStyle(panel);
+              const hasRight = computedStyle.right && computedStyle.right !== 'auto' && computedStyle.right !== '';
               let newW, newH;
               if (hasRight) {
                   newW = Math.max(minW, Math.min(maxW, startW - (e.clientX - startX)));
@@ -13239,8 +13241,9 @@ function invalidateCountryLookupCache() {
                   newW = Math.max(minW, Math.min(maxW, startW + (e.clientX - startX)));
               }
               newH = Math.max(minH, Math.min(maxH, startH + (e.clientY - startY)));
-              panel.style.width  = newW + 'px';
-              panel.style.height = newH + 'px';
+              // !important CSS를 inline style로 덮어쓰기
+              panel.style.setProperty('width',  newW + 'px', 'important');
+              panel.style.setProperty('height', newH + 'px', 'important');
           });
 
           document.addEventListener('mouseup', () => {
