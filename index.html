@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.16',          // [v3.6.16] 역사패널 두 컬렉션 통합 표시 (history + source_records)
+        APP_VERSION: '3.6.17',          // [v3.6.17] 사관 활동 소식 — admin 공지 기능 추가
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
     
@@ -22620,6 +22620,13 @@ kingSelect.addEventListener('change', () => {
             <button id="activity-chat-send">전송</button>
         </div>
     </div>
+    <!-- 📢 공지 입력창 (admin/superuser 전용) -->
+    <div id="activity-notice-form" style="display:none;">
+        <div id="activity-notice-input-row">
+            <input id="activity-notice-input" type="text" maxlength="300" placeholder="공지사항 입력 (300자)..." autocomplete="off">
+            <button id="activity-notice-send">공지</button>
+        </div>
+    </div>
 </div>
 
 <style>
@@ -22811,6 +22818,73 @@ kingSelect.addEventListener('change', () => {
     transition: background 0.15s;
 }
 #activity-chat-send:hover { background: rgba(235,196,100,0.3); }
+/* 공지 입력창 */
+#activity-notice-form {
+    flex-shrink: 0;
+    border-top: 1px solid rgba(255,160,60,0.3);
+    padding: 5px 8px;
+    background: rgba(255,120,30,0.06);
+}
+#activity-notice-input-row {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+}
+#activity-notice-input {
+    flex: 1;
+    background: rgba(255,160,60,0.1);
+    border: 1px solid rgba(255,160,60,0.35);
+    border-radius: 4px;
+    color: #ffe4b0;
+    font-size: 11px;
+    padding: 4px 7px;
+    outline: none;
+    font-family: 'Noto Serif KR', serif;
+    min-width: 0;
+}
+#activity-notice-input::placeholder { color: rgba(255,200,120,0.45); }
+#activity-notice-input:focus { border-color: rgba(255,160,60,0.65); background: rgba(255,160,60,0.15); }
+#activity-notice-send {
+    background: rgba(255,140,40,0.25);
+    border: 1px solid rgba(255,160,60,0.55);
+    color: rgba(255,200,100,0.98);
+    border-radius: 4px;
+    font-size: 11px;
+    padding: 4px 9px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+#activity-notice-send:hover { background: rgba(255,140,40,0.45); }
+/* 공지 아이템 스타일 */
+.af-item.af-notice {
+    background: rgba(255,150,40,0.1);
+    border: 1px solid rgba(255,160,60,0.25);
+    border-radius: 5px;
+    padding: 5px 7px;
+    position: relative;
+}
+.af-notice-text {
+    font-size: 11px;
+    color: rgba(255,230,160,0.98);
+    word-break: break-all;
+    flex: 1;
+    line-height: 1.6;
+    font-weight: 500;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+}
+.af-notice-del {
+    background: none;
+    border: none;
+    color: rgba(255,120,60,0.55);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 0 2px;
+    line-height: 1;
+    flex-shrink: 0;
+    transition: color 0.15s;
+}
+.af-notice-del:hover { color: rgba(255,80,40,0.9); }
 @keyframes af-fadein {
     from { opacity: 0; transform: translateX(5px); }
     to   { opacity: 1; transform: translateX(0); }
@@ -22834,6 +22908,7 @@ kingSelect.addEventListener('change', () => {
         checkin:       { icon: '🏛️' },
         checkout:      { icon: '🌙' },
         chat:          { icon: '💬' },
+        notice:        { icon: '📢' },
     };
 
     function e(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -22903,6 +22978,15 @@ kingSelect.addEventListener('change', () => {
         }
     }
 
+    function _isAdminUser() {
+        try {
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            if (!token) return false;
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            return payload.role === 'admin' || payload.role === 'superuser';
+        } catch { return false; }
+    }
+
     function relativeTime(dateStr) {
         const d = new Date(dateStr);
         const now = new Date();
@@ -22925,6 +23009,19 @@ kingSelect.addEventListener('change', () => {
         }
         // 서버는 최신순(-1 정렬)으로 줌 → 그대로 렌더하면 column-reverse에 의해 최신이 아래에 표시됨
         list.innerHTML = logs.map(log => {
+            if (log.type === 'notice') {
+                const text = e((log.extra && log.extra.text) ? log.extra.text : '');
+                const isAdmin = _isAdminUser();
+                const delBtn = isAdmin
+                    ? `<button class="af-notice-del" data-notice-id="${e(String(log._id))}" title="공지 삭제">&times;</button>`
+                    : '';
+                return `<div class="af-item af-notice">
+                    <span class="af-icon">📢</span>
+                    <span class="af-notice-text">${text}</span>
+                    <span class="af-time">${relativeTime(log.createdAt)}</span>
+                    ${delBtn}
+                </div>`;
+            }
             if (log.type === 'chat') {
                 const actor = `<span class="af-actor">${e(log.actor || '?')}</span>`;
                 const pos   = log.actorPosition
@@ -23067,17 +23164,84 @@ kingSelect.addEventListener('change', () => {
             }
         }
 
-        // 로그인 여부에 따라 채팅 입력창 표시
+        // 로그인 여부에 따라 채팅 입력창 / 공지 입력창 표시
         function updateChatFormVisibility() {
             const token = localStorage.getItem('token') || sessionStorage.getItem('token');
             const chatForm = document.getElementById('activity-chat-form');
             if (chatForm) chatForm.style.display = token ? '' : 'none';
+            // 공지 입력창: admin/superuser에게만 표시
+            const noticeForm = document.getElementById('activity-notice-form');
+            if (noticeForm) noticeForm.style.display = _isAdminUser() ? '' : 'none';
         }
         updateChatFormVisibility();
         // storage 이벤트 감지 (다른 탭 로그인/아웃)
         window.addEventListener('storage', updateChatFormVisibility);
         // 주기적으로도 체크 (같은 탭 내 로그인)
         setInterval(updateChatFormVisibility, 3000);
+
+        // 공지 전송
+        async function sendNotice(text) {
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            if (!token) return;
+            try {
+                const resp = await fetch('/api/notice', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ message: text })
+                });
+                if (resp.ok) {
+                    await fetchLogs();
+                } else {
+                    const ct = resp.headers.get('content-type') || '';
+                    const d = ct.includes('application/json') ? await resp.json() : {};
+                    alert(d.message || `공지 등록 실패 (${resp.status})`);
+                }
+            } catch (err) {
+                console.warn('공지 전송 오류:', err);
+                alert('공지 전송 중 오류가 발생했습니다.');
+            }
+        }
+
+        const noticeSendBtn = document.getElementById('activity-notice-send');
+        const noticeInput   = document.getElementById('activity-notice-input');
+        async function doSendNotice() {
+            const text = noticeInput?.value?.trim();
+            if (!text) return;
+            noticeInput.value = '';
+            noticeInput.disabled = true;
+            if (noticeSendBtn) noticeSendBtn.disabled = true;
+            await sendNotice(text);
+            noticeInput.disabled = false;
+            if (noticeSendBtn) noticeSendBtn.disabled = false;
+            noticeInput.focus();
+        }
+        if (noticeSendBtn) noticeSendBtn.addEventListener('click', doSendNotice);
+        if (noticeInput) {
+            noticeInput.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); doSendNotice(); }
+            });
+        }
+
+        // 공지 삭제 (×버튼 — 이벤트 위임)
+        const feedList = document.getElementById('activity-feed-list');
+        if (feedList) {
+            feedList.addEventListener('click', async function(ev) {
+                const delBtn = ev.target.closest('.af-notice-del[data-notice-id]');
+                if (!delBtn) return;
+                ev.stopPropagation();
+                if (!confirm('이 공지를 삭제하시겠습니까?')) return;
+                const id = delBtn.dataset.noticeId;
+                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                try {
+                    const resp = await fetch(`/api/notice/${id}`, {
+                        method: 'DELETE',
+                        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+                    });
+                    if (resp.ok) await fetchLogs();
+                    else alert('공지 삭제 실패');
+                } catch (err) { alert('공지 삭제 중 오류'); }
+            });
+        }
 
         // 전송 버튼
         const sendBtn = document.getElementById('activity-chat-send');

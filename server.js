@@ -4330,6 +4330,44 @@ app.get('/api/activity-logs', async (req, res) => {
     }
 });
 
+// 📢 [추가] 공지사항 등록 API (admin/superuser 전용)
+app.post('/api/notice', verifyAdmin, async (req, res) => {
+    try {
+        const { message } = req.body;
+        if (!message || !message.trim()) return res.status(400).json({ message: '공지 내용을 입력하세요.' });
+        const text = message.trim().slice(0, 300);
+
+        const noticeDoc = {
+            type: 'notice',
+            actor: req.user.username,
+            actorPosition: req.user.position || 'admin',
+            targetName: null,
+            extra: { text },
+            createdAt: new Date(),
+            pinned: true   // 공지는 항상 상단 고정 표시용 플래그
+        };
+        await collections.activityLogs.insertOne(noticeDoc);
+        res.json({ ok: true });
+    } catch (error) {
+        res.status(500).json({ message: '공지 등록 실패', error: error.message });
+    }
+});
+
+// 📢 [추가] 공지사항 삭제 API (admin/superuser 전용)
+app.delete('/api/notice/:id', verifyAdmin, async (req, res) => {
+    try {
+        const { ObjectId } = require('mongodb');
+        const result = await collections.activityLogs.deleteOne({
+            _id: new ObjectId(req.params.id),
+            type: 'notice'
+        });
+        if (result.deletedCount === 0) return res.status(404).json({ message: '공지를 찾을 수 없습니다.' });
+        res.json({ ok: true });
+    } catch (error) {
+        res.status(500).json({ message: '공지 삭제 실패', error: error.message });
+    }
+});
+
 // GET: 전체 마커 의견 개수 맵 조회 (인증 불필요 — 뱃지 표시용)
 app.get('/api/marker-comments-counts', async (req, res) => {
     try {
