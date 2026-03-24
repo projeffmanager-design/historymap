@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.58',          // [v3.6.58] 자막 위치 중앙→랭킹 위 중간(bottom:260px)으로 이동
+        APP_VERSION: '3.6.59',          // [v3.6.59] 모바일 역사패널 좌우버튼·닫기버튼 터치 동작 수정
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
     
@@ -2037,6 +2037,11 @@ body.force-mobile .marker-type-selector button {
         color: #fff;
         background: rgba(100,160,220,0.2);
         border-color: rgba(100,160,220,0.4);
+    }
+    /* 모바일 터치 딜레이 제거 */
+    .panel-icon-btn {
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: rgba(255,255,255,0.15);
     }
 
     .capital-marker {
@@ -13212,10 +13217,14 @@ function invalidateCountryLookupCache() {
       
       if (mapPrevHistoryBtn) {
           mapPrevHistoryBtn.addEventListener('click', gotoPrevHistory);
+          // 모바일 터치 대응 — touchend로도 동작 보장
+          mapPrevHistoryBtn.addEventListener('touchend', (e) => { e.preventDefault(); gotoPrevHistory(); }, { passive: false });
       }
       
       if (mapNextHistoryBtn) {
           mapNextHistoryBtn.addEventListener('click', gotoNextHistory);
+          // 모바일 터치 대응 — touchend로도 동작 보장
+          mapNextHistoryBtn.addEventListener('touchend', (e) => { e.preventDefault(); gotoNextHistory(); }, { passive: false });
       }
       
       if (mapOpenHistoryFormBtn) {
@@ -13315,6 +13324,8 @@ function invalidateCountryLookupCache() {
           let offsetX, offsetY;
 
           header.addEventListener('mousedown', (e) => {
+              // 모바일에서는 드래그 비활성화 (버튼 터치 이벤트 방해 방지)
+              if (document.body.classList.contains('force-mobile')) return;
               if (e.target.closest('button')) return;
 
               // mousedown 시점의 패널 위치 (style 변경 전 — 100% 정확)
@@ -13389,22 +13400,36 @@ function invalidateCountryLookupCache() {
 
           const historyCloseBtn = document.getElementById('map-history-close-btn');
           if (historyCloseBtn) {
-              historyCloseBtn.addEventListener('click', (e) => {
+              function handleHistoryClose(e) {
+                  e.preventDefault();
                   e.stopPropagation();
-                  closePanel('map-history-panel', 'historyPanel', 'menu-layer-history');
-              });
+                  const panel = document.getElementById('map-history-panel');
+                  if (document.body.classList.contains('force-mobile') && panel) {
+                      // 모바일: 패널을 끄지 않고 축소(expanded 제거)
+                      panel.classList.remove('expanded');
+                  } else {
+                      closePanel('map-history-panel', 'historyPanel', 'menu-layer-history');
+                  }
+              }
+              historyCloseBtn.addEventListener('click', handleHistoryClose);
+              historyCloseBtn.addEventListener('touchend', handleHistoryClose, { passive: false });
           }
 
-          // 🚩 [추가] 모바일 전용: 닫힌 역사기록 패널 클릭 → 열기
+          // 🚩 [추가] 모바일 전용: 닫힌 역사기록 패널 클릭/터치 → 열기
           const mapHistoryPanel = document.getElementById('map-history-panel');
           if (mapHistoryPanel) {
-              mapHistoryPanel.addEventListener('click', (e) => {
+              function tryOpenMobilePanel(e) {
                   if (!document.body.classList.contains('force-mobile')) return;
-                  if (!mapHistoryPanel.classList.contains('expanded')) {
-                      e.stopPropagation();
-                      mapHistoryPanel.classList.add('expanded');
-                  }
-              });
+                  if (mapHistoryPanel.classList.contains('expanded')) return;
+                  // 버튼 터치는 제외
+                  if (e.target.closest('button')) return;
+                  e.stopPropagation();
+                  mapHistoryPanel.classList.add('expanded');
+              }
+              mapHistoryPanel.addEventListener('click', tryOpenMobilePanel);
+              mapHistoryPanel.addEventListener('touchend', (e) => {
+                  tryOpenMobilePanel(e);
+              }, { passive: false });
           }
       })();
 
