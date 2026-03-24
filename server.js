@@ -448,10 +448,10 @@ async function setupRoutesAndCollections() {
         // 🏰 CASTLE (성/위치) API 엔드포인트
         // ----------------------------------------------------
 
-        // 🚀 [v3.5] Castle 서버 메모리 캐시 (TTL 5분) — 1163개 전체 조회 최적화
+        // 🚀 [v3.5] Castle 서버 메모리 캐시 (TTL 6시간) — Atlas 느린 쿼리 대응
         let _castleCache = null;
         let _castleCacheTime = 0;
-        const CASTLE_CACHE_TTL = 5 * 60 * 1000; // 5분
+        const CASTLE_CACHE_TTL = 6 * 60 * 60 * 1000; // 6시간
         
         function invalidateCastleCache() {
             _castleCache = null;
@@ -4599,8 +4599,9 @@ if (require.main === module) {
         app.listen(port, () => {
             console.log(`Server listening on http://localhost:${port}`);
 
-            // 🚀 [캐시 워밍업] 서버 시작 후 3초 뒤 /api/castle 자가 호출 → _castleCache 주입
+            // 🚀 [캐시 워밍업] 서버 시작 즉시 /api/castle 자가 호출 → _castleCache 주입
             // → 첫 클라이언트 요청 시 280초 대기 없이 즉시 캐시에서 응답
+            // TTL: 6시간 → 하루 최대 4회 쿼리 (서버가 켜져 있는 동안 캐시 유지)
             setTimeout(() => {
                 const http = require('http');
                 console.log('🔥 [워밍업] castle 캐시 사전 로딩 시작 (/api/castle 자가 호출)...');
@@ -4613,7 +4614,7 @@ if (require.main === module) {
                 });
                 req.on('error', (e) => console.warn('⚠️ [워밍업] castle 자가 호출 실패 (무시):', e.message));
                 req.setTimeout(300000); // 최대 5분 대기
-            }, 3000);
+            }, 100); // listen 직후 즉시 시작
         });
     }).catch(err => {
         console.error("MongoDB 연결 또는 서버 시작 중 치명적인 오류 발생:", err);

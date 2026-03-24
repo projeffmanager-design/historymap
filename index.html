@@ -12224,18 +12224,61 @@ function invalidateCountryLookupCache() {
           
           const additionalLoadPromises = {};
           
-          // 🚀 [v3.6.67 핵심] castles를 최우선 병렬 로딩에 포함 (26MB, 마커 표시에 필수)
-          // 기존: setTimeout 200ms로 후순위 → 브라우저 연결 큐 대기 271초
-          // 개선: kings/naturalFeatures와 동시 시작 → 수 초 내 완료
+          // 🚀 [v3.6.68] castles를 Promise.all에서 분리 → 별도 백그라운드로 처리
+          // kings/naturalFeatures 완료 후 즉시 지도 렌더링, castles는 도착하면 재렌더링
           if ((layerVisibility.city || layerVisibility.territoryPolygon) && castles.length === 0) {
-              // 🚀 [타임아웃 보호] castle은 MongoDB가 느릴 수 있으므로 120초 타임아웃 적용
-              additionalLoadPromises.castles = Promise.race([
-                  fetchData('castle'),
-                  new Promise((_, reject) => setTimeout(() => reject(new Error('castle 타임아웃 (120초)')), 120000))
-              ]).catch(err => {
-                  console.warn(`⚠️ castle 로드 실패/타임아웃:`, err.message);
-                  return [];
-              });
+              // castle은 별도 비동기 처리 (서버 캐시 히트 시 즉시, 미스 시 ~280초 백그라운드)
+              fetchData('castle').then(async allCastlesData => {
+                  if (!allCastlesData || !Array.isArray(allCastlesData) || allCastlesData.length === 0) return;
+                  console.log(`✅ castles 백그라운드 로드 완료: ${allCastlesData.length}개`);
+                  const castleProcessStart = performance.now();
+                  const countryNameMap = new Map();
+                  countries.forEach(c => { if (c.name) countryNameMap.set(c.name, c._id); });
+                  castles = allCastlesData.map(castle => {
+                      if (castle.history && Array.isArray(castle.history) && castle.history.length > 0) {
+                          const firstHistory = castle.history[0];
+                          if (firstHistory.start_year !== undefined && firstHistory.country_id && firstHistory.place_type !== undefined) return castle;
+                      }
+                      let processedHistory;
+                      const hasHistory = castle.history && Array.isArray(castle.history) && castle.history.length > 0;
+                      if (hasHistory) {
+                          processedHistory = castle.history.map(h => {
+                              let resolvedCountryId = h.country_id || castle.country_id || '';
+                              if (typeof resolvedCountryId !== 'string') resolvedCountryId = String(resolvedCountryId);
+                              if (!resolvedCountryId && h.country) resolvedCountryId = countryNameMap.get(h.country) || '';
+                              let placeType = h.place_type || 'normal';
+                              if (!h.place_type) {
+                                  if (h.is_capital) placeType = 'capital';
+                                  else if (h.is_battle) placeType = 'battle';
+                                  else if (h.is_gateway) placeType = 'gateway';
+                              }
+                              return { name: h.name ?? castle.name ?? '', country_id: resolvedCountryId, start_year: h.start_year ?? -5000, start_month: h.start_month ?? 1, end_year: h.end_year, end_month: h.end_month ?? 12, is_capital: placeType === 'capital', is_battle: placeType === 'battle', is_gateway: placeType === 'gateway', place_type: placeType };
+                          });
+                      } else {
+                          let placeType = castle.place_type || 'normal';
+                          if (!castle.place_type) {
+                              if (castle.is_capital) placeType = 'capital';
+                              else if (castle.is_battle) placeType = 'battle';
+                              else if (castle.is_gateway) placeType = 'gateway';
+                          }
+                          processedHistory = [{ name: castle.name || '', country_id: castle.country_id || '', start_year: castle.built_year || -5000, start_month: castle.built_month || 1, end_year: castle.destroyed_year, end_month: castle.destroyed_month || 12, is_capital: placeType === 'capital', is_battle: placeType === 'battle', is_gateway: placeType === 'gateway', place_type: placeType }];
+                      }
+                      if (castle.is_capital && !processedHistory.some(h => h.is_capital)) {
+                          processedHistory[0].is_capital = true;
+                          processedHistory[0].place_type = 'capital';
+                      }
+                      return { ...castle, history: processedHistory };
+                  });
+                  console.log(`✅ castles 처리 완료: ${castles.length}개 (${((performance.now()-castleProcessStart)/1000).toFixed(2)}초)`);
+                  saveCastlesCache(castles).catch(e => console.warn('⚠️ castles 캐시 저장 실패:', e));
+                  if (layerVisibility.countryLabel || layerVisibility.placeLabel || layerVisibility.ethnicLabel) {
+                      const { year, month } = getCurrentYearMonth();
+                      renderImmediateCountryLabels(year, month);
+                  }
+                  populateCitySelectForEdit();
+                  requestUpdateMap();
+                  console.log('🗺️ castles 마커+영토 재렌더링 예약 완료');
+              }).catch(err => console.warn('⚠️ castles 백그라운드 로드 실패:', err.message));
           }
           
           // 왕 데이터 (항상 로드 — 패널 OFF여도 편집 폼에서 필요)
@@ -12294,87 +12337,6 @@ function invalidateCountryLookupCache() {
                   const _km = parseInt(monthInput.value) || 1;
                   updateKingLabel(_ky, _km);
               }
-          }
-          
-          // 🚀 [v3.6.67] castles 병렬 로딩 결과 처리 (기존 setTimeout 200ms → Promise.all 병렬)
-          if (additionalData.castles && Array.isArray(additionalData.castles) && additionalData.castles.length > 0) {
-              const castleProcessStart = performance.now();
-              const allCastlesData = additionalData.castles;
-              console.log(`✅ castles 병렬 로드 완료: ${allCastlesData.length}개`);
-              
-              const countryNameMap = new Map();
-              countries.forEach(c => { if (c.name) countryNameMap.set(c.name, c._id); });
-              
-              castles = allCastlesData.map(castle => {
-                  if (castle.history && Array.isArray(castle.history) && castle.history.length > 0) {
-                      const firstHistory = castle.history[0];
-                      if (firstHistory.start_year !== undefined && firstHistory.country_id && firstHistory.place_type !== undefined) return castle;
-                  }
-                  let processedHistory;
-                  const hasHistory = castle.history && Array.isArray(castle.history) && castle.history.length > 0;
-                  if (hasHistory) {
-                      processedHistory = castle.history.map(h => {
-                          let resolvedCountryId = h.country_id || castle.country_id || '';
-                          if (typeof resolvedCountryId !== 'string') resolvedCountryId = String(resolvedCountryId);
-                          if (!resolvedCountryId && h.country) resolvedCountryId = countryNameMap.get(h.country) || '';
-                          let placeType = h.place_type || 'normal';
-                          if (!h.place_type) {
-                              if (h.is_capital) placeType = 'capital';
-                              else if (h.is_battle) placeType = 'battle';
-                              else if (h.is_gateway) placeType = 'gateway';
-                          }
-                          return {
-                              name: h.name ?? castle.name ?? '',
-                              country_id: resolvedCountryId,
-                              start_year: h.start_year ?? castle.built_year ?? -5000,
-                              start_month: h.start_month ?? castle.built_month ?? 1,
-                              end_year: h.end_year ?? castle.destroyed_year ?? null,
-                              end_month: h.end_month ?? castle.destroyed_month ?? 12,
-                              is_capital: placeType === 'capital',
-                              is_battle: placeType === 'battle',
-                              is_gateway: placeType === 'gateway',
-                              place_type: placeType
-                          };
-                      });
-                  } else {
-                      let placeType = castle.place_type || 'normal';
-                      if (!castle.place_type) {
-                          if (castle.is_capital) placeType = 'capital';
-                          else if (castle.is_battle) placeType = 'battle';
-                          else if (castle.is_gateway) placeType = 'gateway';
-                      }
-                      processedHistory = [{
-                          name: castle.name || '',
-                          country_id: castle.country_id || '',
-                          start_year: castle.built_year || -5000,
-                          start_month: castle.built_month || 1,
-                          end_year: castle.destroyed_year,
-                          end_month: castle.destroyed_month || 12,
-                          is_capital: placeType === 'capital',
-                          is_battle: placeType === 'battle',
-                          is_gateway: placeType === 'gateway',
-                          place_type: placeType
-                      }];
-                  }
-                  if (castle.is_capital && !processedHistory.some(h => h.is_capital)) {
-                      processedHistory[0].is_capital = true;
-                      processedHistory[0].place_type = 'capital';
-                  }
-                  return { ...castle, history: processedHistory };
-              });
-              
-              console.log(`✅ castles 처리 완료: ${castles.length}개 (${((performance.now()-castleProcessStart)/1000).toFixed(2)}초)`);
-              
-              // IndexedDB 캐시 저장 (백그라운드)
-              saveCastlesCache(castles).catch(e => console.warn('⚠️ castles 캐시 저장 실패:', e));
-              
-              if (layerVisibility.countryLabel || layerVisibility.placeLabel || layerVisibility.ethnicLabel) {
-                  const { year, month } = getCurrentYearMonth();
-                  renderImmediateCountryLabels(year, month);
-              }
-              populateCitySelectForEdit();
-              requestUpdateMap();
-              console.log('🗺️ castles 마커 렌더링 예약 완료');
           }
           
           // 🚀 [백그라운드 로딩] drawings — 캐시 유무와 무관하게 항상 최신 데이터로 갱신
@@ -12497,100 +12459,14 @@ function invalidateCountryLookupCache() {
               }
           }, 100); // 100ms 후 실행 (UI 렌더링 완료 후)
           
-          // 2️⃣ castles 데이터 - 이미 병렬 로딩에서 처리되었으면 스킵
+          // 2️⃣ castles — 위 백그라운드 .then()에서 처리됨 (캐시 있으면 즉시, 없으면 ~280초 후 재렌더링)
           if (layerVisibility.city || layerVisibility.territoryPolygon) {
               if (castles.length > 0) {
-                  // 캐시 히트 또는 병렬 로딩 완료: 이미 위에서 할당됨
                   console.log(`⚡ castles 이미 로드됨 (${castles.length}개) → 추가 로드 불필요`);
                   populateCitySelectForEdit();
                   requestUpdateMap();
               } else {
-                  // 병렬 로딩에서도 실패한 경우 (네트워크 오류 등) — 폴백 로드
-                  console.log('🏰 castles 폴백 로딩 시작...');
-                  setTimeout(async () => {
-                      try {
-                          const castleLoadStart = performance.now();
-                          const allCastlesData = await fetchData('castle');
-                          const castleLoadTime = ((performance.now() - castleLoadStart) / 1000).toFixed(2);
-                          console.log(`✅ castles 폴백 로드 완료: ${allCastlesData.length}개 (${castleLoadTime}초)`);
-                          
-                          const countryNameMap = new Map();
-                          countries.forEach(c => { if (c.name) countryNameMap.set(c.name, c._id); });
-                          
-                          const processStart = performance.now();
-                          castles = allCastlesData.map(castle => {
-                              if (castle.history && Array.isArray(castle.history) && castle.history.length > 0) {
-                                  const firstHistory = castle.history[0];
-                                  if (firstHistory.start_year !== undefined && firstHistory.country_id && firstHistory.place_type !== undefined) return castle;
-                              }
-                              let processedHistory;
-                              const hasHistory = castle.history && Array.isArray(castle.history) && castle.history.length > 0;
-                              if (hasHistory) {
-                                  processedHistory = castle.history.map(h => {
-                                      let resolvedCountryId = h.country_id || castle.country_id || '';
-                                      if (typeof resolvedCountryId !== 'string') resolvedCountryId = String(resolvedCountryId);
-                                      if (!resolvedCountryId && h.country) resolvedCountryId = countryNameMap.get(h.country) || '';
-                                      let placeType = h.place_type || 'normal';
-                                      if (!h.place_type) {
-                                          if (h.is_capital) placeType = 'capital';
-                                          else if (h.is_battle) placeType = 'battle';
-                                          else if (h.is_gateway) placeType = 'gateway';
-                                      }
-                                      return {
-                                          name: h.name ?? castle.name ?? '',
-                                          country_id: resolvedCountryId,
-                                          start_year: h.start_year ?? castle.built_year ?? -5000,
-                                          start_month: h.start_month ?? castle.built_month ?? 1,
-                                          end_year: h.end_year ?? castle.destroyed_year ?? null,
-                                          end_month: h.end_month ?? castle.destroyed_month ?? 12,
-                                          is_capital: placeType === 'capital',
-                                          is_battle: placeType === 'battle',
-                                          is_gateway: placeType === 'gateway',
-                                          place_type: placeType
-                                      };
-                                  });
-                              } else {
-                                  let placeType = castle.place_type || 'normal';
-                                  if (!castle.place_type) {
-                                      if (castle.is_capital) placeType = 'capital';
-                                      else if (castle.is_battle) placeType = 'battle';
-                                      else if (castle.is_gateway) placeType = 'gateway';
-                                  }
-                                  processedHistory = [{
-                                      name: castle.name || '',
-                                      country_id: castle.country_id || '',
-                                      start_year: castle.built_year || -5000,
-                                      start_month: castle.built_month || 1,
-                                      end_year: castle.destroyed_year,
-                                      end_month: castle.destroyed_month || 12,
-                                      is_capital: placeType === 'capital',
-                                      is_battle: placeType === 'battle',
-                                      is_gateway: placeType === 'gateway',
-                                      place_type: placeType
-                                  }];
-                              }
-                              if (castle.is_capital && !processedHistory.some(h => h.is_capital)) {
-                                  processedHistory[0].is_capital = true;
-                                  processedHistory[0].place_type = 'capital';
-                              }
-                              return { ...castle, history: processedHistory };
-                          });
-                          
-                          console.log(`✅ castles 처리 완료: ${castles.length}개 (${((performance.now()-processStart)/1000).toFixed(2)}초)`);
-                          saveCastlesCache(castles).catch(e => console.warn('⚠️ castles 캐시 저장 실패:', e));
-                          
-                          if (layerVisibility.countryLabel || layerVisibility.placeLabel || layerVisibility.ethnicLabel) {
-                              const { year, month } = getCurrentYearMonth();
-                              renderImmediateCountryLabels(year, month);
-                          }
-                          populateCitySelectForEdit();
-                          requestUpdateMap();
-                          console.log('🗺️ castles 마커 렌더링 완료');
-                      } catch (error) {
-                          console.error('❌ castles 폴백 로드 실패:', error);
-                          castles = [];
-                      }
-                  }, 200);
+                  console.log('🏰 castles 백그라운드 로딩 중... (서버 캐시 준비되면 자동 반영)');
               }
           } else {
               console.log('⏭️ castles 로딩 스킵 (city, territoryPolygon 모두 비활성화)');
