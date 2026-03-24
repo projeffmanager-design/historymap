@@ -12177,28 +12177,26 @@ function invalidateCountryLookupCache() {
               }
           }
           
-          // 🚀 [백그라운드 로딩] drawings는 사용자 그리기 전용으로 비동기 로딩 (캐시 우선)
-          if (drawings.length === 0) {
-              console.log('✏️ [백그라운드] drawings 데이터 로딩 시작 (캐시 없음)...');
-              fetchData('drawings').then(data => {
-                  drawings = data || [];
-                  console.log(`✅ [백그라운드] drawings ${drawings.length}개 네트워크에서 로드 완료`);
-                  
-                  // IndexedDB에 캐싱
-                  saveDrawingsCache(drawings).then(() => {
-                      console.log('💾 [백그라운드] drawings IndexedDB 캐싱 완료');
-                  });
-                  
-                  // 지도에 drawings 반영
-                  requestUpdateMap();
-                  console.log('🗺️ [백그라운드] drawings 데이터 지도 반영 완료');
-              }).catch(err => {
-                  console.error('❌ [백그라운드] drawings 로드 실패:', err);
-                  drawings = [];
+          // 🚀 [백그라운드 로딩] drawings — 캐시 유무와 무관하게 항상 최신 데이터로 갱신
+          // 🚩 [버그수정] 캐시만 사용하면 새로 저장한 drawing이 재방문 시 누락됨 → 항상 백그라운드 재검증
+          console.log(`✏️ [백그라운드] drawings 최신 데이터 재검증 시작 (현재 캐시: ${drawings.length}개)...`);
+          fetchData('drawings').then(data => {
+              if (!data) return;
+              drawings = data;
+              console.log(`✅ [백그라운드] drawings ${drawings.length}개 네트워크에서 로드 완료`);
+              
+              // IndexedDB에 캐싱
+              saveDrawingsCache(drawings).then(() => {
+                  console.log('💾 [백그라운드] drawings IndexedDB 캐싱 완료');
               });
-          } else {
-              console.log(`♻️ [백그라운드] drawings 캐시 사용: ${drawings.length}개 (네트워크 스킵)`);
-          }
+              
+              // 지도에 drawings 반영
+              requestUpdateMap();
+              console.log('🗺️ [백그라운드] drawings 데이터 지도 반영 완료');
+          }).catch(err => {
+              console.error('❌ [백그라운드] drawings 로드 실패:', err);
+              if (drawings.length === 0) drawings = [];
+          });
           
           // 🚀 [백그라운드 로딩] contributions는 사용자 기여 전용으로 비동기 로딩 (항상 최신 데이터 로드)
           if (layerVisibility.userContributions) {
@@ -13123,6 +13121,9 @@ function invalidateCountryLookupCache() {
                   console.warn(`⚠️ 메모리에서 찾을 수 없음: ${drawingId}`);
               }
               
+              // 🚩 [버그수정] 업데이트 후 IndexedDB 캐시 갱신
+              saveDrawingsCache(drawings).catch(e => console.warn('⚠️ drawings 캐시 저장 실패:', e));
+              
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
           } catch (error) {
@@ -13133,6 +13134,8 @@ function invalidateCountryLookupCache() {
       window.addDrawingInMemory = (newDrawing) => {
           drawings.push(newDrawing);
           console.log(`✅ 그리기 메모리 추가: ${newDrawing._id}`);
+          // 🚩 [버그수정] 저장 즉시 IndexedDB 캐시 갱신 — 미갱신 시 재방문 시 누락됨
+          saveDrawingsCache(drawings).catch(e => console.warn('⚠️ drawings 캐시 저장 실패:', e));
           const { year, month } = getCurrentYearMonth();
           updateMap(year, month);
       };
@@ -13142,6 +13145,8 @@ function invalidateCountryLookupCache() {
           if (index !== -1) {
               drawings.splice(index, 1);
               console.log(`✅ 그리기 메모리 삭제: ${drawingId}`);
+              // 🚩 [버그수정] 삭제 후 IndexedDB 캐시 갱신
+              saveDrawingsCache(drawings).catch(e => console.warn('⚠️ drawings 캐시 저장 실패:', e));
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
           } else {
