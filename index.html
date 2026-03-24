@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.62',          // [v3.6.62] drawings _id string 정규화 — 강 렌더링 버그 수정
+        APP_VERSION: '3.6.64',          // [v3.6.64] drawings 강 스타일 네이비 얇은 실선, 디버그 로그 제거
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
 
@@ -432,6 +432,16 @@ body.force-mobile #mobile-left-controls {
     display: none !important;
 }
 body.force-mobile #time-controls-map {
+    display: none !important;
+}
+/* 사관 랭킹 패널 스크롤바 숨김 */
+#rankingDisplay,
+#rankingDisplay-body {
+    overflow: hidden !important;
+    scrollbar-width: none !important;
+}
+#rankingDisplay::-webkit-scrollbar,
+#rankingDisplay-body::-webkit-scrollbar {
     display: none !important;
 }
 /* 모바일에서 랭킹 패널: 슬라이더 바로 위 */
@@ -5058,6 +5068,28 @@ body.force-mobile .marker-type-selector button {
             </form>
         </div>
         
+        <!-- 🌊 자연지형(naturalFeatures) 편집 폼 -->
+        <div id="naturalFeatureForm" style="display:none; position: fixed; bottom: 80px; right: 10px; cursor: default; user-select: none; z-index: 10000;">
+            <div id="naturalFeatureFormHeader" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; cursor: grab; padding: 4px 6px; background: rgba(255,255,255,0.07); border-radius: 4px; margin: -4px -4px 8px -4px;">
+                <h3 style="margin: 0; font-size: 13px;">🌊 자연지형 편집</h3>
+                <span style="font-size: 10px; color: #95a5a6; pointer-events: none;">⠿ 드래그</span>
+            </div>
+            <form id="editNaturalFeatureForm">
+                <input type="hidden" id="nfMongoId">
+                <label for="nfName">이름 (한국어):</label>
+                <input type="text" id="nfName" required>
+                <label for="nfNameEn">이름 (영어):</label>
+                <input type="text" id="nfNameEn" placeholder="선택">
+                <label for="nfStartYear">시작 연도:</label>
+                <input type="number" id="nfStartYear" required>
+                <label for="nfEndYear">종료 연도:</label>
+                <input type="number" id="nfEndYear" placeholder="선택 (비우면 현재까지)">
+                <button type="button" id="cancelNaturalFeatureBtn">취소</button>
+                <button type="button" id="deleteNaturalFeatureBtn" class="danger" style="display:none;">삭제</button>
+                <button type="submit" id="saveNaturalFeatureBtn" class="primary">저장</button>
+            </form>
+        </div>
+
         <!-- 🚩 [수정] 이벤트 오버레이를 map div 안으로 이동 -->
         <div id="event-overlay">
             <img id="event-overlay-image" src="" style="display: none;">
@@ -8178,6 +8210,11 @@ function getKingByYear(countryName, year, month) {
             const drawingEl = document.getElementById('drawingForm');
             if (drawingEl) drawingEl.style.display = "none";
         }
+        // naturalFeatureForm도 같이 닫기
+        if (exceptId !== 'naturalFeatureForm') {
+            const nfEl = document.getElementById('naturalFeatureForm');
+            if (nfEl) nfEl.style.display = "none";
+        }
     }
 
     // 💬 마커 의견 버튼 HTML 생성 헬퍼
@@ -9303,7 +9340,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         // 🔑 [개선] 16ms → 300ms — 초기화 연쇄 호출(4-5회) 차단
         // 단, 데이터 개수가 변했으면 (새 데이터 도착) 즉시 통과
         const now = Date.now();
-        const dataFingerprint = `${castles.length}_${territories.length}_${countries.length}_${naturalFeatures.length}`;
+        const dataFingerprint = `${castles.length}_${territories.length}_${countries.length}_${naturalFeatures.length}_${drawings.length}_${contributions.length}`;
         if (!force && lastUpdateMapCall.year === year && 
             lastUpdateMapCall.month === month && 
             lastUpdateMapCall.cacheOnly === cacheOnly &&
@@ -9678,22 +9715,40 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             naturalFeatures.forEach(feature => {
                 if (feature.type !== 'river' || !feature.geometry) return;
                 const geomType = feature.geometry.type;
+                const featureId = feature._id?.$oid || feature._id?.toString?.() || feature._id;
                 const popupContent = `<div style="padding:2px;margin:0;line-height:1.4;"><b style="font-size:13px;">${feature.name}</b>${feature.name_en ? `<br><span style="font-size:11px;color:#9aabbd;">${feature.name_en}</span>` : ''}</div>`;
                 const popupOptions = { className: 'compact-popup', maxWidth: 200, minWidth: 100 };
 
+                const bindNFEvents = (layer) => {
+                    layer.bindPopup(popupContent, popupOptions);
+                    layer.on('click', (e) => {
+                        L.DomEvent.stopPropagation(e);
+                        const isPrivileged = currentUser?.role === 'superuser' || currentUser?.role === 'admin';
+                        if (editMode && isPrivileged) {
+                            openNaturalFeatureForm(feature);
+                            return;
+                        }
+                        layer.openPopup(e.latlng || e.target.getBounds?.()?.getCenter?.());
+                    });
+                };
+
                 if (geomType === 'LineString') {
                     const latLngs = feature.geometry.coordinates.map(coord => [coord[1], coord[0]]);
-                    const riverLine = L.polyline(latLngs, riverPolylineOptions);
-                    riverLine.bindPopup(popupContent, popupOptions);
-                    riverLayerGroup.addLayer(riverLine);
+                    const visLine = L.polyline(latLngs, { ...riverPolylineOptions, interactive: false });
+                    const hitLine = L.polyline(latLngs, { ...riverPolylineOptions, weight: 14, opacity: 0.001, interactive: true });
+                    bindNFEvents(hitLine);
+                    riverLayerGroup.addLayer(visLine);
+                    riverLayerGroup.addLayer(hitLine);
                     riverRenderedCount++;
                 } else if (geomType === 'MultiLineString') {
-                    const lines = feature.geometry.coordinates.map(lineCoords =>
-                        L.polyline(lineCoords.map(coord => [coord[1], coord[0]]), riverPolylineOptions)
-                    );
-                    const group = L.featureGroup(lines);
-                    group.bindPopup(popupContent, popupOptions);
-                    riverLayerGroup.addLayer(group);
+                    feature.geometry.coordinates.forEach(lineCoords => {
+                        const latLngs = lineCoords.map(coord => [coord[1], coord[0]]);
+                        const visLine = L.polyline(latLngs, { ...riverPolylineOptions, interactive: false });
+                        const hitLine = L.polyline(latLngs, { ...riverPolylineOptions, weight: 14, opacity: 0.001, interactive: true });
+                        bindNFEvents(hitLine);
+                        riverLayerGroup.addLayer(visLine);
+                        riverLayerGroup.addLayer(hitLine);
+                    });
                     riverRenderedCount++;
                 }
             });
@@ -9886,7 +9941,14 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
 
         // 🚩 [추가] 저장된 그리기 데이터 렌더링
+        // 🔧 [v3.6.63 핵심수정] preferCanvas:true 환경에서 drawings가 렌더링되지 않는 버그 수정
+        // → drawingPane 전용 SVG 렌더러를 명시적으로 생성하여 모든 drawings에 적용
+        if (window._drawingRenderer) { try { map.removeLayer(window._drawingRenderer); } catch(e) {} }
+        const drawingRenderer = L.svg({ pane: 'drawingPane', padding: 0.5 });
+        window._drawingRenderer = drawingRenderer;
+
         drawings.forEach(drawing => {
+          try {
             const startYear = drawing.start_year || -Infinity;
             const endYear = drawing.end_year || Infinity;
 
@@ -9914,7 +9976,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 case 'wall': // 🚩 [수정] 성곽 스타일을 '凹' 텍스트를 이용한 텍스처로 변경
                     // 🚩 [수정] onEachFeature를 사용하여 이벤트 핸들러 중복 바인딩 방지
                     // 🚩 [핵심 수정] setText는 FeatureGroup을 반환하므로, 이벤트 바인딩을 onEachFeature에서 분리합니다.
-                    layer = L.geoJSON(drawing.geojson, { style: { color: 'transparent', weight: 10, opacity: 0 } })
+                    layer = L.geoJSON(drawing.geojson, { style: { color: 'transparent', weight: 10, opacity: 0 }, pane: 'drawingPane', renderer: drawingRenderer })
                              .setText('凹', {
                         repeat: true,
                         offset: 0,
@@ -9925,13 +9987,32 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     break;
                 
                 case 'river': // 🚩 [추가] 강 스타일
-                    layer = L.geoJSON(drawing.geojson, {
-                        style: { color: "#3498db", weight: 6, opacity: 0.7, pane: 'drawingPane' }, // 파란색
-                        pane: 'drawingPane', // 🚩 [수정] drawingPane에 그려서 영토 다각형 위에 표시 → 클릭 가능
-                        onEachFeature: function (feature, layer) {
-                            bindDrawingEvents(layer, drawing);
+                    {
+                        const coords = drawing.geojson?.geometry?.coordinates;
+                        if (coords && drawing.geojson?.geometry?.type === 'LineString') {
+                            const latlngs = coords.map(c => [c[1], c[0]]);
+                            // 시각선: 얇은 네이비, 클릭 불가
+                            const visLine = L.polyline(latlngs, {
+                                color: "#0a2d5e", weight: 1.5, opacity: 0.9,
+                                pane: 'drawingPane', renderer: drawingRenderer, interactive: false
+                            });
+                            // 히트선: 두꺼운 투명, 클릭 감지용
+                            const hitLine = L.polyline(latlngs, {
+                                color: "#0a2d5e", weight: 14, opacity: 0.001,
+                                pane: 'drawingPane', renderer: drawingRenderer, interactive: true
+                            });
+                            bindDrawingEvents(hitLine, drawing);
+                            drawnItems.addLayer(visLine);
+                            layer = hitLine; // hitLine을 layer로 설정 → 아래 drawnItems.addLayer(layer)에서 추가됨
+                        } else {
+                            // LineString이 아닌 경우(Polygon 등) 기존 방식
+                            layer = L.geoJSON(drawing.geojson, {
+                                style: { color: "#0a2d5e", weight: 1.5, opacity: 0.9 },
+                                pane: 'drawingPane', renderer: drawingRenderer,
+                                onEachFeature: (f, fl) => bindDrawingEvents(fl, drawing)
+                            });
                         }
-                    }); 
+                    }
                     break;
 
                 case 'mountain': // 🚩 [추가] 산맥 스타일
@@ -9943,6 +10024,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                             dashArray: '5, 10' // 점선 스타일로 산맥 표현
                         },
                         pane: 'drawingPane',
+                        renderer: drawingRenderer, // 🔧 [v3.6.63] 명시적 SVG 렌더러
                         onEachFeature: (feature, layer) => bindDrawingEvents(layer, drawing)
                     });
                     break;
@@ -9959,20 +10041,22 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                             opacity: 0.8,
                             fillColor: customColor,
                             fillOpacity: 0.5,
-                            pane: 'drawingPane'
+                            pane: 'drawingPane',
+                            renderer: drawingRenderer
                         });
                         bindDrawingEvents(layer, drawing);
                     } else {
                         // 일반 GeoJSON (Polygon, LineString, Point 등)
                         layer = L.geoJSON(drawing.geojson, {
+                            pane: 'drawingPane',
+                            renderer: drawingRenderer, // 🔧 [v3.6.63] 명시적 SVG 렌더러
                             style: function(feature) {
                                 return {
                                     color: customColor,
                                     weight: 3,
                                     opacity: 0.8,
                                     fillColor: customColor,
-                                    fillOpacity: 0.5,
-                                    pane: 'drawingPane'
+                                    fillOpacity: 0.5
                                 };
                             },
                             // 🚩 [추가] Point 타입(마커)을 원으로 표시
@@ -9984,7 +10068,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                                     opacity: 0.8,
                                     fillColor: customColor,
                                     fillOpacity: 0.5,
-                                    pane: 'drawingPane'
+                                    pane: 'drawingPane',
+                                    renderer: drawingRenderer
                                 });
                             },
                             onEachFeature: (feature, layer) => bindDrawingEvents(layer, drawing)
@@ -9997,7 +10082,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     if (drawing.geojson.geometry.type === 'LineString') {
                         const latlngs = drawing.geojson.geometry.coordinates.map(coord => [coord[1], coord[0]]);
                         // 🚩 [핵심 수정] setText는 FeatureGroup을 반환하므로, 이벤트 바인딩을 분리합니다.
-                        layer = L.polyline(latlngs, { color: 'transparent', weight: 10, opacity: 0, pane: 'drawingPane' })
+                        layer = L.polyline(latlngs, { color: 'transparent', weight: 10, opacity: 0, pane: 'drawingPane', renderer: drawingRenderer })
                                  .setText('❱', {
                                      repeat: true,
                                      offset: 0,
@@ -10005,7 +10090,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                                  });
                         bindDrawingEvents(layer, drawing); // 생성된 레이어 그룹에 직접 이벤트를 바인딩합니다.
                     } else { // Polygon 등 다른 타입은 기존 방식 유지
-                        layer = L.geoJSON(drawing.geojson, { style: { color: 'transparent', weight: 10, opacity: 0 } }); // 이벤트 바인딩 필요 시 추가
+                        layer = L.geoJSON(drawing.geojson, { style: { color: 'transparent', weight: 10, opacity: 0 }, pane: 'drawingPane', renderer: drawingRenderer });
                     }
                     break;
 
@@ -10017,7 +10102,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                             weight: 5,       // 두께
                             opacity: 0.5     // 투명도
                         },
-                        pane: 'drawingPane', // 전용 Pane에 그리기
+                        pane: 'drawingPane',
+                        renderer: drawingRenderer, // 🔧 [v3.6.63] 명시적 SVG 렌더러
                         onEachFeature: function (feature, layer) {
                             bindDrawingEvents(layer, drawing);
                         }
@@ -10026,9 +10112,11 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             }
 
             if (layer) {
-                // layer._leaflet_id는 bindDrawingEvents 내부에서 설정됩니다.
                 drawnItems.addLayer(layer);
             }
+          } catch (drawErr) {
+            console.error(`[drawing 렌더링 오류] ${drawing?.name}`, drawErr);
+          }
         });
 
         // 🚩 [추가] 그리기 레이어에 대한 공통 이벤트 바인딩 함수
@@ -10038,29 +10126,27 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             layer._leaflet_id = drawingId; // 삭제/편집을 위한 ID 연결
             layer.bindPopup(`<b>${drawingData.name}</b> (${drawingData.type})`);
             
-            // 🚩 [수정] mouseover 팝업을 제거하고, 클릭 시에만 팝업이 나타나도록 수정
-            layer.on('click', (e) => { 
-                // 🚩 [수정] 마커인 경우 클릭한 위치에, 도형인 경우 중심에 팝업 표시
+            layer.on('click', (e) => {
+                L.DomEvent.stopPropagation(e);
+
+                const isPrivileged = currentUser?.role === 'superuser' || currentUser?.role === 'admin';
+
+                // 편집 모드(어드민)일 때: 폼 열기 우선
+                if (editMode && isPrivileged) {
+                    openDrawingForm(drawingData.geojson, drawingData);
+                    return;
+                }
+
+                // 일반 모드: 팝업 표시 + flyTo
                 if (layer instanceof L.Marker) {
                     layer.openPopup();
-                } else {
-                    layer.openPopup(e.latlng);
-                }
-                
-                // 🚩 [수정] 마커와 도형을 구분하여 이동 처리
-                if (layer instanceof L.Marker) {
                     map.flyTo(layer.getLatLng(), 10);
                 } else {
-                    const bounds = layer.getBounds();
-                    if (bounds && bounds.isValid()) {
-                        map.flyTo(bounds.getCenter(), 8);
-                    }
-                }
-                
-                // 🚩 편집 모드일 때 폼 열기
-                if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) {
-                    const geojsonToEdit = drawingData.geojson;
-                    openDrawingForm(geojsonToEdit, drawingData);
+                    layer.openPopup(e.latlng);
+                    try {
+                        const bounds = layer.getBounds();
+                        if (bounds && bounds.isValid()) map.flyTo(bounds.getCenter(), 8);
+                    } catch(_) {}
                 }
             });
         }
@@ -18399,6 +18485,114 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('saveDrawingBtn').textContent = '저장';
         }
     };
+    // --- 🌊 naturalFeatures 편집 폼 함수 ---
+
+    function openNaturalFeatureForm(featureData) {
+        closeAllFormsExcept('naturalFeatureForm');
+        const form = document.getElementById('naturalFeatureForm');
+        const wasDragged = form.dataset.dragged === 'true';
+        if (!wasDragged) {
+            form.style.position = 'fixed';
+            form.style.bottom = '80px';
+            form.style.right = '10px';
+            form.style.left = 'auto';
+            form.style.top = 'auto';
+        }
+        form.style.display = 'block';
+        document.getElementById('editNaturalFeatureForm').reset();
+        const id = featureData._id?.$oid || featureData._id?.toString?.() || featureData._id;
+        document.getElementById('nfMongoId').value = id;
+        document.getElementById('nfName').value = featureData.name || '';
+        document.getElementById('nfNameEn').value = featureData.name_en || '';
+        document.getElementById('nfStartYear').value = featureData.start_year ?? -5000;
+        document.getElementById('nfEndYear').value = featureData.end_year ?? '';
+        document.getElementById('deleteNaturalFeatureBtn').style.display = 'inline-block';
+    }
+
+    // naturalFeatureForm 드래그
+    (() => {
+        const panel = document.getElementById('naturalFeatureForm');
+        const header = document.getElementById('naturalFeatureFormHeader');
+        if (!panel || !header) return;
+        let isDragging = false, startX, startY, startLeft, startTop;
+        header.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            isDragging = true;
+            const rect = panel.getBoundingClientRect();
+            startX = e.clientX; startY = e.clientY;
+            startLeft = rect.left; startTop = rect.top;
+            header.style.cursor = 'grabbing';
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            panel.style.setProperty('left', (startLeft + e.clientX - startX) + 'px', 'important');
+            panel.style.setProperty('top', (startTop + e.clientY - startY) + 'px', 'important');
+            panel.style.setProperty('right', 'auto', 'important');
+            panel.style.setProperty('bottom', 'auto', 'important');
+        });
+        document.addEventListener('mouseup', () => {
+            if (!isDragging) return;
+            isDragging = false;
+            header.style.cursor = 'grab';
+            panel.dataset.dragged = 'true';
+        });
+    })();
+
+    // naturalFeatureForm 저장
+    document.getElementById('editNaturalFeatureForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('nfMongoId').value;
+        if (!id) return alert('ID가 없습니다.');
+        const data = {
+            name: document.getElementById('nfName').value,
+            name_en: document.getElementById('nfNameEn').value || null,
+            start_year: parseInt(document.getElementById('nfStartYear').value),
+            end_year: document.getElementById('nfEndYear').value ? parseInt(document.getElementById('nfEndYear').value) : null,
+        };
+        if (!data.name || isNaN(data.start_year)) return alert('이름과 시작 연도는 필수입니다.');
+        try {
+            const res = await fetch(`${API_BASE_URL}/natural-features/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify(data)
+            });
+            if (!res.ok) throw new Error('저장 실패');
+            document.getElementById('naturalFeatureForm').style.display = 'none';
+            // naturalFeatures 캐시 무효화 후 재렌더링
+            naturalFeatures = naturalFeatures.map(f => {
+                const fid = f._id?.$oid || f._id?.toString?.() || f._id;
+                return fid === id ? { ...f, ...data } : f;
+            });
+            updateMap();
+        } catch (err) { alert(err.message); }
+    });
+
+    // naturalFeatureForm 삭제
+    document.getElementById('deleteNaturalFeatureBtn').addEventListener('click', async () => {
+        const id = document.getElementById('nfMongoId').value;
+        const name = document.getElementById('nfName').value;
+        if (!confirm(`"${name}" 자연지형을 삭제하시겠습니까?\n⚠️ 이 작업은 되돌릴 수 없습니다.`)) return;
+        try {
+            const res = await fetch(`${API_BASE_URL}/natural-features/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!res.ok) throw new Error('삭제 실패');
+            document.getElementById('naturalFeatureForm').style.display = 'none';
+            naturalFeatures = naturalFeatures.filter(f => {
+                const fid = f._id?.$oid || f._id?.toString?.() || f._id;
+                return fid !== id;
+            });
+            updateMap();
+        } catch (err) { alert(err.message); }
+    });
+
+    // naturalFeatureForm 취소
+    document.getElementById('cancelNaturalFeatureBtn').addEventListener('click', () => {
+        document.getElementById('naturalFeatureForm').style.display = 'none';
+    });
+
     // --- 12. 사서 기록 폼 관리 --- (기존 로직 유지)
     
     // openHistoryFormBtn 이벤트는 이미 openHistoryForm 함수로 처리됨 (오른쪽 패널 제거)
@@ -22369,10 +22563,14 @@ kingSelect.addEventListener('change', () => {
       max-width: 780px;
       max-height: 90vh;
       overflow-y: auto;
+      scrollbar-width: none;
       border-radius: 20px;
       box-shadow: 0 20px 60px rgba(0,0,0,0.8);
       position: relative;
       box-sizing: border-box;
+    }
+    #welcomePopupModal .recruit-inner::-webkit-scrollbar {
+      display: none;
     }
     #welcomePopupModal .header-icon img {
       max-width: 80px;
@@ -22614,11 +22812,12 @@ kingSelect.addEventListener('change', () => {
       </div>
 
       <!-- 오늘 하루 보지 않기 -->
-      <div style="text-align: center; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);">
+      <div style="text-align: center; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; gap: 16px;">
         <label style="cursor: pointer; color: #7f8c8d; font-size: 0.9em; display: inline-flex; align-items: center; gap: 8px;">
           <input type="checkbox" id="dontShowTodayCheckbox" style="cursor: pointer; width: 16px; height: 16px;">
           오늘 하루 이 창을 보지 않습니다
         </label>
+        <button onclick="document.getElementById('welcomePopupModal').style.display='none'" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #bdc3c7; font-size: 0.9em; padding: 5px 14px; border-radius: 6px; cursor: pointer;">닫기</button>
       </div>
     </div>
   </div>

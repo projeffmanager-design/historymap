@@ -761,7 +761,7 @@ async function setupRoutesAndCollections() {
 
 // GET: 앱 버전 반환 (login.html 등 외부 페이지용)
 app.get('/api/app-version', (req, res) => {
-    res.json({ version: '3.6.62' });
+    res.json({ version: '3.6.64' });
 });
 
 // GET: 모든 장수 정보 반환
@@ -1949,6 +1949,48 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 console.error("자연 지형지물 생성 중 오류:", error);
                 logCRUD('ERROR', 'NaturalFeature', 'POST', error.message);
                 res.status(500).json({ message: "자연 지형지물 생성 실패", error: error.message });
+            }
+        });
+
+        // PUT: 자연 지형지물 수정 (관리자 전용)
+        app.put('/api/natural-features/:id', verifyAdmin, async (req, res) => {
+            try {
+                const { id } = req.params;
+                const updateData = req.body;
+                if (updateData._id) delete updateData._id;
+                const result = await collections.naturalFeatures.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: updateData }
+                );
+                if (result.matchedCount === 0) {
+                    return res.status(404).json({ message: "자연 지형지물을 찾을 수 없습니다." });
+                }
+                naturalFeaturesCache = null;
+                naturalFeaturesCacheTime = null;
+                logCRUD('UPDATE', 'NaturalFeature', updateData.name || id, `(ID: ${id})`);
+                res.json({ message: "자연 지형지물이 수정되었습니다.", id });
+            } catch (error) {
+                console.error("자연 지형지물 수정 중 오류:", error);
+                res.status(500).json({ message: "자연 지형지물 수정 실패", error: error.message });
+            }
+        });
+
+        // DELETE: 자연 지형지물 삭제 (관리자 전용)
+        app.delete('/api/natural-features/:id', verifyAdmin, async (req, res) => {
+            try {
+                const { id } = req.params;
+                const feature = await collections.naturalFeatures.findOne({ _id: new ObjectId(id) });
+                const result = await collections.naturalFeatures.deleteOne({ _id: new ObjectId(id) });
+                if (result.deletedCount === 0) {
+                    return res.status(404).json({ message: "자연 지형지물을 찾을 수 없습니다." });
+                }
+                naturalFeaturesCache = null;
+                naturalFeaturesCacheTime = null;
+                logCRUD('DELETE', 'NaturalFeature', feature?.name || id, `(ID: ${id})`);
+                res.json({ message: "자연 지형지물이 삭제되었습니다.", id });
+            } catch (error) {
+                console.error("자연 지형지물 삭제 중 오류:", error);
+                res.status(500).json({ message: "자연 지형지물 삭제 실패", error: error.message });
             }
         });
 
