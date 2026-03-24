@@ -7044,8 +7044,6 @@ body.force-mobile .marker-type-selector button {
         if (newMode === currentMacroMode) return;
         currentMacroMode = newMode;
 
-            console.log(`🔭 [LOD] 모드 전환: ${['거시(국가명만)','중간(수도)','미시(전체)'][newMode]} (zoom=${zoom})`);
-
         if (newMode === 0) {
             // 거시 모드: 세부 마커 모두 숨김
             if (map.hasLayer(castleLayerGroup)) map.removeLayer(castleLayerGroup);
@@ -9754,7 +9752,6 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             });
             
             const riverEndTime = performance.now();
-            console.log(`🌊 강 렌더링 완료: ${riverRenderedCount}개 (${(riverEndTime - riverStartTime).toFixed(0)}ms)`);
         }
 
         // 🚀 [깜빡임 방지] 새 레이어가 모두 그려진 뒤 다음 프레임에서 기존 레이어 제거
@@ -9961,6 +9958,10 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             // 🚩 [수정] '산맥' 유형은 '자연' 레이어 토글에 따라 표시 여부를 결정합니다.
             if (drawing.type === 'mountain' && !layerVisibility.natural) {
                 return; // '자연' 레이어가 꺼져있으면 산맥을 그리지 않습니다.
+            }
+            // 🔭 [줌 LOD] 산맥은 미시 모드(zoom >= 7, ~100km 이내)에서만 표시
+            if (drawing.type === 'mountain' && currentMacroMode < 2) {
+                return;
             }
             // 🚩 [추가] '성곽'과 '화살표' 유형은 '유적' 레이어 토글에 따라 표시 여부를 결정합니다.
             if ((drawing.type === 'wall' || drawing.type === 'arrow') && !layerVisibility.relic) {
@@ -10414,6 +10415,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                      if (!layerVisibility.relic) return;
                  } else {
                      if (!layerVisibility.natural) return;
+                     // 🔭 [줌 LOD] 자연 지형지물(산·동물·기타)은 미시 모드(zoom >= 7, ~100km 이내)에서만 표시
+                     if (currentMacroMode < 2) return;
                  }
                  // 🚩 [수정] 자연 지형지물 시간 범위 체크
                  if (!isWithinDuration) {
@@ -13862,7 +13865,6 @@ function invalidateCountryLookupCache() {
           // 3단계: city (같은 국가 skip)
           renderIncrementalFiltered(cityFeatures);
           if (addedCount > 0) {
-              console.log(`🗺️ 영토 증분 업데이트: ${addedCount}개 추가됨 (${countryFeatures.size}개 국가 레이어)`);
               // 새 영토가 추가됐으므로 국가명 라벨 갱신
               renderMacroCountryNames();
           }
