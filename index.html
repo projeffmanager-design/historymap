@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.61',          // [v3.6.61] 그리기 툴 저장 후 지도 미표시 버그 수정 (캐시 강제 갱신)
+        APP_VERSION: '3.6.62',          // [v3.6.62] drawings _id string 정규화 — 강 렌더링 버그 수정
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
 
@@ -10033,7 +10033,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
         // 🚩 [추가] 그리기 레이어에 대한 공통 이벤트 바인딩 함수
         function bindDrawingEvents(layer, drawingData) {
-            layer._leaflet_id = drawingData._id; // 삭제/편집을 위한 ID 연결
+            // _id가 객체(ObjectId)인 경우 string으로 변환
+            const drawingId = drawingData._id?.$oid || drawingData._id?.toString?.() || drawingData._id;
+            layer._leaflet_id = drawingId; // 삭제/편집을 위한 ID 연결
             layer.bindPopup(`<b>${drawingData.name}</b> (${drawingData.type})`);
             
             // 🚩 [수정] mouseover 팝업을 제거하고, 클릭 시에만 팝업이 나타나도록 수정

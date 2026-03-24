@@ -761,7 +761,7 @@ async function setupRoutesAndCollections() {
 
 // GET: 앱 버전 반환 (login.html 등 외부 페이지용)
 app.get('/api/app-version', (req, res) => {
-    res.json({ version: '3.6.61' });
+    res.json({ version: '3.6.62' });
 });
 
 // GET: 모든 장수 정보 반환
@@ -1407,7 +1407,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         app.get('/api/drawings', async (req, res) => {
             try {
                 const drawings = await collections.drawings.find({}).toArray();
-                res.json(drawings);
+                // _id를 string으로 변환하여 클라이언트에서 일관되게 사용
+                const normalized = drawings.map(d => ({ ...d, _id: d._id.toString() }));
+                res.json(normalized);
             } catch (error) {
                 console.error("Drawings 조회 중 오류:", error);
                 res.status(500).json({ message: "Drawings 조회 실패", error: error.message });
@@ -1443,7 +1445,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     return res.status(404).json({ message: "그리기 정보를 찾을 수 없습니다." });
                 }
                 
-                res.json(drawing);
+                res.json({ ...drawing, _id: drawing._id.toString() });
             } catch (error) {
                 console.error("Drawing 조회 중 오류:", error);
                 res.status(500).json({ message: "Drawing 조회 실패", error: error.message });
