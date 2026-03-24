@@ -238,7 +238,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.59',          // [v3.6.59] 모바일 역사패널 좌우버튼·닫기버튼 터치 동작 수정
+        APP_VERSION: '3.6.60',          // [v3.6.60] 역사패널 닫기버튼 PC에서도 동작 수정 (expanded 클래스 제거)
         DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
     
@@ -763,6 +763,26 @@ body.force-mobile #map-king-list {
 
 #map-history-panel.expanded #map-history-resizer {
     display: block !important;
+}
+
+/* 역사패널 스크롤바 — 얇고 반투명하게 */
+#map-history-records::-webkit-scrollbar {
+    width: 4px;
+}
+#map-history-records::-webkit-scrollbar-track {
+    background: transparent;
+}
+#map-history-records::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 2px;
+}
+#map-history-records::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+/* Firefox */
+#map-history-records {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -13380,7 +13400,10 @@ function invalidateCountryLookupCache() {
       (function() {
           function closePanel(panelId, layerKey, checkboxId) {
               const panel = document.getElementById(panelId);
-              if (panel) panel.style.display = 'none';
+              if (panel) {
+                  panel.classList.remove('expanded'); // display:flex !important 해제
+                  panel.style.display = 'none';
+              }
               if (layerVisibility) layerVisibility[layerKey] = false;
               // PC 메뉴 체크박스 동기화
               const cb = document.getElementById(checkboxId);
