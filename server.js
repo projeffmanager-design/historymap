@@ -400,7 +400,7 @@ app.use(cors()); // 모든 도메인에서 요청 허용 (개발용)
 app.use(express.json({ limit: '50mb' })); // 대용량 GeoJSON 지원 (기본 100kb → 50mb)
 app.use(express.urlencoded({ limit: '50mb', extended: true })); // URL 인코딩된 데이터도 대용량 지원
 app.use(express.text({ type: 'text/plain' })); // sendBeacon beacon-logout 용
-app.use(compression()); // 응답 압축으로 대용량 전송 최적화
+app.use(compression({ level: 8, threshold: 512 })); // 응답 압축 최적화 (level 8, 512B 이상 압축)
 app.use(async (req, res, next) => {
     const trackedPath = resolveTrackedPagePath(req);
     if (trackedPath) {
@@ -453,6 +453,16 @@ async function setupRoutesAndCollections() {
         let _castleCache = null;
         let _castleCacheTime = 0;
         const CASTLE_CACHE_TTL = 5 * 60 * 1000; // 5분
+
+        // 🚀 Countries 서버 메모리 캐시 (TTL 10분)
+        let _countriesCache = null;
+        let _countriesCacheTime = 0;
+        const COUNTRIES_CACHE_TTL = 10 * 60 * 1000;
+
+        // 🚀 Kings 서버 메모리 캐시 (TTL 10분)
+        let _kingsCache = null;
+        let _kingsCacheTime = 0;
+        const KINGS_CACHE_TTL = 10 * 60 * 1000;
         
         function invalidateCastleCache() {
             _castleCache = null;
@@ -856,7 +866,15 @@ app.delete('/api/general/:id', verifyAdmin, async (req, res) => {
         // ----------------------------------------------------
 app.get('/api/countries', async (req, res) => {
     try {
+        // 서버 메모리 캐시 확인
+        if (_countriesCache && (Date.now() - _countriesCacheTime) < COUNTRIES_CACHE_TTL) {
+            res.set('Cache-Control', 'public, max-age=600');
+            return res.json(_countriesCache);
+        }
         const countries = await collections.countries.find({}).toArray();
+        _countriesCache = countries;
+        _countriesCacheTime = Date.now();
+        res.set('Cache-Control', 'public, max-age=600');
         res.json(countries);
     } catch (error) {
         console.error("Country 조회 중 오류:", error);
@@ -869,16 +887,12 @@ app.post('/api/countries', verifyAdmin, async (req, res) => {
     try {
         const newCountry = req.body;
         if (newCountry._id) delete newCountry._id; 
-        // 🚩 [추가] is_main_dynasty 필드가 boolean 타입인지 확인
         newCountry.is_main_dynasty = typeof newCountry.is_main_dynasty === 'boolean' ? newCountry.is_main_dynasty : false;
-        // ✨ NEW: ethnicity 필드 추가
         newCountry.ethnicity = newCountry.ethnicity || null;
-        // ✨ NEW: description 필드 추가
         newCountry.description = newCountry.description || null;
 
         const result = await collections.countries.insertOne(newCountry);
-        // 클라이언트에서 countryOriginalName 필드를 사용하여 신규 여부를 확인하므로, 
-        // 응답 시 해당 필드를 함께 반환하는 것이 좋습니다.
+        _countriesCache = null; // 캐시 무효화
         logCRUD('CREATE', 'Country', newCountry.name, `(ID: ${result.insertedId})`);
         res.status(201).json({ message: "Country 추가 성공", id: result.insertedId.toString(), countryOriginalName: newCountry.name }); 
     } catch (error) {
@@ -950,6 +964,7 @@ app.put('/api/countries/:name', verifyAdmin, async (req, res) => {
         }
 
         logCRUD('UPDATE', 'Country', name, `→ ${updatedCountry.name || name}`);
+        _countriesCache = null; // 캐시 무효화
         res.json({ message: "Country 정보 업데이트 성공" });
     } catch (error) {
         logCRUD('ERROR', 'Country', 'PUT', error.message);
@@ -977,6 +992,7 @@ app.delete('/api/countries/:name', verifyAdmin, async (req, res) => {
             return res.status(404).json({ message: "국가를 찾을 수 없습니다." });
         }
 
+        _countriesCache = null; // 캐시 무효화
         res.json({ message: "Country 정보 삭제 성공" });
     } catch (error) {
         console.error("Country 정보 삭제 중 오류:", error);
@@ -991,7 +1007,15 @@ app.delete('/api/countries/:name', verifyAdmin, async (req, res) => {
 // GET: 모든 왕 정보 반환 (변경 없음)
 app.get('/api/kings', async (req, res) => {
      try {
+        // 서버 메모리 캐시 확인
+        if (_kingsCache && (Date.now() - _kingsCacheTime) < KINGS_CACHE_TTL) {
+            res.set('Cache-Control', 'public, max-age=600');
+            return res.json(_kingsCache);
+        }
         const kings = await collections.kings.find({}).toArray();
+        _kingsCache = kings;
+        _kingsCacheTime = Date.now();
+        res.set('Cache-Control', 'public, max-age=600');
         res.json(kings);
      } catch (error) {
          res.status(500).json({ message: "Kings 조회 실패" });
@@ -1025,6 +1049,7 @@ app.post('/api/kings', verifyAdmin, async (req, res) => {
             throw new Error("국가 찾기/추가 실패");
         }
         
+        _kingsCache = null; // 캐시 무효화
         res.status(201).json({ 
             message: "King 추가 성공", 
             id: newKingWithId._id.toString() 
@@ -1109,6 +1134,7 @@ app.put('/api/kings/:id', verifyAdmin, async (req, res) => {
             return res.status(404).json({ message: "해당 ID를 가진 왕 레코드를 찾을 수 없습니다." });
         }
 
+        _kingsCache = null; // 캐시 무효화
         res.json({ message: "King 정보 업데이트 성공" });
     } catch (error) {
         console.error("King 정보 업데이트 중 오류:", error);
@@ -1135,6 +1161,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
              return res.status(404).json({ message: "해당 ID를 가진 왕 레코드를 찾을 수 없거나 이미 삭제되었습니다." });
         }
 
+        _kingsCache = null; // 캐시 무효화
         res.json({ message: "King 정보 삭제 성공" });
     } catch (error) {
         console.error("King 정보 삭제 중 오류:", error);
@@ -4619,6 +4646,23 @@ if (require.main === module) {
     setupRoutesAndCollections().then(() => {
         app.listen(port, () => {
             console.log(`Server listening on http://localhost:${port}`);
+            // 🚀 서버 시작 후 핵심 데이터 warm-up (첫 사용자 cold 쿼리 제거)
+            setTimeout(async () => {
+                try {
+                    if (collections.countries) {
+                        const c = await collections.countries.find({}).toArray();
+                        _countriesCache = c; _countriesCacheTime = Date.now();
+                        console.log(`🔥 warm-up: countries ${c.length}개 캐시 완료`);
+                    }
+                    if (collections.kings) {
+                        const k = await collections.kings.find({}).toArray();
+                        _kingsCache = k; _kingsCacheTime = Date.now();
+                        console.log(`🔥 warm-up: kings ${k.length}개 캐시 완료`);
+                    }
+                } catch (e) {
+                    console.warn('warm-up 실패 (무시):', e.message);
+                }
+            }, 2000); // DB 연결 안정화 후 2초 뒤 실행
         });
     }).catch(err => {
         console.error("MongoDB 연결 또는 서버 시작 중 치명적인 오류 발생:", err);
