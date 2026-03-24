@@ -11664,7 +11664,18 @@ function invalidateCountryLookupCache() {
         }
     }
 
-    // 🚀 [IndexedDB] Drawings 데이터 저장
+    // �️ [방어코드] drawings 배열의 _id를 항상 string으로 정규화
+    // MongoDB ObjectId 객체({$oid: '...'})나 toString() 가능한 객체 모두 처리
+    function normalizeDrawings(data) {
+        if (!Array.isArray(data)) return [];
+        return data.map(d => {
+            if (!d) return d;
+            const id = d._id?.$oid ?? (typeof d._id === 'object' && d._id !== null ? d._id.toString() : d._id);
+            return { ...d, _id: id };
+        });
+    }
+
+    // �🚀 [IndexedDB] Drawings 데이터 저장
     async function saveDrawingsCache(drawingsData) {
         try {
             const db = await openDrawingsDB();
@@ -11853,7 +11864,7 @@ function invalidateCountryLookupCache() {
           drawings = [];
           console.log('📦 drawings 초기화 (캐시 없음)');
       } else {
-          drawings = cachedDrawings;
+          drawings = normalizeDrawings(cachedDrawings);
           console.log(`💾 drawings 캐시 사용: ${drawings.length}개 (초기화 생략)`);
       }
       
@@ -12183,7 +12194,7 @@ function invalidateCountryLookupCache() {
           console.log(`✏️ [백그라운드] drawings 최신 데이터 재검증 시작 (현재 캐시: ${drawings.length}개)...`);
           fetchData('drawings').then(data => {
               if (!data) return;
-              drawings = data;
+              drawings = normalizeDrawings(data);
               console.log(`✅ [백그라운드] drawings ${drawings.length}개 네트워크에서 로드 완료`);
               
               // IndexedDB에 캐싱
@@ -13116,8 +13127,8 @@ function invalidateCountryLookupCache() {
               const index = drawings.findIndex(d => d._id === drawingId);
               
               if (index !== -1 && updatedDrawing) {
-                  drawings[index] = updatedDrawing;
-                  console.log(`✅ 그리기 DB 동기화 완료: ${drawingId}`, updatedDrawing);
+                  drawings[index] = normalizeDrawings([updatedDrawing])[0];
+                  console.log(`✅ 그리기 DB 동기화 완료: ${drawingId}`);
               } else {
                   console.warn(`⚠️ 메모리에서 찾을 수 없음: ${drawingId}`);
               }
@@ -13133,9 +13144,11 @@ function invalidateCountryLookupCache() {
       };
       
       window.addDrawingInMemory = (newDrawing) => {
-          drawings.push(newDrawing);
-          console.log(`✅ 그리기 메모리 추가: ${newDrawing._id}`);
-          // 🚩 [버그수정] 저장 즉시 IndexedDB 캐시 갱신 — 미갱신 시 재방문 시 누락됨
+          // _id가 객체인 경우 string으로 정규화
+          const normalized = normalizeDrawings([newDrawing])[0];
+          drawings.push(normalized);
+          console.log(`✅ 그리기 메모리 추가: ${normalized._id}`);
+          // 저장 즉시 IndexedDB 캐시 갱신
           saveDrawingsCache(drawings).catch(e => console.warn('⚠️ drawings 캐시 저장 실패:', e));
           const { year, month } = getCurrentYearMonth();
           updateMap(year, month);
@@ -20094,7 +20107,7 @@ kingSelect.addEventListener('change', () => {
                         cache: 'no-store'
                     });
                     if (drawingsRes.ok) {
-                        drawings = await drawingsRes.json();
+                        drawings = normalizeDrawings(await drawingsRes.json());
                         await saveDrawingsCache(drawings);
                         console.log(`✅ [강제 새로고침] drawings ${drawings.length}개 로드 완료`);
                     }
