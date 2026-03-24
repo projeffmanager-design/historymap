@@ -238,8 +238,8 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.65',          // [v3.6.65] 벡터 타일 로드 방식으로 전환 — country_id 복원
-        DATA_SCHEMA_VERSION: '2.1.0'    // 타일 재생성: country_id 포함, DP 단순화 적용 — 캐시 강제 갱신
+        APP_VERSION: '3.6.64',          // [v3.6.64] drawings 강 스타일 네이비 얇은 실선, 디버그 로그 제거
+        DATA_SCHEMA_VERSION: '2.0.8'    // territories country_id 제거 — 캐시 강제 갱신
     };
 
     // 로딩 화면 우하단 버전 표기 — 가장 먼저 실행 (리다이렉트 전에도 보여야 함)
@@ -12030,14 +12030,11 @@ function invalidateCountryLookupCache() {
               
               // 📊 디버깅: 실제 렌더링된 영토 수 확인
               if (territories.length > 0) {
-                  const { year: dbgYear, month: dbgMonth } = getCurrentYearMonth();
-                  let withCountryId = 0, withDominant = 0;
-                  for (const t of territories) {
-                      if (t.properties?.country_id && getCountryInfoById(t.properties.country_id)) withCountryId++;
-                      const dom = calculateDominantCountry(t, dbgYear, dbgMonth);
-                      if (dom && getCountryInfoById(dom.countryId)) withDominant++;
-                  }
-                  console.log(`📊 [디버깅] 캐시 렌더링: 전체 ${territories.length}개, country_id 매칭 ${withCountryId}개, 성채기반 매칭 ${withDominant}개`);
+                  const renderedTerritories = territories.filter(t => {
+                      const country = getCountryInfoById(t.properties?.country_id);
+                      return country != null;
+                  });
+                  console.log(`📊 [디버깅] 캐시 렌더링: 전체 ${territories.length}개, 국가 매칭 성공 ${renderedTerritories.length}개, 국가없음 ${territories.length - renderedTerritories.length}개`);
               }
           }
       } catch (error) {
@@ -12228,14 +12225,7 @@ function invalidateCountryLookupCache() {
           // 기존: setTimeout 200ms로 후순위 → 브라우저 연결 큐 대기 271초
           // 개선: kings/naturalFeatures와 동시 시작 → 수 초 내 완료
           if ((layerVisibility.city || layerVisibility.territoryPolygon) && castles.length === 0) {
-              // 🚀 [타임아웃 보호] castle은 MongoDB가 느릴 수 있으므로 120초 타임아웃 적용
-              additionalLoadPromises.castles = Promise.race([
-                  fetchData('castle'),
-                  new Promise((_, reject) => setTimeout(() => reject(new Error('castle 타임아웃 (120초)')), 120000))
-              ]).catch(err => {
-                  console.warn(`⚠️ castle 로드 실패/타임아웃:`, err.message);
-                  return [];
-              });
+              additionalLoadPromises.castles = fetchData('castle');
           }
           
           // 왕 데이터 (항상 로드 — 패널 OFF여도 편집 폼에서 필요)
@@ -12647,8 +12637,10 @@ function invalidateCountryLookupCache() {
               
               const bounds = map.getBounds();
               
-              // � 정적 벡터 타일에서 로드 (MongoDB 직접 쿼리 X)
-              await loadTerritoryFromStaticTiles(bounds);
+              // 📖 [수정] MongoDB 직접 로드 (정적 타일에 country 등 필드 미포함 → 직접 API 사용)
+              console.log(`📡 [MongoDB] 영토 데이터 직접 로드`);
+              await loadTerritoryFromMongoDB(bounds);
+              return;
               
           } catch (error) {
               console.error('❌ 영토 타일 로드 실패:', error);
@@ -12780,12 +12772,6 @@ function invalidateCountryLookupCache() {
               allFeatures.forEach(feature => {
                   const id = feature.properties?._id || feature.properties?.id || feature.id;
                   if (id && !uniqueTerritories.has(id)) {
-                      const countryId = feature.properties?.country_id || feature.properties?.country || null;
-                      // properties에 country_id 보장 (calculateDominantCountry가 이를 사용)
-                      const props = {
-                          ...feature.properties,
-                          country_id: countryId
-                      };
                       uniqueTerritories.set(id, {
                           _id: id,
                           name: feature.properties?.name || '영토',
@@ -12795,8 +12781,8 @@ function invalidateCountryLookupCache() {
                           coordinates: feature.geometry?.coordinates,
                           bbox: feature.properties?.bbox,
                           level: feature.properties?.level,
-                          country: countryId,
-                          properties: props,
+                          country: feature.properties?.country,
+                          properties: feature.properties,
                           osm_id: feature.properties?.osm_id,
                           start: feature.properties?.start_year || feature.properties?.start,
                           end: feature.properties?.end_year || feature.properties?.end
@@ -12840,21 +12826,36 @@ function invalidateCountryLookupCache() {
           
           console.log(`📡 [MongoDB] 전체 영토 데이터 로딩...`);
           
+          // 🔑 토큰이 있으면 헤더에 포함 (선택적 인증)
           const headers = {};
           const token = getToken();
-          if (token) headers['Authorization'] = `Bearer ${token}`;
+          if (token) {
+              headers['Authorization'] = `Bearer ${token}`;
+          }
           
+          // 진행률 표시
           const territoryBtns = document.querySelectorAll('[data-layer="territoryPolygon"]');
           const startTime = Date.now();
           let progressInterval = setInterval(() => {
               const elapsed = Math.floor((Date.now() - startTime) / 1000);
               territoryBtns.forEach(btn => {
-                  if (btn.tagName === 'BUTTON') btn.textContent = `영토 로딩중... ${elapsed}초`;
+                  if (btn.tagName === 'BUTTON') {
+                      btn.textContent = `영토 로딩중... ${elapsed}초`;
+                  }
               });
           }, 1000);
           
+          // 🚀 [v3.6 메모리 최적화] 좌표 정밀도 축소
+          function truncateCoordPrecision(coords) {
+              if (!Array.isArray(coords)) return coords;
+              if (typeof coords[0] === 'number') {
+                  return [Math.round(coords[0] * 100000) / 100000, Math.round(coords[1] * 100000) / 100000];
+              }
+              return coords.map(truncateCoordPrecision);
+          }
+          
           try {
-              // 서버에서 이미 단순화+정밀도 축소된 좌표를 받음 (nocache=true로 캐시 무효화)
+              // 🚀 bounds 없이 전체 영토 로드 (nocache=true로 서버 캐시 무효화)
               const response = await fetch(
                   `${API_BASE_URL}/territories?nocache=true`,
                   { headers }
@@ -12862,39 +12863,46 @@ function invalidateCountryLookupCache() {
               
               if (!response.ok) {
                   const errorText = await response.text();
-                  console.error(`❌ 영토 로드 실패: ${response.status}`, errorText);
-                  throw new Error(`영토 로드 실패: ${response.status}`);
+                  console.error(`❌ MongoDB 영토 로드 실패: ${response.status} ${response.statusText}`, errorText);
+                  throw new Error(`MongoDB 영토 로드 실패: ${response.status}`);
               }
               
               const data = await response.json();
               const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
               
-              // 서버 응답은 이미 { type, coordinates, ... } 구조로 단순화된 상태
-              territories = data.map(t => ({
-                  _id: t._id,
-                  name: t.name,
-                  name_ko: t.name_ko,
-                  name_type: t.name_type,
-                  type: t.type,
-                  coordinates: t.coordinates,
-                  bbox: t.bbox,
-                  level: t.level,
-                  country: t.country,
-                  properties: t.properties,
-                  osm_id: t.osm_id,
-                  start: t.start,
-                  end: t.end
-              }));
+              territories = data.map(t => {
+                  const rawCoords = t.geometry?.coordinates || t.coordinates;
+                  return {
+                      _id: t._id,
+                      name: t.name,
+                      name_ko: t.name_ko,
+                      name_type: t.name_type,
+                      type: t.geometry?.type || t.type,
+                      coordinates: truncateCoordPrecision(rawCoords),
+                      bbox: t.bbox,
+                      level: t.level,
+                      // 🔑 [v3.6.1] ObjectId 객체 → hex 문자열 변환 (서버가 {$oid:"..."} 반환 시 대비)
+                      country: t.country && typeof t.country === 'object' && !Array.isArray(t.country)
+                                ? (t.country.$oid || String(t.country))
+                                : t.country,
+                      properties: t.properties,
+                      osm_id: t.osm_id,
+                      start: t.start || t.start_year,
+                      end: t.end || t.end_year
+                  };
+              });
               
               allTerritoriesLoaded = true;
               clearInterval(progressInterval);
               
-              console.log(`🎉 영토 로드 완료: ${territories.length}개 (${elapsed}초)`);
+              console.timeEnd("🗺️ 영토 타일 로드");
+              console.log(`🎉 전체 데이터 로드 완료! (총 ${elapsed}초)`);
               
               territoryBtns.forEach(btn => {
                   if (btn.tagName === 'BUTTON') btn.textContent = `영토 ${territories.length}개`;
               });
               
+              // 영토 렌더링
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
           } catch (error) {
