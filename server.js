@@ -8,6 +8,7 @@ const bcrypt = require('bcryptjs');
 const cors = require('cors');
 const compression = require('compression');
 const path = require('path');
+const fs = require('fs');
 const { connectToDatabase, collections } = require('./db'); // 🚩 [추가] DB 연결 모듈
 
 const app = express();
@@ -452,11 +453,223 @@ async function setupRoutesAndCollections() {
         let _castleCache = null;
         let _castleCacheTime = 0;
         const CASTLE_CACHE_TTL = 6 * 60 * 60 * 1000; // 6시간
+        const CASTLE_STATIC_FILE = path.join(__dirname, 'public', 'castles.json');
+
+        // 🚀 [v3.6] 정적 파일에서 즉시 캐시 주입 (밀리초) — MongoDB 쿼리 없이 서버 시작
+        (function preloadCastleFromFile() {
+            if (fs.existsSync(CASTLE_STATIC_FILE)) {
+                try {
+                    const raw = fs.readFileSync(CASTLE_STATIC_FILE, 'utf8');
+                    _castleCache = JSON.parse(raw);
+                    _castleCacheTime = Date.now();
+                    console.log(`⚡ [캐시 사전주입] castle 정적 파일 로드: ${_castleCache.length}개 (${(raw.length/1024/1024).toFixed(1)}MB)`);
+                } catch (e) {
+                    console.warn('⚠️ castle 정적 파일 파싱 실패 (MongoDB fallback 사용):', e.message);
+                }
+            } else {
+                console.log('ℹ️ public/castles.json 없음 → 첫 요청 시 MongoDB 쿼리 (약 270초)');
+                console.log('   빠른 시작을 위해: node scripts/export_castles_to_json.js');
+            }
+        })();
         
         function invalidateCastleCache() {
             _castleCache = null;
             _castleCacheTime = 0;
         }
+
+        // 📦 [배치/수동] castles.json 재빌드 — 매일 새벽 3시 자동 실행 + admin API로 수동 트리거 가능
+        // 데이터 변경 직후 호출 안 함 (Atlas M0에서 270초 소요 → 배치로 일괄 처리)
+        let _castleRebuildInProgress = false;
+        async function rebuildCastleStaticFile(reason) {
+            if (_castleRebuildInProgress) {
+                console.log(`⏳ [재빌드 스킵] 이미 진행 중 (사유: ${reason})`);
+                return;
+            }
+            _castleRebuildInProgress = true;
+            console.log(`🔄 [재빌드 시작] castles.json 갱신 중... (사유: ${reason})`);
+            const startTime = Date.now();
+            try {
+                const query = { $or: [{ deleted: { $exists: false } }, { deleted: false }] };
+                const cursor = collections.castle.find(query);
+                const castles = [];
+                for await (const doc of cursor) {
+                    castles.push({ ...doc, _id: doc._id?.toString ? doc._id.toString() : doc._id });
+                }
+                const json = JSON.stringify(castles);
+                fs.writeFileSync(CASTLE_STATIC_FILE, json);
+                // 메모리 캐시도 동시 갱신
+                _castleCache = castles;
+                _castleCacheTime = Date.now();
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                console.log(`✅ [재빌드 완료] castles.json 갱신: ${castles.length}개, ${(json.length/1024/1024).toFixed(1)}MB (${elapsed}초)`);
+            } catch (e) {
+                console.error('❌ [재빌드 실패] castles.json 갱신 오류:', e.message);
+                // 실패 시 메모리 캐시만 무효화 → 다음 GET 요청이 재쿼리
+                invalidateCastleCache();
+            } finally {
+                _castleRebuildInProgress = false;
+            }
+        }
+
+        // 🗺️ [영토 타일] dirty 플래그 — territories POST/PUT/DELETE 시 true로 설정
+        let _territoryDirty = false;
+        const TILES_DIR = path.join(__dirname, 'public', 'tiles');
+
+        // ─── Douglas-Peucker 단순화 (export_territories_to_tiles.js와 동일 로직) ───
+        function _dpSimplify(points, tol) {
+            if (points.length <= 2) return points;
+            const sq = t => t * t;
+            function sqSegDist(p, p1, p2) {
+                let x = p1[0], y = p1[1], dx = p2[0]-x, dy = p2[1]-y;
+                if (dx !== 0 || dy !== 0) {
+                    const t = ((p[0]-x)*dx + (p[1]-y)*dy) / (sq(dx)+sq(dy));
+                    if (t > 1) { x = p2[0]; y = p2[1]; }
+                    else if (t > 0) { x += dx*t; y += dy*t; }
+                }
+                return sq(p[0]-x) + sq(p[1]-y);
+            }
+            const sqTol = sq(tol); let maxD = 0, idx = 0;
+            for (let i = 1; i < points.length-1; i++) {
+                const d = sqSegDist(points[i], points[0], points[points.length-1]);
+                if (d > maxD) { maxD = d; idx = i; }
+            }
+            if (maxD > sqTol) {
+                const l = _dpSimplify(points.slice(0, idx+1), tol);
+                const r = _dpSimplify(points.slice(idx), tol);
+                return l.slice(0,-1).concat(r);
+            }
+            return [points[0], points[points.length-1]];
+        }
+        function _simplifyGeometry(geometry, tol) {
+            if (!geometry?.coordinates) return geometry;
+            function simplifyCoords(coords) {
+                if (!Array.isArray(coords) || coords.length === 0) return coords;
+                if (typeof coords[0] === 'number') return coords;
+                if (typeof coords[0][0] === 'number') {
+                    const s = _dpSimplify(coords, tol);
+                    if (s.length >= 2 && (s[0][0] !== s[s.length-1][0] || s[0][1] !== s[s.length-1][1])) s.push(s[0]);
+                    return s.length >= 4 ? s : coords;
+                }
+                return coords.map(c => simplifyCoords(c));
+            }
+            return { ...geometry, coordinates: simplifyCoords(geometry.coordinates) };
+        }
+
+        // 📦 [배치/수동] 영토 타일 재빌드 — dirty일 때만 실행
+        let _tileRebuildInProgress = false;
+        async function rebuildTerritoryTiles(reason, force = false) {
+            if (!force && !_territoryDirty) {
+                console.log(`⏭️  [타일 스킵] 영토 변경 없음 (사유: ${reason})`);
+                return;
+            }
+            if (_tileRebuildInProgress) {
+                console.log(`⏳ [타일 스킵] 이미 진행 중 (사유: ${reason})`);
+                return;
+            }
+            _tileRebuildInProgress = true;
+            console.log(`🗺️  [타일 재빌드 시작] public/tiles/ 갱신 중... (사유: ${reason})`);
+            const startTime = Date.now();
+            try {
+                const TILE_SIZE = 10;
+                const cursor = collections.territories.find({});
+                const tiles = new Map();
+                let count = 0;
+                for await (const territory of cursor) {
+                    count++;
+                    const geometry = territory.geometry
+                        || (territory.type && territory.coordinates ? { type: territory.type, coordinates: territory.coordinates } : null);
+                    if (!geometry) continue;
+
+                    let minLat, maxLat, minLng, maxLng;
+                    if (territory.bbox) {
+                        ({ minLat, maxLat, minLng, maxLng } = territory.bbox);
+                    } else {
+                        minLat = 90; maxLat = -90; minLng = 180; maxLng = -180;
+                        (function walk(coords) {
+                            if (!Array.isArray(coords)) return;
+                            if (typeof coords[0] === 'number') {
+                                if (coords[1] < minLat) minLat = coords[1];
+                                if (coords[1] > maxLat) maxLat = coords[1];
+                                if (coords[0] < minLng) minLng = coords[0];
+                                if (coords[0] > maxLng) maxLng = coords[0];
+                            } else { coords.forEach(walk); }
+                        })(geometry.coordinates);
+                    }
+
+                    const simplified = _simplifyGeometry(geometry, 0.005);
+                    const feature = {
+                        type: 'Feature', geometry: simplified,
+                        properties: {
+                            _id: territory._id.toString(),
+                            name: territory.name, name_ko: territory.name_ko,
+                            type: territory.type, level: territory.level,
+                            country: territory.country ? territory.country.toString() : null,
+                            country_id: territory.country ? territory.country.toString() : null,
+                            start_year: territory.start_year || territory.start || null,
+                            end_year: territory.end_year || territory.end || null,
+                        }
+                    };
+
+                    const startTileLat = Math.floor(minLat / TILE_SIZE) * TILE_SIZE;
+                    const endTileLat   = Math.ceil(maxLat  / TILE_SIZE) * TILE_SIZE;
+                    const startTileLng = Math.floor(minLng / TILE_SIZE) * TILE_SIZE;
+                    const endTileLng   = Math.ceil(maxLng  / TILE_SIZE) * TILE_SIZE;
+                    for (let lat = startTileLat; lat < endTileLat; lat += TILE_SIZE) {
+                        for (let lng = startTileLng; lng < endTileLng; lng += TILE_SIZE) {
+                            const key = `${lat}_${lng}`;
+                            if (!tiles.has(key)) tiles.set(key, { tile_lat: lat, tile_lng: lng,
+                                bounds: { north: lat+TILE_SIZE, south: lat, west: lng, east: lng+TILE_SIZE }, data: [] });
+                            tiles.get(key).data.push(feature);
+                        }
+                    }
+                }
+
+                // 기존 타일 파일 삭제
+                const existing = fs.readdirSync(TILES_DIR).filter(f => f.endsWith('.json'));
+                for (const f of existing) fs.unlinkSync(path.join(TILES_DIR, f));
+
+                // 새 타일 파일 저장
+                const indexData = [];
+                for (const [, tile] of tiles) {
+                    const filename = `tile_${tile.tile_lat}_${tile.tile_lng}.json`;
+                    const exportData = { type: 'FeatureCollection', tile_lat: tile.tile_lat, tile_lng: tile.tile_lng,
+                        bounds: tile.bounds, features: tile.data, feature_count: tile.data.length };
+                    fs.writeFileSync(path.join(TILES_DIR, filename), JSON.stringify(exportData));
+                    indexData.push({ lat: tile.tile_lat, lng: tile.tile_lng, bounds: tile.bounds, filename, feature_count: tile.data.length });
+                }
+                fs.writeFileSync(path.join(TILES_DIR, 'index.json'), JSON.stringify(indexData, null, 2));
+
+                _territoryDirty = false; // 재빌드 완료 → dirty 해제
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                console.log(`✅ [타일 재빌드 완료] ${tiles.size}개 타일, 영토 ${count}개 (${elapsed}초)`);
+            } catch (e) {
+                console.error('❌ [타일 재빌드 실패]', e.message);
+            } finally {
+                _tileRebuildInProgress = false;
+            }
+        }
+
+        // ⏰ [배치 스케줄러] 매일 새벽 3시 — castles.json + 영토 타일(변경시만) 갱신
+        (function scheduleDailyRebuild() {
+            function msUntilNextBatch() {
+                const now = new Date();
+                const next = new Date(now);
+                next.setHours(3, 0, 0, 0);
+                if (next <= now) next.setDate(next.getDate() + 1);
+                return next - now;
+            }
+            function scheduleNext() {
+                const delay = msUntilNextBatch();
+                const nextTime = new Date(Date.now() + delay).toLocaleString('ko-KR');
+                console.log(`⏰ [배치] 다음 야간 재빌드 예약: ${nextTime} (${Math.round(delay / 3600000)}시간 후)`);
+                setTimeout(async () => {
+                    await rebuildCastleStaticFile('야간 배치 (새벽 3시)');
+                    await rebuildTerritoryTiles('야간 배치 (새벽 3시)'); // dirty면 실행, 아니면 skip
+                    scheduleNext();
+                }, delay);
+            }
+            scheduleNext();
+        })();
 
         // GET: 모든 성 정보 반환
         app.get('/api/castle', async (req, res) => { // (collections.castle로 변경)
@@ -502,6 +715,14 @@ async function setupRoutesAndCollections() {
                     _castleCache = castles;
                     _castleCacheTime = Date.now();
                     console.log(`💾 Castle 서버 캐시 저장: ${castles.length}개`);
+                    // 🚀 [v3.6] 정적 파일로도 저장 → 다음 서버 시작 시 즉시 로드
+                    try {
+                        const json = JSON.stringify(castles.map(c => ({ ...c, _id: c._id?.toString ? c._id.toString() : c._id })));
+                        fs.writeFileSync(CASTLE_STATIC_FILE, json);
+                        console.log(`💾 castles.json 저장 완료 (${(json.length/1024/1024).toFixed(1)}MB) → 다음 시작부터 즉시 로드`);
+                    } catch (e) {
+                        console.warn('⚠️ castles.json 저장 실패 (무시):', e.message);
+                    }
                 }
                 
                 res.json(castles);
@@ -555,7 +776,8 @@ async function setupRoutesAndCollections() {
                 const result = await collections.castle.insertOne(newCastle);
                 
                 // � [v3.5] 서버 캐시 무효화
-                invalidateCastleCache();
+                // 🔄 [자동화] castle 변경 → 백그라운드에서 castles.json 자동 재빌드
+                invalidateCastleCache(); // 메모리 캐시 무효화 (파일은 새벽 3시 배치로 갱신)
                 
                 // �🚩 [수정] 삽입된 전체 문서를 다시 조회해서 반환
                 const insertedDocument = await collections.castle.findOne({ _id: result.insertedId });
@@ -609,7 +831,8 @@ async function setupRoutesAndCollections() {
                 );
                 
                 // 🚀 [v3.5] 서버 캐시 무효화
-                invalidateCastleCache();
+                // 🔄 [자동화] castle 변경 → castles.json 재빌드
+                invalidateCastleCache(); // 메모리 캐시 무효화 (파일은 새벽 3시 배치로 갱신)
 
                 if (result.matchedCount === 0) {
                     return res.status(404).json({ message: "성을 찾을 수 없습니다." });
@@ -694,7 +917,8 @@ async function setupRoutesAndCollections() {
                 }
 
                 // 🚀 [v3.5] 서버 캐시 무효화
-                invalidateCastleCache();
+                // 🔄 [자동화] castle 변경 → castles.json 재빌드
+                invalidateCastleCache(); // 메모리 캐시 무효화 (파일은 새벽 3시 배치로 갱신)
                 
                 logCRUD('SOFT_DELETE', 'Castle', id);
                 res.json({ message: "Castle 정보 휴지통으로 이동됨" });
@@ -726,7 +950,8 @@ async function setupRoutesAndCollections() {
                 }
 
                 // 🚀 [v3.5] 서버 캐시 무효화
-                invalidateCastleCache();
+                // 🔄 [자동화] castle 변경 → castles.json 재빌드
+                invalidateCastleCache(); // 메모리 캐시 무효화 (파일은 새벽 3시 배치로 갱신)
 
                 // 복원된 castle 데이터를 응답에 포함 (클라이언트 캐시 갱신용)
                 const restoredCastle = await collections.castle.findOne({ _id: _id });
@@ -753,7 +978,8 @@ async function setupRoutesAndCollections() {
                 }
 
                 // 🚀 [v3.5] 서버 캐시 무효화
-                invalidateCastleCache();
+                // 🔄 [자동화] castle 변경 → castles.json 재빌드
+                invalidateCastleCache(); // 메모리 캐시 무효화 (파일은 새벽 3시 배치로 갱신)
                 
                 logCRUD('PERMANENT_DELETE', 'Castle', id);
                 res.json({ message: "Castle 정보 영구 삭제 성공" });
@@ -1765,6 +1991,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 // 🚀 캐시 무효화
                 territoriesCache = null;
                 territoriesCacheTime = null;
+                _territoryDirty = true; // 새벽 3시 배치에서 타일 재빌드
                 console.log('🗑️ Territories 캐시 무효화됨 (POST)');
             } catch (error) {
                 console.error("Territory 추가 중 오류:", error);
@@ -1830,6 +2057,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 // 🚀 캐시 무효화
                 territoriesCache = null;
                 territoriesCacheTime = null;
+                _territoryDirty = true; // 새벽 3시 배치에서 타일 재빌드
                 console.log('🗑️ Territories 캐시 무효화됨 (PUT)');
                 
                 res.json({ message: "Territory 정보 업데이트 성공" });
@@ -1851,6 +2079,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 // 🚀 캐시 무효화
                 territoriesCache = null;
                 territoriesCacheTime = null;
+                _territoryDirty = true; // 새벽 3시 배치에서 타일 재빌드
                 console.log('🗑️ Territories 캐시 무효화됨 (DELETE)');
                 
                 res.json({ message: "Territory 정보 삭제 성공" });
@@ -1882,6 +2111,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 // 🚀 캐시 무효화
                 territoriesCache = null;
                 territoriesCacheTime = null;
+                _territoryDirty = true; // 새벽 3시 배치에서 타일 재빌드
                 console.log('🗑️ Territories 캐시 무효화됨 (DELETE by OSM)');
 
                 res.json({ message: 'OSM 기반 영토 삭제 완료', deletedCount: result.deletedCount });
@@ -3457,7 +3687,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const castleResult = await collections.castle.insertOne(newCastle);
                 logCRUD('CREATE', 'Castle (from contribution)', newCastle.name, `(ID: ${castleResult.insertedId}, ContribID: ${contribution._id})`);
                 console.log(`✅ [승인→Castle] '${newCastle.name}' castle에 자동 삽입 완료 (is_natural: ${isNatural})`);
-                invalidateCastleCache(); // 🚩 서버 캐시 즉시 무효화                            // 삽입된 castle 데이터를 응답에 포함
+                // 🔄 [자동화] 기여 승인 castle 생성 → castles.json 재빌드
+                invalidateCastleCache(); // 메모리 캐시 무효화 (파일은 새벽 3시 배치로 갱신)
                             const insertedCastle = await collections.castle.findOne({ _id: castleResult.insertedId });
                             const message = '검토가 완료되었습니다.';
                             // 🚩 [수정] logActivity를 return 전에 await 호출
@@ -3809,7 +4040,29 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
-        // 🚩 [추가] 점수 재계산 API (관리자용)
+        // � [Admin API] castles.json 수동 재빌드 (즉시 실행)
+        // 급하게 최신 데이터가 필요할 때 admin이 직접 트리거
+        app.post('/api/admin/rebuild-castles', verifyAdmin, async (req, res) => {
+            if (_castleRebuildInProgress) {
+                return res.status(409).json({ message: '이미 재빌드가 진행 중입니다. 잠시 후 다시 시도하세요.' });
+            }
+            res.json({ message: '🔄 castles.json 재빌드 시작 (약 270초 소요). 서버 로그를 확인하세요.' });
+            rebuildCastleStaticFile('admin 수동 트리거').catch(e =>
+                console.error('❌ [수동 재빌드 실패]', e.message)
+            );
+        });
+
+        app.post('/api/admin/rebuild-tiles', verifyAdmin, async (req, res) => {
+            if (_tileRebuildInProgress) {
+                return res.status(409).json({ message: '이미 타일 재빌드가 진행 중입니다. 잠시 후 다시 시도하세요.' });
+            }
+            res.json({ message: '🗺️ 영토 타일 재빌드 시작. 서버 로그를 확인하세요.' });
+            rebuildTerritoryTiles('admin 수동 트리거', true).catch(e =>
+                console.error('❌ [타일 수동 재빌드 실패]', e.message)
+            );
+        });
+
+        // �🚩 [추가] 점수 재계산 API (관리자용)
         app.post('/api/admin/recalculate-scores', verifyToken, async (req, res) => {
             try {
                 // 관리자 권한 확인
@@ -4351,7 +4604,8 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
                 insertedCastle = await collections.castle.findOne({ _id: insertResult.insertedId });
                 logCRUD('CREATE', 'Castle (from approve)', newCastle.name, `(ID: ${insertResult.insertedId}, ContribID: ${contribution._id})`);
                 console.log(`✅ [Castle 생성] 승인된 기여 "${contribution.name}"를 Castle로 변환 완료 (ID: ${insertResult.insertedId}, is_natural: ${isNatural})`);
-                invalidateCastleCache(); // 🚩 서버 캐시 즉시 무효화
+                // 🔄 [자동화] 최종승인 castle 생성 → castles.json 재빌드
+                invalidateCastleCache(); // 메모리 캐시 무효화 (파일은 새벽 3시 배치로 갱신)
                 
                 // 기여자에게도 추가 보상 (승인 완료 시)
                 if (contribution.userId) {
@@ -4599,22 +4853,24 @@ if (require.main === module) {
         app.listen(port, () => {
             console.log(`Server listening on http://localhost:${port}`);
 
-            // 🚀 [캐시 워밍업] 서버 시작 즉시 /api/castle 자가 호출 → _castleCache 주입
-            // → 첫 클라이언트 요청 시 280초 대기 없이 즉시 캐시에서 응답
-            // TTL: 6시간 → 하루 최대 4회 쿼리 (서버가 켜져 있는 동안 캐시 유지)
-            setTimeout(() => {
-                const http = require('http');
-                console.log('🔥 [워밍업] castle 캐시 사전 로딩 시작 (/api/castle 자가 호출)...');
-                const req = http.get(`http://localhost:${port}/api/castle`, (res) => {
-                    let size = 0;
-                    res.on('data', chunk => { size += chunk.length; });
-                    res.on('end', () => {
-                        console.log(`✅ [워밍업] castle 캐시 주입 완료 (${(size/1024).toFixed(0)}KB) — 이후 요청은 즉시 응답`);
+            // 🚀 [캐시 워밍업] castles.json이 없을 때만 MongoDB 자가 호출 fallback
+            if (!fs.existsSync(path.join(__dirname, 'public', 'castles.json'))) {
+                setTimeout(() => {
+                    const http = require('http');
+                    console.log('🔥 [워밍업] castle 정적 파일 없음 → MongoDB 자가 호출로 캐시 사전 로딩...');
+                    const req = http.get(`http://localhost:${port}/api/castle`, (res) => {
+                        let size = 0;
+                        res.on('data', chunk => { size += chunk.length; });
+                        res.on('end', () => {
+                            console.log(`✅ [워밍업] castle 캐시 주입 완료 (${(size/1024).toFixed(0)}KB) — 이후 요청은 즉시 응답`);
+                        });
                     });
-                });
-                req.on('error', (e) => console.warn('⚠️ [워밍업] castle 자가 호출 실패 (무시):', e.message));
-                req.setTimeout(300000); // 최대 5분 대기
-            }, 100); // listen 직후 즉시 시작
+                    req.on('error', (e) => console.warn('⚠️ [워밍업] castle 자가 호출 실패 (무시):', e.message));
+                    req.setTimeout(300000); // 최대 5분 대기
+                }, 100); // listen 직후 즉시 시작
+            } else {
+                console.log('✅ [워밍업 불필요] castles.json 사전 로드 완료 — MongoDB 자가 호출 생략');
+            }
         });
     }).catch(err => {
         console.error("MongoDB 연결 또는 서버 시작 중 치명적인 오류 발생:", err);
