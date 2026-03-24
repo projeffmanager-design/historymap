@@ -8,6 +8,7 @@ const bcrypt = require('bcryptjs');
 const cors = require('cors');
 const compression = require('compression');
 const path = require('path');
+const fs = require('fs');
 const { connectToDatabase, collections } = require('./db'); // 🚩 [추가] DB 연결 모듈
 
 const app = express();
@@ -763,6 +764,30 @@ async function setupRoutesAndCollections() {
 app.get('/api/app-version', (req, res) => {
     res.json({ version: '3.6.64' });
 });
+
+// ─── 뉴스레터 API ─────────────────────────────────────────────────────────────
+// GET /api/newsletter → 발행된 뉴스레터 목록 반환
+app.get('/api/newsletter', (req, res) => {
+    res.json([
+        { slug: '2026_01_02', title: '2026년 1·2월 합본호', date: '2026-02-20' },
+        { slug: '2026_02',    title: '2026년 2월호',         date: '2026-02-19' },
+        { slug: '2026_03',    title: '2026년 3월호',         date: '2026-03-24' }
+    ]);
+});
+
+// GET /api/newsletter/:slug → 해당 뉴스레터 마크다운 원문 반환
+app.get('/api/newsletter/:slug', (req, res) => {
+    const slug = req.params.slug.replace(/[^a-zA-Z0-9_\-]/g, ''); // 경로 순회 방지
+    const filePath = path.join(__dirname, `newsletter_${slug}.md`);
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ message: '해당 뉴스레터를 찾을 수 없습니다.' });
+    }
+    fs.readFile(filePath, 'utf8', (err, data) => {
+        if (err) return res.status(500).json({ message: '파일 읽기 실패' });
+        res.type('text/plain; charset=utf-8').send(data);
+    });
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 // GET: 모든 장수 정보 반환
 app.get('/api/general', async (req, res) => {

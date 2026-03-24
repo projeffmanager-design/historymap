@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>사관청 소식 – 고려만리지도</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&family=Noto+Serif+KR:wght@400;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    :root {
+      --bg-deep:    #f5f4f0;
+      --bg-panel:   #ffffff;
+      --bg-card:    #f0ede6;
+      --bg-hover:   #e8e4dc;
+      --gold:       #7a4f1e;
+      --gold-dim:   #b07030;
+      --text-main:  #2c2218;
+      --text-muted: #7a6a58;
+      --border:     #d8d0c0;
+      --accent:     #8e44ad;
+      --scrollbar:  #c8c0b0;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg-deep);
+      color: var(--text-main);
+      font-family: 'Nanum Myeongjo', 'Noto Serif KR', serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── 헤더 ── */
+    header {
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    header .title-group h1 {
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: var(--gold);
+      letter-spacing: 0.05em;
+    }
+    header .title-group p {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    header .back-btn {
+      text-decoration: none;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      padding: 7px 14px;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: background 0.18s, border-color 0.18s;
+      white-space: nowrap;
+    }
+    header .back-btn:hover {
+      background: var(--bg-hover);
+      border-color: var(--gold-dim);
+      color: var(--gold);
+    }
+
+    /* ── 본문 레이아웃 ── */
+    .layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      height: calc(100vh - 57px);
+    }
+
+    /* ── 사이드바 ── */
+    aside {
+      width: 230px;
+      min-width: 180px;
+      background: var(--bg-panel);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      flex-shrink: 0;
+    }
+    aside .sidebar-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--gold-dim);
+      letter-spacing: 0.12em;
+      padding: 18px 18px 8px;
+      text-transform: uppercase;
+    }
+    aside ul {
+      list-style: none;
+      padding: 0 10px 20px;
+    }
+    aside ul li {
+      margin-bottom: 4px;
+    }
+    aside ul li button {
+      width: 100%;
+      text-align: left;
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 10px 12px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.88rem;
+      color: var(--text-main);
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      line-height: 1.4;
+    }
+    aside ul li button .issue-title {
+      display: block;
+      font-weight: 600;
+    }
+    aside ul li button .issue-date {
+      display: block;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    aside ul li button:hover {
+      background: var(--bg-hover);
+      border-color: var(--border);
+    }
+    aside ul li button.active {
+      background: var(--bg-card);
+      border-color: var(--gold-dim);
+      color: var(--gold);
+    }
+    aside ul li button.active .issue-date { color: var(--gold-dim); }
+
+    /* ── 메인 콘텐츠 ── */
+    main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 36px 48px;
+      background: var(--bg-deep);
+    }
+
+    #loading-msg {
+      color: var(--text-muted);
+      font-size: 1rem;
+      text-align: center;
+      margin-top: 60px;
+    }
+
+    /* ── 마크다운 렌더링 스타일 ── */
+    #md-content {
+      max-width: 780px;
+      margin: 0 auto;
+      line-height: 1.85;
+    }
+    #md-content h1 {
+      font-size: 1.7rem;
+      font-weight: 800;
+      color: var(--gold);
+      border-bottom: 2px solid var(--gold-dim);
+      padding-bottom: 10px;
+      margin-bottom: 24px;
+    }
+    #md-content h2 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--gold);
+      border-left: 4px solid var(--gold-dim);
+      padding-left: 12px;
+      margin: 36px 0 14px;
+    }
+    #md-content h3 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #5a3a10;
+      margin: 24px 0 8px;
+    }
+    #md-content p {
+      margin-bottom: 12px;
+      color: var(--text-main);
+    }
+    #md-content ul, #md-content ol {
+      margin: 8px 0 16px 22px;
+    }
+    #md-content li {
+      margin-bottom: 5px;
+    }
+    #md-content strong {
+      color: #7a3a00;
+      font-weight: 700;
+    }
+    #md-content em {
+      color: var(--text-muted);
+      font-style: italic;
+    }
+    #md-content hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 28px 0;
+    }
+    #md-content blockquote {
+      border-left: 3px solid var(--gold-dim);
+      margin: 16px 0;
+      padding: 8px 16px;
+      background: var(--bg-card);
+      border-radius: 0 6px 6px 0;
+      color: var(--text-muted);
+    }
+    #md-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 0.9rem;
+    }
+    #md-content table th {
+      background: var(--bg-card);
+      color: var(--gold);
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      text-align: left;
+    }
+    #md-content table td {
+      border: 1px solid var(--border);
+      padding: 7px 12px;
+    }
+    #md-content table tr:nth-child(even) td {
+      background: var(--bg-panel);
+    }
+    #md-content code {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-family: monospace;
+      font-size: 0.85em;
+      color: #5050c0;
+    }
+
+    /* ── 스크롤바 ── */
+    ::-webkit-scrollbar { width: 7px; }
+    ::-webkit-scrollbar-track { background: var(--bg-panel); }
+    ::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--gold-dim); }
+
+    /* ── 모바일 반응형 ── */
+    @media (max-width: 680px) {
+      header { padding: 10px 14px; }
+      header .title-group h1 { font-size: 1.1rem; }
+      aside { width: 100%; min-width: unset; border-right: none; border-bottom: 1px solid var(--border); height: auto; }
+      .layout { flex-direction: column; height: auto; overflow: visible; }
+      main { padding: 20px 16px; overflow-y: visible; }
+      #md-content { padding: 0; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="title-group">
+    <h1>📜 사관청(史館廳) 소식</h1>
+    <p>고려만리지도 사관들의 활동 보고서</p>
+  </div>
+  <a href="index.html" class="back-btn">← 지도로 돌아가기</a>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="sidebar-label">발행 목록</div>
+    <ul id="issue-list">
+      <li><em style="color:var(--text-muted);font-size:0.8rem;padding:10px 12px;display:block;">불러오는 중…</em></li>
+    </ul>
+  </aside>
+
+  <main>
+    <div id="loading-msg">← 좌측에서 호를 선택하세요.</div>
+    <div id="md-content" style="display:none;"></div>
+  </main>
+</div>
+
+<script>
+(async () => {
+  const listEl   = document.getElementById('issue-list');
+  const loadMsg  = document.getElementById('loading-msg');
+  const mdEl     = document.getElementById('md-content');
+
+  // ── 뉴스레터 목록 로드 ──
+  let issues = [];
+  try {
+    const res = await fetch('/api/newsletter');
+    issues = await res.json();
+  } catch (e) {
+    listEl.innerHTML = '<li style="color:#f88;padding:10px 12px;font-size:0.82rem;">목록을 불러올 수 없습니다.</li>';
+    return;
+  }
+
+  // 사이드바 렌더링 (최신호가 위로 오도록 역순)
+  listEl.innerHTML = '';
+  const reversed = [...issues].reverse();
+  reversed.forEach((issue, idx) => {
+    const li  = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.dataset.slug = issue.slug;
+    btn.innerHTML = `<span class="issue-title">${issue.title}</span><span class="issue-date">${formatDate(issue.date)}</span>`;
+    btn.addEventListener('click', () => loadIssue(issue, btn));
+    li.appendChild(btn);
+    listEl.appendChild(li);
+    // 첫 번째 항목(= 가장 최신호) 자동 로드
+    if (idx === 0) btn.click();
+  });
+
+  // ── 뉴스레터 내용 로드 ──
+  async function loadIssue(issue, clickedBtn) {
+    // 활성 상태 전환
+    listEl.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    clickedBtn.classList.add('active');
+
+    loadMsg.style.display = 'block';
+    loadMsg.textContent   = '불러오는 중…';
+    mdEl.style.display    = 'none';
+
+    try {
+      const res = await fetch(`/api/newsletter/${issue.slug}`);
+      if (!res.ok) throw new Error('404');
+      const mdText = await res.text();
+      mdEl.innerHTML = marked.parse(mdText);
+      mdEl.style.display  = 'block';
+      loadMsg.style.display = 'none';
+      // 페이지 상단으로 스크롤
+      document.querySelector('main').scrollTop = 0;
+    } catch (e) {
+      loadMsg.textContent = '내용을 불러올 수 없습니다.';
+    }
+  }
+
+  function formatDate(dateStr) {
+    if (!dateStr) return '';
+    const [y, m, d] = dateStr.split('-');
+    return `${y}년 ${parseInt(m)}월 ${parseInt(d)}일`;
+  }
+})();
+</script>
+
+</body>
+</html>
