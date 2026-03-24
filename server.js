@@ -665,6 +665,23 @@ async function setupRoutesAndCollections() {
                 setTimeout(async () => {
                     await rebuildCastleStaticFile('야간 배치 (새벽 3시)');
                     await rebuildTerritoryTiles('야간 배치 (새벽 3시)'); // dirty면 실행, 아니면 skip
+                    // 🚀 Vercel 자동 배포 — castles.json 변경사항 push
+                    try {
+                        const { execSync } = require('child_process');
+                        const repoDir = __dirname;
+                        const today = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
+                        execSync('git add public/castles.json', { cwd: repoDir });
+                        const diffStat = execSync('git diff --cached --stat', { cwd: repoDir }).toString().trim();
+                        if (diffStat) {
+                            execSync(`git commit -m "chore: 야간 배치 castles.json 갱신 (${today})"`, { cwd: repoDir });
+                            execSync('git push', { cwd: repoDir });
+                            console.log(`✅ [Vercel 배포] castles.json push 완료 → Vercel 자동 재배포 시작`);
+                        } else {
+                            console.log(`⏭️  [Vercel 배포 스킵] castles.json 변경 없음`);
+                        }
+                    } catch (e) {
+                        console.error('❌ [Vercel 배포 실패] git push 오류:', e.message);
+                    }
                     scheduleNext();
                 }, delay);
             }
