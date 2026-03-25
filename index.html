@@ -9298,8 +9298,6 @@ function getCachedDominantCountry(territory, year, month) {
     if (_dominantCountryCache.has(cacheKey)) return _dominantCountryCache.get(cacheKey);
     
     const result = calculateDominantCountry(territory, year, month);
-    // 항상 캐시 (null 포함) — castles 미로드 시 race condition은
-    // updateVisibleTerritories / updateMap 진입 가드에서 방지함
     _dominantCountryCache.set(cacheKey, result);
     
     // 캐시 크기 제한
@@ -9452,7 +9450,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const cityFeatures = new Map();      // city 레벨 전용 (2단계에서 중복 skip)
             
             territories.forEach(territory => {
-                const localKey = territory._id || `${territory.name}_${territory.type}`;
+                const localKey = `${territory.name}_${territory.type}`;
                 
                 if (renderedTerritories.has(localKey)) {
                     skipReasons.duplicate++;
@@ -13582,10 +13580,6 @@ function invalidateCountryLookupCache() {
       
       // 🗺️ [v3.2] 보이는 영역의 영토만 증분 업데이트 (국가별 병합)
       function updateVisibleTerritories() {
-          // 🚩 [race condition 방지] castles가 아직 로드되지 않았으면 실행하지 않음
-          // → castles=0 상태에서 영토에 null이 캐시되는 것을 원천 차단
-          if (!castles || castles.length === 0) return;
-
           const { year, month } = getCurrentYearMonth();
           const view = map.getBounds();
           const viewBox = { 
