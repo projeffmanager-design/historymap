@@ -24102,6 +24102,23 @@ kingSelect.addEventListener('change', () => {
         return totalChars > 0 && (chineseChars / totalChars) > 0.5;
     }
 
+    // ── 중국 정사(25사) + 중국 선진·편년 출처 목록 — 자막에서 제외 ──
+    const CAPTION_EXCLUDE_SOURCES = new Set([
+        // 선진·편년·유서
+        '관자(管子)', '전국책(戰國策)', '죽서기년(竹書紀年)',
+        '자치통감(資治通鑑)', '통전(通典)', '당회요(唐會要)',
+        '책부원귀(册府元龜)', '태평어람(太平御覽)', '오대회요(五代會要)',
+        '五代會要', '天地瑞祥志', '太平廣記',
+        // 중국 정사 25사
+        '사기(史記)', '한서(漢書)', '후한서(後漢書)', '삼국지(三國志)',
+        '진서(晉書)', '송서(宋書)', '남제서(南齊書)', '양서(梁書)',
+        '진서(陳書)', '위서(魏書)', '북제서(北齊書)', '주서(周書)',
+        '수서(隋書)', '남사(南史)', '북사(北史)',
+        '구당서(舊唐書)', '신당서(新唐書)',
+        '구오대사(舊五代史)', '신오대사(新五代史)',
+        '송사(宋史)', '요사(遼史)', '금사(金史)', '원사(元史)', '명사(明史)',
+    ]);
+
     // ── 텍스트 수집: 한국어 내용만 추출 (한자 50% 이상 제외) ──
     function buildCaptionLines(year, historyRecords, sourceRecords) {
         const lines = [];
@@ -24120,9 +24137,10 @@ kingSelect.addEventListener('change', () => {
                 lines.push({ type: 'body', text: r.records.korean.content });
         });
 
-        // source_records — chinese_original 제외, 한자 50% 이상 제외
+        // source_records — 중국 25사·중국 편년 제외, chinese_original 제외, 한자 50% 이상 제외
         sourceRecords.forEach(r => {
             if (r.content_type === 'chinese_original') return;
+            if (CAPTION_EXCLUDE_SOURCES.has(r.source)) return; // ← 중국 25사 제외
             if (r.title && !isChineseOnly(r.title))
                 lines.push({ type: 'title', text: r.title });
             if (r.content && !isChineseOnly(r.content))
