@@ -4268,6 +4268,68 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             });
         });
 
+        // 🚀 배포 상태 API: 로컬 타일 빌드 + GitHub 마지막 커밋 + Vercel 배포 상태
+        app.get('/api/internal/deploy-status', async (req, res) => {
+            const ip = req.ip || req.connection?.remoteAddress || '';
+            const isLocalhost = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+            if (!isLocalhost) return res.status(403).json({ message: 'localhost에서만 사용 가능합니다.' });
+
+            const { execSync } = require('child_process');
+            const https = require('https');
+
+            // 1. 로컬 git 상태
+            let gitInfo = {};
+            try {
+                const lastCommit  = execSync('git log -1 --format="%H|%s|%ci"', { cwd: __dirname }).toString().trim();
+                const [sha, msg, date] = lastCommit.split('|');
+                const unpushed = execSync('git log @{u}..HEAD --oneline 2>/dev/null || true', { cwd: __dirname }).toString().trim();
+                const dirtyFiles = execSync('git status --porcelain public/tiles/ 2>/dev/null | wc -l', { cwd: __dirname }).toString().trim();
+                gitInfo = { sha: sha?.slice(0,7), msg, date, unpushedCount: unpushed ? unpushed.split('\n').filter(Boolean).length : 0, localDirtyTiles: parseInt(dirtyFiles) || 0 };
+            } catch(e) { gitInfo = { error: e.message }; }
+
+            // 2. GitHub API — 최신 커밋의 check runs (Vercel deployment check)
+            const ghFetch = (url) => new Promise((resolve, reject) => {
+                https.get(url, { headers: { 'User-Agent': 'historymap-server', 'Accept': 'application/vnd.github.v3+json' } }, r => {
+                    let data = '';
+                    r.on('data', d => data += d);
+                    r.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { resolve({}); } });
+                }).on('error', reject);
+            });
+
+            let vercelStatus = { state: 'unknown' };
+            try {
+                const sha = gitInfo.sha ? await ghFetch(`https://api.github.com/repos/projeffmanager-design/historymap/commits/HEAD`) : null;
+                const fullSha = sha?.sha;
+                if (fullSha) {
+                    const checks = await ghFetch(`https://api.github.com/repos/projeffmanager-design/historymap/commits/${fullSha}/check-runs`);
+                    const vercelRun = (checks.check_runs || []).find(r => r.app?.slug === 'vercel' || r.name?.toLowerCase().includes('vercel'));
+                    if (vercelRun) {
+                        vercelStatus = {
+                            state: vercelRun.conclusion || vercelRun.status,
+                            name: vercelRun.name,
+                            url: vercelRun.html_url,
+                            completedAt: vercelRun.completed_at,
+                            startedAt: vercelRun.started_at
+                        };
+                    } else {
+                        // check-runs 없으면 commit statuses 조회
+                        const statuses = await ghFetch(`https://api.github.com/repos/projeffmanager-design/historymap/statuses/${fullSha}`);
+                        const vercelSt = (statuses || []).find(s => s.context?.toLowerCase().includes('vercel'));
+                        if (vercelSt) {
+                            vercelStatus = { state: vercelSt.state, description: vercelSt.description, url: vercelSt.target_url, updatedAt: vercelSt.updated_at };
+                        }
+                    }
+                }
+            } catch(e) { vercelStatus = { state: 'error', error: e.message }; }
+
+            res.json({
+                localBuild: { inProgress: _tileRebuildInProgress, dirty: _territoryDirty, dirtyCount: _dirtyTerritoryIds.size },
+                git: gitInfo,
+                vercel: vercelStatus,
+                timestamp: new Date().toISOString()
+            });
+        });
+
         // 🚩 [추가] 점수 재계산 API (관리자용)
         app.post('/api/admin/recalculate-scores', verifyToken, async (req, res) => {
             try {

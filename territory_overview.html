@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>전체 영토 데이터 현황</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+
+  #header {
+    padding: 8px 16px;
+    background: #16213e;
+    border-bottom: 1px solid #0f3460;
+    display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  }
+  #header h1 { font-size: 15px; font-weight: 600; color: #e94560; }
+  #stats { font-size: 12px; color: #aaa; }
+
+  /* ── 배포 상태 바 ── */
+  #deploy-bar {
+    padding: 4px 16px;
+    background: #0d1b2a;
+    border-bottom: 1px solid #0f3460;
+    display: flex; align-items: center; gap: 14px;
+    font-size: 11px; color: #aaa; flex-shrink: 0; flex-wrap: wrap;
+  }
+  #deploy-bar a { color: inherit; text-decoration: none; }
+  #deploy-bar a:hover { color: #e0e0e0; }
+  .deploy-seg { display: flex; align-items: center; gap: 5px; }
+  .deploy-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    background: #555;
+  }
+  .deploy-dot.green   { background: #6fcf97; box-shadow: 0 0 4px #6fcf97; }
+  .deploy-dot.yellow  { background: #f2c94c; box-shadow: 0 0 4px #f2c94c; }
+  .deploy-dot.red     { background: #e94560; box-shadow: 0 0 4px #e94560; }
+  .deploy-dot.spin    { background: #4fc3f7; animation: pulseDot 1s infinite; }
+  @keyframes pulseDot { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+  .deploy-progress {
+    height: 4px; background: #0f3460; border-radius: 2px; overflow: hidden;
+    width: 80px; flex-shrink: 0;
+  }
+  .deploy-progress-fill {
+    height: 100%; border-radius: 2px; background: #4fc3f7;
+    transition: width 0.5s ease;
+  }
+  #btn-refresh-deploy {
+    margin-left: auto; background: none; border: 1px solid #1a4080;
+    color: #aaa; border-radius: 4px; padding: 1px 7px; font-size: 11px;
+    cursor: pointer;
+  }
+  #btn-refresh-deploy:hover { background: #1a4080; color: #e0e0e0; }
+  .stat-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 11px; font-weight: 600; margin: 0 2px;
+  }
+  .badge-total    { background: #0f3460; color: #e0e0e0; }
+  .badge-ok       { background: #1a472a; color: #6fcf97; }
+  .badge-nogeom   { background: #7b2d00; color: #f2994a; }
+  .badge-loading  { background: #333; color: #aaa; }
+
+  #controls {
+    padding: 6px 16px;
+    background: #16213e;
+    border-bottom: 1px solid #0f3460;
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0; flex-wrap: wrap;
+  }
+  .ctrl-label { font-size: 12px; color: #aaa; }
+  select, input[type=range] { background: #0f3460; color: #e0e0e0; border: 1px solid #1a4080; border-radius: 4px; padding: 2px 6px; font-size: 12px; }
+  button.ctrl-btn {
+    background: #0f3460; color: #e0e0e0; border: 1px solid #1a4080;
+    border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+  }
+  button.ctrl-btn:hover { background: #1a4080; }
+  button.ctrl-btn.active { background: #e94560; border-color: #e94560; color: #fff; }
+
+  #main { display: flex; flex: 1; overflow: hidden; }
+  #map { flex: 1; }
+
+  #sidebar {
+    width: 280px; background: #16213e; border-left: 1px solid #0f3460;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  #sidebar-header { padding: 8px 12px; background: #0f3460; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+  #territory-list { flex: 1; overflow-y: auto; font-size: 11px; }
+  #territory-list::-webkit-scrollbar { width: 5px; }
+  #territory-list::-webkit-scrollbar-track { background: #0f3460; }
+  #territory-list::-webkit-scrollbar-thumb { background: #e94560; border-radius: 3px; }
+
+  .territory-item {
+    padding: 5px 12px; border-bottom: 1px solid #0f3460; cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .territory-item:hover { background: #1a2a4a; }
+  .territory-item.no-geom { opacity: 0.5; }
+  .territory-item.selected { background: #1a3060; }
+  .t-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .t-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .t-type { font-size: 10px; color: #888; flex-shrink: 0; }
+  .t-warn { font-size: 10px; color: #f2994a; flex-shrink: 0; }
+
+  #detail-panel {
+    padding: 10px 12px; border-top: 1px solid #0f3460; font-size: 11px;
+    background: #0d1b2a; flex-shrink: 0; max-height: 180px; overflow-y: auto;
+  }
+  #detail-panel h3 { font-size: 12px; color: #e94560; margin-bottom: 6px; }
+  .detail-row { display: flex; gap: 6px; margin-bottom: 3px; }
+  .detail-key { color: #888; width: 70px; flex-shrink: 0; }
+  .detail-val { color: #e0e0e0; word-break: break-all; }
+
+  #loading-overlay {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(26,26,46,0.92); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; z-index: 9999;
+    font-size: 14px;
+  }
+  .spinner {
+    width: 40px; height: 40px; border: 4px solid #0f3460;
+    border-top-color: #e94560; border-radius: 50%;
+    animation: spin 0.8s linear infinite; margin-bottom: 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .leaflet-popup-content-wrapper { background: #16213e; color: #e0e0e0; border: 1px solid #0f3460; }
+  .leaflet-popup-tip { background: #16213e; }
+  .popup-title { font-weight: 700; font-size: 13px; color: #e94560; margin-bottom: 4px; }
+  .popup-row { font-size: 11px; color: #ccc; margin-bottom: 2px; }
+  .popup-warn { color: #f2994a; font-size: 11px; }
+
+  #search-box {
+    width: 100%; padding: 5px 8px; background: #0d1b2a; border: 1px solid #0f3460;
+    color: #e0e0e0; font-size: 12px; border-radius: 0; outline: none;
+  }
+  #search-box:focus { border-color: #e94560; }
+
+  /* ── 로그인 모달 ── */
+  #login-modal-backdrop {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.75); z-index: 1100;
+    align-items: center; justify-content: center;
+  }
+  #login-modal-backdrop.open { display: flex; }
+  #login-modal {
+    background: #16213e; border: 1px solid #e94560; border-radius: 10px;
+    width: 320px; max-width: 95vw; padding: 24px; position: relative;
+  }
+  #login-modal h2 { font-size: 14px; color: #e94560; margin-bottom: 16px; }
+  #login-msg { font-size: 12px; min-height: 18px; margin-bottom: 8px; }
+  #login-msg.err { color: #f87171; }
+  #login-msg.ok  { color: #4ade80; }
+
+  /* ── 편집 모달 ── */
+  #edit-modal-backdrop {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7); z-index: 1000;
+    align-items: center; justify-content: center;
+  }
+  #edit-modal-backdrop.open { display: flex; }
+  #edit-modal {
+    background: #16213e; border: 1px solid #0f3460; border-radius: 10px;
+    width: 420px; max-width: 95vw; padding: 20px; position: relative;
+  }
+  #edit-modal h2 { font-size: 14px; color: #e94560; margin-bottom: 16px; }
+  .edit-field { margin-bottom: 12px; }
+  .edit-field label { display: block; font-size: 11px; color: #aaa; margin-bottom: 4px; }
+  .edit-field input, .edit-field select {
+    width: 100%; padding: 6px 10px; background: #0d1b2a;
+    border: 1px solid #0f3460; border-radius: 5px;
+    color: #e0e0e0; font-size: 13px; outline: none;
+  }
+  .edit-field input:focus, .edit-field select:focus { border-color: #e94560; }
+  .edit-year-row { display: flex; gap: 10px; }
+  .edit-year-row .edit-field { flex: 1; }
+  .edit-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
+  .modal-btn {
+    padding: 7px 18px; border-radius: 5px; font-size: 13px;
+    font-weight: 600; cursor: pointer; border: none;
+  }
+  .modal-btn-save   { background: #e94560; color: #fff; }
+  .modal-btn-save:hover { background: #c73652; }
+  .modal-btn-cancel { background: #0f3460; color: #aaa; border: 1px solid #1a4080; }
+  .modal-btn-cancel:hover { background: #1a4080; color: #e0e0e0; }
+  #edit-msg { font-size: 12px; margin-top: 8px; min-height: 16px; }
+  #edit-msg.ok  { color: #6fcf97; }
+  #edit-msg.err { color: #f2994a; }
+
+  /* 편집 버튼 in detail-panel */
+  #btn-edit-territory {
+    display: block; width: 100%; margin-top: 10px;
+    padding: 6px; background: #e94560; color: #fff;
+    border: none; border-radius: 5px; font-size: 12px;
+    font-weight: 600; cursor: pointer; text-align: center;
+  }
+  #btn-edit-territory:hover { background: #c73652; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>🗺️ 전체 영토 데이터 현황</h1>
+  <div id="stats"><span class="stat-badge badge-loading" id="badge-total">로딩 중...</span></div>
+</div>
+
+<!-- 배포 상태 바 -->
+<div id="deploy-bar">
+  <div class="deploy-seg">
+    <div class="deploy-dot" id="dot-build"></div>
+    <span id="lbl-build">로컬 빌드 확인 중...</span>
+  </div>
+  <div class="deploy-progress"><div class="deploy-progress-fill" id="bar-build" style="width:0%"></div></div>
+  <div class="deploy-seg" style="margin-left:6px;">
+    <div class="deploy-dot" id="dot-vercel"></div>
+    <a id="lbl-vercel" href="#" target="_blank">Vercel 확인 중...</a>
+  </div>
+  <div class="deploy-seg" style="color:#555;">
+    <span id="lbl-commit">—</span>
+  </div>
+  <button id="btn-refresh-deploy" onclick="loadDeployStatus()">↻</button>
+</div>
+
+<div id="controls">
+  <span class="ctrl-label">타입 필터:</span>
+  <select id="filter-type">
+    <option value="">전체</option>
+    <option value="territory">territory</option>
+    <option value="admin_area">admin_area</option>
+    <option value="historical">historical</option>
+    <option value="country">country</option>
+    <option value="Polygon">Polygon (타입없음)</option>
+    <option value="MultiPolygon">MultiPolygon (타입없음)</option>
+  </select>
+  <span class="ctrl-label">geometry:</span>
+  <select id="filter-geom">
+    <option value="">전체</option>
+    <option value="ok">있음</option>
+    <option value="none">없음 ⚠️</option>
+  </select>
+  <button class="ctrl-btn" id="btn-fit">전체 보기</button>
+  <button class="ctrl-btn active" id="btn-labels">이름 표시</button>
+  <button class="ctrl-btn" id="btn-bbox">bbox만 표시</button>
+  <span style="margin-left:auto; font-size:11px; color:#666;" id="count-label"></span>
+</div>
+
+<div id="main">
+  <div id="map"></div>
+  <div id="sidebar">
+    <div id="sidebar-header">영토 목록</div>
+    <input type="text" id="search-box" placeholder="이름 검색...">
+    <div id="territory-list"></div>
+    <div id="detail-panel" style="display:none;"></div>
+  </div>
+</div>
+
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div>영토 데이터 로딩 중...</div>
+</div>
+
+<!-- ── 편집 모달 ── -->
+<!-- ── 로그인 모달 ── -->
+<div id="login-modal-backdrop">
+  <div id="login-modal">
+    <h2>🔑 관리자 로그인</h2>
+    <div class="edit-field">
+      <label>아이디</label>
+      <input type="text" id="login-username" placeholder="username" autocomplete="username">
+    </div>
+    <div class="edit-field">
+      <label>비밀번호</label>
+      <input type="password" id="login-password" placeholder="password" autocomplete="current-password">
+    </div>
+    <div id="login-msg"></div>
+    <div class="edit-actions">
+      <button class="modal-btn modal-btn-cancel" onclick="closeLoginModal()">취소</button>
+      <button class="modal-btn modal-btn-save" onclick="doLogin()">🔓 로그인</button>
+    </div>
+  </div>
+</div>
+
+<div id="edit-modal-backdrop">
+  <div id="edit-modal">
+    <h2>✏️ 영토 편집</h2>
+    <div class="edit-field">
+      <label>영문 이름</label>
+      <input type="text" id="edit-name-en" placeholder="name_en">
+    </div>
+    <div class="edit-field">
+      <label>한글 이름</label>
+      <input type="text" id="edit-name-ko" placeholder="name_ko">
+    </div>
+    <div class="edit-year-row">
+      <div class="edit-field">
+        <label>시작 연도</label>
+        <input type="number" id="edit-start-year">
+      </div>
+      <div class="edit-field">
+        <label>종료 연도</label>
+        <input type="number" id="edit-end-year">
+      </div>
+    </div>
+    <div class="edit-field">
+      <label>타입</label>
+      <select id="edit-type">
+        <option value="territory">territory</option>
+        <option value="admin_area">admin_area</option>
+        <option value="historical">historical</option>
+        <option value="country">country</option>
+      </select>
+    </div>
+    <div class="edit-field">
+      <label>레벨</label>
+      <select id="edit-level">
+        <option value="city">city</option>
+        <option value="province">province</option>
+        <option value="country">country</option>
+      </select>
+    </div>
+    <div id="edit-msg"></div>
+    <div class="edit-actions">
+      <button class="modal-btn modal-btn-cancel" onclick="closeEditModal()">취소</button>
+      <button class="modal-btn modal-btn-save"   onclick="saveEdit()">💾 저장</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_BASE   = 'http://127.0.0.1:3000/api';
+const LOCAL_API  = 'http://127.0.0.1:3000/api';
+const TILES_BASE = 'http://127.0.0.1:3000/public/tiles'; // public/tiles/ static 경로
+
+const TYPE_COLORS = {
+  territory:    '#4fc3f7',
+  admin_area:   '#81c784',
+  historical:   '#ffb74d',
+  country:      '#e94560',
+  Polygon:      '#ce93d8',
+  MultiPolygon: '#ce93d8',
+  default:      '#90a4ae'
+};
+const TILE_SIZE = 10; // server.js 와 동일
+
+// ── 지도 초기화 ──
+const map = L.map('map', { center: [40, 100], zoom: 3 });
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap © CARTO', maxZoom: 19
+}).addTo(map);
+
+let allTerritories = [];   // lightweight 메타데이터 (geometry 없음)
+let tileIndex      = [];   // public/tiles/index.json
+let tileCache      = {};   // filename → parsed JSON (로드된 타일 캐시)
+let bboxLayerGroup = L.layerGroup().addTo(map);   // bbox 박스 (항상 표시)
+let geomLayerGroup = L.layerGroup().addTo(map);   // 선택된 geometry
+let labelGroup     = L.layerGroup().addTo(map);   // 이름 라벨
+let showLabels = true;
+let bboxMode   = false;
+let selectedId = null;
+
+// ── 유틸 ──
+function getColor(t)   { return TYPE_COLORS[t.type] || TYPE_COLORS.default; }
+function hasBbox(t)    { return !!(t.bbox); }
+function getLabel(t)   { return t.name_ko || t.name_en || t.name || t.code || String(t._id).slice(-6); }
+
+// ── 1단계: lightweight 메타데이터 로드 ──
+async function loadData() {
+  try {
+    const [metaRes, tileIdxRes] = await Promise.all([
+      fetch(`${API_BASE}/territories?lightweight=true`),
+      fetch(`${TILES_BASE}/index.json`)
+    ]);
+    if (!metaRes.ok) throw new Error(`territories API: HTTP ${metaRes.status}`);
+    allTerritories = await metaRes.json();
+    tileIndex = tileIdxRes.ok ? await tileIdxRes.json() : [];
+
+    document.getElementById('loading-overlay').style.display = 'none';
+    updateStats();
+    renderList();
+    renderBboxLayer();   // bbox 박스 즉시 표시
+  } catch(e) {
+    document.getElementById('loading-overlay').innerHTML =
+      `<div style="color:#e94560">❌ 로드 실패: ${e.message}</div>
+       <div style="font-size:12px;color:#888;margin-top:8px">서버가 실행 중인지 확인하세요</div>`;
+  }
+}
+
+// ── 2단계: 선택된 영토의 타일에서 geometry 로드 ──
+async function loadGeometryForTerritory(t) {
+  if (!t.bbox) return null;
+  const { minLat, maxLat, minLng, maxLng } = t.bbox;
+
+  // 해당 bbox에 걸치는 타일 파일 목록
+  const matchingTiles = tileIndex.filter(tile =>
+    tile.bounds.north > minLat && tile.bounds.south < maxLat &&
+    tile.bounds.east  > minLng && tile.bounds.west  < maxLng
+  );
+  if (!matchingTiles.length) return null;
+
+  // 타일 파일 fetch (캐시 활용)
+  const features = [];
+  await Promise.all(matchingTiles.map(async tile => {
+    if (!tileCache[tile.filename]) {
+      const r = await fetch(`${TILES_BASE}/${tile.filename}`).catch(() => null);
+      if (r && r.ok) tileCache[tile.filename] = await r.json();
+    }
+    const tileData = tileCache[tile.filename];
+    if (tileData?.features) {
+      tileData.features.filter(f => f.properties?._id === t._id).forEach(f => features.push(f));
+    }
+  }));
+
+  return features.length ? { type: 'FeatureCollection', features } : null;
+}
+
+// ── bbox 레이어 (모든 영토 항상 표시) ──
+function renderBboxLayer() {
+  bboxLayerGroup.clearLayers();
+  labelGroup.clearLayers();
+  const filtered = getFiltered();
+
+  filtered.forEach(t => {
+    if (!t.bbox) return;
+    const color = getColor(t);
+    const b = t.bbox;
+
+    const rect = L.rectangle(
+      [[b.minLat, b.minLng],[b.maxLat, b.maxLng]],
+      { color, weight: 1, fillOpacity: t._id === selectedId ? 0.25 : 0.08,
+        fillColor: color, dashArray: t._id === selectedId ? null : '3,3' }
+    );
+    rect.on('click', () => selectTerritory(t._id));
+    rect.bindTooltip(getLabel(t), { permanent: false, direction: 'top', className: 'dark-tip' });
+    bboxLayerGroup.addLayer(rect);
+
+    if (showLabels) {
+      const centerLat = (b.minLat + b.maxLat) / 2;
+      const centerLng = (b.minLng + b.maxLng) / 2;
+      const lbl = L.marker([centerLat, centerLng], {
+        icon: L.divIcon({
+          html: `<div style="color:${color};font-size:10px;font-weight:600;white-space:nowrap;text-shadow:0 0 3px #000,0 0 3px #000;pointer-events:none">${getLabel(t)}</div>`,
+          className: '', iconAnchor: [0, 0]
+        }),
+        interactive: false
+      });
+      labelGroup.addLayer(lbl);
+    }
+  });
+}
+
+// ── geometry 레이어 (선택된 영토만) ──
+async function renderGeometry(t) {
+  geomLayerGroup.clearLayers();
+  if (!t) return;
+
+  const color = getColor(t);
+  const geoFC = await loadGeometryForTerritory(t);
+  if (geoFC) {
+    const layer = L.geoJSON(geoFC, {
+      style: { color, weight: 2, fillOpacity: 0.35, fillColor: color }
+    });
+    layer.addTo(geomLayerGroup);
+  }
+}
+
+// ── 통계 ──
+function updateStats() {
+  const filtered = getFiltered();
+  const withBbox  = filtered.filter(hasBbox).length;
+  const noBbox    = filtered.length - withBbox;
+  document.getElementById('stats').innerHTML =
+    `<span class="stat-badge badge-total">전체 ${allTerritories.length}개</span>` +
+    `<span class="stat-badge badge-ok">bbox ${withBbox}개</span>` +
+    (noBbox ? `<span class="stat-badge badge-nogeom">⚠️ bbox 없음 ${noBbox}개</span>` : '');
+  document.getElementById('count-label').textContent =
+    filtered.length < allTerritories.length ? `필터: ${filtered.length}개` : '';
+}
+
+// ── 필터 ──
+function getFiltered() {
+  const typeF  = document.getElementById('filter-type').value;
+  const geomF  = document.getElementById('filter-geom').value;
+  const search = document.getElementById('search-box').value.toLowerCase();
+  return allTerritories.filter(t => {
+    if (typeF && t.type !== typeF) return false;
+    if (geomF === 'none' && hasBbox(t))  return false;
+    if (geomF === 'ok'   && !hasBbox(t)) return false;
+    if (search) {
+      const lbl = (t.name_ko || t.name_en || t.name || t.code || '').toLowerCase();
+      if (!lbl.includes(search)) return false;
+    }
+    return true;
+  });
+}
+
+// ── 사이드바 목록 ──
+function renderList() {
+  const list = document.getElementById('territory-list');
+  const filtered = getFiltered();
+  list.innerHTML = '';
+  filtered.forEach(t => {
+    const div = document.createElement('div');
+    div.className = 'territory-item' + (t._id === selectedId ? ' selected' : '');
+    div.dataset.id = t._id;
+    const color = getColor(t);
+    div.innerHTML = `
+      <div class="t-dot" style="background:${color}"></div>
+      <div class="t-name">${getLabel(t)}</div>
+      <div class="t-type">${t.type || '?'}</div>
+      ${!hasBbox(t) ? '<div class="t-warn">⚠️</div>' : ''}
+    `;
+    div.addEventListener('click', () => selectTerritory(t._id));
+    list.appendChild(div);
+  });
+}
+
+// ── 선택 ──
+async function selectTerritory(id) {
+  selectedId = id;
+  const t = allTerritories.find(x => x._id === id);
+  if (!t) return;
+  highlightItem(id);
+  showDetail(t, true); // loading 상태
+  renderBboxLayer();   // 선택 강조 갱신
+
+  // geometry 로드 (타일에서)
+  await renderGeometry(t);
+
+  if (t.bbox) {
+    map.fitBounds(
+      [[t.bbox.minLat, t.bbox.minLng],[t.bbox.maxLat, t.bbox.maxLng]],
+      { maxZoom: 9, padding: [30,30] }
+    );
+  }
+  showDetail(t, false);
+}
+
+function highlightItem(id) {
+  document.querySelectorAll('.territory-item').forEach(el => {
+    el.classList.toggle('selected', el.dataset.id === id);
+  });
+}
+
+function showDetail(t, loading = false) {
+  const panel = document.getElementById('detail-panel');
+  panel.style.display = 'block';
+  panel.innerHTML = `
+    <h3>${getLabel(t)}</h3>
+    <div class="detail-row"><div class="detail-key">ID</div><div class="detail-val" style="font-size:10px">${t._id}</div></div>
+    <div class="detail-row"><div class="detail-key">타입</div><div class="detail-val">${t.type || '?'}</div></div>
+    <div class="detail-row"><div class="detail-key">레벨</div><div class="detail-val">${t.level || '?'}</div></div>
+    <div class="detail-row"><div class="detail-key">연도</div><div class="detail-val">${t.start_year ?? '?'} ~ ${t.end_year ?? '?'}</div></div>
+    ${t.code    ? `<div class="detail-row"><div class="detail-key">code</div><div class="detail-val">${t.code}</div></div>` : ''}
+    ${t.osm_id  ? `<div class="detail-row"><div class="detail-key">OSM ID</div><div class="detail-val">${t.osm_id}</div></div>` : ''}
+    ${t.bbox    ? `<div class="detail-row"><div class="detail-key">bbox</div><div class="detail-val" style="font-size:10px">lat ${t.bbox.minLat.toFixed(2)}~${t.bbox.maxLat.toFixed(2)}, lng ${t.bbox.minLng.toFixed(2)}~${t.bbox.maxLng.toFixed(2)}</div></div>` : ''}
+    <div class="detail-row"><div class="detail-key">Geometry</div>
+      <div class="detail-val" style="color:${loading ? '#aaa' : '#4fc3f7'}">${loading ? '⏳ 타일 로딩 중...' : '✅ 타일에서 표시 중'}</div>
+    </div>
+    <button id="btn-edit-territory" onclick="openEditModal('${t._id}')">✏️ 편집</button>
+  `;
+}
+
+// ── 이벤트 바인딩 ──
+document.getElementById('filter-type').addEventListener('change', () => { updateStats(); renderList(); renderBboxLayer(); });
+document.getElementById('filter-geom').addEventListener('change', () => { updateStats(); renderList(); renderBboxLayer(); });
+document.getElementById('search-box').addEventListener('input',   () => { updateStats(); renderList(); renderBboxLayer(); });
+
+document.getElementById('btn-fit').addEventListener('click', () => {
+  const pts = getFiltered().filter(t => t.bbox).map(t => [[t.bbox.minLat,t.bbox.minLng],[t.bbox.maxLat,t.bbox.maxLng]]).flat();
+  if (pts.length) map.fitBounds(pts, { padding: [20,20] });
+});
+
+document.getElementById('btn-labels').addEventListener('click', function() {
+  showLabels = !showLabels;
+  this.classList.toggle('active', showLabels);
+  bboxMode = false;
+  document.getElementById('btn-bbox').classList.remove('active');
+  renderBboxLayer();
+});
+
+document.getElementById('btn-bbox').addEventListener('click', function() {
+  bboxMode = !bboxMode;
+  this.classList.toggle('active', bboxMode);
+});
+
+// ── 편집 모달 ──
+let _editId = null;
+
+function openEditModal(id) {
+  const t = allTerritories.find(x => x._id === id);
+  if (!t) return;
+  _editId = id;
+  document.getElementById('edit-name-en').value    = t.name_en  || t.name || '';
+  document.getElementById('edit-name-ko').value    = t.name_ko  || '';
+  document.getElementById('edit-start-year').value = t.start_year ?? '';
+  document.getElementById('edit-end-year').value   = t.end_year   ?? '';
+  document.getElementById('edit-type').value       = t.type  || 'territory';
+  document.getElementById('edit-level').value      = t.level || 'city';
+  document.getElementById('edit-msg').textContent  = '';
+  document.getElementById('edit-msg').className    = '';
+  document.getElementById('edit-modal-backdrop').classList.add('open');
+}
+
+function closeEditModal() {
+  document.getElementById('edit-modal-backdrop').classList.remove('open');
+  _editId = null;
+}
+
+document.getElementById('edit-modal-backdrop').addEventListener('click', function(e) {
+  if (e.target === this) closeEditModal();
+});
+
+// ── 로그인 모달 ──
+let _afterLoginCallback = null;
+
+function openLoginModal(afterLogin) {
+  _afterLoginCallback = afterLogin || null;
+  document.getElementById('login-username').value = '';
+  document.getElementById('login-password').value = '';
+  document.getElementById('login-msg').textContent = '';
+  document.getElementById('login-msg').className = '';
+  document.getElementById('login-modal-backdrop').classList.add('open');
+  setTimeout(() => document.getElementById('login-username').focus(), 100);
+}
+
+function closeLoginModal() {
+  document.getElementById('login-modal-backdrop').classList.remove('open');
+  _afterLoginCallback = null;
+}
+
+document.getElementById('login-modal-backdrop').addEventListener('click', function(e) {
+  if (e.target === this) closeLoginModal();
+});
+
+// Enter 키로 로그인
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && document.getElementById('login-modal-backdrop').classList.contains('open')) {
+    doLogin();
+  }
+});
+
+async function doLogin() {
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  const msgEl = document.getElementById('login-msg');
+  if (!username || !password) { msgEl.textContent = '아이디와 비밀번호를 입력하세요'; msgEl.className = 'err'; return; }
+
+  msgEl.textContent = '로그인 중...'; msgEl.className = '';
+  try {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (!res.ok) { msgEl.textContent = `❌ ${data.message || '로그인 실패'}`; msgEl.className = 'err'; return; }
+
+    const token = data.token;
+    localStorage.setItem('token', token);
+    sessionStorage.setItem('token', token);
+    msgEl.textContent = '✅ 로그인 성공!'; msgEl.className = 'ok';
+
+    setTimeout(() => {
+      closeLoginModal();
+      if (_afterLoginCallback) { _afterLoginCallback(); _afterLoginCallback = null; }
+    }, 600);
+  } catch(e) { msgEl.textContent = `❌ 네트워크 오류: ${e.message}`; msgEl.className = 'err'; }
+}
+
+async function saveEdit() {
+  if (!_editId) return;
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+  if (!token || token === 'null' || token === 'undefined') {
+    // 로그인 모달로 전환
+    closeEditModal();
+    openLoginModal(() => openEditModal(_editId));
+    return;
+  }
+
+  const payload = {
+    name_en:    document.getElementById('edit-name-en').value.trim(),
+    name_ko:    document.getElementById('edit-name-ko').value.trim(),
+    start_year: parseInt(document.getElementById('edit-start-year').value),
+    end_year:   parseInt(document.getElementById('edit-end-year').value),
+    type:       document.getElementById('edit-type').value,
+    level:      document.getElementById('edit-level').value,
+  };
+  if (isNaN(payload.start_year) || isNaN(payload.end_year)) { setEditMsg('❌ 연도를 올바르게 입력하세요', 'err'); return; }
+  if (payload.start_year > payload.end_year) { setEditMsg('❌ 시작 연도 > 종료 연도', 'err'); return; }
+
+  setEditMsg('저장 중...', '');
+  try {
+    const res = await fetch(`${API_BASE}/territories/${_editId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if (!res.ok) { setEditMsg(`❌ ${json.message || '저장 실패'}`, 'err'); return; }
+
+    const idx = allTerritories.findIndex(x => x._id === _editId);
+    if (idx !== -1) {
+      allTerritories[idx] = { ...allTerritories[idx], ...payload };
+      renderList(); renderBboxLayer(); updateStats();
+      showDetail(allTerritories[idx]);
+    }
+    setEditMsg('✅ 저장 완료!', 'ok');
+    setTimeout(closeEditModal, 900);
+  } catch(e) { setEditMsg(`❌ 네트워크 오류: ${e.message}`, 'err'); }
+}
+
+function setEditMsg(msg, cls) {
+  const el = document.getElementById('edit-msg');
+  el.textContent = msg; el.className = cls;
+}
+
+// ── 배포 상태 ──
+async function loadDeployStatus() {
+  const dotBuild  = document.getElementById('dot-build');
+  const lblBuild  = document.getElementById('lbl-build');
+  const barBuild  = document.getElementById('bar-build');
+  const dotVercel = document.getElementById('dot-vercel');
+  const lblVercel = document.getElementById('lbl-vercel');
+  const lblCommit = document.getElementById('lbl-commit');
+  dotBuild.className = 'deploy-dot spin';
+  dotVercel.className = 'deploy-dot spin';
+  try {
+    const res = await fetch(`${LOCAL_API}/internal/deploy-status`);
+    if (!res.ok) throw new Error();
+    const d = await res.json();
+    const b = d.localBuild;
+    if (b.inProgress) {
+      dotBuild.className = 'deploy-dot spin'; lblBuild.textContent = '🔨 타일 재빌드 중...';
+      barBuild.style.width = '60%'; barBuild.style.background = '#f2c94c';
+    } else if (b.dirty || b.dirtyCount > 0) {
+      dotBuild.className = 'deploy-dot yellow'; lblBuild.textContent = `⚠️ ${b.dirtyCount}개 미반영`;
+      barBuild.style.width = '80%'; barBuild.style.background = '#f2c94c';
+    } else {
+      dotBuild.className = 'deploy-dot green'; lblBuild.textContent = '✅ 빌드 완료';
+      barBuild.style.width = '100%'; barBuild.style.background = '#6fcf97';
+    }
+    const g = d.git;
+    if (g?.sha) {
+      lblCommit.textContent = `${g.sha} ${g.date ? relTime(new Date(g.date)) : ''}${g.unpushedCount > 0 ? ` · ⬆️ ${g.unpushedCount}미push` : ''}`;
+      lblCommit.title = g.msg || '';
+    }
+    const v = d.vercel;
+    const sMap = { success:'green', completed:'green', failure:'red', error:'red', in_progress:'spin', queued:'yellow', pending:'yellow', neutral:'green' };
+    const lMap = { success:'✅ Vercel 배포 완료', completed:'✅ Vercel 배포 완료', failure:'❌ Vercel 실패', error:'❌ Vercel 오류', in_progress:'🔄 배포 중...', queued:'⏳ 대기 중', pending:'⏳ 대기 중', neutral:'✅ Vercel 완료', unknown:'— Vercel 상태 불명' };
+    dotVercel.className = `deploy-dot ${sMap[v.state] || ''}`;
+    lblVercel.textContent = lMap[v.state] || `Vercel: ${v.state}`;
+    if (v.url) lblVercel.href = v.url;
+    if (b.inProgress || v.state === 'in_progress' || v.state === 'queued') setTimeout(loadDeployStatus, 10000);
+  } catch(e) {
+    dotBuild.className = 'deploy-dot red'; lblBuild.textContent = '⚠️ 로컬 서버 미연결';
+    dotVercel.className = 'deploy-dot'; lblVercel.textContent = '—';
+  }
+}
+
+function relTime(date) {
+  const d = Math.floor((Date.now() - date) / 1000);
+  if (d < 60) return `${d}초 전`;
+  if (d < 3600) return `${Math.floor(d/60)}분 전`;
+  if (d < 86400) return `${Math.floor(d/3600)}시간 전`;
+  return `${Math.floor(d/86400)}일 전`;
+}
+
+loadDeployStatus();
+setInterval(loadDeployStatus, 60000);
+loadData();
+</script>
+</body>
+</html>

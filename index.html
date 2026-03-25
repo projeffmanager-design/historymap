@@ -9465,15 +9465,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     return;
                 }
 
-                const startYear = territory.start || territory.start_year || -5000;
-                const endYear = territory.end || territory.end_year || 3000;
-                
-                if (!(year >= startYear && year <= endYear)) {
-                    skipReasons.timeRange++;
-                    return;
-                }
-                
-                // 🚀 [v3.6] 캐시된 국가 계산 사용 (castles 1,176 × territories 278 반복 회피)
+                // 🚩 [v4.0] 영토 자체 연도 필터 제거 — 마커(castle)가 없으면 표시 안 함
+                // (dominantResult === null 이면 noCountry로 skip)
                 const dominantResult = getCachedDominantCountry(territory, year, month);
                 if (!dominantResult) {
                     skipReasons.noCountry++;
@@ -9509,8 +9502,6 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     properties: {
                         name: territory.name,
                         country_id: dominantCountryId,
-                        startYear: startYear,
-                        endYear: endYear,
                         isExclusive: dominantResult.isExclusive,
                         countriesInZone: dominantResult.countriesInZone
                     }
@@ -9578,22 +9569,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     
                     const countryLayer = L.geoJSON(featureCollection, {
                         style: pathStyle,
-                        renderer: sharedRenderer,
-                        onEachFeature: (feature, layer) => {
-                            const props = feature.properties;
-                            const sY = props.startYear;
-                            const eY = props.endYear;
-                            let popupContent;
-                            if (props.isExclusive) {
-                                popupContent = `<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name}<br>기간: ${sY}년 ~ ${eY === Infinity ? '현재' : eY + '년'}`;
-                            } else {
-                                const zoneNames = (props.countriesInZone || [])
-                                    .map(cid => { const ci = getCountryInfoById(cid); return ci ? ci.name : cid; })
-                                    .join(', ');
-                                popupContent = `<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name} (혼합: ${zoneNames})<br>기간: ${sY}년 ~ ${eY === Infinity ? '현재' : eY + '년'}`;
-                            }
-                            layer.bindPopup(popupContent);
-                        }
+                        renderer: sharedRenderer
                     });
                     
                     territoryLayerGroup.addLayer(countryLayer);
@@ -9658,22 +9634,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     });
                     const countryLayer = L.geoJSON(featureCollection, {
                         style: pathStyle,
-                        renderer: sharedRenderer,
-                        onEachFeature: (feature, layer) => {
-                            const props = feature.properties;
-                            const sY = props.startYear;
-                            const eY = props.endYear;
-                            let popupContent;
-                            if (props.isExclusive) {
-                                popupContent = `<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name}<br>기간: ${sY}년 ~ ${eY === Infinity ? '현재' : eY + '년'}`;
-                            } else {
-                                const zoneNames = (props.countriesInZone || [])
-                                    .map(cid => { const ci = getCountryInfoById(cid); return ci ? ci.name : cid; })
-                                    .join(', ');
-                                popupContent = `<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name} (혼합: ${zoneNames})<br>기간: ${sY}년 ~ ${eY === Infinity ? '현재' : eY + '년'}`;
-                            }
-                            layer.bindPopup(popupContent);
-                        }
+                        renderer: sharedRenderer
                     });
                     territoryLayerGroup.addLayer(countryLayer);
                 });
@@ -13649,12 +13610,7 @@ function invalidateCountryLookupCache() {
                   return;
               }
               
-              // 시간 범위 체크
-              const startYear = territory.start || territory.start_year || -5000;
-              const endYear = territory.end || territory.end_year || 3000;
-              if (!(year >= startYear && year <= endYear)) return;
-              
-              // 🚀 [v3.6] 캐시된 국가 계산 사용
+              // 🚩 [v4.0] 영토 자체 연도 필터 제거 — 마커가 없으면 표시 안 함
               const dominantResult = getCachedDominantCountry(territory, year, month);
               if (!dominantResult) return;
               
@@ -13681,8 +13637,6 @@ function invalidateCountryLookupCache() {
                   properties: {
                       name: territory.name,
                       country_id: dominantCountryId,
-                      startYear: startYear,
-                      endYear: endYear,
                       isExclusive: dominantResult.isExclusive,
                       countriesInZone: dominantResult.countriesInZone
                   }
@@ -13733,11 +13687,7 @@ function invalidateCountryLookupCache() {
                       opacity: style.opacity || 0.6
                   });
                   const countryLayer = L.geoJSON(featureCollection, {
-                      style: pathStyle,
-                      onEachFeature: (feature, layer) => {
-                          const props = feature.properties;
-                          layer.bindPopup(`<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name}`);
-                      }
+                      style: pathStyle
                   });
                   territoryLayerGroup.addLayer(countryLayer);
               });
@@ -13796,11 +13746,7 @@ function invalidateCountryLookupCache() {
                       opacity: style.opacity || 0.6
                   });
                   const countryLayer = L.geoJSON(featureCollection, {
-                      style: pathStyle,
-                      onEachFeature: (feature, layer) => {
-                          const props = feature.properties;
-                          layer.bindPopup(`<b>${props.name || '영토'}</b><br>지배국: ${countryInfo.name}`);
-                      }
+                      style: pathStyle
                   });
                   territoryLayerGroup.addLayer(countryLayer);
               });
