@@ -9298,7 +9298,12 @@ function getCachedDominantCountry(territory, year, month) {
     if (_dominantCountryCache.has(cacheKey)) return _dominantCountryCache.get(cacheKey);
     
     const result = calculateDominantCountry(territory, year, month);
-    _dominantCountryCache.set(cacheKey, result);
+    // 🐛 [버그수정] null(noCountry) 결과는 캐시 저장 금지
+    // castles 로드 중 또는 race condition으로 잘못된 null이 캐시되면
+    // 이후 updateMap에서도 null을 반환해 영토가 영원히 안 보이는 버그 발생
+    if (result !== null) {
+        _dominantCountryCache.set(cacheKey, result);
+    }
     
     // 캐시 크기 제한
     if (_dominantCountryCache.size > 2000) {
@@ -9450,7 +9455,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const cityFeatures = new Map();      // city 레벨 전용 (2단계에서 중복 skip)
             
             territories.forEach(territory => {
-                const localKey = `${territory.name}_${territory.type}`;
+                const localKey = territory._id || `${territory.name}_${territory.type}`;
                 
                 if (renderedTerritories.has(localKey)) {
                     skipReasons.duplicate++;
