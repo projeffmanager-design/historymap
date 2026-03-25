@@ -511,9 +511,11 @@ async function setupRoutesAndCollections() {
             }
         }
 
-        // 🗺️ [영토 타일] dirty 플래그 — territories POST/PUT/DELETE 시 true로 설정
-        let _territoryDirty = false;
+        // 🗺️ [영토 타일] 변경 추적 — 변경된 영토 ID Set (증분 재빌드용)
+        let _dirtyTerritoryIds = new Set(); // 변경된 영토 _id 문자열
+        let _territoryDirty = false;        // 야간 배치용 dirty 플래그 (하위 호환)
         const TILES_DIR = path.join(__dirname, 'public', 'tiles');
+        const TILE_SIZE = 10; // 10도 x 10도 타일
 
         // ─── Douglas-Peucker 단순화 (export_territories_to_tiles.js와 동일 로직) ───
         function _dpSimplify(points, tol) {
@@ -556,97 +558,224 @@ async function setupRoutesAndCollections() {
         }
 
         // 📦 [배치/수동] 영토 타일 재빌드 — dirty일 때만 실행
-        let _tileRebuildInProgress = false;
-        async function rebuildTerritoryTiles(reason, force = false) {
-            if (!force && !_territoryDirty) {
-                console.log(`⏭️  [타일 스킵] 영토 변경 없음 (사유: ${reason})`);
-                return;
+        // ─── 영토 bbox → 걸치는 타일 키 목록 반환 ────────────────────────────────
+        function _getTileKeysForBbox(minLat, maxLat, minLng, maxLng) {
+            const keys = new Set();
+            const startLat = Math.floor(minLat / TILE_SIZE) * TILE_SIZE;
+            const endLat   = Math.ceil(maxLat  / TILE_SIZE) * TILE_SIZE;
+            const startLng = Math.floor(minLng / TILE_SIZE) * TILE_SIZE;
+            const endLng   = Math.ceil(maxLng  / TILE_SIZE) * TILE_SIZE;
+            for (let lat = startLat; lat < endLat; lat += TILE_SIZE)
+                for (let lng = startLng; lng < endLng; lng += TILE_SIZE)
+                    keys.add(`${lat}_${lng}`);
+            return keys;
+        }
+
+        // ─── geometry에서 bbox 계산 ──────────────────────────────────────────────
+        function _getBboxFromGeometry(geometry) {
+            let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
+            (function walk(coords) {
+                if (!Array.isArray(coords)) return;
+                if (typeof coords[0] === 'number') {
+                    if (coords[1] < minLat) minLat = coords[1];
+                    if (coords[1] > maxLat) maxLat = coords[1];
+                    if (coords[0] < minLng) minLng = coords[0];
+                    if (coords[0] > maxLng) maxLng = coords[0];
+                } else { coords.forEach(walk); }
+            })(geometry.coordinates);
+            return { minLat, maxLat, minLng, maxLng };
+        }
+
+        // ─── 영토 doc → GeoJSON Feature 변환 ────────────────────────────────────
+        function _territoryToFeature(territory) {
+            const geometry = territory.geometry
+                || (territory.type && territory.coordinates
+                    ? { type: territory.type, coordinates: territory.coordinates } : null);
+            if (!geometry) return null;
+            return {
+                type: 'Feature',
+                geometry: _simplifyGeometry(geometry, 0.005),
+                properties: {
+                    _id: territory._id.toString(),
+                    name: territory.name, name_ko: territory.name_ko,
+                    type: territory.type, level: territory.level,
+                    country: territory.country ? territory.country.toString() : null,
+                    country_id: territory.country ? territory.country.toString() : null,
+                    start_year: territory.start_year || territory.start || null,
+                    end_year: territory.end_year || territory.end || null,
+                }
+            };
+        }
+
+        // ─── index.json 다시 쓰기 ────────────────────────────────────────────────
+        function _rebuildTileIndex() {
+            const files = fs.readdirSync(TILES_DIR).filter(f => f.match(/^tile_-?\d+_-?\d+\.json$/));
+            const indexData = files.map(filename => {
+                const raw = JSON.parse(fs.readFileSync(path.join(TILES_DIR, filename), 'utf8'));
+                return { lat: raw.tile_lat, lng: raw.tile_lng, bounds: raw.bounds, filename, feature_count: raw.feature_count };
+            });
+            fs.writeFileSync(path.join(TILES_DIR, 'index.json'), JSON.stringify(indexData, null, 2));
+            return indexData.length;
+        }
+
+        // ─── git add/commit/push (타일 변경분만) ─────────────────────────────────
+        async function _gitPushTiles(label) {
+            try {
+                const { execSync } = require('child_process');
+                execSync('git add public/tiles/', { cwd: __dirname });
+                const diff = execSync('git diff --cached --stat', { cwd: __dirname }).toString().trim();
+                if (!diff) { console.log(`⏭️  [Vercel 스킵] 타일 변경 없음 (${label})`); return; }
+                const today = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
+                execSync(`git commit -m "chore: 영토 타일 증분 갱신 ${label} (${today})"`, { cwd: __dirname });
+                execSync('git push', { cwd: __dirname });
+                console.log(`✅ [Vercel 배포] 타일 push 완료 → Vercel 자동 재배포 (${label})`);
+            } catch (e) {
+                console.error(`❌ [Vercel 배포 실패] ${e.message}`);
             }
+        }
+
+        let _tileRebuildInProgress = false;
+
+        // ─── 증분 타일 재빌드: 변경된 영토 ID Set만 처리 ────────────────────────
+        // affectedIds: Set<string> — 비어 있으면 전체 재빌드 (force 모드)
+        async function rebuildTerritoryTilesIncremental(reason, affectedIds = null) {
             if (_tileRebuildInProgress) {
                 console.log(`⏳ [타일 스킵] 이미 진행 중 (사유: ${reason})`);
                 return;
             }
             _tileRebuildInProgress = true;
-            console.log(`🗺️  [타일 재빌드 시작] public/tiles/ 갱신 중... (사유: ${reason})`);
             const startTime = Date.now();
+            const isFullRebuild = !affectedIds || affectedIds.size === 0;
+            console.log(`🗺️  [타일 ${isFullRebuild ? '전체' : '증분'} 재빌드 시작] (사유: ${reason}, 대상: ${isFullRebuild ? '전체' : affectedIds.size + '개 영토'})`);
+
             try {
-                const TILE_SIZE = 10;
-                const cursor = collections.territories.find({});
-                const tiles = new Map();
-                let count = 0;
+                // 1. 영향받는 타일 키 수집 ──────────────────────────────────────
+                let affectedTileKeys; // Set<string> | null(전체)
+                if (!isFullRebuild) {
+                    affectedTileKeys = new Set();
+                    // 현재 타일 파일에서 해당 영토가 들어있는 타일 키 찾기
+                    const existingFiles = fs.readdirSync(TILES_DIR).filter(f => f.match(/^tile_-?\d+_-?\d+\.json$/));
+                    for (const filename of existingFiles) {
+                        const raw = JSON.parse(fs.readFileSync(path.join(TILES_DIR, filename), 'utf8'));
+                        const hasAffected = (raw.features || []).some(f => affectedIds.has(f.properties?._id));
+                        if (hasAffected) {
+                            const m = filename.match(/^tile_(-?\d+)_(-?\d+)\.json$/);
+                            if (m) affectedTileKeys.add(`${m[1]}_${m[2]}`);
+                        }
+                    }
+                }
+
+                // 2. 영향받는 타일에 포함될 영토 조회 ──────────────────────────
+                // 전체 재빌드: 모든 영토
+                // 증분: 영향받는 타일 bbox와 겹치는 영토 전체 (타일 내 다른 영토도 유지)
+                let territoriesToQuery = {};
+                if (!isFullRebuild && affectedTileKeys.size > 0) {
+                    // 영향 타일들의 전체 bbox 범위 계산
+                    let qMinLat = 90, qMaxLat = -90, qMinLng = 180, qMaxLng = -180;
+                    for (const key of affectedTileKeys) {
+                        const [lat, lng] = key.split('_').map(Number);
+                        if (lat < qMinLat) qMinLat = lat;
+                        if (lat + TILE_SIZE > qMaxLat) qMaxLat = lat + TILE_SIZE;
+                        if (lng < qMinLng) qMinLng = lng;
+                        if (lng + TILE_SIZE > qMaxLng) qMaxLng = lng + TILE_SIZE;
+                    }
+                    // + 새로 추가된 영토 (기존 타일에 없었을 수 있으므로 affectedIds도 직접 조회)
+                    territoriesToQuery = {
+                        $or: [
+                            { 'bbox.minLat': { $lt: qMaxLat }, 'bbox.maxLat': { $gt: qMinLat },
+                              'bbox.minLng': { $lt: qMaxLng }, 'bbox.maxLng': { $gt: qMinLng } },
+                            { _id: { $in: [...affectedIds].map(id => { try { return require('mongodb').ObjectId(id); } catch(e) { return id; } }) } }
+                        ]
+                    };
+                }
+
+                const cursor = collections.territories.find(territoriesToQuery);
+                const tileMap = new Map(); // key → { tile_lat, tile_lng, bounds, features[] }
+
                 for await (const territory of cursor) {
-                    count++;
+                    const feature = _territoryToFeature(territory);
+                    if (!feature) continue;
                     const geometry = territory.geometry
                         || (territory.type && territory.coordinates ? { type: territory.type, coordinates: territory.coordinates } : null);
-                    if (!geometry) continue;
+                    const bbox = territory.bbox || _getBboxFromGeometry(geometry);
+                    const tileKeys = _getTileKeysForBbox(bbox.minLat, bbox.maxLat, bbox.minLng, bbox.maxLng);
 
-                    let minLat, maxLat, minLng, maxLng;
-                    if (territory.bbox) {
-                        ({ minLat, maxLat, minLng, maxLng } = territory.bbox);
-                    } else {
-                        minLat = 90; maxLat = -90; minLng = 180; maxLng = -180;
-                        (function walk(coords) {
-                            if (!Array.isArray(coords)) return;
-                            if (typeof coords[0] === 'number') {
-                                if (coords[1] < minLat) minLat = coords[1];
-                                if (coords[1] > maxLat) maxLat = coords[1];
-                                if (coords[0] < minLng) minLng = coords[0];
-                                if (coords[0] > maxLng) maxLng = coords[0];
-                            } else { coords.forEach(walk); }
-                        })(geometry.coordinates);
-                    }
-
-                    const simplified = _simplifyGeometry(geometry, 0.005);
-                    const feature = {
-                        type: 'Feature', geometry: simplified,
-                        properties: {
-                            _id: territory._id.toString(),
-                            name: territory.name, name_ko: territory.name_ko,
-                            type: territory.type, level: territory.level,
-                            country: territory.country ? territory.country.toString() : null,
-                            country_id: territory.country ? territory.country.toString() : null,
-                            start_year: territory.start_year || territory.start || null,
-                            end_year: territory.end_year || territory.end || null,
+                    // 전체 재빌드면 모든 타일, 증분이면 영향 타일만
+                    for (const key of tileKeys) {
+                        if (!isFullRebuild && !affectedTileKeys.has(key)) continue;
+                        if (!tileMap.has(key)) {
+                            const [lat, lng] = key.split('_').map(Number);
+                            tileMap.set(key, { tile_lat: lat, tile_lng: lng,
+                                bounds: { north: lat+TILE_SIZE, south: lat, west: lng, east: lng+TILE_SIZE }, features: [] });
                         }
-                    };
-
-                    const startTileLat = Math.floor(minLat / TILE_SIZE) * TILE_SIZE;
-                    const endTileLat   = Math.ceil(maxLat  / TILE_SIZE) * TILE_SIZE;
-                    const startTileLng = Math.floor(minLng / TILE_SIZE) * TILE_SIZE;
-                    const endTileLng   = Math.ceil(maxLng  / TILE_SIZE) * TILE_SIZE;
-                    for (let lat = startTileLat; lat < endTileLat; lat += TILE_SIZE) {
-                        for (let lng = startTileLng; lng < endTileLng; lng += TILE_SIZE) {
-                            const key = `${lat}_${lng}`;
-                            if (!tiles.has(key)) tiles.set(key, { tile_lat: lat, tile_lng: lng,
-                                bounds: { north: lat+TILE_SIZE, south: lat, west: lng, east: lng+TILE_SIZE }, data: [] });
-                            tiles.get(key).data.push(feature);
-                        }
+                        tileMap.get(key).features.push(feature);
                     }
                 }
 
-                // 기존 타일 파일 삭제
-                const existing = fs.readdirSync(TILES_DIR).filter(f => f.endsWith('.json'));
-                for (const f of existing) fs.unlinkSync(path.join(TILES_DIR, f));
-
-                // 새 타일 파일 저장
-                const indexData = [];
-                for (const [, tile] of tiles) {
-                    const filename = `tile_${tile.tile_lat}_${tile.tile_lng}.json`;
-                    const exportData = { type: 'FeatureCollection', tile_lat: tile.tile_lat, tile_lng: tile.tile_lng,
-                        bounds: tile.bounds, features: tile.data, feature_count: tile.data.length };
-                    fs.writeFileSync(path.join(TILES_DIR, filename), JSON.stringify(exportData));
-                    indexData.push({ lat: tile.tile_lat, lng: tile.tile_lng, bounds: tile.bounds, filename, feature_count: tile.data.length });
+                // 3. 전체 재빌드: 기존 파일 삭제 후 전체 저장 ──────────────────
+                if (isFullRebuild) {
+                    const existing = fs.readdirSync(TILES_DIR).filter(f => f.endsWith('.json'));
+                    for (const f of existing) fs.unlinkSync(path.join(TILES_DIR, f));
+                    for (const [, tile] of tileMap) {
+                        const filename = `tile_${tile.tile_lat}_${tile.tile_lng}.json`;
+                        fs.writeFileSync(path.join(TILES_DIR, filename), JSON.stringify({
+                            type: 'FeatureCollection', tile_lat: tile.tile_lat, tile_lng: tile.tile_lng,
+                            bounds: tile.bounds, features: tile.features, feature_count: tile.features.length
+                        }));
+                    }
+                } else {
+                    // 4. 증분: 영향받는 타일 파일만 덮어쓰기 ──────────────────
+                    for (const key of affectedTileKeys) {
+                        const filename = `tile_${key.replace('_', '_')}.json`;
+                        const filepath = path.join(TILES_DIR, filename);
+                        const tile = tileMap.get(key);
+                        if (tile && tile.features.length > 0) {
+                            fs.writeFileSync(filepath, JSON.stringify({
+                                type: 'FeatureCollection', tile_lat: tile.tile_lat, tile_lng: tile.tile_lng,
+                                bounds: tile.bounds, features: tile.features, feature_count: tile.features.length
+                            }));
+                        } else {
+                            // 영토가 없어진 타일은 파일 삭제
+                            if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
+                        }
+                    }
+                    // 새 영토가 새 타일을 만들 수 있으므로 기존 타일 외 신규 타일 저장
+                    for (const [key, tile] of tileMap) {
+                        if (affectedTileKeys.has(key)) continue; // 이미 처리됨
+                        const filename = `tile_${tile.tile_lat}_${tile.tile_lng}.json`;
+                        fs.writeFileSync(path.join(TILES_DIR, filename), JSON.stringify({
+                            type: 'FeatureCollection', tile_lat: tile.tile_lat, tile_lng: tile.tile_lng,
+                            bounds: tile.bounds, features: tile.features, feature_count: tile.features.length
+                        }));
+                    }
                 }
-                fs.writeFileSync(path.join(TILES_DIR, 'index.json'), JSON.stringify(indexData, null, 2));
 
-                _territoryDirty = false; // 재빌드 완료 → dirty 해제
+                // 5. index.json 갱신 ────────────────────────────────────────────
+                const tileCount = _rebuildTileIndex();
+                _territoryDirty = false;
+                _dirtyTerritoryIds = new Set();
                 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                console.log(`✅ [타일 재빌드 완료] ${tiles.size}개 타일, 영토 ${count}개 (${elapsed}초)`);
+                console.log(`✅ [타일 재빌드 완료] ${tileCount}개 타일 (${isFullRebuild ? '전체' : '증분'}, ${elapsed}초)`);
+
+                // 6. Vercel 자동 배포 ───────────────────────────────────────────
+                await _gitPushTiles(reason);
+
             } catch (e) {
                 console.error('❌ [타일 재빌드 실패]', e.message);
             } finally {
                 _tileRebuildInProgress = false;
             }
+        }
+
+        // 하위 호환: 기존 rebuildTerritoryTiles 호출부 지원
+        async function rebuildTerritoryTiles(reason, force = false) {
+            if (!force && !_territoryDirty) {
+                console.log(`⏭️  [타일 스킵] 영토 변경 없음 (사유: ${reason})`);
+                return;
+            }
+            // 야간 배치: dirty ID Set으로 증분, 없으면 전체
+            const ids = _dirtyTerritoryIds.size > 0 ? new Set(_dirtyTerritoryIds) : null;
+            await rebuildTerritoryTilesIncremental(reason, force ? null : ids);
         }
 
         // ⏰ [배치 스케줄러] 매일 새벽 3시 — castles.json + 영토 타일(변경시만) 갱신
@@ -664,7 +793,7 @@ async function setupRoutesAndCollections() {
                 console.log(`⏰ [배치] 다음 야간 재빌드 예약: ${nextTime} (${Math.round(delay / 3600000)}시간 후)`);
                 setTimeout(async () => {
                     await rebuildCastleStaticFile('야간 배치 (새벽 3시)');
-                    await rebuildTerritoryTiles('야간 배치 (새벽 3시)'); // dirty면 실행, 아니면 skip
+                    await rebuildTerritoryTiles('야간 배치 (새벽 3시)'); // dirty면 증분, 아니면 skip (타일 push 내장)
                     // 🚀 Vercel 자동 배포 — castles.json 변경사항 push
                     try {
                         const { execSync } = require('child_process');
@@ -675,7 +804,7 @@ async function setupRoutesAndCollections() {
                         if (diffStat) {
                             execSync(`git commit -m "chore: 야간 배치 castles.json 갱신 (${today})"`, { cwd: repoDir });
                             execSync('git push', { cwd: repoDir });
-                            console.log(`✅ [Vercel 배포] castles.json push 완료 → Vercel 자동 재배포 시작`);
+                            console.log(`✅ [Vercel 배포] castles.json push 완료`);
                         } else {
                             console.log(`⏭️  [Vercel 배포 스킵] castles.json 변경 없음`);
                         }
@@ -2005,11 +2134,15 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     insertedId: result.insertedIds[0] // 단일 추가 시 호환성
                 });
                 
-                // 🚀 캐시 무효화
+                // 🚀 캐시 무효화 + 즉시 증분 타일 재빌드 (백그라운드)
                 territoriesCache = null;
                 territoriesCacheTime = null;
-                _territoryDirty = true; // 새벽 3시 배치에서 타일 재빌드
+                const newIds = new Set(Object.values(result.insertedIds).map(id => id.toString()));
+                for (const id of newIds) _dirtyTerritoryIds.add(id);
+                _territoryDirty = true;
                 console.log('🗑️ Territories 캐시 무효화됨 (POST)');
+                rebuildTerritoryTilesIncremental('영토 추가', newIds).catch(e =>
+                    console.error('❌ [즉시 타일 재빌드 실패]', e.message));
             } catch (error) {
                 console.error("Territory 추가 중 오류:", error);
                 res.status(500).json({ message: "Territory 추가 실패", error: error.message });
@@ -2071,11 +2204,14 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const result = await collections.territories.updateOne({ _id: _id }, { $set: updatedTerritory });
                 if (result.matchedCount === 0) return res.status(404).json({ message: "영토 정보를 찾을 수 없습니다." });
                 
-                // 🚀 캐시 무효화
+                // 🚀 캐시 무효화 + 즉시 증분 타일 재빌드 (백그라운드)
                 territoriesCache = null;
                 territoriesCacheTime = null;
-                _territoryDirty = true; // 새벽 3시 배치에서 타일 재빌드
+                _dirtyTerritoryIds.add(id);
+                _territoryDirty = true;
                 console.log('🗑️ Territories 캐시 무효화됨 (PUT)');
+                rebuildTerritoryTilesIncremental('영토 수정', new Set([id])).catch(e =>
+                    console.error('❌ [즉시 타일 재빌드 실패]', e.message));
                 
                 res.json({ message: "Territory 정보 업데이트 성공" });
             } catch (error) {
@@ -2093,11 +2229,14 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const result = await collections.territories.deleteOne({ _id: _id });
                 if (result.deletedCount === 0) return res.status(404).json({ message: "영토 정보를 찾을 수 없습니다." });
                 
-                // 🚀 캐시 무효화
+                // 🚀 캐시 무효화 + 즉시 증분 타일 재빌드 (백그라운드)
                 territoriesCache = null;
                 territoriesCacheTime = null;
-                _territoryDirty = true; // 새벽 3시 배치에서 타일 재빌드
+                _dirtyTerritoryIds.add(id);
+                _territoryDirty = true;
                 console.log('🗑️ Territories 캐시 무효화됨 (DELETE)');
+                rebuildTerritoryTilesIncremental('영토 삭제', new Set([id])).catch(e =>
+                    console.error('❌ [즉시 타일 재빌드 실패]', e.message));
                 
                 res.json({ message: "Territory 정보 삭제 성공" });
             } catch (error) {
@@ -2122,14 +2261,23 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const query = { osm_id: { $in: Array.from(variants) } };
                 console.log(`🧹 OSM 기반 삭제 요청: ${osm} -> 쿼리: ${JSON.stringify(query)}`);
 
+                // 삭제 전 ID 수집 (증분 타일 재빌드용)
+                const toDelete = await collections.territories.find(query, { projection: { _id: 1 } }).toArray();
+                const deletedIds = new Set(toDelete.map(t => t._id.toString()));
+
                 const result = await collections.territories.deleteMany(query);
                 console.log(`✅ OSM 기반 삭제 완료: ${result.deletedCount}개 삭제`);
                 
-                // 🚀 캐시 무효화
+                // 🚀 캐시 무효화 + 즉시 증분 타일 재빌드 (백그라운드)
                 territoriesCache = null;
                 territoriesCacheTime = null;
-                _territoryDirty = true; // 새벽 3시 배치에서 타일 재빌드
+                for (const id of deletedIds) _dirtyTerritoryIds.add(id);
+                _territoryDirty = true;
                 console.log('🗑️ Territories 캐시 무효화됨 (DELETE by OSM)');
+                if (deletedIds.size > 0) {
+                    rebuildTerritoryTilesIncremental('영토 삭제(OSM)', deletedIds).catch(e =>
+                        console.error('❌ [즉시 타일 재빌드 실패]', e.message));
+                }
 
                 res.json({ message: 'OSM 기반 영토 삭제 완료', deletedCount: result.deletedCount });
             } catch (error) {
