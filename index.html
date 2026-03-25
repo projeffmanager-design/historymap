@@ -9298,10 +9298,11 @@ function getCachedDominantCountry(territory, year, month) {
     if (_dominantCountryCache.has(cacheKey)) return _dominantCountryCache.get(cacheKey);
     
     const result = calculateDominantCountry(territory, year, month);
-    // 🐛 [버그수정] null(noCountry) 결과는 캐시 저장 금지
-    // castles 로드 중 또는 race condition으로 잘못된 null이 캐시되면
+    // 🐛 [버그수정] castles가 아직 로딩 중(0개)일 때 null 결과는 캐시 저장 금지
+    // castles 로드 완료 전 race condition으로 잘못된 null이 캐시되면
     // 이후 updateMap에서도 null을 반환해 영토가 영원히 안 보이는 버그 발생
-    if (result !== null) {
+    // castles가 로드된 상태(1개 이상)에서의 null은 정상(해당 연도에 마커 없음)이므로 캐시 허용
+    if (result !== null || castles.length > 0) {
         _dominantCountryCache.set(cacheKey, result);
     }
     
