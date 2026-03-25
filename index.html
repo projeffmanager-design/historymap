@@ -8488,6 +8488,21 @@ function getKingByYear(countryName, year, month) {
     // 우선순위: ① 수도 보유 국가 → ② 성 갯수 최다 국가 (항상 색칠)
     // 반환: { countryId, isExclusive, countriesInZone: [...] } 또는 null
     function calculateDominantCountry(territory, year, month) {
+        // 🚀 [v4.1] dominance 배열로 연도별 지배국 계산 (castles 없어도 동작)
+        if (territory.properties && Array.isArray(territory.properties.dominance) && territory.properties.dominance.length > 0) {
+            const dominance = territory.properties.dominance;
+            // 현재 연도에 해당하는 지배국 찾기 (start_year ≤ year ≤ end_year, count 내림차순)
+            const matched = dominance.filter(d => d.start_year <= year && year <= d.end_year);
+            const best = matched.length > 0
+                ? matched.reduce((a, b) => (b.count > a.count ? b : a))
+                : dominance[0]; // 연도 범위 밖이면 가장 count 많은 것
+            const countryId = best.country_id;
+            const countryInfo = getCountryInfoById(countryId) || getCountryInfoById(String(countryId));
+            if (countryInfo || countries.length === 0) {
+                return { countryId: String(countryId), isExclusive: matched.length === 1, countriesInZone: matched.map(d => d.country_id) };
+            }
+        }
+
         // 영토 데이터에 country_id가 직접 있으면 우선 사용 (castles 없어도 렌더링 가능)
         if (territory.properties && territory.properties.country_id) {
             const countryId = territory.properties.country_id;
@@ -9601,8 +9616,15 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     return;
                 }
 
-                // 🚩 [v4.0] 영토 자체 연도 필터 제거 — 마커(castle)가 없으면 표시 안 함
-                // (dominantResult === null 이면 noCountry로 skip)
+                // 시간 범위 체크
+                const startYear = territory.start || territory.start_year || -5000;
+                const endYear = territory.end || territory.end_year || 3000;
+                if (!(year >= startYear && year <= endYear)) {
+                    skipReasons.timeRange++;
+                    return;
+                }
+
+                // 🚀 [v3.6] 캐시된 국가 계산 사용
                 const dominantResult = getCachedDominantCountry(territory, year, month);
                 if (!dominantResult) {
                     skipReasons.noCountry++;
@@ -12129,12 +12151,15 @@ function invalidateCountryLookupCache() {
               if (territories.length > 0) {
                   const { year: dbgYear, month: dbgMonth } = getCurrentYearMonth();
                   let withCountryId = 0, withDominant = 0;
+                  const noCountryList = [];
                   for (const t of territories) {
                       if (t.properties?.country_id && getCountryInfoById(t.properties.country_id)) withCountryId++;
                       const dom = calculateDominantCountry(t, dbgYear, dbgMonth);
                       if (dom && getCountryInfoById(dom.countryId)) withDominant++;
+                      else noCountryList.push(t.name + (t.properties?.dominance ? '(dom:'+t.properties.dominance.length+')' : '(no-dom)'));
                   }
-                  console.log(`📊 [디버깅] 캐시 렌더링: 전체 ${territories.length}개, country_id 매칭 ${withCountryId}개, 성채기반 매칭 ${withDominant}개`);
+                  console.log(`📊 [디버깅] 캐시 렌더링: 전체 ${territories.length}개, country_id 매칭 ${withCountryId}개, 색칠 가능 ${withDominant}개, 색칠 불가 ${noCountryList.length}개 (year=${dbgYear})`);
+                  if (noCountryList.length > 0 && noCountryList.length < 50) console.log('  색칠 불가:', noCountryList.slice(0, 20).join(', '));
               }
           }
       } catch (error) {
@@ -13746,7 +13771,12 @@ function invalidateCountryLookupCache() {
                   return;
               }
               
-              // 🚩 [v4.0] 영토 자체 연도 필터 제거 — 마커가 없으면 표시 안 함
+              // 시간 범위 체크
+              const startYear = territory.start || territory.start_year || -5000;
+              const endYear = territory.end || territory.end_year || 3000;
+              if (!(year >= startYear && year <= endYear)) return;
+
+              // 🚀 [v3.6] 캐시된 국가 계산 사용
               const dominantResult = getCachedDominantCountry(territory, year, month);
               if (!dominantResult) return;
               
