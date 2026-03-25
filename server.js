@@ -4227,6 +4227,33 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             );
         });
 
+        // 🔔 내부 webhook: Vercel API 호출 후 로컬 서버에 증분 재빌드 알림 (localhost 전용)
+        app.post('/api/internal/tile-notify', async (req, res) => {
+            const ip = req.ip || req.connection?.remoteAddress || '';
+            const isLocalhost = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+            if (!isLocalhost) {
+                return res.status(403).json({ message: 'localhost에서만 사용 가능합니다.' });
+            }
+            const { action, ids } = req.body; // action: 'add'|'update'|'delete', ids: [string, ...]
+            if (!action) return res.status(400).json({ message: 'action 필드가 필요합니다.' });
+
+            if (_tileRebuildInProgress) {
+                // 이미 진행 중이면 dirty 목록에 추가만 하고 OK 반환
+                if (Array.isArray(ids)) ids.forEach(id => _dirtyTerritoryIds.add(id));
+                _territoryDirty = true;
+                return res.json({ message: '재빌드 진행 중 - dirty 목록에 추가됨', queued: true });
+            }
+
+            const affectedIds = Array.isArray(ids) && ids.length > 0 ? new Set(ids) : null;
+            if (affectedIds) affectedIds.forEach(id => _dirtyTerritoryIds.add(id));
+            _territoryDirty = true;
+
+            res.json({ message: `🗺️ 증분 타일 재빌드 시작 (${action}, ${affectedIds ? affectedIds.size : '전체'}개)` });
+            rebuildTerritoryTilesIncremental(`외부 알림(${action})`, affectedIds).catch(e =>
+                console.error('❌ [webhook 타일 재빌드 실패]', e.message)
+            );
+        });
+
         // �🚩 [추가] 점수 재계산 API (관리자용)
         app.post('/api/admin/recalculate-scores', verifyToken, async (req, res) => {
             try {
