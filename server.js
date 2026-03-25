@@ -4254,7 +4254,21 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             );
         });
 
-        // �🚩 [추가] 점수 재계산 API (관리자용)
+        // 🔔 내부 타일 재빌드 상태 조회 (localhost 전용)
+        app.get('/api/internal/tile-status', (req, res) => {
+            const ip = req.ip || req.connection?.remoteAddress || '';
+            const isLocalhost = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+            if (!isLocalhost) {
+                return res.status(403).json({ message: 'localhost에서만 사용 가능합니다.' });
+            }
+            res.json({
+                inProgress: _tileRebuildInProgress,
+                dirty: _territoryDirty,
+                dirtyCount: _dirtyTerritoryIds.size
+            });
+        });
+
+        // 🚩 [추가] 점수 재계산 API (관리자용)
         app.post('/api/admin/recalculate-scores', verifyToken, async (req, res) => {
             try {
                 // 관리자 권한 확인
