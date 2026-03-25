@@ -824,18 +824,24 @@ async function setupRoutesAndCollections() {
                 const { label_type } = req.query;
                 
                 // 🚀 [v3.5] label_type 없는 전체 조회 시 서버 캐시 사용
-                // 🚀 [v3.7] 캐시가 있어도 DB에서 캐시보다 최신 항목을 추가 조회해 병합
-                // → Vercel serverless에서 castles.json push 없이도 신규 승인 마커 즉시 반영
+                // 🚀 [v3.7] 캐시가 있어도 DB에서 신규 추가 / 삭제된 항목을 동기화해 병합
+                // → Vercel serverless에서 castles.json push 없이도 신규 승인·삭제 마커 즉시 반영
                 if (!label_type && _castleCache && (Date.now() - _castleCacheTime) < CASTLE_CACHE_TTL) {
                     try {
-                        // 캐시 내 최신 ObjectId 추출 (ObjectId의 첫 4바이트 = 생성 타임스탬프)
                         const { ObjectId: ObjId } = require('mongodb');
-                        const cachedIds = new Set(_castleCache.map(c => String(c._id)));
+
+                        // 1) DB에서 삭제된 항목의 ID 목록 조회 → 캐시에서 제외
+                        const deletedDocs = await collections.castle.find(
+                            { deleted: true },
+                            { projection: { _id: 1 } }
+                        ).toArray();
+                        const deletedIds = new Set(deletedDocs.map(d => String(d._id)));
+
+                        // 2) 캐시 내 최신 ObjectId 추출 → 그보다 최신인 신규 항목 조회
                         const maxCachedId = _castleCache.reduce((max, c) => {
                             const id = String(c._id);
                             return id > max ? id : max;
                         }, '0');
-                        // 캐시보다 최신이거나 캐시에 없는 항목 조회
                         const newQuery = {
                             $and: [
                                 { $or: [{ deleted: { $exists: false } }, { deleted: false }] },
@@ -843,13 +849,16 @@ async function setupRoutesAndCollections() {
                             ]
                         };
                         const newDocs = await collections.castle.find(newQuery).toArray();
-                        if (newDocs.length > 0) {
-                            console.log(`⚡ Castle 캐시(${_castleCache.length}개) + DB 신규 ${newDocs.length}개 병합`);
-                            const merged = [..._castleCache, ...newDocs];
-                            return res.json(merged);
+
+                        // 3) 캐시에서 삭제된 항목 제외 + 신규 항목 병합
+                        const filteredCache = _castleCache.filter(c => !deletedIds.has(String(c._id)));
+                        const merged = [...filteredCache, ...newDocs];
+                        if (deletedIds.size > 0 || newDocs.length > 0) {
+                            console.log(`⚡ Castle 캐시 동기화: 원본 ${_castleCache.length}개 → 삭제 -${deletedIds.size}개, 신규 +${newDocs.length}개 = ${merged.length}개`);
                         }
+                        return res.json(merged);
                     } catch (e) {
-                        console.warn('⚠️ Castle 신규 병합 실패, 캐시만 반환:', e.message);
+                        console.warn('⚠️ Castle 동기화 실패, 캐시만 반환:', e.message);
                     }
                     console.log(`⚡ Castle 서버 캐시 사용: ${_castleCache.length}개`);
                     return res.json(_castleCache);
