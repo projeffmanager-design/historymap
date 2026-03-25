@@ -8494,21 +8494,24 @@ function getKingByYear(countryName, year, month) {
     // 우선순위: ① 수도 보유 국가 → ② 성 갯수 최다 국가 (항상 색칠)
     // 반환: { countryId, isExclusive, countriesInZone: [...] } 또는 null
     function calculateDominantCountry(territory, year, month) {
-        // 영토 데이터에 country_id가 직접 있으면 우선 사용 (castles 없어도 렌더링 가능)
-        if (territory.properties && territory.properties.country_id) {
-            const countryId = territory.properties.country_id;
-            // 🔑 [개선] String/숫자 형식 차이 허용 — 문자열로 통일 후 재시도
-            const countryInfo = getCountryInfoById(countryId)
-                             || getCountryInfoById(String(countryId));
-            if (countryInfo) {
-                return { countryId: String(countryId), isExclusive: true, countriesInZone: [String(countryId)] };
+            // 영토 데이터에 country_id 또는 country가 직접 있으면 우선 사용 (castles 없어도 렌더링 가능)
+            if (territory.properties && (territory.properties.country_id || territory.properties.country)) {
+                let countryId = territory.properties.country_id || territory.properties.country;
+                // MongoDB ObjectId 객체({$oid: "..."}) 또는 숫자/문자열 허용
+                if (typeof countryId === 'object') countryId = countryId.$oid || String(countryId);
+
+                // 🔑 [개선] String/숫자/이름 형식 차이 허용 — 문자열로 통일 후 재시도
+                const countryInfo = getCountryInfoById(countryId)
+                                 || getCountryInfoById(String(countryId));
+                if (countryInfo) {
+                    return { countryId: String(countryId), isExclusive: true, countriesInZone: [String(countryId)] };
+                }
+                // countries가 아직 로드되지 않은 경우에도 country 식별자가 존재하면 통과
+                if (countries.length === 0) {
+                    return { countryId: String(countryId), isExclusive: true, countriesInZone: [String(countryId)] };
+                }
+                // countryInfo가 없고 countries가 있으면 계속해서 castles 기반 계산으로 진행
             }
-            // countries가 아직 로드되지 않은 경우에도 country_id가 존재하면 통과
-            // (countryInfo=null → countryNotFound 처리. noCountry는 아님)
-            if (countries.length === 0) {
-                return { countryId: String(countryId), isExclusive: true, countriesInZone: [String(countryId)] };
-            }
-        }
         
         // castles 기반 지배 국가 계산
         let geometry;
@@ -8580,8 +8583,13 @@ function getKingByYear(countryName, year, month) {
         
         const uniqueCountries = Object.keys(countryCount);
         
-        // 구역 내 활성 도시가 0개 → 해당 시대에 지배국 없음 (색칠 안 함)
+        // 구역 내 활성 도시가 0개 → territory.properties에 country가 있으면 그 국가로 처리, 아니면 없음
         if (uniqueCountries.length === 0) {
+            if (territory.properties && (territory.properties.country_id || territory.properties.country)) {
+                let propCountry = territory.properties.country_id || territory.properties.country;
+                if (typeof propCountry === 'object') propCountry = propCountry.$oid || String(propCountry);
+                return { countryId: String(propCountry), isExclusive: true, countriesInZone: [String(propCountry)] };
+            }
             return null;
         }
         
