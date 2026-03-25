@@ -1100,7 +1100,45 @@ async function setupRoutesAndCollections() {
             }
         });
 
-        // 🚩 [신규 추가] GET: 개별 성 정보 조회
+        // � [신규] GET: 마커 출처 상태 조회 — DB/JSON 존재 여부 확인 (편집창 배지용)
+        app.get('/api/castle/:id/source-status', async (req, res) => {
+            try {
+                const { id } = req.params;
+                const objectId = toObjectId(id);
+
+                // DB 존재 여부
+                let inDb = false;
+                let dbDeleted = false;
+                if (objectId) {
+                    const dbDoc = await collections.castle.findOne(
+                        { _id: objectId },
+                        { projection: { _id: 1, deleted: 1 } }
+                    );
+                    if (dbDoc) {
+                        inDb = true;
+                        dbDeleted = !!dbDoc.deleted;
+                    }
+                }
+
+                // JSON(castles.json) 존재 여부 — 메모리 캐시 우선
+                let inJson = false;
+                const idStr = String(id);
+                if (_castleCache) {
+                    inJson = _castleCache.some(c => String(c._id) === idStr);
+                } else if (fs.existsSync(CASTLE_STATIC_FILE)) {
+                    try {
+                        const arr = JSON.parse(fs.readFileSync(CASTLE_STATIC_FILE, 'utf8'));
+                        inJson = arr.some(c => String(c._id) === idStr);
+                    } catch (e) { /* 파싱 실패 시 false */ }
+                }
+
+                res.json({ inDb, dbDeleted, inJson });
+            } catch (error) {
+                res.status(500).json({ message: '출처 상태 조회 실패', error: error.message });
+            }
+        });
+
+        // �🚩 [신규 추가] GET: 개별 성 정보 조회
         app.get('/api/castle/:id', async (req, res) => {
             try {
                 const { id } = req.params;

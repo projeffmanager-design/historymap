@@ -5931,7 +5931,13 @@ body.force-mobile .marker-type-selector button {
 
     <div id="castleForm">
         <div class="edit-panel-header">
-            <h3>🏯 오브젝트 추가/편집</h3>
+            <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
+                <h3 style="white-space:nowrap; margin:0;">🏯 오브젝트 추가/편집</h3>
+                <div id="castleSourceBadges" style="display:none; gap:4px; align-items:center;">
+                    <span id="castleSourceBadge-db"   style="font-size:10px; font-weight:bold; padding:2px 7px; border-radius:10px; background:#2c3e50; color:#7f8c8d; white-space:nowrap;">DB</span>
+                    <span id="castleSourceBadge-json" style="font-size:10px; font-weight:bold; padding:2px 7px; border-radius:10px; background:#2c3e50; color:#7f8c8d; white-space:nowrap;">JSON</span>
+                </div>
+            </div>
             <button type="button" class="edit-panel-close-btn" onclick="closeEditPanel('castleForm')">✕</button>
         </div>
         <div class="edit-panel-inner">
@@ -15724,6 +15730,9 @@ function invalidateCountryLookupCache() {
       document.getElementById('registerAsContributionBtn').style.display = 'none';
       // 신규 추가 시 제출 사관명 행 숨기기
       document.getElementById('castleCreatedByRow').style.display = 'none';
+      // 신규 추가 시 출처 배지 숨기기
+      const _sb = document.getElementById('castleSourceBadges');
+      if (_sb) _sb.style.display = 'none';
       
       // 🚩 [추가] 커스텀 아이콘 필드 초기화
       document.getElementById('customIcon').value = '';
@@ -15971,6 +15980,57 @@ function invalidateCountryLookupCache() {
         document.getElementById('cloneCastle').style.display = 'inline-block'; // 🚩 [추가] 편집 시 복제 버튼 표시
         document.getElementById('deleteCastle').style.display = 'inline-block';
         document.getElementById('registerAsContributionBtn').style.display = 'inline-block'; // 🚩 [추가] 기여로 재등록 버튼
+
+        // 🔍 [v3.8] 출처 배지 — DB/JSON 존재 여부 비동기 표시
+        (function loadSourceBadges(castleId) {
+            const dbBadge   = document.getElementById('castleSourceBadge-db');
+            const jsonBadge = document.getElementById('castleSourceBadge-json');
+            const badgesRow = document.getElementById('castleSourceBadges');
+            if (!dbBadge || !jsonBadge) return;
+            // 로딩 중 상태
+            dbBadge.textContent   = 'DB…';
+            jsonBadge.textContent = 'JSON…';
+            dbBadge.style.background   = '#2c3e50'; dbBadge.style.color   = '#7f8c8d';
+            jsonBadge.style.background = '#2c3e50'; jsonBadge.style.color = '#7f8c8d';
+            badgesRow.style.display = 'flex';
+            const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+            fetch(`/api/castle/${castleId}/source-status`, {
+                headers: tok ? { 'Authorization': `Bearer ${tok}` } : {}
+            })
+            .then(r => r.ok ? r.json() : Promise.reject(r.status))
+            .then(({ inDb, dbDeleted, inJson }) => {
+                // DB 배지
+                if (inDb && !dbDeleted) {
+                    dbBadge.textContent = '✅ DB';
+                    dbBadge.style.background = 'rgba(39,174,96,0.25)';
+                    dbBadge.style.color = '#2ecc71';
+                } else if (inDb && dbDeleted) {
+                    dbBadge.textContent = '🗑️ DB(삭제됨)';
+                    dbBadge.style.background = 'rgba(231,76,60,0.2)';
+                    dbBadge.style.color = '#e74c3c';
+                } else {
+                    dbBadge.textContent = '❌ DB없음';
+                    dbBadge.style.background = 'rgba(231,76,60,0.2)';
+                    dbBadge.style.color = '#e74c3c';
+                }
+                // JSON 배지
+                if (inJson) {
+                    jsonBadge.textContent = '✅ JSON';
+                    jsonBadge.style.background = 'rgba(52,152,219,0.25)';
+                    jsonBadge.style.color = '#3498db';
+                } else {
+                    jsonBadge.textContent = '❌ JSON없음';
+                    jsonBadge.style.background = 'rgba(231,76,60,0.2)';
+                    jsonBadge.style.color = '#e74c3c';
+                }
+            })
+            .catch(() => {
+                dbBadge.textContent   = 'DB ?';
+                jsonBadge.textContent = 'JSON ?';
+                dbBadge.style.color   = '#7f8c8d';
+                jsonBadge.style.color = '#7f8c8d';
+            });
+        })(id);
         
         // 🚩 [추가] 기여 변환 관련 필드 초기화
         document.getElementById('originContributionId').value = '';
@@ -16336,6 +16396,9 @@ function invalidateCountryLookupCache() {
         closeAllFormsExcept('castleForm');
         openForm('castleForm');
         addCastleForm.reset();
+        // 신규 모드: 출처 배지 숨기기
+        const _cvSb = document.getElementById('castleSourceBadges');
+        if (_cvSb) _cvSb.style.display = 'none';
         
         // 기여 데이터로 폼 채우기
         document.getElementById('castleName').value = contrib.name;
@@ -22056,6 +22119,9 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('cloneCastle').style.display = 'none';
             document.getElementById('deleteCastle').style.display = 'none';
             document.getElementById('registerAsContributionBtn').style.display = 'none';
+            // 신규 모드: 출처 배지 숨기기
+            const _contrib2Sb = document.getElementById('castleSourceBadges');
+            if (_contrib2Sb) _contrib2Sb.style.display = 'none';
 
             // 🚩 기여 정보를 hidden input에 세팅 (저장 시 자동 approved 처리)
             document.getElementById('originContributionId').value = contrib._id;
