@@ -8488,21 +8488,6 @@ function getKingByYear(countryName, year, month) {
     // 우선순위: ① 수도 보유 국가 → ② 성 갯수 최다 국가 (항상 색칠)
     // 반환: { countryId, isExclusive, countriesInZone: [...] } 또는 null
     function calculateDominantCountry(territory, year, month) {
-        // 🚀 [v4.1] dominance 배열로 연도별 지배국 계산 (castles 없어도 동작)
-        if (territory.properties && Array.isArray(territory.properties.dominance) && territory.properties.dominance.length > 0) {
-            const dominance = territory.properties.dominance;
-            // 현재 연도에 해당하는 지배국 찾기 (start_year ≤ year ≤ end_year, count 내림차순)
-            const matched = dominance.filter(d => d.start_year <= year && year <= d.end_year);
-            const best = matched.length > 0
-                ? matched.reduce((a, b) => (b.count > a.count ? b : a))
-                : dominance[0]; // 연도 범위 밖이면 가장 count 많은 것
-            const countryId = best.country_id;
-            const countryInfo = getCountryInfoById(countryId) || getCountryInfoById(String(countryId));
-            if (countryInfo || countries.length === 0) {
-                return { countryId: String(countryId), isExclusive: matched.length === 1, countriesInZone: matched.map(d => d.country_id) };
-            }
-        }
-
         // 영토 데이터에 country_id가 직접 있으면 우선 사용 (castles 없어도 렌더링 가능)
         if (territory.properties && territory.properties.country_id) {
             const countryId = territory.properties.country_id;
