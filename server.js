@@ -1046,6 +1046,15 @@ async function setupRoutesAndCollections() {
                 }
                 // country 필드가 넘어온다면 삭제 (ID 기반 구조 유지)
                 if (updatedCastle.country) delete updatedCastle.country;
+
+                // 🛡️ [v3.8] is_capital 보호 — 폼이 항상 false로 보내지만
+                // history 배열에 is_capital:true 항목이 있으면 true로 복원
+                if (updatedCastle.is_capital === false && Array.isArray(updatedCastle.history)) {
+                    const hasCapitalHistory = updatedCastle.history.some(h => h.is_capital === true || h.place_type === 'capital');
+                    if (hasCapitalHistory) {
+                        updatedCastle.is_capital = true;
+                    }
+                }
                 
                 const result = await collections.castle.updateOne(
                     { _id: _id },
