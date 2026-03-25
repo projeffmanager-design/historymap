@@ -477,6 +477,48 @@ async function setupRoutesAndCollections() {
             _castleCacheTime = 0;
         }
 
+        // ✏️ [v3.8] castles.json 즉시 패치 — 단일 항목 추가/수정/삭제를 파일에 바로 반영
+        // 전체 재빌드(270초) 없이 해당 항목만 수술적으로 수정 → DB와 파일 동기화 유지
+        function patchCastleInStaticFile(op, doc) {
+            // op: 'upsert' | 'delete'
+            // doc: { _id (string), ...fields }  — upsert 시 전체 문서, delete 시 _id만 필요
+            try {
+                if (!fs.existsSync(CASTLE_STATIC_FILE)) return; // 파일 없으면 skip
+                const raw = fs.readFileSync(CASTLE_STATIC_FILE, 'utf8');
+                let arr = JSON.parse(raw);
+                const idStr = doc._id?.toString ? doc._id.toString() : String(doc._id);
+
+                if (op === 'upsert') {
+                    const idx = arr.findIndex(c => String(c._id) === idStr);
+                    // _id를 string으로 통일
+                    const normalized = { ...doc, _id: idStr };
+                    if (idx >= 0) {
+                        arr[idx] = normalized; // 수정
+                    } else {
+                        arr.push(normalized);  // 신규
+                    }
+                    // 메모리 캐시도 동기화
+                    if (_castleCache) {
+                        const ci = _castleCache.findIndex(c => String(c._id) === idStr);
+                        if (ci >= 0) _castleCache[ci] = normalized;
+                        else _castleCache.push(normalized);
+                        _castleCacheTime = Date.now();
+                    }
+                } else if (op === 'delete') {
+                    arr = arr.filter(c => String(c._id) !== idStr);
+                    if (_castleCache) {
+                        _castleCache = _castleCache.filter(c => String(c._id) !== idStr);
+                        _castleCacheTime = Date.now();
+                    }
+                }
+
+                fs.writeFileSync(CASTLE_STATIC_FILE, JSON.stringify(arr));
+                console.log(`✏️ [즉시 패치] castles.json ${op} — ID: ${idStr}`);
+            } catch (e) {
+                console.warn('⚠️ castles.json 즉시 패치 실패 (무시, 배치로 보완):', e.message);
+            }
+        }
+
         // 📦 [배치/수동] castles.json 재빌드 — 매일 새벽 3시 자동 실행 + admin API로 수동 트리거 가능
         // 데이터 변경 직후 호출 안 함 (Atlas M0에서 270초 소요 → 배치로 일괄 처리)
         let _castleRebuildInProgress = false;
@@ -955,14 +997,13 @@ async function setupRoutesAndCollections() {
                 }
 
                 const result = await collections.castle.insertOne(newCastle);
-                
-                // � [v3.5] 서버 캐시 무효화
-                // 🔄 [자동화] castle 변경 → 백그라운드에서 castles.json 자동 재빌드
-                invalidateCastleCache(); // 메모리 캐시 무효화 (파일은 새벽 3시 배치로 갱신)
-                
-                // �🚩 [수정] 삽입된 전체 문서를 다시 조회해서 반환
+
+                // 🚩 [수정] 삽입된 전체 문서를 다시 조회해서 반환
                 const insertedDocument = await collections.castle.findOne({ _id: result.insertedId });
-                
+
+                // ✏️ [v3.8] castles.json 즉시 패치
+                patchCastleInStaticFile('upsert', insertedDocument);
+
                 logCRUD('CREATE', 'Castle', newCastle.name, `(ID: ${result.insertedId})`);
                 res.status(201).json({ 
                     message: "Castle 추가 성공", 
@@ -1010,10 +1051,6 @@ async function setupRoutesAndCollections() {
                     { _id: _id },
                     { $set: updatedCastle }
                 );
-                
-                // 🚀 [v3.5] 서버 캐시 무효화
-                // 🔄 [자동화] castle 변경 → castles.json 재빌드
-                invalidateCastleCache(); // 메모리 캐시 무효화 (파일은 새벽 3시 배치로 갱신)
 
                 if (result.matchedCount === 0) {
                     return res.status(404).json({ message: "성을 찾을 수 없습니다." });
@@ -1028,7 +1065,10 @@ async function setupRoutesAndCollections() {
 
                 // 🚩 [수정] 업데이트된 전체 객체를 다시 조회해서 반환
                 const updatedDocument = await collections.castle.findOne({ _id: _id });
-                
+
+                // ✏️ [v3.8] castles.json 즉시 패치 — DB와 파일 동기화
+                patchCastleInStaticFile('upsert', updatedDocument);
+
                 logCRUD('UPDATE', 'Castle', updatedCastle.name || id, `(ID: ${id})`);
                 res.json({ 
                     message: "Castle 정보 업데이트 성공",
@@ -1097,10 +1137,9 @@ async function setupRoutesAndCollections() {
                     return res.status(404).json({ message: "성을 찾을 수 없습니다." });
                 }
 
-                // 🚀 [v3.5] 서버 캐시 무효화
-                // 🔄 [자동화] castle 변경 → castles.json 재빌드
-                invalidateCastleCache(); // 메모리 캐시 무효화 (파일은 새벽 3시 배치로 갱신)
-                
+                // ✏️ [v3.8] castles.json 즉시 패치 — 삭제된 항목을 파일에서도 제거
+                patchCastleInStaticFile('delete', { _id: id });
+
                 logCRUD('SOFT_DELETE', 'Castle', id);
                 res.json({ message: "Castle 정보 휴지통으로 이동됨" });
             } catch (error) {
@@ -1130,13 +1169,12 @@ async function setupRoutesAndCollections() {
                     return res.status(404).json({ message: "휴지통에서 성을 찾을 수 없습니다." });
                 }
 
-                // 🚀 [v3.5] 서버 캐시 무효화
-                // 🔄 [자동화] castle 변경 → castles.json 재빌드
-                invalidateCastleCache(); // 메모리 캐시 무효화 (파일은 새벽 3시 배치로 갱신)
-
                 // 복원된 castle 데이터를 응답에 포함 (클라이언트 캐시 갱신용)
                 const restoredCastle = await collections.castle.findOne({ _id: _id });
-                
+
+                // ✏️ [v3.8] castles.json 즉시 패치 — 복원된 항목을 파일에 추가
+                patchCastleInStaticFile('upsert', restoredCastle);
+
                 logCRUD('RESTORE', 'Castle', id);
                 res.json({ message: "Castle 정보 복원 성공", castle: restoredCastle });
             } catch (error) {
@@ -1158,10 +1196,9 @@ async function setupRoutesAndCollections() {
                     return res.status(404).json({ message: "휴지통에서 성을 찾을 수 없습니다." });
                 }
 
-                // 🚀 [v3.5] 서버 캐시 무효화
-                // 🔄 [자동화] castle 변경 → castles.json 재빌드
-                invalidateCastleCache(); // 메모리 캐시 무효화 (파일은 새벽 3시 배치로 갱신)
-                
+                // ✏️ [v3.8] castles.json 즉시 패치 — 영구 삭제 항목을 파일에서도 제거
+                patchCastleInStaticFile('delete', { _id: id });
+
                 logCRUD('PERMANENT_DELETE', 'Castle', id);
                 res.json({ message: "Castle 정보 영구 삭제 성공" });
             } catch (error) {
