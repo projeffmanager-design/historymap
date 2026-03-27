@@ -4725,7 +4725,9 @@ body.force-mobile .marker-type-selector button {
 
         <!-- 🎬 유튜브 링크 (아이디 앞) -->
         <div id="top-left-icons" style="display: flex; gap: 5px; align-items: center; flex-shrink: 0;">
-          <a href="https://cafe.naver.com/korea3kingdoms" target="_blank" rel="noopener noreferrer" title="고려삼국역사복원카페" style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:#03c75a; flex-shrink:0;"><img style="width: 18px; height: 18px;" src="https://ssl.pstatic.net/static/cafe/cafe_pc/favicon/cafe_favicon_230814.ico"></a>
+                    <a href="https://cafe.naver.com/korea3kingdoms" target="_blank" rel="noopener noreferrer" title="고려삼국역사복원카페" style="display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:50%; background:transparent; flex-shrink:0; overflow:hidden;">
+                        <img style="width:22px; height:22px; border-radius:50%; object-fit:cover; display:block;" src="https://yt3.googleusercontent.com/ZiZJsEzG5LkM6UItGT5mrhygyGxYWsj8OmpLYeVnMNAbtD3D7KWtGX3NsjhMMFbMFUyZ-tY-Pg=s160-c-k-c0x00ffffff-no-rj" alt="역사복원카페">
+                    </a>
           <a href="https://www.youtube.com/@booksbogo" target="_blank" rel="noopener noreferrer" title="책보고"><img style="width: 26px; height: 26px; border-radius: 50%;" src="https://yt3.googleusercontent.com/ZiZJsEzG5LkM6UItGT5mrhygyGxYWsj8OmpLYeVnMNAbtD3D7KWtGX3NsjhMMFbMFUyZ-tY-Pg=s160-c-k-c0x00ffffff-no-rj"></a>
           <a href="https://www.youtube.com/@%EC%9D%B4%EC%9A%A9%ED%9B%88%EB%B0%95%EC%82%AC%EC%9D%98%EC%B0%90%EC%82%BC%EA%B5%AD%EC%82%AC" target="_blank" rel="noopener noreferrer" title="찐삼국사"><img style="width: 26px; height: 26px; border-radius: 50%;" src="https://yt3.googleusercontent.com/adIg0ayz8Thp44XkOP7Wscn4cebPYCNhr2I_ZVuMEGPMdfXRZZTRI-qBiCh68BpHZa_ZmcH9YZ8=s160-c-k-c0x00ffffff-no-rj"></a>
           <a href="https://www.youtube.com/@Ourhistory2023" target="_blank" rel="noopener noreferrer" title="우리역사"><img style="width: 26px; height: 26px; border-radius: 50%;" src="https://yt3.googleusercontent.com/90aOk5qirQI3Ug5MZGEtOSonAKL3AYWZSeYXnYTtQpC8XDWdbYOEr4D5V5Dy-V_ADN6fdhwV=s160-c-k-c0x00ffffff-no-rj"></a>
@@ -6805,9 +6807,87 @@ body.force-mobile .marker-type-selector button {
         return `hsl(${h}, 60%, 60%)`;
     }
 
+    // Color helpers: hex <-> rgb <-> hsl conversions
+    function hexToRgb(hex) {
+        hex = hex.replace('#','');
+        if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+        const num = parseInt(hex, 16);
+        return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+    }
+
+    function rgbToHsl(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        const max = Math.max(r,g,b), min = Math.min(r,g,b);
+        let h, s, l = (max + min) / 2;
+        if (max === min) {
+            h = s = 0; // achromatic
+        } else {
+            const d = max - min;
+            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+            switch (max) {
+                case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                case g: h = (b - r) / d + 2; break;
+                case b: h = (r - g) / d + 4; break;
+            }
+            h /= 6;
+        }
+        return [h * 360, s, l];
+    }
+
+    function hslToRgb(h, s, l) {
+        h /= 360;
+        let r, g, b;
+        if (s === 0) {
+            r = g = b = l; // achromatic
+        } else {
+            const hue2rgb = (p, q, t) => {
+                if (t < 0) t += 1;
+                if (t > 1) t -= 1;
+                if (t < 1/6) return p + (q - p) * 6 * t;
+                if (t < 1/2) return q;
+                if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                return p;
+            };
+            const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+            const p = 2 * l - q;
+            r = hue2rgb(p, q, h + 1/3);
+            g = hue2rgb(p, q, h);
+            b = hue2rgb(p, q, h - 1/3);
+        }
+        return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
+    }
+
+    function rgbToHex(r, g, b) {
+        return '#' + [r, g, b].map(x => x.toString(16).padStart(2,'0')).join('');
+    }
+
+    // Elegant/premium color transform: slightly desaturate and normalize lightness
+    function elegantColor(hex) {
+        try {
+            const { r, g, b } = hexToRgb(hex);
+            let [h, s, l] = rgbToHsl(r, g, b);
+            // Reduce saturation for a more muted, 'premium' look
+            s = Math.max(0.18, s * 0.7);
+            // Normalize lightness to a pleasant mid-range, but keep some variation
+            l = Math.min(0.62, Math.max(0.38, l * 0.95 + 0.02));
+            const rgb = hslToRgb(h, s, l);
+            return rgbToHex(rgb.r, rgb.g, rgb.b);
+        } catch (e) {
+            return hex; // fallback
+        }
+    }
+
+    // Global UI settings
+    // By default we prefer country-assigned colors; this flag can be toggled in the console for testing.
+    window.forceUniformTerritoryStyle = false; // if true, render all territories with a uniform dark style
+
     // 핵심: 영토 스타일 생성기
     function getTerritoryStyle(territory, countryInfo, year, month) {
         try {
+            // Global override: force uniform dark style for all territories when enabled
+            if (window.forceUniformTerritoryStyle) {
+                return { color: '#111111', weight: 1, opacity: 1.0, fillColor: '#111111', fillOpacity: 0.75 };
+            }
             const spec = window.territoryColorSpec;
             // 사용자 지정 함수인 경우 직접 호출
             if (typeof spec === 'function') {
@@ -6822,6 +6902,8 @@ body.force-mobile .marker-type-selector button {
             const baseOpacity = isProvince ? 0.45 : 0.62;
             // 🔑 [개선] countryInfo가 null (국가 로딩 중)이면 회색 fallback 표시
             const baseColor = countryInfo && countryInfo.color ? countryInfo.color : '#888888';
+            // apply premium color transform if enabled
+            const colorForUse = (window.premiumTerritoryStyle && baseColor) ? elegantColor(baseColor) : baseColor;
 
             switch (mode) {
                 case 'ethnicity': {
@@ -6834,12 +6916,12 @@ body.force-mobile .marker-type-selector button {
                     return { color: color, weight: 2, opacity: 1.0, fillColor: color, fillOpacity: baseOpacity };
                 }
                 case 'grayscale': {
-                    const color = toGrayscale(baseColor);
+                    const color = toGrayscale(colorForUse);
                     return { color: color, weight: 2, opacity: 1.0, fillColor: color, fillOpacity: baseOpacity };
                 }
                 case 'country':
                 default: {
-                    return { color: baseColor, weight: 2, opacity: 1.0, fillColor: baseColor, fillOpacity: baseOpacity };
+                    return { color: colorForUse, weight: 2, opacity: 1.0, fillColor: colorForUse, fillOpacity: baseOpacity };
                 }
             }
         } catch (e) {
@@ -12361,7 +12443,8 @@ function invalidateCountryLookupCache() {
           // kings/naturalFeatures 완료 후 즉시 지도 렌더링, castles는 도착하면 재렌더링
           if ((layerVisibility.city || layerVisibility.territoryPolygon) && castles.length === 0) {
               // castle은 별도 비동기 처리 (서버 캐시 히트 시 즉시, 미스 시 ~280초 백그라운드)
-              fetchData('castle').then(async allCastlesData => {
+              // nocache 쿼리 파라미터를 붙여 서버 캐시 대신 DB에서 바로 읽어오도록 요청
+              fetchData('castle?nocache=1').then(async allCastlesData => {
                   if (!allCastlesData || !Array.isArray(allCastlesData) || allCastlesData.length === 0) return;
                   console.log(`✅ castles 백그라운드 로드 완료: ${allCastlesData.length}개`);
                   const castleProcessStart = performance.now();
@@ -12808,7 +12891,9 @@ function invalidateCountryLookupCache() {
                           properties: props,
                           osm_id: feature.properties?.osm_id,
                           start: feature.properties?.start_year || feature.properties?.start,
-                          end: feature.properties?.end_year || feature.properties?.end
+                          end: feature.properties?.end_year || feature.properties?.end,
+                          // mark that this territory record was sourced from static tiles
+                          fromTile: true
                       });
                   }
               });
@@ -13782,10 +13867,12 @@ function invalidateCountryLookupCache() {
                   return;
               }
               
-              // 시간 범위 체크
-              const startYear = territory.start || territory.start_year || -5000;
-              const endYear = territory.end || territory.end_year || 3000;
-              if (!(year >= startYear && year <= endYear)) return;
+              // 시간 범위 체크 — 단, 타일에서 온 영토(fromTile)는 타일 존재 우선으로 표시 (연도 무시)
+              if (!territory.fromTile) {
+                  const startYear = territory.start || territory.start_year || -5000;
+                  const endYear = territory.end || territory.end_year || 3000;
+                  if (!(year >= startYear && year <= endYear)) return;
+              }
 
               // 🚀 [v3.6] 캐시된 국가 계산 사용
               const dominantResult = getCachedDominantCountry(territory, year, month);
@@ -22966,11 +23053,11 @@ kingSelect.addEventListener('change', () => {
 
       <!-- 오늘 하루 보지 않기 -->
       <div style="text-align: center; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; gap: 16px;">
-        <label style="cursor: pointer; color: #7f8c8d; font-size: 0.9em; display: inline-flex; align-items: center; gap: 8px;">
-          <input type="checkbox" id="dontShowTodayCheckbox" style="cursor: pointer; width: 16px; height: 16px;">
-          오늘 하루 이 창을 보지 않습니다
-        </label>
-        <button onclick="document.getElementById('welcomePopupModal').style.display='none'" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #bdc3c7; font-size: 0.9em; padding: 5px 14px; border-radius: 6px; cursor: pointer;">닫기</button>
+                <label style="cursor: pointer; color: #7f8c8d; font-size: 0.9em; display: inline-flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="dontShowTodayCheckbox" style="cursor: pointer; width: 16px; height: 16px;">
+                    오늘 하루 이 창을 보지 않습니다
+                </label>
+                <button id="welcomePopupCloseInlineBtn" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #bdc3c7; font-size: 0.9em; padding: 5px 14px; border-radius: 6px; cursor: pointer;">닫기</button>
       </div>
     </div>
   </div>
@@ -22980,35 +23067,50 @@ kingSelect.addEventListener('change', () => {
   (function() {
     const POPUP_STORAGE_KEY = 'welcomePopupDontShowToday';
     
-    // 팝업을 보여줄지 확인
-    function shouldShowPopup() {
-      const dontShowDate = localStorage.getItem(POPUP_STORAGE_KEY);
-      if (!dontShowDate) return true;
-      
-      // 오늘 날짜 (YYYY-MM-DD 형식)
-      const today = new Date().toISOString().split('T')[0];
-      return dontShowDate !== today;
-    }
+        // helper: read cookie by name
+        function getCookie(name) {
+            const m = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+            return m ? decodeURIComponent(m[2]) : null;
+        }
+
+        // 팝업을 보여줄지 확인 (localStorage 우선, 쿠키는 보완용)
+        function shouldShowPopup() {
+            const dontShowDate = localStorage.getItem(POPUP_STORAGE_KEY) || getCookie(POPUP_STORAGE_KEY);
+            if (!dontShowDate) return true;
+
+            // 오늘 날짜 (YYYY-MM-DD 형식)
+            const today = new Date().toISOString().split('T')[0];
+            return dontShowDate !== today;
+        }
     
-    // 팝업 표시
-    function showWelcomePopup() {
-      const popup = document.getElementById('welcomePopupModal');
-      if (popup && shouldShowPopup()) {
-        popup.style.display = 'block';
-        document.body.style.overflow = 'hidden';
-      }
-    }
+        // 팝업 표시
+        function showWelcomePopup() {
+            const popup = document.getElementById('welcomePopupModal');
+            const checkbox = document.getElementById('dontShowTodayCheckbox');
+            if (popup && shouldShowPopup()) {
+                // 초기 체크박스 상태 설정 (이미 저장된 경우 체크 표시)
+                const stored = localStorage.getItem(POPUP_STORAGE_KEY) || getCookie(POPUP_STORAGE_KEY);
+                const today = new Date().toISOString().split('T')[0];
+                if (checkbox) checkbox.checked = (stored === today);
+
+                popup.style.display = 'block';
+                document.body.style.overflow = 'hidden';
+            }
+        }
     
     // 팝업 닫기
     function closeWelcomePopup() {
       const popup = document.getElementById('welcomePopupModal');
       const checkbox = document.getElementById('dontShowTodayCheckbox');
       
-      if (checkbox && checkbox.checked) {
-        // 오늘 하루 보지 않기 - 오늘 날짜 저장
-        const today = new Date().toISOString().split('T')[0];
-        localStorage.setItem(POPUP_STORAGE_KEY, today);
-      }
+            if (checkbox && checkbox.checked) {
+                // 오늘 하루 보지 않기 - 오늘 날짜 저장 (localStorage + cookie)
+                const today = new Date().toISOString().split('T')[0];
+                try { localStorage.setItem(POPUP_STORAGE_KEY, today); } catch (e) {}
+                // 쿠키도 같이 설정 (1일 만료) - 일부 브라우저에서 localStorage 차단되는 경우 대비
+                const expires = new Date(); expires.setHours(23,59,59,999);
+                document.cookie = `${POPUP_STORAGE_KEY}=${encodeURIComponent(today)}; path=/; expires=${expires.toUTCString()}`;
+            }
       
       if (popup) {
         popup.style.display = 'none';
@@ -23045,6 +23147,9 @@ kingSelect.addEventListener('change', () => {
       if (closeBtn) {
         closeBtn.addEventListener('click', closeWelcomePopup);
       }
+            // inline 닫기 버튼 (하단) 처리
+            const inlineCloseBtn = document.getElementById('welcomePopupCloseInlineBtn');
+            if (inlineCloseBtn) inlineCloseBtn.addEventListener('click', closeWelcomePopup);
       
       // 배경 클릭 시 닫기
       const popup = document.getElementById('welcomePopupModal');
