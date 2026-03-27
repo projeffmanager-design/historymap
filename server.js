@@ -539,6 +539,13 @@ async function setupRoutesAndCollections() {
                 }
                 const json = JSON.stringify(castles);
                 fs.writeFileSync(CASTLE_STATIC_FILE, json);
+                // update metadata for incremental rebuilds
+                try {
+                    const metaPath = path.join(__dirname, 'public', 'castles.meta.json');
+                    fs.writeFileSync(metaPath, JSON.stringify({ lastRebuild: new Date().toISOString() }));
+                } catch (e) {
+                    console.warn('⚠️ castles.meta.json 쓰기 실패:', e.message);
+                }
                 // 메모리 캐시도 동시 갱신
                 _castleCache = castles;
                 _castleCacheTime = Date.now();
@@ -996,6 +1003,8 @@ async function setupRoutesAndCollections() {
                     }
                 }
 
+                // timestamp for incremental/changed-only detection
+                newCastle.updatedAt = new Date();
                 const result = await collections.castle.insertOne(newCastle);
 
                 // 🚩 [수정] 삽입된 전체 문서를 다시 조회해서 반환
@@ -1056,6 +1065,8 @@ async function setupRoutesAndCollections() {
                     }
                 }
                 
+                // mark update time for incremental updates
+                updatedCastle.updatedAt = new Date();
                 const result = await collections.castle.updateOne(
                     { _id: _id },
                     { $set: updatedCastle }
@@ -1175,7 +1186,8 @@ async function setupRoutesAndCollections() {
                     {
                         $set: {
                             deleted: true,
-                            deletedAt: new Date()
+                            deletedAt: new Date(),
+                            updatedAt: new Date()
                         }
                     }
                 );
@@ -1208,6 +1220,9 @@ async function setupRoutesAndCollections() {
                         $unset: {
                             deleted: "",
                             deletedAt: ""
+                        },
+                        $set: {
+                            updatedAt: new Date()
                         }
                     }
                 );
