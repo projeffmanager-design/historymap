@@ -7708,6 +7708,18 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
             return;
         }
 
+        // 게스트 사용자(토큰은 있으나 권한 제한) 처리: 댓글 입력 숨김
+        const tokPayload = parseJwt(token);
+        if (tokPayload && tokPayload.isGuest) {
+            commentsList.innerHTML = '';
+            commentsInputArea.style.display = 'none';
+            commentsLoginNotice.style.display = '';
+            commentsLoginNotice.textContent = '게스트 계정은 의견을 작성할 수 없습니다.';
+            window._odpOpenComments = () => openMarkerCommentModal(castleId, castle.name || '');
+            window._odpSubmitComment = null;
+            return;
+        }
+
         commentsLoginNotice.style.display = 'none';
         commentsInputArea.style.display = '';
 
@@ -19172,6 +19184,10 @@ kingSelect.addEventListener('change', () => {
         if (token) {
             currentUser = parseJwt(token);
             console.log('👤 currentUser 설정됨:', currentUser);
+            // 게스트 로그인 시 이전에 캐시된 직급 노출을 방지
+            if (currentUser && currentUser.isGuest) {
+                localStorage.removeItem('lastKnownPosition');
+            }
         } else {
             console.log('❌ 토큰 없음, currentUser null 유지');
         }
@@ -19462,10 +19478,16 @@ kingSelect.addEventListener('change', () => {
             // 🚩 [최적화] 초기 로딩 시 (blocking=false) 로컬 캐시 정보로 즉시 UI 렌더링
             const usernameDisplay = document.getElementById('usernameDisplay');
             if (!blocking && usernameDisplay) {
-                // 로컬 스토리지에서 캐시된 정보 사용
-                const cachedPosition = localStorage.getItem('lastKnownPosition') || currentUser.position || '백성';
-                usernameDisplay.textContent = `${cachedPosition} ${currentUser.username}님`;
-                console.log('⚡ 캐시된 정보로 즉시 UI 렌더링:', cachedPosition);
+                // 게스트 사용자면 직급 없이 사용자 이름만 표시
+                if (currentUser.isGuest) {
+                    usernameDisplay.textContent = `${currentUser.username}님`;
+                    console.log('⚡ 게스트 사용자 - 직급 비노출');
+                } else {
+                    // 로컬 스토리지에서 캐시된 정보 사용
+                    const cachedPosition = localStorage.getItem('lastKnownPosition') || currentUser.position || '백성';
+                    usernameDisplay.textContent = `${cachedPosition} ${currentUser.username}님`;
+                    console.log('⚡ 캐시된 정보로 즉시 UI 렌더링:', cachedPosition);
+                }
             }
             
             try {
@@ -19484,21 +19506,27 @@ kingSelect.addEventListener('change', () => {
                     }
                 }
                 
+                // 게스트 사용자는 직급/랭킹 정보를 노출하지 않음
+                if (currentUser.isGuest) {
+                    if (usernameDisplay) usernameDisplay.textContent = `${currentUser.username}님`;
+                    return;
+                }
+
                 console.log('📡 /api/rankings 호출 중... (백그라운드)');
                 // 사용자의 랭킹 데이터 조회
                 const response = await fetch('/api/rankings');
                 const rankings = await response.json();
                 console.log('📊 랭킹 데이터:', rankings);
-                
+
                 // 현재 사용자의 랭킹 데이터 찾기
                 const userRanking = rankings.find(ranking => ranking.username === currentUser.username);
                 console.log('👤 사용자 랭킹 데이터:', userRanking);
-                
+
                 if (!usernameDisplay) {
                     console.warn('⚠️ usernameDisplay 요소를 찾을 수 없음');
                     return;
                 }
-                
+
                 if (userRanking) {
                     // 🚩 [수정] DB 직급이 있으면 우선 사용, 없으면 실시간 계산
                     // admin이 수동으로 직급을 부여한 경우 DB 직급 우선
@@ -23189,10 +23217,20 @@ kingSelect.addEventListener('change', () => {
         document.getElementById('mcTextInput').value = '';
         document.getElementById('mcCharCount').textContent = '0';
 
-        // 로그인 여부에 따라 입력창 표시
-        const loggedIn = !!currentUser;
+        // 로그인 여부 및 게스트 여부에 따라 입력창 표시
+        // 게스트는 의견 작성 불가
+        const loggedIn = !!currentUser && !currentUser.isGuest;
         document.getElementById('mcInputArea').style.display = loggedIn ? 'block' : 'none';
-        document.getElementById('mcLoginNotice').style.display = loggedIn ? 'none' : 'block';
+        const loginNoticeEl = document.getElementById('mcLoginNotice');
+        if (loggedIn) {
+            if (loginNoticeEl) loginNoticeEl.style.display = 'none';
+        } else {
+            if (loginNoticeEl) {
+                loginNoticeEl.style.display = 'block';
+                if (currentUser && currentUser.isGuest) loginNoticeEl.textContent = '게스트 계정은 의견을 작성할 수 없습니다.';
+                else loginNoticeEl.textContent = '의견을 작성하려면 로그인이 필요합니다.';
+            }
+        }
 
         document.getElementById('markerCommentModal').style.display = 'flex';
         loadMarkerComments();
@@ -23255,6 +23293,11 @@ kingSelect.addEventListener('change', () => {
     }
 
     window.submitMarkerComment = async function() {
+        // 게스트는 클라이언트 레벨에서도 제출 차단
+        if (currentUser && currentUser.isGuest) {
+            alert('게스트 계정은 의견을 작성할 수 없습니다.');
+            return;
+        }
         const text = document.getElementById('mcTextInput').value.trim();
         if (!text) return;
         const token = localStorage.getItem('token') || sessionStorage.getItem('token');
@@ -23977,7 +24020,13 @@ kingSelect.addEventListener('change', () => {
         function updateChatFormVisibility() {
             const token = localStorage.getItem('token') || sessionStorage.getItem('token');
             const chatForm = document.getElementById('activity-chat-form');
-            if (chatForm) chatForm.style.display = token ? '' : 'none';
+            if (chatForm) {
+                if (!token) chatForm.style.display = 'none';
+                else {
+                    const payload = parseJwt(token);
+                    chatForm.style.display = (payload && payload.isGuest) ? 'none' : '';
+                }
+            }
             // 공지 입력창: admin/superuser에게만 표시
             const noticeForm = document.getElementById('activity-notice-form');
             if (noticeForm) noticeForm.style.display = _isAdminUser() ? '' : 'none';

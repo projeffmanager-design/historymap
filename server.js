@@ -2888,6 +2888,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const today = nowKST.toISOString().split('T')[0]; // YYYY-MM-DD (KST 기준)
                 let attendancePoints = 0;
                 
+                // 게스트는 출석 점수 부여 대상에서 제외
+                if (user.isGuest) {
+                    return res.json({ attended: false, message: '게스트 계정은 출석 점수를 받을 수 없습니다.' });
+                }
+
                 if (!user.lastAttendanceDate || user.lastAttendanceDate !== today) {
                     // 출석하지 않은 경우 1점 지급
                     attendancePoints = 1;
@@ -3044,8 +3049,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 }
 
                 // 토큰 발급 (24시간 유효)
+                // 게스트 토큰에는 직급 정보를 포함하지 않음 (클라이언트에서 직급 표시 금지)
                 const token = jwt.sign(
-                    { userId: guestUser._id, username: guestUser.username, role: guestUser.role, isGuest: true, position: guestUser.position || "참봉" },
+                    { userId: guestUser._id, username: guestUser.username, role: guestUser.role, isGuest: true },
                     jwtSecret,
                     { expiresIn: '24d' }
                 );
@@ -3091,8 +3097,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 }
 
                 // 토큰 발급 (24시간 유효)
+                // 게스트 토큰에는 직급 정보를 포함하지 않음 (클라이언트에서 직급 표시 금지)
                 const token = jwt.sign(
-                    { userId: guestUser._id, username: guestUser.username, role: guestUser.role, isGuest: true, position: guestUser.position || "참봉" },
+                    { userId: guestUser._id, username: guestUser.username, role: guestUser.role, isGuest: true },
                     jwtSecret,
                     { expiresIn: '24d' }
                 );
@@ -4537,6 +4544,10 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 
                 // 비밀번호 제외하고 반환
                 const { password, ...userWithoutPassword } = user;
+                // 게스트 계정인 경우 직급 정보는 노출하지 않음
+                if (userWithoutPassword.isGuest) {
+                    userWithoutPassword.position = null;
+                }
                 res.json(userWithoutPassword);
             } catch (error) {
                 res.status(500).json({ message: "사용자 정보 조회 실패", error: error.message });
@@ -4551,6 +4562,10 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
     // ── 채팅 메시지 POST (로그인 필요) ───────────────────────────────
     app.post('/api/chat', verifyToken, async (req, res) => {
         try {
+            // 게스트는 채팅 금지
+            if (req.user && req.user.isGuest) {
+                return res.status(403).json({ message: '게스트는 채팅을 보낼 수 없습니다.' });
+            }
             const { message } = req.body;
             if (!message || !message.trim()) return res.status(400).json({ message: '메시지를 입력하세요.' });
             const text = message.trim().slice(0, 200);
@@ -5202,6 +5217,10 @@ app.post('/api/marker-comments', verifyToken, async (req, res) => {
         const { castle_id, text } = req.body;
         if (!castle_id || !text || text.trim().length === 0) {
             return res.status(400).json({ message: '마커 ID와 의견 내용이 필요합니다.' });
+        }
+        // 게스트는 마커 의견 작성 불가
+        if (req.user && req.user.isGuest) {
+            return res.status(403).json({ message: '게스트는 의견을 작성할 수 없습니다.' });
         }
         if (text.trim().length > 500) {
             return res.status(400).json({ message: '의견은 500자 이내로 작성해주세요.' });
