@@ -867,18 +867,15 @@ async function setupRoutesAndCollections() {
         })();
 
         // GET: 모든 성 정보 반환
-    app.get('/api/castle', async (req, res) => { // (collections.castle로 변경)
+        app.get('/api/castle', async (req, res) => { // (collections.castle로 변경)
             try {
                 // 🚩 [추가] label_type 쿼리 파라미터로 필터링 지원
-        const { label_type } = req.query;
-        // 쿼리 파라미터로 강제 DB 조회를 요청할 수 있음 (nocache=1 또는 forcedb=1)
-        const noCache = req.query && (req.query.nocache === '1' || req.query.nocache === 'true' || req.query.forcedb === '1' || req.query.forcedb === 'true');
+                const { label_type } = req.query;
                 
                 // 🚀 [v3.5] label_type 없는 전체 조회 시 서버 캐시 사용
                 // 🚀 [v3.7] 캐시가 있어도 DB에서 신규 추가 / 삭제된 항목을 동기화해 병합
                 // → Vercel serverless에서 castles.json push 없이도 신규 승인·삭제 마커 즉시 반영
-                // 서버 캐시 사용 조건: label_type 미지정, 캐시 존재, TTL 내, 그리고 클라이언트가 nocache/forcedb를 요구하지 않았을 때
-                if (!label_type && !noCache && _castleCache && (Date.now() - _castleCacheTime) < CASTLE_CACHE_TTL) {
+                if (!label_type && _castleCache && (Date.now() - _castleCacheTime) < CASTLE_CACHE_TTL) {
                     try {
                         const { ObjectId: ObjId } = require('mongodb');
 
@@ -2253,12 +2250,6 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     }
                     if (!territory.admin_level) {
                         territory.admin_level = 2;
-                    }
-
-                    // Ensure name_type exists for downstream processing (fallbacks)
-                    if (!territory.name_type) {
-                        territory.name_type = territory.name_en || territory.name_ko || territory.name ||
-                            (territory.properties && (territory.properties.name_type || territory.properties.name)) || null;
                     }
                     
                     console.log(`  ✓ ${territory.name}: 검증 완료 (bbox: ${territory.bbox ? 'O' : 'X'}, time: ${territory.start_year}~${territory.end_year})`);
