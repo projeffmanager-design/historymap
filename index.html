@@ -16977,6 +16977,23 @@ function invalidateCountryLookupCache() {
       }
       
       // 🚩 [디버그] 서버로 전송되는 데이터 확인
+      // 성능 문제를 일으키는 대용량 inline data:image(base64) 를 제거하여
+      // IndexedDB 쓰기/네트워크 전송으로 인한 프리징을 방지합니다.
+      try {
+          if (data.desc && typeof data.desc === 'string' && data.desc.includes('data:image/')) {
+              console.warn('⚠️ 설명에 inline data:image가 포함되어 있어 이미지 태그를 제거합니다 (성능 보호)');
+              data.desc = stripImgTags(data.desc);
+          }
+          // 또한 설명 길이가 지나치게 길면 잘라냅니다 (방어용)
+          const MAX_DESC_LEN = 20000; // 약 20KB 텍스트
+          if (data.desc && data.desc.length > MAX_DESC_LEN) {
+              console.warn(`⚠️ 설명 길이가 ${data.desc.length}자여서 ${MAX_DESC_LEN}자로 잘라냅니다`);
+              data.desc = data.desc.slice(0, MAX_DESC_LEN) + '...';
+          }
+      } catch (e) {
+          console.error('설명 sanitization 중 오류:', e);
+      }
+
       console.log('📤 서버 전송 데이터:', JSON.stringify(data, null, 2));
       
       try {
