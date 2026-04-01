@@ -8603,7 +8603,6 @@ function getKingByYear(countryName, year, month) {
         
         const currentTotalMonths = yearMonthToTotalMonths(year, month);
         const countryCount = {};          // countryId → 성 갯수
-        const capitalCountries = new Set(); // 이 구역 내 수도를 가진 국가 목록
         
         // Polygon 또는 MultiPolygon 처리 및 좌표 변환 (캐싱)
         let polygonData = [];
@@ -8646,7 +8645,6 @@ function getKingByYear(countryName, year, month) {
                 if (typeof cid === 'object') cid = cid.$oid || String(cid);
                 cLat = castle.lat; cLng = castle.lng;
                 countryId = String(cid);
-                isCapital = !!(activeInfo && activeInfo.record.is_capital) || !!castle.is_capital;
             }
             
             let isInside = false;
@@ -8665,7 +8663,6 @@ function getKingByYear(countryName, year, month) {
             
             // 성 갯수 카운트
             countryCount[countryId] = (countryCount[countryId] || 0) + 1;
-            if (isCapital) capitalCountries.add(countryId);
         });
         
         const uniqueCountries = Object.keys(countryCount);
@@ -8680,25 +8677,7 @@ function getKingByYear(countryName, year, month) {
             return { countryId: uniqueCountries[0], isExclusive: true, countriesInZone: uniqueCountries };
         }
         
-        // 🚩 [v3.1 핵심] 혼합 점유 판정
-        // ① 수도가 있는 국가 → 무조건 그 국가 (수도가 여러 국가에 있으면 성 갯수로 결정)
-        if (capitalCountries.size === 1) {
-            const winner = capitalCountries.values().next().value;
-            return { countryId: winner, isExclusive: false, countriesInZone: uniqueCountries };
-        }
-        if (capitalCountries.size > 1) {
-            // 수도가 여러 국가 → 그 중 성 갯수가 더 많은 국가
-            let winner = null, maxCount = 0;
-            for (const cid of capitalCountries) {
-                if (countryCount[cid] > maxCount) {
-                    maxCount = countryCount[cid];
-                    winner = cid;
-                }
-            }
-            return { countryId: winner, isExclusive: false, countriesInZone: uniqueCountries };
-        }
-        
-        // ② 수도 없음 → 성 갯수가 더 많은 국가
+        // 다수결 — 성 갯수가 더 많은 국가
         let dominantCountry = null;
         let maxCount = 0;
         for (const [countryId, count] of Object.entries(countryCount)) {
@@ -9687,7 +9666,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 let countryId = info ? (info.record.country_id || castle.country_id) : castle.country_id;
                 if (!countryId) return null; // country_id 없으면 제외
                 if (typeof countryId === 'object') countryId = countryId.$oid || String(countryId);
-                return { lat: castle.lat, lng: castle.lng, countryId: String(countryId), isCapital: !!(info && info.record.is_capital) || !!castle.is_capital };
+                return { lat: castle.lat, lng: castle.lng, countryId: String(countryId) };
             }).filter(c => c && c.countryId);
             // 캐시 무효화 — 이 updateMap 호출에 맞게 새로 계산했으므로 캐시 클리어
             _dominantCountryCache.clear();

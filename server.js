@@ -458,24 +458,13 @@ async function setupRoutesAndCollections() {
         let _castleCache = null;
         let _castleCacheTime = 0;
         const CASTLE_CACHE_TTL = 6 * 60 * 60 * 1000; // 6시간
-        const CASTLE_STATIC_FILE = path.join(__dirname, 'public', 'castles.json');
 
-        // 🚀 [v3.6] 정적 파일에서 즉시 캐시 주입 (밀리초) — MongoDB 쿼리 없이 서버 시작
-        (function preloadCastleFromFile() {
-            if (fs.existsSync(CASTLE_STATIC_FILE)) {
-                try {
-                    const raw = fs.readFileSync(CASTLE_STATIC_FILE, 'utf8');
-                    _castleCache = JSON.parse(raw);
-                    _castleCacheTime = Date.now();
-                    console.log(`⚡ [캐시 사전주입] castle 정적 파일 로드: ${_castleCache.length}개 (${(raw.length/1024/1024).toFixed(1)}MB)`);
-                } catch (e) {
-                    console.warn('⚠️ castle 정적 파일 파싱 실패 (MongoDB fallback 사용):', e.message);
-                }
-            } else {
-                console.log('ℹ️ public/castles.json 없음 → 첫 요청 시 MongoDB 쿼리 (약 270초)');
-                console.log('   빠른 시작을 위해: node scripts/export_castles_to_json.js');
-            }
-        })();
+        // NOTE: Static JSON cache (public/castles.json) has been disabled.
+        // Serving castle data is now DB-backed with an in-memory server cache only.
+        // This avoids stale/timing issues where frontend tiles render before
+        // castle JSON is available. To force a full refresh, restart the server
+        // or call the rebuildCastleCache() admin endpoint.
+        console.log('ℹ️ castles.json static-file usage disabled — serving castles from DB/in-memory cache');
         
         function invalidateCastleCache() {
             _castleCache = null;
@@ -485,42 +474,24 @@ async function setupRoutesAndCollections() {
         // ✏️ [v3.8] castles.json 즉시 패치 — 단일 항목 추가/수정/삭제를 파일에 바로 반영
         // 전체 재빌드(270초) 없이 해당 항목만 수술적으로 수정 → DB와 파일 동기화 유지
         function patchCastleInStaticFile(op, doc) {
-            // op: 'upsert' | 'delete'
-            // doc: { _id (string), ...fields }  — upsert 시 전체 문서, delete 시 _id만 필요
+            // Static file usage disabled. Keep in-memory cache synchronized only.
             try {
-                if (!fs.existsSync(CASTLE_STATIC_FILE)) return; // 파일 없으면 skip
-                const raw = fs.readFileSync(CASTLE_STATIC_FILE, 'utf8');
-                let arr = JSON.parse(raw);
+                if (!_castleCache) return;
                 const idStr = doc._id?.toString ? doc._id.toString() : String(doc._id);
-
                 if (op === 'upsert') {
-                    const idx = arr.findIndex(c => String(c._id) === idStr);
-                    // _id를 string으로 통일
+                    const idx = _castleCache.findIndex(c => String(c._id) === idStr);
                     const normalized = { ...doc, _id: idStr };
-                    if (idx >= 0) {
-                        arr[idx] = normalized; // 수정
-                    } else {
-                        arr.push(normalized);  // 신규
-                    }
-                    // 메모리 캐시도 동기화
-                    if (_castleCache) {
-                        const ci = _castleCache.findIndex(c => String(c._id) === idStr);
-                        if (ci >= 0) _castleCache[ci] = normalized;
-                        else _castleCache.push(normalized);
-                        _castleCacheTime = Date.now();
-                    }
+                    if (idx >= 0) _castleCache[idx] = normalized;
+                    else _castleCache.push(normalized);
+                    _castleCacheTime = Date.now();
+                    console.log(`✏️ [캐시 갱신] castle upsert — ID: ${idStr}`);
                 } else if (op === 'delete') {
-                    arr = arr.filter(c => String(c._id) !== idStr);
-                    if (_castleCache) {
-                        _castleCache = _castleCache.filter(c => String(c._id) !== idStr);
-                        _castleCacheTime = Date.now();
-                    }
+                    _castleCache = _castleCache.filter(c => String(c._id) !== idStr);
+                    _castleCacheTime = Date.now();
+                    console.log(`✏️ [캐시 갱신] castle delete — ID: ${idStr}`);
                 }
-
-                fs.writeFileSync(CASTLE_STATIC_FILE, JSON.stringify(arr));
-                console.log(`✏️ [즉시 패치] castles.json ${op} — ID: ${idStr}`);
             } catch (e) {
-                console.warn('⚠️ castles.json 즉시 패치 실패 (무시, 배치로 보완):', e.message);
+                console.warn('⚠️ patchCastleInStaticFile 처리 중 오류 (무시):', e.message);
             }
         }
 
@@ -528,37 +499,30 @@ async function setupRoutesAndCollections() {
         // 데이터 변경 직후 호출 안 함 (Atlas M0에서 270초 소요 → 배치로 일괄 처리)
         let _castleRebuildInProgress = false;
         async function rebuildCastleStaticFile(reason) {
+            // Legacy name retained for compatibility. This now rebuilds the
+            // in-memory castle cache from DB and does NOT write any static file.
             if (_castleRebuildInProgress) {
                 console.log(`⏳ [재빌드 스킵] 이미 진행 중 (사유: ${reason})`);
                 return;
             }
             _castleRebuildInProgress = true;
-            console.log(`🔄 [재빌드 시작] castles.json 갱신 중... (사유: ${reason})`);
+            console.log(`🔄 [재빌드 시작] castle in-memory cache 갱신 중... (사유: ${reason})`);
             const startTime = Date.now();
             try {
                 const query = { $or: [{ deleted: { $exists: false } }, { deleted: false }] };
                 const cursor = collections.castle.find(query);
                 const castles = [];
                 for await (const doc of cursor) {
-                    castles.push({ ...doc, _id: doc._id?.toString ? doc._id.toString() : doc._id });
+                    // keep raw ObjectId in DB objects; frontend will receive them via API
+                    castles.push(doc);
                 }
-                const json = JSON.stringify(castles);
-                fs.writeFileSync(CASTLE_STATIC_FILE, json);
-                // update metadata for incremental rebuilds
-                try {
-                    const metaPath = path.join(__dirname, 'public', 'castles.meta.json');
-                    fs.writeFileSync(metaPath, JSON.stringify({ lastRebuild: new Date().toISOString() }));
-                } catch (e) {
-                    console.warn('⚠️ castles.meta.json 쓰기 실패:', e.message);
-                }
-                // 메모리 캐시도 동시 갱신
+                // 메모리 캐시 갱신
                 _castleCache = castles;
                 _castleCacheTime = Date.now();
                 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                console.log(`✅ [재빌드 완료] castles.json 갱신: ${castles.length}개, ${(json.length/1024/1024).toFixed(1)}MB (${elapsed}초)`);
+                console.log(`✅ [재빌드 완료] castle cache 갱신: ${castles.length}개 (${elapsed}초)`);
             } catch (e) {
-                console.error('❌ [재빌드 실패] castles.json 갱신 오류:', e.message);
-                // 실패 시 메모리 캐시만 무효화 → 다음 GET 요청이 재쿼리
+                console.error('❌ [재빌드 실패] castle cache 갱신 오류:', e.message);
                 invalidateCastleCache();
             } finally {
                 _castleRebuildInProgress = false;
@@ -999,15 +963,7 @@ async function setupRoutesAndCollections() {
                 if (!label_type) {
                     _castleCache = castles;
                     _castleCacheTime = Date.now();
-                    console.log(`💾 Castle 서버 캐시 저장: ${castles.length}개`);
-                    // 🚀 [v3.6] 정적 파일로도 저장 → 다음 서버 시작 시 즉시 로드
-                    try {
-                        const json = JSON.stringify(castles.map(c => ({ ...c, _id: c._id?.toString ? c._id.toString() : c._id })));
-                        fs.writeFileSync(CASTLE_STATIC_FILE, json);
-                        console.log(`💾 castles.json 저장 완료 (${(json.length/1024/1024).toFixed(1)}MB) → 다음 시작부터 즉시 로드`);
-                    } catch (e) {
-                        console.warn('⚠️ castles.json 저장 실패 (무시):', e.message);
-                    }
+                    console.log(`💾 Castle 서버 캐시 저장: ${castles.length}개 (static file disabled)`);
                 }
                 
                 res.json(castles);
@@ -1186,16 +1142,11 @@ async function setupRoutesAndCollections() {
                     }
                 }
 
-                // JSON(castles.json) 존재 여부 — 메모리 캐시 우선
+                // JSON file usage disabled — rely on in-memory cache only
                 let inJson = false;
                 const idStr = String(id);
                 if (_castleCache) {
                     inJson = _castleCache.some(c => String(c._id) === idStr);
-                } else if (fs.existsSync(CASTLE_STATIC_FILE)) {
-                    try {
-                        const arr = JSON.parse(fs.readFileSync(CASTLE_STATIC_FILE, 'utf8'));
-                        inJson = arr.some(c => String(c._id) === idStr);
-                    } catch (e) { /* 파싱 실패 시 false */ }
                 }
 
                 res.json({ inDb, dbDeleted, inJson });
