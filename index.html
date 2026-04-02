@@ -71,6 +71,24 @@
         transition: none;
     }
 
+    /* 🗺️ 영토 전용 pane — mix-blend-mode: multiply 로 지도 타일과 자연스럽게 합성
+       (바다/강 등 지형지물이 영토 색상 아래로 비쳐 coastline이 자동으로 구분됨) */
+    .leaflet-territory-pane {
+        mix-blend-mode: multiply;
+    }
+    /* Leaflet 기본 파란색 path 스타일 완전 차단 — JS style 옵션이 적용되기 전 원색 깜빡임 방지 */
+    .leaflet-territory-pane svg path {
+        fill: transparent;
+        stroke: transparent;
+        transition: none;
+    }
+    body.slider-dragging .leaflet-territory-pane svg path {
+        transition: none;
+    }
+    body.slider-dragging .leaflet-territory-pane svg {
+        transition: none;
+    }
+
     /* 🚩 [추가] 지도 변경 스위치(레이어 컨트롤) 빈티지 스타일 - 전체 분위기에 맞춤 */
     .leaflet-control-layers {
         border: 1px solid rgba(139, 69, 19, 0.6) !important;
@@ -6877,6 +6895,9 @@ body.force-mobile .marker-type-selector button {
         }
     }
 
+    // 🎨 getTerritoryStyle 결과 캐시 — 국가 색상은 연도와 무관하므로 countryId 기준으로 캐싱
+    const _territoryStyleCache = new Map(); // key: `${countryId}_${level}_${mode}`
+
     // Global UI settings
     // By default we prefer country-assigned colors; this flag can be toggled in the console for testing.
     window.forceUniformTerritoryStyle = false; // if true, render all territories with a uniform dark style
@@ -6896,44 +6917,64 @@ body.force-mobile .marker-type-selector button {
             }
 
             const mode = typeof spec === 'string' ? spec : 'country';
-
-            // province는 아래에 깔리므로 더 투명하게 → 시각적 계층감 + 지형 가독성
             const isProvince = territory.level === 'province';
-            const baseOpacity = isProvince ? 0.28 : 0.40;
+
+            // 🎨 캐시 키: 국가 ID + 레벨 + 모드 (색상은 연도와 무관)
+            const cacheKey = `${countryInfo?._id || countryInfo?.name || 'unknown'}_${territory.level || 'city'}_${mode}`;
+            if (_territoryStyleCache.has(cacheKey)) {
+                return _territoryStyleCache.get(cacheKey);
+            }
+
+            // mix-blend-mode: multiply 합성으로 지형이 비쳐보이므로 opacity 약간 높임
+            const baseOpacity = isProvince ? 0.38 : 0.52;
             // 🔑 [개선] countryInfo가 null (국가 로딩 중)이면 회색 fallback 표시
             const baseColor = countryInfo && countryInfo.color ? countryInfo.color : '#888888';
-            // 흰색/매우 밝은 색 국가는 연한 파스텔로 변환 (지도 가독성)
+
+            // 항상 elegantColor(파스텔) 적용 — 원색 깜빡임 없이 처음부터 일정한 색
+            let colorForUse = elegantColor(baseColor);
+
+            // 흰색 계열이면 회청색으로 대체 (multiply 모드에서 흰색은 투명이므로 더 진한 색 필요)
             function isNearWhite(hex) {
                 try {
                     const { r, g, b } = hexToRgb(hex);
                     return (r > 220 && g > 220 && b > 220);
                 } catch(e) { return false; }
             }
-            let colorForUse = (window.premiumTerritoryStyle && baseColor) ? elegantColor(baseColor) : baseColor;
-            // 흰색 계열이면 연한 회청색으로 대체
             if (isNearWhite(colorForUse)) {
-                colorForUse = '#c8d8e8';
+                colorForUse = '#a0b8cc';
             }
 
+            let result;
             switch (mode) {
                 case 'ethnicity': {
                     const eth = countryInfo && countryInfo.ethnicity ? countryInfo.ethnicity : (countryInfo && countryInfo.name ? countryInfo.name : 'unknown');
-                    const color = Array.isArray(eth) ? hashStringToColor(eth.join(',')) : hashStringToColor(String(eth));
-                    return { color: color, weight: 2, opacity: 1.0, fillColor: color, fillOpacity: baseOpacity };
+                    const color = elegantColor(Array.isArray(eth) ? hashStringToColor(eth.join(',')) : hashStringToColor(String(eth)));
+                    result = { color: color, weight: 1, opacity: 0.85, fillColor: color, fillOpacity: baseOpacity };
+                    break;
                 }
                 case 'random': {
-                    const color = seededColor(territory._id ? String(territory._id) : (territory.name || 'territory'));
-                    return { color: color, weight: 2, opacity: 1.0, fillColor: color, fillOpacity: baseOpacity };
+                    const color = elegantColor(seededColor(territory._id ? String(territory._id) : (territory.name || 'territory')));
+                    result = { color: color, weight: 1, opacity: 0.85, fillColor: color, fillOpacity: baseOpacity };
+                    break;
                 }
                 case 'grayscale': {
                     const color = toGrayscale(colorForUse);
-                    return { color: color, weight: 2, opacity: 1.0, fillColor: color, fillOpacity: baseOpacity };
+                    result = { color: color, weight: 1, opacity: 0.85, fillColor: color, fillOpacity: baseOpacity };
+                    break;
                 }
                 case 'country':
                 default: {
-                    return { color: colorForUse, weight: 2, opacity: 1.0, fillColor: colorForUse, fillOpacity: baseOpacity };
+                    result = { color: colorForUse, weight: 1, opacity: 0.85, fillColor: colorForUse, fillOpacity: baseOpacity };
+                    break;
                 }
             }
+
+            // 캐시에 저장 (캐시 크기 제한)
+            _territoryStyleCache.set(cacheKey, result);
+            if (_territoryStyleCache.size > 2000) {
+                _territoryStyleCache.delete(_territoryStyleCache.keys().next().value);
+            }
+            return result;
         } catch (e) {
             console.error('getTerritoryStyle error:', e);
             const base = countryInfo && countryInfo.color ? countryInfo.color : '#888888';
@@ -7155,8 +7196,15 @@ body.force-mobile .marker-type-selector button {
         map.getPane('riverPane').style.pointerEvents = 'auto'; // 🚩 [수정] 클릭 이벤트 수신 허용
     }
 
+    // 🗺️ 영토 전용 pane — mix-blend-mode: multiply (CSS .leaflet-territory-pane)
+    if (!map.getPane('territoryPane')) {
+        map.createPane('territoryPane');
+        map.getPane('territoryPane').style.zIndex = 390; // overlayPane(400)보다 아래 — 타일 바로 위
+        map.getPane('territoryPane').style.pointerEvents = 'none';
+    }
+
     let castleLayerGroup = L.layerGroup().addTo(map); 
-    let territoryLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 영토 폴리곤 레이어 그룹
+    let territoryLayerGroup = L.layerGroup({ pane: 'territoryPane' }).addTo(map); // �️ 영토 전용 pane
     let riverLayerGroup = L.layerGroup().addTo(map);     // 🌊 강 레이어 그룹 (별도 분리)
     let contributionLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 기여 레이어 그룹
     let labelLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 라벨 레이어 그룹
@@ -9621,7 +9669,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         
         // 🚀 [깜빡임 방지] 새 레이어 그룹을 먼저 그린 뒤 기존 그룹과 교체 (double-buffer)
         const oldTerritoryLayerGroup = territoryLayerGroup;
-        territoryLayerGroup = L.layerGroup().addTo(map);
+        territoryLayerGroup = L.layerGroup({ pane: 'territoryPane' }).addTo(map);
         // 🚀 [v3.6 메모리 최적화] 이전 renderer를 재사용하지 않고 정리만 예약
         const oldRenderers = window._territoryRenderers || [];
         window._territoryRenderers = [];
@@ -9793,12 +9841,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 renderedCount++;
             });
             
-            // 🔍 디버그: 렌더링 통계 출력
-            if (Object.values(skipReasons).some(v => v > 0)) {
-                console.log(`🗺️ 영토 렌더링: ${renderedCount}개 표시, skip: noCountry=${skipReasons.noCountry}, countryNotFound=${skipReasons.countryNotFound}, timeRange=${skipReasons.timeRange}, outOfView=${skipReasons.outOfView}, duplicate=${skipReasons.duplicate}`);
-            }
-            
-            // 🚩 [v3.6 핵심] 2차 패스: 국가별 FeatureCollection 렌더링
+            //  [v3.6 핵심] 2차 패스: 국가별 FeatureCollection 렌더링
             // 🚀 [v3.6 메모리 최적화] 국가별 전용 SVG renderer 대신 공유 renderer 사용
             // 기존: 30+ SVG 컨테이너 → 모바일 메모리 폭발
             // 개선: 1개 공유 Canvas renderer — SVG보다 폴리곤 렌더링이 훨씬 빠름
@@ -9927,7 +9970,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     });
                     const countryLayer = L.geoJSON(featureCollection, {
                         style: pathStyle,
-                        renderer: sharedRenderer
+                        renderer: sharedRenderer,
+                        pane: 'territoryPane'
                     });
                     territoryLayerGroup.addLayer(countryLayer);
                 }
@@ -13908,10 +13952,9 @@ function invalidateCountryLookupCache() {
           _renderedCountryCentroids.clear();
           renderedTerritoryKeys.clear();
 
-          // ③ territoryLayerGroup 완전 클리어 후 재생성
-          if (territoryLayerGroup) {
-              territoryLayerGroup.clearLayers();
-          }
+          // ③ double-buffer: 새 레이어그룹에 먼저 그리고, 다 그린 뒤 기존 것 교체
+          const oldGroup = territoryLayerGroup;
+          territoryLayerGroup = L.layerGroup({ pane: 'territoryPane' }).addTo(map);
 
           // ④ 전체 territories를 현재 연도 기준으로 수집
           const allTerritoryFeatures2 = new Map();
@@ -14055,8 +14098,16 @@ function invalidateCountryLookupCache() {
               const entry = finalByCountry.get(countryId);
               if (!entry || entry.features.length === 0) continue;
               const pathStyle = Object.assign({}, entry.style);
-              territoryLayerGroup.addLayer(L.geoJSON({ type: 'FeatureCollection', features: entry.features }, { style: pathStyle }));
+              territoryLayerGroup.addLayer(L.geoJSON({ type: 'FeatureCollection', features: entry.features }, { style: pathStyle, pane: 'territoryPane' }));
           }
+
+          // 새 레이어가 모두 추가된 뒤 다음 프레임에서 기존 그룹 제거 (깜빡임 방지)
+          requestAnimationFrame(() => {
+              if (oldGroup) {
+                  oldGroup.clearLayers();
+                  map.removeLayer(oldGroup);
+              }
+          });
 
           // ⑥ 국가명 라벨 갱신
           if (layerVisibility.countryLabel) renderMacroCountryNames();
