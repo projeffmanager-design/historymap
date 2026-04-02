@@ -155,7 +155,6 @@ const calculateBBoxFromGeometry = (geometry) => {
     return [minLon, minLat, maxLon, maxLat];
 }
 
-// � [신규 추가] CRUD 로깅 헬퍼 함수
 const logCRUD = (operation, collection, identifier, details = '') => {
     const timestamp = new Date().toISOString();
     const emoji = {
@@ -258,7 +257,6 @@ async function logActivity(type, actor, actorPosition, targetName, extra = {}, u
     }
 }
 
-// �💡 [추가] 인증 미들웨어
 const verifyToken = (req, res, next) => { // (전역으로 이동)
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1]; // Bearer <token>
@@ -1122,7 +1120,6 @@ async function setupRoutesAndCollections() {
             }
         });
 
-        // � [신규] GET: 마커 출처 상태 조회 — DB/JSON 존재 여부 확인 (편집창 배지용)
         app.get('/api/castle/:id/source-status', async (req, res) => {
             try {
                 const { id } = req.params;
@@ -1155,7 +1152,6 @@ async function setupRoutesAndCollections() {
             }
         });
 
-        // �🚩 [신규 추가] GET: 개별 성 정보 조회
         app.get('/api/castle/:id', async (req, res) => {
             try {
                 const { id } = req.params;
@@ -2045,7 +2041,6 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
-        // � [추가] ----------------------------------------------------
         // 🗺️ TERRITORIES API 엔드포인트 (행정구역 영토 폴리곤)
         // ----------------------------------------------------
         
@@ -2304,25 +2299,25 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     insertedId: finalIds[0] // 단일 추가 시 호환성
                 });
                 
-                // � 사관활동 로그: 지역 생성 기록 (신규 insert만 로깅)
-                const createdCount = (bulkResult.insertedCount || 0) + (bulkResult.upsertedCount || 0);
-                if (createdCount > 0 && req.user) {
+                // 📜 사관활동 로그: 지역 생성/수정 기록
+                const insertedCount = (bulkResult.insertedCount || 0) + (bulkResult.upsertedCount || 0);
+                const modifiedOnlyCount = bulkResult.modifiedCount || 0;
+                const totalAffected = insertedCount + modifiedOnlyCount;
+                if (totalAffected > 0 && req.user) {
                     const actor    = req.user.username || 'admin';
-                    const actorPos = req.user.position || req.user.actorPosition || null;
-                    const userId   = req.user.id || req.user._id || null;
+                    const actorPos = req.user.position || null;
+                    const userId   = req.user.userId || req.user.id || req.user._id || null;
+                    const logType  = insertedCount > 0 ? 'territory_create' : 'territory_update';
                     if (processedTerritories.length === 1) {
-                        // 단건 생성: 지역명 표시
                         const tName = processedTerritories[0].name_ko || processedTerritories[0].name || '지역';
-                        logActivity('territory_create', actor, actorPos, tName,
-                            { count: 1 }, userId).catch(() => {});
+                        logActivity(logType, actor, actorPos, tName, { count: 1 }, userId)
+                            .catch(e => console.error('⚠️ [territory logActivity 실패]', e.message));
                     } else {
-                        // 다건 생성: 건수만 표시
-                        logActivity('territory_create', actor, actorPos, null,
-                            { count: createdCount }, userId).catch(() => {});
+                        logActivity(logType, actor, actorPos, null, { count: totalAffected }, userId)
+                            .catch(e => console.error('⚠️ [territory logActivity 실패]', e.message));
                     }
                 }
 
-                // �🚀 캐시 무효화 + 즉시 증분 타일 재빌드 (백그라운드)
                 territoriesCache = null;
                 territoriesCacheTime = null;
                 // 수정된 문서 id 수집 (osm_id 기반 upsert된 경우)
@@ -4408,7 +4403,6 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
-        // � [Admin API] castles.json 수동 재빌드 (즉시 실행)
         // 급하게 최신 데이터가 필요할 때 admin이 직접 트리거
         app.post('/api/admin/rebuild-castles', verifyAdmin, async (req, res) => {
             if (_castleRebuildInProgress) {
@@ -4834,7 +4828,6 @@ app.put('/api/contributions/:id/review', verifyToken, async (req, res) => {
     }
 });
 
-// � [추가] 사료 의견 조회 API (누구나 읽기 가능)
 app.get('/api/contributions/:id/comments', async (req, res) => {
     try {
         await setupRoutesAndCollections();
@@ -4905,7 +4898,6 @@ app.delete('/api/contributions/:id/comments/:commentId', verifyToken, async (req
     }
 });
 
-// �🚩 [추가] 최종 승인 API (동수국사 이상만 가능)
 app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
     try {
         await setupRoutesAndCollections();
