@@ -6919,19 +6919,19 @@ body.force-mobile .marker-type-selector button {
                 case 'ethnicity': {
                     const eth = countryInfo && countryInfo.ethnicity ? countryInfo.ethnicity : (countryInfo && countryInfo.name ? countryInfo.name : 'unknown');
                     const color = Array.isArray(eth) ? hashStringToColor(eth.join(',')) : hashStringToColor(String(eth));
-                    return { color: color, weight: 1, opacity: 0.85, fillColor: color, fillOpacity: baseOpacity };
+                    return { color: color, weight: 2, opacity: 1.0, fillColor: color, fillOpacity: baseOpacity };
                 }
                 case 'random': {
                     const color = seededColor(territory._id ? String(territory._id) : (territory.name || 'territory'));
-                    return { color: color, weight: 1, opacity: 0.85, fillColor: color, fillOpacity: baseOpacity };
+                    return { color: color, weight: 2, opacity: 1.0, fillColor: color, fillOpacity: baseOpacity };
                 }
                 case 'grayscale': {
                     const color = toGrayscale(colorForUse);
-                    return { color: color, weight: 1, opacity: 0.85, fillColor: color, fillOpacity: baseOpacity };
+                    return { color: color, weight: 2, opacity: 1.0, fillColor: color, fillOpacity: baseOpacity };
                 }
                 case 'country':
                 default: {
-                    return { color: colorForUse, weight: 1, opacity: 0.85, fillColor: colorForUse, fillOpacity: baseOpacity };
+                    return { color: colorForUse, weight: 2, opacity: 1.0, fillColor: colorForUse, fillOpacity: baseOpacity };
                 }
             }
         } catch (e) {
@@ -7426,17 +7426,7 @@ body.force-mobile .marker-type-selector button {
                 // 🚀 [v3.6] tolerance가 바뀌면 영토 좌표 간소화 수준이 달라지므로 force 재렌더링
                 // tolerance가 같으면 마커만 재렌더링 (영토는 그대로)
                 updateMap(year, month, false, toleranceChanged);
-                // 🔧 [줌 영토 누락 수정] 줌 후 뷰포트가 바뀌었으므로 tolerance 변경 여부와
-                // 상관없이 항상 updateVisibleTerritories()를 호출해 빈 영역을 채움.
-                // (tolerance 변경 시에는 updateMap이 territoryLayerGroup+renderedTerritoryKeys를
-                //  초기화하고, 이후 이 호출이 전체 뷰포트 영토를 다시 채움)
-                if (typeof updateVisibleTerritories === 'function') {
-                    setTimeout(() => {
-                        if (layerVisibility.territoryPolygon && territories.length > 0) {
-                            updateVisibleTerritories();
-                        }
-                    }, 50);
-                }
+                // updateMap이 이미 전체 territory를 재렌더링하므로 추가 호출 불필요
             }, 200);
         } else {
             // 거시 모드: 마커 없이 국가명만 재렌더링 (폰트 크기 변경 반영)
@@ -9664,17 +9654,14 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 if (castle.is_natural_feature || castle.is_label || castle.is_military_flag) return false;
                 // history가 있으면 현재 연도 활성 레코드 확인
                 if (Array.isArray(castle.history) && castle.history.length > 0) {
-                    const info = getActiveHistoryInfo(castle.history, currentTotalMonthsForTerritory);
-                    if (info) return true;
-                    // history가 있지만 현재 연도에 없으면 비활성
-                    return false;
+                    return !!getActiveHistoryInfo(castle.history, currentTotalMonthsForTerritory);
                 }
-                // history가 없으면 castle.country_id가 있으면 항상 활성으로 간주
-                return !!castle.country_id;
+                // history가 없는 마커는 영토 색상 계산에서 제외 (연도 무관하게 나타나는 버그 방지)
+                return false;
             }).map(castle => {
                 const info = getActiveHistoryInfo(castle.history, currentTotalMonthsForTerritory);
                 let countryId = info ? (info.record.country_id || castle.country_id) : castle.country_id;
-                if (!countryId) return null; // country_id 없으면 제외
+                if (!countryId) return null;
                 if (typeof countryId === 'object') countryId = countryId.$oid || String(countryId);
                 return { lat: castle.lat, lng: castle.lng, countryId: String(countryId) };
             }).filter(c => c && c.countryId);
@@ -13857,133 +13844,129 @@ function invalidateCountryLookupCache() {
       let renderedTerritoryKeys = new Set(); // 이미 렌더링된 영토 추적
       
       map.on('moveend', () => {
-          // 디바운스: 지도 이동이 끝난 후 대기
+          // 디바운스: 지도 이동이 끝난 후 territory 재렌더링
+          // updateVisibleTerritories는 완전 재렌더링 방식이므로 updateMap과 중복되지 않도록
+          // updateMap이 호출되지 않는 단순 이동 시에만 실행
           clearTimeout(updateTerritoryTimeout);
           updateTerritoryTimeout = setTimeout(() => {
               if (layerVisibility.territoryPolygon && territories.length > 0) {
-                  updateVisibleTerritories();
+                  // moveend 전용: updateMap이 곧 호출될 예정이면 스킵
+                  if (!window._moveendMarkerTimerPending) {
+                      updateVisibleTerritories();
+                  }
               }
-          }, isMobileOnLoad ? 800 : 500); // 🚀 [v3.6] 모바일 800ms 디바운스
+          }, isMobileOnLoad ? 800 : 500);
 
           // 🔧 [메모리 최적화] moveend 마커 재렌더링: pad(1.5) 여유로 대부분 커버되므로
           // 뷰 중심이 이전 렌더링 bounds를 실제로 벗어난 경우에만 재렌더링
           if (currentMacroMode !== 0) {
               clearTimeout(window._moveendMarkerTimer);
+              window._moveendMarkerTimerPending = true;
               window._moveendMarkerTimer = setTimeout(() => {
-                  // 마지막 렌더링 시 padded bounds를 기록해뒀다가 벗어날 때만 실행
+                  window._moveendMarkerTimerPending = false;
                   const center = map.getCenter();
                   const lastBounds = window._lastMarkerRenderBounds;
-                  if (lastBounds && lastBounds.contains(center)) return; // 아직 bounds 안 → 스킵
+                  if (lastBounds && lastBounds.contains(center)) return;
                   const { year, month } = typeof getCurrentYearMonth === 'function'
                       ? getCurrentYearMonth()
                       : { year: parseInt(yearInput?.value || 400), month: 1 };
                   window._lastMarkerRenderBounds = map.getBounds().pad(isMobileOnLoad ? 0.5 : 1.0);
                   updateMap(year, month, false, true);
-              }, isMobileOnLoad ? 1000 : 600); // 🚀 [v3.6] 모바일 1000ms 디바운스
+              }, isMobileOnLoad ? 1000 : 600);
           }
       });
       
       // 🗺️ [v3.2] 보이는 영역의 영토만 증분 업데이트 (국가별 병합)
+      // 🔧 [전면 재작성] updateVisibleTerritories — 매 호출마다 현재 연도 기준으로 완전 재렌더링
+      // 누적 방식(이전)은 연도 변경 시 이전 국가명/폴리곤이 잔류하는 버그 유발
       function updateVisibleTerritories() {
           const { year, month } = getCurrentYearMonth();
-          const view = map.getBounds();
-          const viewBox = { 
-              minLat: view.getSouth(), 
-              maxLat: view.getNorth(), 
-              minLng: view.getWest(), 
-              maxLng: view.getEast() 
-          };
-          
-          let addedCount = 0;
-          const provinceFeatures = new Map(); // (미사용, 호환성 유지)
-          const countryFeatures = new Map();  // (미사용, 호환성 유지)
-          const allTerritoryFeatures2 = new Map(); // 레벨 무관 전체 수집
-          
-          territories.forEach(territory => {
-              const territoryKey = `${territory._id || territory.name}_${year}`;
-              
-              // ✅ 이미 렌더링된 영토는 스킵
-              if (renderedTerritoryKeys.has(territoryKey)) {
-                  return;
-              }
-              
-              // 뷰포트 밖의 영토는 스킵
-              const tBounds = getTerritoryBounds(territory);
-              if (tBounds && (tBounds.maxLat < viewBox.minLat || tBounds.minLat > viewBox.maxLat || 
-                              tBounds.maxLng < viewBox.minLng || tBounds.minLng > viewBox.maxLng)) {
-                  return;
-              }
-              
-              // 시간 범위 체크 제거 — 마커 기반으로 활성 여부 판단 (마커 없으면 getCachedDominantCountry가 null 반환)
-              // (fromTile 여부와 무관하게 마커가 있으면 표시)
+          const currentZoom = map.getZoom();
+          const simplifyTol = getSimplifyTolerance(currentZoom);
 
-              // 🚀 [v3.6] 캐시된 국가 계산 사용
+          // ① 현재 연도 기준 활성 성 목록 재계산
+          const currentTotalMonths = yearMonthToTotalMonths(year, month);
+          window._activeCastlesForTerritory = castles.filter(castle => {
+              if (typeof castle.lat !== 'number' || typeof castle.lng !== 'number') return false;
+              if (castle.is_natural_feature || castle.is_label || castle.is_military_flag) return false;
+              if (Array.isArray(castle.history) && castle.history.length > 0) {
+                  return !!getActiveHistoryInfo(castle.history, currentTotalMonths);
+              }
+              // history가 없는 마커는 영토 색상 계산에서 제외 (연도 무관하게 나타나는 버그 방지)
+              return false;
+          }).map(castle => {
+              const info = getActiveHistoryInfo(castle.history, currentTotalMonths);
+              let countryId = info ? (info.record.country_id || castle.country_id) : castle.country_id;
+              if (!countryId) return null;
+              if (typeof countryId === 'object') countryId = countryId.$oid || String(countryId);
+              return { lat: castle.lat, lng: castle.lng, countryId: String(countryId) };
+          }).filter(c => c && c.countryId);
+
+          // ② 캐시 전부 초기화
+          _dominantCountryCache.clear();
+          _renderedCountryIds.clear();
+          _renderedCountryCentroids.clear();
+          renderedTerritoryKeys.clear();
+
+          // ③ territoryLayerGroup 완전 클리어 후 재생성
+          if (territoryLayerGroup) {
+              territoryLayerGroup.clearLayers();
+          }
+
+          // ④ 전체 territories를 현재 연도 기준으로 수집
+          const allTerritoryFeatures2 = new Map();
+
+          territories.forEach(territory => {
+              const tBounds = getTerritoryBounds(territory);
               const dominantResult = getCachedDominantCountry(territory, year, month);
+
               if (!dominantResult) {
-                  // 🗺️ castle 없는 territory → 중립 배경 레이어로 표시
                   if (selectedEthnicity !== 'all' || selectedCountryId !== 'all') return;
-                  const currentZoom2 = map.getZoom();
-                  const simplifyTol2 = getSimplifyTolerance(currentZoom2);
-                  const geometry2 = getSimplifiedGeometry(territory, simplifyTol2);
+                  const geometry2 = getSimplifiedGeometry(territory, simplifyTol);
+                  if (!geometry2) return;
                   const neutralKey = '__unowned__';
                   if (!allTerritoryFeatures2.has(neutralKey)) {
                       allTerritoryFeatures2.set(neutralKey, {
                           features: [],
-                          countryInfo: { name: '', color: '#999999' },
                           style: { fillColor: '#bbbbbb', fillOpacity: 0.18, color: '#aaaaaa', weight: 0.5, dashArray: '3,3' }
                       });
                   }
                   allTerritoryFeatures2.get(neutralKey).features.push({
                       type: 'Feature', geometry: geometry2,
-                      properties: { name: territory.name, country_id: null, isExclusive: false, countriesInZone: [] }
+                      properties: { name: territory.name, country_id: null, level: territory.level || 'city' }
                   });
-                  renderedTerritoryKeys.add(territoryKey);
-                  addedCount++;
+                  renderedTerritoryKeys.add(`${territory._id || territory.name}_${year}`);
                   return;
               }
-              
+
               const dominantCountryId = dominantResult.countryId;
               const countryInfo = getCountryInfoById(dominantCountryId);
               if (!countryInfo) return;
-              
-              // 민족 필터링
+
               if (selectedEthnicity !== 'all') {
-                  if (!countryInfo.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity)) {
-                      return;
-                  }
+                  if (!countryInfo.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity)) return;
               }
-              
-              // 🚀 [v3.6] 좌표 간소화 적용
-              const currentZoom = map.getZoom();
-              const simplifyTol = getSimplifyTolerance(currentZoom);
+
               const geometry = getSimplifiedGeometry(territory, simplifyTol);
-              
-              // Feature 수집 (국가별 그룹핑)
-              const feature = {
-                  type: 'Feature',
-                  geometry: geometry,
+              if (!geometry) return;
+
+              if (!allTerritoryFeatures2.has(dominantCountryId)) {
+                  allTerritoryFeatures2.set(dominantCountryId, {
+                      features: [],
+                      countryInfo,
+                      style: getTerritoryStyle(territory, countryInfo, year, month)
+                  });
+              }
+              allTerritoryFeatures2.get(dominantCountryId).features.push({
+                  type: 'Feature', geometry,
                   properties: {
                       name: territory.name,
                       country_id: dominantCountryId,
-                      isExclusive: dominantResult.isExclusive,
-                      countriesInZone: dominantResult.countriesInZone,
                       level: territory.level || 'city'
                   }
-              };
-              
-              // 레벨 구분 없이 전체 수집
-              const targetMap2 = allTerritoryFeatures2;
-              if (!targetMap2.has(dominantCountryId)) {
-                  const computedStyle = getTerritoryStyle(territory, countryInfo, year, month);
-                  targetMap2.set(dominantCountryId, {
-                      features: [],
-                      countryInfo: countryInfo,
-                      style: computedStyle
-                  });
-              }
-              targetMap2.get(dominantCountryId).features.push(feature);
-              
-              // 국가명 갱신용: _renderedCountryIds / _renderedCountryCentroids 동기화
+              });
+
+              // 국가명 라벨용 중심점 수집
               _renderedCountryIds.add(dominantCountryId);
               if (tBounds) {
                   const cLat = (tBounds.minLat + tBounds.maxLat) / 2;
@@ -13995,118 +13978,90 @@ function invalidateCountryLookupCache() {
                       _renderedCountryCentroids.set(dominantCountryId, { lat: cLat, lng: cLng, count: 1 });
                   }
               }
-
-              renderedTerritoryKeys.add(territoryKey);
-              addedCount++;
+              renderedTerritoryKeys.add(`${territory._id || territory.name}_${year}`);
           });
-          
-          // � [v3.6.12] 2단계 색칠: province+country 먼저, city는 같은 국가 중복 skip
-          // 레벨 구분 없이 전체 렌더링 (큰 영토 먼저, 같은 색 흡수 skip)
-          const renderIncrementalMap = (featureMap) => {
-              const LEVEL_ORDER2 = { country: 0, province: 1, city: 2 };
-              const allItems = [];
-              featureMap.forEach(({ features, countryInfo, style }, countryId) => {
-                  for (const f of features) {
-                      const geom = f.geometry;
-                      let area = 0;
-                      if (geom) {
-                          let polys = [];
-                          if (geom.type === 'Polygon') polys = [geom.coordinates[0] || []];
-                          else if (geom.type === 'MultiPolygon') polys = geom.coordinates.map(p => p[0] || []);
-                          for (const ring of polys) {
-                              if (ring.length < 2) continue;
-                              let minLng=Infinity,maxLng=-Infinity,minLat=Infinity,maxLat=-Infinity;
-                              for (const c of ring) {
-                                  if(c[0]<minLng)minLng=c[0]; if(c[0]>maxLng)maxLng=c[0];
-                                  if(c[1]<minLat)minLat=c[1]; if(c[1]>maxLat)maxLat=c[1];
-                              }
-                              area += (maxLng - minLng) * (maxLat - minLat);
-                          }
-                      }
-                      const lvl = f.properties?.level || 'city';
-                      allItems.push({ f, area, countryId, style, level: lvl });
-                  }
-              });
-              // province/country 먼저, 같은 level이면 면적 내림차순
-              allItems.sort((a, b) => {
-                  const la = LEVEL_ORDER2[a.level] ?? 2;
-                  const lb = LEVEL_ORDER2[b.level] ?? 2;
-                  if (la !== lb) return la - lb;
-                  return b.area - a.area;
-              });
 
-              const provinceRingsByCountry2 = new Map();
-              const finalByCountry = new Map();
-
-              for (const { f, countryId, style, level } of allItems) {
+          // ⑤ 렌더링 (province 먼저, city 나중, 면적 내림차순)
+          const LEVEL_ORDER2 = { country: 0, province: 1, city: 2 };
+          const allItems = [];
+          allTerritoryFeatures2.forEach(({ features, style }, countryId) => {
+              for (const f of features) {
                   const geom = f.geometry;
-                  if (!geom) {
-                      if (!finalByCountry.has(countryId)) finalByCountry.set(countryId, { features: [], style });
-                      finalByCountry.get(countryId).features.push(f); continue;
-                  }
-                  // 🗺️ 중립 영역은 absorbed 로직 건너뜀
-                  if (countryId === '__unowned__') {
-                      if (!finalByCountry.has(countryId)) finalByCountry.set(countryId, { features: [], style });
-                      finalByCountry.get(countryId).features.push(f); continue;
-                  }
-                  const isProvincePlus = (level === 'province' || level === 'country');
-                  if (!isProvincePlus) {
-                      // city: 같은 countryId의 province ring에 centroid가 있으면 skip
-                      let coords;
-                      if (geom.type === 'Polygon') coords = geom.coordinates[0];
-                      else if (geom.type === 'MultiPolygon') coords = (geom.coordinates[0] || [[]])[0];
-                      if (coords && coords.length >= 3) {
-                          const len = Math.min(coords.length, 60);
-                          let sumLng = 0, sumLat = 0;
-                          for (let i = 0; i < len; i++) { sumLng += coords[i][0]; sumLat += coords[i][1]; }
-                          const cLat = sumLat / len, cLng = sumLng / len;
-                          const pRings = provinceRingsByCountry2.get(countryId) || [];
-                          let absorbed = false;
-                          for (const ring of pRings) {
-                              if (isPointInPolygon([cLat, cLng], ring)) { absorbed = true; break; }
+                  let area = 0;
+                  if (geom) {
+                      const polys = geom.type === 'Polygon' ? [geom.coordinates[0] || []]
+                          : geom.type === 'MultiPolygon' ? geom.coordinates.map(p => p[0] || []) : [];
+                      for (const ring of polys) {
+                          if (ring.length < 2) continue;
+                          let mnLng=Infinity,mxLng=-Infinity,mnLat=Infinity,mxLat=-Infinity;
+                          for (const c of ring) {
+                              if(c[0]<mnLng)mnLng=c[0]; if(c[0]>mxLng)mxLng=c[0];
+                              if(c[1]<mnLat)mnLat=c[1]; if(c[1]>mxLat)mxLat=c[1];
                           }
-                          if (absorbed) continue;
-                      }
-                  } else {
-                      // province/country ring 등록
-                      if (!provinceRingsByCountry2.has(countryId)) provinceRingsByCountry2.set(countryId, []);
-                      const rings = provinceRingsByCountry2.get(countryId);
-                      if (geom.type === 'Polygon') rings.push(geom.coordinates[0].map(c => [c[1], c[0]]));
-                      else if (geom.type === 'MultiPolygon') {
-                          for (const poly of geom.coordinates) { if (poly[0]) rings.push(poly[0].map(c => [c[1], c[0]])); }
+                          area += (mxLng - mnLng) * (mxLat - mnLat);
                       }
                   }
+                  allItems.push({ f, area, countryId, style, level: f.properties?.level || 'city' });
+              }
+          });
+          allItems.sort((a, b) => {
+              const la = LEVEL_ORDER2[a.level] ?? 2, lb = LEVEL_ORDER2[b.level] ?? 2;
+              return la !== lb ? la - lb : b.area - a.area;
+          });
+
+          const provinceRings = new Map();
+          const finalByCountry = new Map();
+          for (const { f, countryId, style, level } of allItems) {
+              const geom = f.geometry;
+              if (!geom) {
                   if (!finalByCountry.has(countryId)) finalByCountry.set(countryId, { features: [], style });
                   finalByCountry.get(countryId).features.push(f);
+                  continue;
               }
-
-              // 렌더링 순서: __unowned__ → province/country → city 순서
-              const provinceKeys2 = [];
-              const cityKeys2 = [];
-              for (const { countryId, level } of allItems) {
-                  const isProv = (level === 'province' || level === 'country');
-                  if (isProv && !provinceKeys2.includes(countryId) && countryId !== '__unowned__') provinceKeys2.push(countryId);
-                  if (!isProv && !cityKeys2.includes(countryId) && countryId !== '__unowned__') cityKeys2.push(countryId);
+              if (countryId === '__unowned__') {
+                  if (!finalByCountry.has(countryId)) finalByCountry.set(countryId, { features: [], style });
+                  finalByCountry.get(countryId).features.push(f);
+                  continue;
               }
-              const orderedKeys2 = ['__unowned__', ...provinceKeys2, ...cityKeys2.filter(k => !provinceKeys2.includes(k)), ...cityKeys2.filter(k => provinceKeys2.includes(k))];
-              for (const countryId of orderedKeys2) {
-                  const entry = finalByCountry.get(countryId);
-                  if (!entry || entry.features.length === 0) continue;
-                  const featureCollection = { type: 'FeatureCollection', features: entry.features };
-                  const groupOpacity = entry.style.fillOpacity || 0.3;
-                  const pathStyle = Object.assign({}, entry.style, { fillOpacity: groupOpacity, opacity: entry.style.opacity || 0.6 });
-                  territoryLayerGroup.addLayer(L.geoJSON(featureCollection, { style: pathStyle }));
+              if (level === 'province' || level === 'country') {
+                  if (!provinceRings.has(countryId)) provinceRings.set(countryId, []);
+                  const rings = provinceRings.get(countryId);
+                  if (geom.type === 'Polygon') rings.push(geom.coordinates[0].map(c => [c[1], c[0]]));
+                  else if (geom.type === 'MultiPolygon') {
+                      for (const poly of geom.coordinates) { if (poly[0]) rings.push(poly[0].map(c => [c[1], c[0]])); }
+                  }
+              } else {
+                  // city: province 안에 포함되면 skip
+                  let coords = geom.type === 'Polygon' ? geom.coordinates[0]
+                      : geom.type === 'MultiPolygon' ? (geom.coordinates[0] || [[]])[0] : null;
+                  if (coords && coords.length >= 3) {
+                      const len = Math.min(coords.length, 60);
+                      let sLng = 0, sLat = 0;
+                      for (let i = 0; i < len; i++) { sLng += coords[i][0]; sLat += coords[i][1]; }
+                      const cLat = sLat / len, cLng = sLng / len;
+                      const pRings = provinceRings.get(countryId) || [];
+                      if (pRings.some(ring => isPointInPolygon([cLat, cLng], ring))) continue;
+                  }
               }
-          };
-
-          // 레벨 구분 없이 전체 렌더링
-          renderIncrementalMap(allTerritoryFeatures2);
-          if (addedCount > 0) {
-              // 새 영토가 추가됐으므로 국가명 라벨 갱신
-              renderMacroCountryNames();
+              if (!finalByCountry.has(countryId)) finalByCountry.set(countryId, { features: [], style });
+              finalByCountry.get(countryId).features.push(f);
           }
+
+          const orderedKeys = ['__unowned__',
+              ...allItems.filter(i => i.level==='province'||i.level==='country').map(i=>i.countryId).filter((v,i,a)=>a.indexOf(v)===i&&v!=='__unowned__'),
+              ...allItems.filter(i => i.level==='city').map(i=>i.countryId).filter((v,i,a)=>a.indexOf(v)===i&&v!=='__unowned__')
+          ];
+          for (const countryId of orderedKeys) {
+              const entry = finalByCountry.get(countryId);
+              if (!entry || entry.features.length === 0) continue;
+              const pathStyle = Object.assign({}, entry.style);
+              territoryLayerGroup.addLayer(L.geoJSON({ type: 'FeatureCollection', features: entry.features }, { style: pathStyle }));
+          }
+
+          // ⑥ 국가명 라벨 갱신
+          if (layerVisibility.countryLabel) renderMacroCountryNames();
       }
-      
+
       // 🗺️ [추가] 연도 변경 시 렌더링된 영토 추적 초기화
       window.clearRenderedTerritories = function() {
           renderedTerritoryKeys.clear();
