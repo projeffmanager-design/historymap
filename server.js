@@ -2304,7 +2304,25 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     insertedId: finalIds[0] // 단일 추가 시 호환성
                 });
                 
-                // 🚀 캐시 무효화 + 즉시 증분 타일 재빌드 (백그라운드)
+                // � 사관활동 로그: 지역 생성 기록 (신규 insert만 로깅)
+                const createdCount = (bulkResult.insertedCount || 0) + (bulkResult.upsertedCount || 0);
+                if (createdCount > 0 && req.user) {
+                    const actor    = req.user.username || 'admin';
+                    const actorPos = req.user.position || req.user.actorPosition || null;
+                    const userId   = req.user.id || req.user._id || null;
+                    if (processedTerritories.length === 1) {
+                        // 단건 생성: 지역명 표시
+                        const tName = processedTerritories[0].name_ko || processedTerritories[0].name || '지역';
+                        logActivity('territory_create', actor, actorPos, tName,
+                            { count: 1 }, userId).catch(() => {});
+                    } else {
+                        // 다건 생성: 건수만 표시
+                        logActivity('territory_create', actor, actorPos, null,
+                            { count: createdCount }, userId).catch(() => {});
+                    }
+                }
+
+                // �🚀 캐시 무효화 + 즉시 증분 타일 재빌드 (백그라운드)
                 territoriesCache = null;
                 territoriesCacheTime = null;
                 // 수정된 문서 id 수집 (osm_id 기반 upsert된 경우)
