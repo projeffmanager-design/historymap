@@ -1023,6 +1023,18 @@ async function setupRoutesAndCollections() {
                 patchCastleInStaticFile('upsert', insertedDocument);
 
                 logCRUD('CREATE', 'Castle', newCastle.name, `(ID: ${result.insertedId})`);
+
+                // 📜 사관활동 로그: 오브젝트(성/유적) 생성 기록
+                if (req.user) {
+                    const actor    = req.user.username || 'admin';
+                    const actorPos = req.user.position || null;
+                    const userId   = req.user.userId || req.user.id || req.user._id || null;
+                    const tName    = newCastle.name || '오브젝트';
+                    logActivity('castle_create', actor, actorPos, tName,
+                        { castle_id: result.insertedId.toString() }, userId)
+                        .catch(e => console.error('⚠️ [castle logActivity 실패]', e.message));
+                }
+
                 res.status(201).json({ 
                     message: "Castle 추가 성공", 
                     id: result.insertedId.toString(),
