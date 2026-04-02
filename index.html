@@ -9981,6 +9981,16 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
             // 레벨 구분 없이 전체 렌더링
             renderFeatureMap(allTerritoryFeatures);
+
+            // 🔧 [elegant fix] Leaflet 1.7.1 L.canvas는 pane 옵션을 무시하고 항상 overlayPane에 추가함
+            // → Canvas element를 territoryPane으로 직접 이동하여 mix-blend-mode: multiply 적용
+            requestAnimationFrame(() => {
+                if (!sharedRenderer._container) return;
+                const territoryPaneEl = map.getPane('territoryPane');
+                if (territoryPaneEl && sharedRenderer._container.parentNode !== territoryPaneEl) {
+                    territoryPaneEl.appendChild(sharedRenderer._container);
+                }
+            });
         }
 
         // 🌊 [추가] 자연 지형지물 (강) 렌더링 — 별도 레이어 그룹 + 전용 SVG 렌더러 사용
