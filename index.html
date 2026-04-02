@@ -48,7 +48,8 @@
 
     /* 🚩 [추가] 빈티지/수묵화 스타일 적용 — 타일 레이어에만 */
     #map {
-        filter: sepia(0.4) contrast(0.9) brightness(1.1) grayscale(0.15);
+        /* 🎞️ 로모 사진 느낌: 채도 절반 + 밝기 살짝 올림 + 냉색조 + 바랜 세피아 */
+        filter: saturate(0.59) contrast(1.04) brightness(1.04) hue-rotate(-8deg) sepia(0.18);
         font-family: 'Noto Serif KR', serif;
     }
     /* 🚩 [추가] 마커/라벨 레이어는 filter 역보정 → 국가명이 흐릿해지지 않도록 */
@@ -1427,6 +1428,26 @@ body.force-mobile .marker-type-selector button {
         display: block !important; /* 강제 표시 */
     }
 
+    /* 🗺️ [고지도 그라데이션] 화면 최하단 → 위로 올라가며 투명해지는 검정 그라데이션 오버레이
+       연도 슬라이더/컨트롤바 가독성을 높이면서 고지도 분위기 연출 */
+    #bottom-vignette {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 40px;            /* 그라데이션 높이 절반으로 축소 */
+        pointer-events: none;
+        z-index: 9990;           /* timeline-control(9999) 아래, 지도(400) 위 */
+        /* 🎞️ 로모 느낌: 최하단은 차갑고 어두운 청록-흑색, 위로 갈수록 투명 */
+        background: linear-gradient(
+            to top,
+            rgba(4, 12, 14, 0.88) 0%,       /* 최하단: 어두운 청록빛 흑색 */
+            rgba(6, 14, 16, 0.62) 30%,
+            rgba(8, 16, 18, 0.28) 65%,
+            transparent 100%
+        );
+    }
+
     /* 슬라이더만 이벤트 허용 */
     #timeline-control #combinedSlider {
         pointer-events: auto;
@@ -1932,25 +1953,27 @@ body.force-mobile .marker-type-selector button {
     }
     .slider-tick-line {
         width: 1px;
-        background: rgba(255, 255, 255, 0.35);
+        background: rgba(200, 165, 90, 0.45);
         margin-top: 2px;
     }
     .slider-tick-line.major {
-        background: rgba(255, 255, 255, 0.7);
+        background: rgba(220, 185, 110, 0.85);
         width: 1.5px;
     }
     .slider-tick-label {
         font-size: 9px;
-        color: rgba(255, 255, 255, 0.55);
+        color: rgba(220, 195, 140, 0.80);
         white-space: nowrap;
         font-family: 'Inter', -apple-system, sans-serif;
         letter-spacing: 0;
         line-height: 1;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.7);
     }
     .slider-tick-label.major {
         font-size: 10px;
-        color: rgba(255, 255, 255, 0.85);
-        font-weight: 500;
+        color: rgba(245, 220, 160, 1);
+        font-weight: 600;
+        text-shadow: 0 1px 4px rgba(0,0,0,1), 0 0 8px rgba(0,0,0,0.9);
     }
 
     /* 🚩 [추가] 시대 마커 스타일 */
@@ -5035,6 +5058,9 @@ body.force-mobile .marker-type-selector button {
             <div id="year-indicator" style="position: absolute; left: 50%; top: -35px; transform: translateX(-50%); background: rgba(0, 0, 0, 0.9); color: white; padding: 6px 14px; border-radius: 8px; font-size: 22px; line-height: 22px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; box-sizing: border-box; pointer-events: none; opacity: 0; transition: opacity 0.2s ease; z-index: 10001; border: 2px solid rgba(255,255,255,0.3); backdrop-filter: blur(8px); box-shadow: 0 4px 12px rgba(0,0,0,0.3);"></div>
             <!-- 연대표 바들 (createDynastyTimeline()에 의해 동적 생성) -->
         </div>
+
+        <!-- 🗺️ 하단 고지도 그라데이션 오버레이 — 슬라이더 가독성 + 분위기 -->
+        <div id="bottom-vignette"></div>
         
         <!-- 🚩 [수정] 타임슬라이더: 화면 최하단에 배치 (항상 표시) -->
         <div id="timeline-control" style="position: fixed; bottom: 5px; left: 2%; right: 2%; width: 96%; z-index: 9999; pointer-events: none; background: transparent; border-radius: 4px; padding: 2px;">
@@ -5045,7 +5071,7 @@ body.force-mobile .marker-type-selector button {
             <div id="slider-korea-bar" style="position: relative; width: 100%; height: 20px; pointer-events: none; margin-bottom: 1px;"></div>
 
             <!-- 슬라이더 + 눈금바만 블러 배경 적용 -->
-            <div style="background: rgba(0, 0, 0, 0.08); backdrop-filter: blur(1px); border-radius: 4px; box-shadow: 0 -1px 3px rgba(0,0,0,0.1); padding: 2px 2px 0;">
+            <div style="background: rgba(8, 5, 2, 0.45); backdrop-filter: blur(6px) sepia(0.3); -webkit-backdrop-filter: blur(6px) sepia(0.3); border-radius: 5px; box-shadow: 0 -2px 12px rgba(0,0,0,0.35), inset 0 1px 0 rgba(160,120,60,0.15); padding: 3px 4px 1px; border: 1px solid rgba(100,75,30,0.25);">
                 <div id="timeline-step-row">
                     <!-- 뒤로 1개월 버튼 -->
                     <button id="sliderStepBack" class="slider-step-btn" title="1개월 뒤로"><svg width="8" height="14" viewBox="0 0 8 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 1L1 7L7 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -7361,8 +7387,13 @@ body.force-mobile .marker-type-selector button {
             ? getCurrentYearMonth() 
             : { year: parseInt(yearInput?.value || 400), month: 1 };
 
-        // 국가명 폰트 크기 고정 (줌 레벨 무관)
-        const countryFontSize = 14;
+        // 국가명 폰트 크기 — 줌 레벨에 따라 조정
+        // zoom 5(~300km): 14px, zoom 4(~600km): 11px, zoom 3(~1200km): 9px, zoom ≤ 2: 7px
+        const currentZoomForLabel = map ? map.getZoom() : 5;
+        const countryFontSize = currentZoomForLabel >= 5 ? 14
+            : currentZoomForLabel >= 4 ? 11
+            : currentZoomForLabel >= 3 ? 9
+            : 7;
 
         // 렌더링된 국가별 라벨 위치 결정
         // 우선순위: ① 수도 좌표 → ② 영토 중심점(centroid)
