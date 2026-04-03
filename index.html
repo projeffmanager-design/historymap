@@ -2891,6 +2891,12 @@ body.force-mobile .marker-type-selector button {
         }
         .odp-close-btn:hover { background: rgba(231,76,60,0.7); }
 
+        @keyframes radarPulse {
+            0%   { opacity: 0.7; }
+            50%  { opacity: 0.25; }
+            100% { opacity: 0.7; }
+        }
+
         .odp-body { padding: 16px 20px 80px 20px; }
 
         .odp-title-row {
@@ -5665,8 +5671,8 @@ body.force-mobile .marker-type-selector button {
     <div id="object-detail-panel">
         <!-- 히어로 이미지 -->
         <div class="odp-hero" id="odp-hero-wrap">
-            <div class="odp-hero-placeholder" id="odp-hero-placeholder">🏯</div>
-            <img id="odp-hero-img" src="" alt="" style="display:none;" onload="this.style.display='block'; document.getElementById('odp-hero-placeholder').style.display='none';" onerror="this.style.display='none';">
+            <div class="odp-hero-placeholder" id="odp-hero-placeholder"></div>
+            <img id="odp-hero-img" src="https://i.pinimg.com/736x/1e/16/48/1e1648e22df86513371bdd6f6190c461.jpg" alt="" style="display:block;" onload="this.style.display='block'; document.getElementById('odp-hero-placeholder').style.display='none';" onerror="this.style.display='none'; document.getElementById('odp-hero-placeholder').style.display='flex';">
             <div class="odp-hero-gradient"></div>
             <button class="odp-close-btn" onclick="closeDetailPanel()">✕</button>
         </div>
@@ -5679,32 +5685,69 @@ body.force-mobile .marker-type-selector button {
             <div class="odp-meta" id="odp-meta"></div>
             <div class="odp-desc" id="odp-desc" style="display:none;"></div>
 
-            <!-- 역사 기록 타임라인 -->
-            <div id="odp-history-section" style="display:none;">
-                <div class="odp-section-title">📜 역사 기록</div>
-                <ul class="odp-timeline" id="odp-timeline"></ul>
+            <!-- ── 탭 바 (역사기록 / 주변탐색) ── -->
+            <div id="odp-tab-bar" style="display:flex; border-bottom:1px solid rgba(180,140,80,0.2); margin-bottom:10px; gap:0;">
+                <button id="odp-tab-history" onclick="odpSwitchTab('history')"
+                    style="flex:1; background:none; border:none; border-bottom:2px solid #c8a850;
+                           color:#c8a850; font-size:12px; padding:7px 0; cursor:pointer; font-family:inherit; font-weight:600;">📜 역사 기록</button>
+                <button id="odp-tab-nearby" onclick="window._odpOpenNearby ? window._odpOpenNearby() : odpSwitchTab('nearby')"
+                    style="flex:1; background:none; border:none; border-bottom:2px solid transparent;
+                           color:#5a7888; font-size:12px; padding:7px 0; cursor:pointer; font-family:inherit; font-weight:600;">🔭 주변 탐색</button>
             </div>
 
-            <!-- 사관 의견 섹션 -->
-            <div id="odp-comments-section" style="display:none;">
-                <div class="odp-section-title">💬 사관 의견</div>
-                <!-- 댓글 목록 -->
-                <div id="odp-comments-list" style="font-size:13px; color:#c8d8e8; line-height:1.7; max-height:360px; overflow-y:auto;"></div>
-                <!-- 더보기 버튼 (3개 초과 시) -->
-                <button id="odp-comments-more-btn" onclick="window._odpOpenComments && window._odpOpenComments()" style="display:none; margin-top:6px; background:rgba(180,140,80,0.08); border:1px solid rgba(180,140,80,0.25); color:#d4a843; font-size:12px; padding:4px 10px; border-radius:4px; cursor:pointer; width:100%;">💬 전체 보기</button>
-                <!-- 의견 입력창 -->
-                <div id="odp-comments-input-area" style="display:none; margin-top:10px;">
-                    <textarea id="odp-comment-input" placeholder="의견을 입력하세요..." maxlength="500"
-                        style="width:100%; box-sizing:border-box; background:rgba(255,255,255,0.06); border:1px solid rgba(180,140,80,0.3); border-radius:6px; color:#e8f0f8; font-size:13px; padding:8px 10px; resize:vertical; min-height:70px; outline:none; font-family:inherit;" rows="3"></textarea>
-                    <div style="display:flex; justify-content:flex-end; align-items:center; margin-top:5px; gap:8px;">
-                        <span id="odp-comment-charcount" style="font-size:11px; color:#6a7f8e;">0 / 500</span>
-                        <button onclick="window._odpSubmitComment && window._odpSubmitComment()"
-                            style="background:rgba(180,140,80,0.2); border:1px solid rgba(180,140,80,0.5); color:#d4a843; font-size:12px; padding:5px 14px; border-radius:5px; cursor:pointer; font-weight:600;">등록</button>
+            <!-- 역사 기록 탭 콘텐츠 -->
+            <div id="odp-tab-content-history">
+                <!-- 역사 기록 타임라인 -->
+                <div id="odp-history-section" style="display:none;">
+                    <div class="odp-section-title">📜 역사 기록</div>
+                    <ul class="odp-timeline" id="odp-timeline"></ul>
+                </div>
+
+                <!-- 사관 의견 섹션 -->
+                <div id="odp-comments-section" style="display:none;">
+                    <div class="odp-section-title">💬 사관 의견</div>
+                    <div id="odp-comments-list" style="font-size:13px; color:#c8d8e8; line-height:1.7; max-height:360px; overflow-y:auto;"></div>
+                    <button id="odp-comments-more-btn" onclick="window._odpOpenComments && window._odpOpenComments()" style="display:none; margin-top:6px; background:rgba(180,140,80,0.08); border:1px solid rgba(180,140,80,0.25); color:#d4a843; font-size:12px; padding:4px 10px; border-radius:4px; cursor:pointer; width:100%;">💬 전체 보기</button>
+                    <div id="odp-comments-input-area" style="display:none; margin-top:10px;">
+                        <textarea id="odp-comment-input" placeholder="의견을 입력하세요..." maxlength="500"
+                            style="width:100%; box-sizing:border-box; background:rgba(255,255,255,0.06); border:1px solid rgba(180,140,80,0.3); border-radius:6px; color:#e8f0f8; font-size:13px; padding:8px 10px; resize:vertical; min-height:70px; outline:none; font-family:inherit;" rows="3"></textarea>
+                        <div style="display:flex; justify-content:flex-end; align-items:center; margin-top:5px; gap:8px;">
+                            <span id="odp-comment-charcount" style="font-size:11px; color:#6a7f8e;">0 / 500</span>
+                            <button onclick="window._odpSubmitComment && window._odpSubmitComment()"
+                                style="background:rgba(180,140,80,0.2); border:1px solid rgba(180,140,80,0.5); color:#d4a843; font-size:12px; padding:5px 14px; border-radius:5px; cursor:pointer; font-weight:600;">등록</button>
+                        </div>
+                    </div>
+                    <div id="odp-comments-login-notice" style="display:none; margin-top:8px; font-size:12px; color:#6a7f8e; text-align:center; padding:8px 0;">
+                        로그인 후 의견을 남길 수 있습니다.
                     </div>
                 </div>
-                <!-- 비로그인 안내 -->
-                <div id="odp-comments-login-notice" style="display:none; margin-top:8px; font-size:12px; color:#6a7f8e; text-align:center; padding:8px 0;">
-                    로그인 후 의견을 남길 수 있습니다.
+            </div>
+
+            <!-- 주변 탐색 탭 콘텐츠 -->
+            <div id="odp-tab-content-nearby" style="display:none;">
+                <!-- 반경/유형 컨트롤 -->
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+                    <select id="nearbyRadiusSelect" onchange="refreshNearbyResults()"
+                        style="background:#1e2e3e; border:1px solid rgba(90,160,200,0.35); border-radius:5px;
+                               color:#d0e4ec; padding:4px 8px; font-size:12px; cursor:pointer;">
+                        <option value="50">50 km · 125리</option>
+                        <option value="100" selected>100 km · 250리</option>
+                        <option value="200">200 km · 500리</option>
+                        <option value="300">300 km · 750리</option>
+                        <option value="500">500 km · 1250리</option>
+                    </select>
+                    <select id="nearbyTypeSelect" onchange="refreshNearbyResults()"
+                        style="background:#1e2e3e; border:1px solid rgba(90,160,200,0.35); border-radius:5px;
+                               color:#d0e4ec; padding:4px 8px; font-size:12px; cursor:pointer;">
+                        <option value="both">성 + 사료</option>
+                        <option value="castle">성/유적만</option>
+                        <option value="contribution">사료만</option>
+                    </select>
+                    <span id="nearbyLoadingSpinner" style="display:none; color:#7ab8cc; font-size:12px;">⏳</span>
+                </div>
+                <!-- 결과 목록 -->
+                <div id="nearbyResultBody" style="font-size:13px; color:#8fa0b0;">
+                    <div style="text-align:center; padding:30px 0;">반경을 선택하면 결과가 표시됩니다.</div>
                 </div>
             </div>
         </div>
@@ -7699,6 +7742,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     function closeDetailPanel() {
         const panel = document.getElementById('object-detail-panel');
         if (panel) panel.classList.remove('active');
+        clearRadarLayers();
     }
 
     function openDetailPanel(castle, activeHistoryRecord, countryInfo) {
@@ -7717,14 +7761,14 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         const photo = castle.is_military_flag
             ? (castle.general_photo || castle.photo || activeHistoryRecord?.photo)
             : (castle.photo || activeHistoryRecord?.photo);
-        heroImg.style.display = 'none';
-        heroPlaceholder.style.display = 'flex';
-        // 군대 placeholder 아이콘 교체
-        heroPlaceholder.textContent = castle.is_military_flag ? '⚔️' : '🏯';
+        const DEFAULT_HERO_IMG = 'https://i.pinimg.com/736x/1e/16/48/1e1648e22df86513371bdd6f6190c461.jpg';
+        heroImg.style.display = 'block';
+        heroPlaceholder.style.display = 'none';
+        heroPlaceholder.textContent = '';
         if (photo) {
             heroImg.src = toRawImageUrl(photo);
         } else {
-            heroImg.src = '';
+            heroImg.src = DEFAULT_HERO_IMG;
         }
 
         // ── 타이틀 & 배지 ──
@@ -7741,6 +7785,18 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         } else {
             badgeEl.style.display = 'none';
         }
+
+        // ── 주변 탐색 탭 버튼 연결 ──
+        if (castle.lat != null && castle.lng != null) {
+            window._odpOpenNearby = () => openNearbyModal(castle.lat, castle.lng, castleName);
+        } else {
+            window._odpOpenNearby = null;
+        }
+        // 좌표 없으면 주변탐색 탭 숨기기
+        const tabNearbyBtn = document.getElementById('odp-tab-nearby');
+        if (tabNearbyBtn) tabNearbyBtn.style.display = (castle.lat != null && castle.lng != null) ? '' : 'none';
+        // 역사기록 탭을 기본 활성화
+        odpSwitchTab('history');
 
         // ── 메타 정보 ──
         const metaEl = document.getElementById('odp-meta');
@@ -8551,6 +8607,9 @@ function getKingByYear(countryName, year, month) {
             <button onclick="openMarkerCommentModal('${castleId}','${safeName}')" style="background:rgba(44,62,80,0.85); border:1px solid rgba(180,140,80,0.4); border-radius:3px; color:#c8b87a; font-size:11px; padding:3px 8px; cursor:pointer;">💬 의견 남기기${badgeHtml}</button>
         </div>`;
     }
+
+    // 🔭 주변 탐색 버튼 — 팝업 하단에 붙이는 헬퍼 (현재 미사용 — 상세패널로 이전)
+    function buildNearbyBtn(lat, lng, name) { return ''; }
 
         /** 자연 지물 타입에 따른 아이콘 심볼과 클래스 매핑 (NEW) */
     function getNaturalFeatureIcon(type) {
@@ -11095,7 +11154,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 : (castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">생성자: ${castle.createdBy}</small>` : '');
             const _capFlagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" style="height:11px;vertical-align:middle;margin-right:3px;border:1px solid rgba(180,140,80,0.3);border-radius:1px;">` : '';
             const _capCountryHtml = countryName && countryName !== '알 수 없음' ? `<br>${_capFlagHtml}<span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;">${countryName}</span>` : '';
-            popupHtml = `<b>🏯 ${castleName}</b>${_capCountryHtml}<br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${stripImgTags(castle.desc)}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
+            popupHtml = `<b>🏯 ${castleName}</b>${_capCountryHtml}<br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${stripImgTags(castle.desc)}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}${buildNearbyBtn(castle.lat, castle.lng, castleName)}`;
             marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
             let capTimeout;
             marker.on('mouseover', function() { clearTimeout(capTimeout); if (currentOpenPopup && currentOpenPopup !== this) currentOpenPopup.closePopup(); this.openPopup(); currentOpenPopup = this; });
@@ -11159,7 +11218,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 : (castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">생성자: ${castle.createdBy}</small>` : '');
             const _sptFlagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" style="height:11px;vertical-align:middle;margin-right:3px;border:1px solid rgba(180,140,80,0.3);border-radius:1px;">` : '';
             const _sptCountryHtml = countryName && countryName !== '알 수 없음' ? `<br>${_sptFlagHtml}<span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;">${countryName}</span>` : '';
-            popupHtml = `<b>${ptCfg.hanja} ${castleName}</b>${_sptCountryHtml}<br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${stripImgTags(castle.desc)}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
+            popupHtml = `<b>${ptCfg.hanja} ${castleName}</b>${_sptCountryHtml}<br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${stripImgTags(castle.desc)}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}${buildNearbyBtn(castle.lat, castle.lng, castleName)}`;
             marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
 
             let sptTimeout;
@@ -23419,6 +23478,10 @@ kingSelect.addEventListener('change', () => {
 <!-- ══════════════════════════════════════════════════════
      💬 마커 의견(코멘트) 모달
 ══════════════════════════════════════════════════════ -->
+<!-- ══════════════════════════════════════════════════════
+     🔭 주변 탐색 — 우측 패널 탭으로 통합됨 (별도 모달 없음)
+     ══════════════════════════════════════════════════════ -->
+
 <div id="markerCommentModal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.55); align-items:center; justify-content:center;">
   <div style="background:#1e2a35; border:1px solid rgba(180,140,80,0.45); border-radius:8px; width:min(460px,92vw); max-height:80vh; display:flex; flex-direction:column; box-shadow:0 8px 32px rgba(0,0,0,0.6);">
     <!-- 헤더 -->
@@ -23470,6 +23533,246 @@ kingSelect.addEventListener('change', () => {
 (function() {
     let _mcCurrentCastleId = null;
     let _mcCurrentCastleName = '';
+
+    // ──────────────────────────────────────────────────────────────
+    // 🔭 주변 탐색 모달
+    // ──────────────────────────────────────────────────────────────
+    let _nearbyCenter = { lat: 0, lng: 0, name: '' };
+
+    // ── 우측 패널 탭 전환 ──
+    window.odpSwitchTab = function(tab) {
+        const historyContent = document.getElementById('odp-tab-content-history');
+        const nearbyContent  = document.getElementById('odp-tab-content-nearby');
+        const tabHistory     = document.getElementById('odp-tab-history');
+        const tabNearby      = document.getElementById('odp-tab-nearby');
+        if (!historyContent || !nearbyContent) return;
+
+        if (tab === 'nearby') {
+            historyContent.style.display = 'none';
+            nearbyContent.style.display  = '';
+            if (tabHistory) { tabHistory.style.borderBottomColor = 'transparent'; tabHistory.style.color = '#5a7888'; }
+            if (tabNearby)  { tabNearby.style.borderBottomColor  = '#c8a850';     tabNearby.style.color  = '#c8a850'; }
+        } else {
+            nearbyContent.style.display  = 'none';
+            historyContent.style.display = '';
+            if (tabHistory) { tabHistory.style.borderBottomColor = '#c8a850'; tabHistory.style.color = '#c8a850'; }
+            if (tabNearby)  { tabNearby.style.borderBottomColor  = 'transparent'; tabNearby.style.color  = '#5a7888'; }
+            // 역사기록 탭으로 돌아가면 레이더 제거
+            clearRadarLayers();
+        }
+    };
+
+    // 결과 항목 클릭 → 패널 내 탭 유지한 채 해당 좌표+시대로 지도 이동
+    window.goToNearbyItem = function(lat, lng, startYear, endYear) {
+        if (typeof map === 'undefined') return;
+
+        // ── 시대 이동 (yearInput + combinedSlider + updateUI 모두 동기화) ──
+        if (startYear != null || endYear != null) {
+            let targetYear;
+            if (startYear != null && endYear != null) {
+                targetYear = Math.round((startYear + endYear) / 2);
+            } else {
+                targetYear = startYear ?? endYear;
+            }
+            const targetMonth = 1;
+
+            // combinedSlider 동기화
+            const slider = document.getElementById('combinedSlider');
+            if (slider && typeof yearMonthToTotalMonths === 'function') {
+                slider.value = yearMonthToTotalMonths(targetYear, targetMonth);
+            }
+
+            // updateMap이 yearInput 세팅 + updateUI + 지도 갱신을 모두 처리함
+            if (typeof updateMap === 'function') {
+                updateMap(targetYear, targetMonth);
+            } else {
+                const yi = document.getElementById('yearInput');
+                const mi = document.getElementById('monthInput');
+                if (yi) yi.value = targetYear;
+                if (mi) mi.value = targetMonth;
+            }
+        }
+
+        map.setView([lat, lng], Math.max(map.getZoom(), 7), { animate: true });
+    };
+
+    // ── 레이더 동심원 관리 ──────────────────────────────────────────
+    let _radarLayers = [];
+    let _radarTimers = [];
+
+    function clearRadarLayers() {
+        _radarTimers.forEach(t => clearInterval(t));
+        _radarTimers = [];
+        _radarLayers.forEach(l => { try { map.removeLayer(l); } catch(e){} });
+        _radarLayers = [];
+    }
+
+    function drawRadarCircles(lat, lng, radiusKm) {
+        clearRadarLayers();
+
+        const rings = [
+            { frac: 1.0, color: '#e0a030', dash: '8 5',  weight: 2.0, baseOpacity: 0.7,  period: 2000 },
+            { frac: 0.5, color: '#7ab8cc', dash: '5 4',  weight: 1.5, baseOpacity: 0.55, period: 2600 },
+            { frac: 0.25,color: '#60c0a8', dash: '3 4',  weight: 1.2, baseOpacity: 0.40, period: 3200 },
+        ];
+
+        rings.forEach(({ frac, color, dash, weight, baseOpacity, period }) => {
+            const r = radiusKm * 1000 * frac;
+            const circle = L.circle([lat, lng], {
+                radius: r,
+                color,
+                weight,
+                opacity: baseOpacity,
+                dashArray: dash,
+                fillColor: color,
+                fillOpacity: 0.03,
+                interactive: false,
+                pane: 'shadowPane'
+            }).addTo(map);
+
+            _radarLayers.push(circle);
+
+            // JS interval로 Leaflet setStyle을 직접 호출 → 확실한 pulse
+            const start = performance.now();
+            const timer = setInterval(() => {
+                const t = (performance.now() - start) / period;
+                // 0→1→0 사인파: 0.15 ~ baseOpacity 범위
+                const opc = 0.15 + (baseOpacity - 0.15) * (0.5 + 0.5 * Math.sin(t * Math.PI * 2));
+                try { circle.setStyle({ opacity: opc, fillOpacity: opc * 0.06 }); } catch(e) {}
+            }, 50);
+            _radarTimers.push(timer);
+        });
+
+        // 중심점 마커 (작은 글로우 원)
+        const center = L.circleMarker([lat, lng], {
+            radius: 6,
+            color: '#e0a030',
+            weight: 2.5,
+            opacity: 1,
+            fillColor: '#ffe080',
+            fillOpacity: 0.95,
+            interactive: false,
+            pane: 'shadowPane'
+        }).addTo(map);
+        _radarLayers.push(center);
+
+        // 중심 글로우 pulse
+        const cStart = performance.now();
+        const cTimer = setInterval(() => {
+            const t = (performance.now() - cStart) / 900;
+            const r = 4 + 3 * (0.5 + 0.5 * Math.sin(t * Math.PI * 2));
+            try { center.setRadius(r); } catch(e) {}
+        }, 50);
+        _radarTimers.push(cTimer);
+    }
+    // ────────────────────────────────────────────────────────────────
+
+    window.openNearbyModal = function(lat, lng, name) {
+        _nearbyCenter = { lat, lng, name };
+        // 모달 대신 우측 패널 탭으로 전환
+        odpSwitchTab('nearby');
+        refreshNearbyResults();
+    };
+
+    window.refreshNearbyResults = async function() {
+        const radius = document.getElementById('nearbyRadiusSelect').value;
+        const type   = document.getElementById('nearbyTypeSelect').value;
+        const body   = document.getElementById('nearbyResultBody');
+        const spinner = document.getElementById('nearbyLoadingSpinner');
+
+        spinner.style.display = 'inline';
+        body.innerHTML = '';
+
+        // 반경 변경 즉시 레이더 갱신
+        if (_nearbyCenter) {
+            drawRadarCircles(_nearbyCenter.lat, _nearbyCenter.lng, parseFloat(radius));
+        }
+
+        try {
+            const url = `${API_BASE_URL}/nearby?lat=${_nearbyCenter.lat}&lng=${_nearbyCenter.lng}&radius=${radius}&type=${type}&limit=50`;
+            const res  = await fetch(url);
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+
+            const castles  = data.castles       || [];
+            const contribs = data.contributions || [];
+
+            if (castles.length === 0 && contribs.length === 0) {
+                body.innerHTML = `<div style="color:#8fa0b0;font-size:13px;text-align:center;padding:40px 0;">
+                    반경 ${radius}km 내에 데이터가 없습니다.</div>`;
+                return;
+            }
+
+            // km → 리 변환 (1리 ≒ 435m 보수적 평균)
+            const fmtDist = km => {
+                const ri = Math.round(km * 1000 / 435);
+                return `${km} km (${ri}리)`;
+            };
+
+            const sectionHtml = (title, color, items, renderFn) => {
+                if (!items.length) return '';
+                return `<div style="margin-bottom:18px;">
+                    <div style="color:${color};font-weight:700;font-size:13px;margin-bottom:8px;
+                                padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,0.07);">
+                        ${title} <span style="font-weight:400;font-size:12px;color:#6a8090;">(${items.length}건)</span>
+                    </div>
+                    ${items.map(renderFn).join('')}
+                </div>`;
+            };
+
+            const castleRow = c => {
+                const sy = c.start_year ?? c.built_year ?? null;
+                const ey = c.end_year   ?? c.destroyed_year ?? null;
+                const yearLabel = sy != null
+                    ? (ey != null ? `${sy < 0 ? `BC${Math.abs(sy)}` : sy}~${ey < 0 ? `BC${Math.abs(ey)}` : ey}` : `${sy < 0 ? `BC${Math.abs(sy)}` : sy}~`)
+                    : '';
+                return `
+                <div onclick="goToNearbyItem(${c.lat},${c.lng},${sy ?? 'null'},${ey ?? 'null'})"
+                     style="display:flex;justify-content:space-between;align-items:baseline;
+                            padding:6px 4px;border-bottom:1px solid rgba(255,255,255,0.04);
+                            cursor:pointer;border-radius:4px;transition:background 0.15s;"
+                     onmouseover="this.style.background='rgba(90,160,200,0.08)'"
+                     onmouseout="this.style.background='none'">
+                    <span style="color:#d8cfc4;font-size:13px;">🏯 ${c.name || '이름 없음'}
+                        ${yearLabel ? `<span style="color:#5a7888;font-size:11px;margin-left:5px;">${yearLabel}</span>` : ''}
+                    </span>
+                    <span style="color:#7ab8cc;font-size:12px;white-space:nowrap;margin-left:8px;">${fmtDist(c.distanceKm)}</span>
+                </div>`;
+            };
+
+            const catIcon = { geography:'🌄', oldmap:'🗺️', literature:'📜', other:'🔍' };
+            const contribRow = c => {
+                const sy = c.start_year ?? c.year ?? null;
+                const ey = c.end_year   ?? null;
+                const yearLabel = sy != null
+                    ? (ey != null ? `${sy < 0 ? `BC${Math.abs(sy)}` : sy}~${ey}` : `${sy < 0 ? `BC${Math.abs(sy)}` : sy}년`)
+                    : '';
+                return `
+                <div onclick="goToNearbyItem(${c.lat},${c.lng},${sy ?? 'null'},${ey ?? 'null'})"
+                     style="display:flex;justify-content:space-between;align-items:baseline;
+                            padding:6px 4px;border-bottom:1px solid rgba(255,255,255,0.04);
+                            cursor:pointer;border-radius:4px;transition:background 0.15s;"
+                     onmouseover="this.style.background='rgba(200,168,80,0.08)'"
+                     onmouseout="this.style.background='none'">
+                    <span style="color:#d8cfc4;font-size:13px;">
+                        ${catIcon[c.category]||'📌'} ${c.name || '이름 없음'}
+                        <span style="color:#6a8090;font-size:11px;margin-left:4px;">${c.category||''}</span>
+                        ${yearLabel ? `<span style="color:#5a7868;font-size:11px;margin-left:4px;">${yearLabel}</span>` : ''}
+                    </span>
+                    <span style="color:#c8a850;font-size:12px;white-space:nowrap;margin-left:8px;">${fmtDist(c.distanceKm)}</span>
+                </div>`;
+            };
+
+            body.innerHTML =
+                sectionHtml('🏯 주변 성/유적', '#7ab8cc', castles,  castleRow) +
+                sectionHtml('📜 주변 사료',    '#c8a850', contribs, contribRow);
+
+        } catch(e) {
+            body.innerHTML = `<div style="color:#c86050;font-size:13px;padding:20px 0;">오류: ${e.message}</div>`;
+        } finally {
+            spinner.style.display = 'none';
+        }
+    };
 
     // 팝업에서 버튼 클릭 시 호출
     window.openMarkerCommentModal = function(castleId, castleName) {
