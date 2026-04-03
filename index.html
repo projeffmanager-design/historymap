@@ -12682,13 +12682,8 @@ function invalidateCountryLookupCache() {
           // ❌ drawings: 제거 - 사용자 그리기 데이터, 백그라운드 로드로 전환 (21초 병목 제거)
           // ❌ contributions: 제거 - 사용자 기여 데이터, 백그라운드 로드로 전환 (4초 병목 제거)
           
-          // 자연 지형지물 (natural 레이어가 켜져있을 때만)
-          if (layerVisibility.natural || layerVisibility.rivers) {
-              additionalLoadPromises.naturalFeatures = fetchData('natural-features');
-          } else {
-              additionalLoadPromises.naturalFeatures = Promise.resolve([]);
-          }
-          
+          // ❌ naturalFeatures: 제거 — 백그라운드 로드로 전환 (10초 병목 제거)
+
           // 🚀 병렬 실행
           const additionalTimingMap = {};
           const additionalResults = await Promise.all(
@@ -12780,10 +12775,18 @@ function invalidateCountryLookupCache() {
               console.log('⏭️ 유저 기여 레이어 비활성화 → contributions 로드 스킵');
           }
           
-          // 자연 지형지물
-          naturalFeatures = additionalData.naturalFeatures || [];
+          // 🚀 [백그라운드 로딩] naturalFeatures — Promise.all 대기 없이 도착 즉시 반영
           if (layerVisibility.natural || layerVisibility.rivers) {
-              console.log(`✅ 자연 지형지물: ${naturalFeatures.length}개`);
+              console.log('🌊 [백그라운드] naturalFeatures 로딩 시작...');
+              fetchData('natural-features').then(data => {
+                  naturalFeatures = data || [];
+                  console.log(`✅ [백그라운드] 자연 지형지물 ${naturalFeatures.length}개 로드 완료`);
+                  requestUpdateMap(true);
+                  console.log('🗺️ [백그라운드] naturalFeatures 지도 반영 예약 완료');
+              }).catch(err => {
+                  console.warn('⚠️ [백그라운드] naturalFeatures 로드 실패:', err.message);
+                  naturalFeatures = [];
+              });
           } else {
               console.log('⏭️ 자연 지형지물 레이어 비활성화 → 로드 스킵');
           }
@@ -12797,11 +12800,11 @@ function invalidateCountryLookupCache() {
           // 🚀 [v2.0.9] 초기화 플래그는 영토 로딩 후 이미 해제됨 (중복 제거)
           // isInitializing은 영토 로딩 완료 시점에 false로 변경됨
           
-          // 🎯 [최적화] 추가 데이터(drawings, naturalFeatures 등) 반영
-          // 🎯 [핵심] territories가 있으면 updateMap 호출 (castles는 백그라운드 대기 중)
+          // 🎯 [최적화] 추가 데이터(drawings 등) 반영 (naturalFeatures는 백그라운드 대기 중)
+          // 🎯 [핵심] territories가 있으면 updateMap 호출 (castles/naturalFeatures는 백그라운드 대기 중)
           if (castles.length > 0 || territories.length > 0) {
-              requestUpdateMap(true); // force=true: naturalFeatures 로드 후 무조건 재렌더링
-              console.log('✅ 추가 데이터 지도 반영 예약 (drawings, naturalFeatures 등)');
+              requestUpdateMap(true);
+              console.log('✅ 추가 데이터 지도 반영 예약 (drawings 등, naturalFeatures는 백그라운드 처리 중)');
           } else {
               console.log('⏭️ castles/territories 없음, 추가 데이터 렌더링 스킵 (캐시 데이터 보호)');
           }
