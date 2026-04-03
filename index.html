@@ -10174,9 +10174,12 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     // 🚩 직급 배열은 서버의 RANK_CONFIG.roles와 동일하게 유지
                     const reviewerPositions = ['시강학사', '사관수찬', '직수찬관', '수찬관'];
                     const approverPositions = ['동수국사', '수국사', '판사관사', '감수국사'];
-                    
-                    const canReview = isAdminRole || reviewerPositions.includes(userPosition);
-                    const canApprove = isAdminRole || approverPositions.includes(userPosition);
+
+                    // position은 '정1품 감수국사(監修國史)' 형태로 저장되므로 부분 일치로 비교
+                    const positionMatches = (pos, list) => list.some(p => pos && pos.includes(p));
+
+                    const canReview = isAdminRole || positionMatches(userPosition, reviewerPositions);
+                    const canApprove = isAdminRole || positionMatches(userPosition, approverPositions);
                     
                     // 🚩 검토 버튼 (시강학사 이상 또는 admin/superuser) - pending 상태이면 표시
                     if (canReview && contrib.status === 'pending') {
@@ -22883,9 +22886,12 @@ kingSelect.addEventListener('change', () => {
                         ];
                         // 승인 권한: 동수국사(종2품) ~ 감수국사(정1품) - 재상급
                         const approverPositions = ['동수국사', '수국사', '판사관사', '감수국사'];
-                        
-                        const canReview = isAdminRole || reviewerPositions.includes(userPosition);
-                        const canApprove = isAdminRole || approverPositions.includes(userPosition);
+
+                        // position은 '정1품 감수국사(監修國史)' 형태로 저장되므로 부분 일치로 비교
+                        const positionMatches2 = (pos, list) => list.some(p => pos && pos.includes(p));
+
+                        const canReview = isAdminRole || positionMatches2(userPosition, reviewerPositions);
+                        const canApprove = isAdminRole || positionMatches2(userPosition, approverPositions);
                         
                         // 검토 버튼 (시강학사 이상 또는 admin/superuser) - pending 상태면 표시
                         if (canReview && contribution.status === 'pending') {
