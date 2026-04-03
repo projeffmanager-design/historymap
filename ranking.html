@@ -1348,7 +1348,10 @@
                                     <button onclick="reviewContribution('${contributionId}', 'approved')" style="flex: 1; min-width: 130px; background: rgba(60,160,120,0.75); color: #e0f0e8; border: 1px solid rgba(60,160,120,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(70,175,130,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(60,160,120,0.75)';">✅ 검토 승인</button>
                                     <button onclick="reviewContribution('${contributionId}', 'rejected')" style="flex: 1; min-width: 130px; background: rgba(200,70,60,0.75); color: #f0e0dc; border: 1px solid rgba(200,70,60,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(220,80,70,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(200,70,60,0.75)';">❌ 검토 거부</button>
                                 ` : ''}
-                                ${canApprove ? `<button onclick="approveContribution('${contributionId}')" style="flex: 1; min-width: 130px; background: rgba(180,140,80,0.75); color: #180e00; border: 1px solid rgba(180,140,80,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(200,160,90,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(180,140,80,0.75)';">⭐ 최종 승인</button>` : ''}
+                                ${canApprove ? `
+                                    <button onclick="approveContribution('${contributionId}')" style="flex: 1; min-width: 130px; background: rgba(180,140,80,0.75); color: #180e00; border: 1px solid rgba(180,140,80,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(200,160,90,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(180,140,80,0.75)';">⭐ 최종 승인</button>
+                                    <button onclick="rejectFinalContribution('${contributionId}')" style="flex: 1; min-width: 130px; background: rgba(160,50,40,0.75); color: #f0e0dc; border: 1px solid rgba(160,50,40,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(185,60,50,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(160,50,40,0.75)';">🚫 최종 반려</button>
+                                ` : ''}
                             </div>
                         </div>
                         ` : ''}
@@ -1645,6 +1648,46 @@
             } catch (error) {
                 console.error('❌ 승인 실패:', error);
                 alert('승인에 실패했습니다.');
+            }
+        }
+
+        // 🚩 사료 최종 반려 함수
+        async function rejectFinalContribution(contributionId) {
+            try {
+                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                if (!token) {
+                    alert('로그인이 필요합니다.');
+                    return;
+                }
+
+                const comment = prompt('반려 사유를 입력하세요 (선택사항):');
+                if (comment === null) return; // 취소 시 중단
+
+                if (!confirm('이 사료를 최종 반려하시겠습니까?')) {
+                    return;
+                }
+
+                const response = await fetch(`${API_BASE_URL}/contributions/${contributionId}/reject-final`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ comment })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert('최종 반려되었습니다.');
+                    document.getElementById('contributionDetailModal').style.display = 'none';
+                    loadContributions();
+                } else {
+                    alert(result.message || '반려에 실패했습니다.');
+                }
+            } catch (error) {
+                console.error('❌ 반려 실패:', error);
+                alert('반려에 실패했습니다.');
             }
         }
 
