@@ -1294,6 +1294,86 @@ app.get('/api/app-version', (req, res) => {
     res.json({ version: '3.6.60' });
 });
 
+// ──────────────────────────────────────────────────────────────────────
+// 🔭 반경 검색 API  GET /api/nearby
+//    ?lat=39.9&lng=116.4&radius=100  (radius: km, 기본 100km, 최대 1000km)
+//    ?type=castle|contribution|both  (기본 both)
+//    ?limit=50                       (기본 20, 최대 100)
+// 반환: { castles: [...], contributions: [...], center: {lat,lng}, radiusKm }
+// ──────────────────────────────────────────────────────────────────────
+app.get('/api/nearby', async (req, res) => {
+    try {
+        await setupRoutesAndCollections();
+
+        const lat    = parseFloat(req.query.lat);
+        const lng    = parseFloat(req.query.lng);
+        const radius = Math.min(parseFloat(req.query.radius) || 100, 1000);
+        const type   = req.query.type || 'both';
+        const limit  = Math.min(parseInt(req.query.limit) || 20, 100);
+
+        if (isNaN(lat) || isNaN(lng) ||
+            lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+            return res.status(400).json({ message: '유효하지 않은 좌표입니다.' });
+        }
+
+        const geoQuery = {
+            location: {
+                $nearSphere: {
+                    $geometry: { type: 'Point', coordinates: [lng, lat] },
+                    $maxDistance: radius * 1000
+                }
+            }
+        };
+
+        const [castles, contributions] = await Promise.all([
+            (type === 'both' || type === 'castle')
+                ? collections.castle.find(
+                    { ...geoQuery, deleted: { $ne: true } },
+                    { projection: { name: 1, lat: 1, lng: 1, description: 1,
+                                    country_id: 1, is_capital: 1, label_type: 1,
+                                    built_year: 1, destroyed_year: 1,
+                                    start_year: 1, end_year: 1 } }
+                  ).limit(limit).toArray()
+                : [],
+            (type === 'both' || type === 'contribution')
+                ? collections.contributions.find(
+                    { ...geoQuery, status: 'approved' },
+                    { projection: { name: 1, lat: 1, lng: 1, category: 1,
+                                    description: 1, source: 1,
+                                    submittedBy: 1, approvedAt: 1,
+                                    start_year: 1, end_year: 1, year: 1 } }
+                  ).limit(limit).toArray()
+                : []
+        ]);
+
+        const earthR = 6371;
+        const toRad  = d => d * Math.PI / 180;
+        const haversine = (a, b) => {
+            const dLat = toRad(b.lat - a.lat);
+            const dLng = toRad(b.lng - a.lng);
+            const h = Math.sin(dLat/2)**2
+                    + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat))
+                    * Math.sin(dLng/2)**2;
+            return earthR * 2 * Math.asin(Math.sqrt(h));
+        };
+        const center = { lat, lng };
+        const withDist = arr => arr.map(d => ({
+            ...d,
+            distanceKm: Math.round(haversine(center, { lat: d.lat, lng: d.lng }) * 10) / 10
+        })).sort((a, b) => a.distanceKm - b.distanceKm);
+
+        res.json({
+            center,
+            radiusKm: radius,
+            castles:       withDist(castles),
+            contributions: withDist(contributions)
+        });
+    } catch (err) {
+        console.error('❌ [/api/nearby]', err);
+        res.status(500).json({ message: '반경 검색 실패', error: err.message });
+    }
+});
+
 // GET: 모든 장수 정보 반환
 app.get('/api/general', async (req, res) => {
     try {
