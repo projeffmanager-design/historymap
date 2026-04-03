@@ -1180,7 +1180,10 @@
                 ];
                 // 승인 권한: 동수국사(종2품) ~ 감수국사(정1품) - 재상급 (검토 없이 바로 승인 가능)
                 const approverPositions = ['동수국사', '수국사', '판사관사', '감수국사'];
-                
+
+                // position은 '정1품 감수국사(監修國史)' 형태로 저장되므로 부분 일치로 비교
+                const positionMatches = (pos, list) => list.some(p => pos && pos.includes(p));
+
                 // 본인이 작성한 사료가 아니고 승인되지 않은 경우 추천 버튼 표시
                 const isOwnContribution = submitter === currentUsername;
                 console.log('🔍 [ranking.html 권한 체크]');
@@ -1189,12 +1192,12 @@
                 console.log('  - isOwnContribution:', isOwnContribution);
                 console.log('  - userPosition:', userPosition);
                 console.log('  - status:', selectedContribution.status);
-                console.log('  - reviewerPositions.includes:', reviewerPositions.includes(userPosition));
-                
+                console.log('  - positionMatches(reviewer):', positionMatches(userPosition, reviewerPositions));
+
                 const isAdminRole = userRole === 'admin' || userRole === 'superuser';
                 const canVote = !isOwnContribution && selectedContribution.status === 'pending' && !isGuestUser;
-                const canReview = (isAdminRole || reviewerPositions.includes(userPosition)) && selectedContribution.status === 'pending' && !isOwnContribution;
-                const canApprove = (isAdminRole || approverPositions.includes(userPosition)) && selectedContribution.status === 'reviewed' && !isOwnContribution;
+                const canReview = (isAdminRole || positionMatches(userPosition, reviewerPositions)) && selectedContribution.status === 'pending' && !isOwnContribution;
+                const canApprove = (isAdminRole || positionMatches(userPosition, approverPositions)) && (selectedContribution.status === 'reviewed' || selectedContribution.status === 'pending') && !isOwnContribution;
                 
                 console.log('  - canVote:', canVote);
                 console.log('  - canReview:', canReview);
