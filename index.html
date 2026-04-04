@@ -9601,49 +9601,51 @@ function simplifyCoordinates(coords, tolerance) {
 
 // 🚀 [v3.6] 줌 레벨에 따른 간소화 허용 오차 (degree 단위)
 function getSimplifyTolerance(zoom) {
-    if (zoom <= 4) return 0.05;   // ~5.5km — 매우 거칠게
-    if (zoom <= 5) return 0.02;   // ~2.2km
-    if (zoom <= 6) return 0.01;   // ~1.1km
-    if (zoom <= 7) return 0.005;  // ~550m
-    if (zoom <= 8) return 0.002;  // ~220m
-    return 0;                     // zoom 9+ 원본 사용
+    // 서버가 SIMPLIFY_TOL=0.001로 이미 단순화하여 내려줌
+    // 클라이언트 재단순화는 폴리곤 붕괴를 유발하므로 항상 원본(0) 사용
+    return 0;
 }
 
 // 🚀 [v3.6] 좌표 간소화 캐시 (zoom 레벨별)
 const _simplifiedCoordsCache = new Map(); // key: `${territory._id}_${tolerance}` → simplified coords
 
 function getSimplifiedGeometry(territory, tolerance) {
-    if (tolerance === 0) return { type: territory.type, coordinates: territory.coordinates };
-    
+    // 서버는 항상 territory.type + territory.coordinates 로 내려줌
+    const geoType   = territory.type;
+    const geoCoords = territory.coordinates;
+    if (!geoType || !geoCoords) return null;
+
+    if (tolerance === 0) return { type: geoType, coordinates: geoCoords };
+
     const cacheKey = `${territory._id || territory.name}_${tolerance}`;
     if (_simplifiedCoordsCache.has(cacheKey)) return _simplifiedCoordsCache.get(cacheKey);
-    
-    // 간소화 후 링이 3점 미만이면 원본 링을 유지 (폴리곤 붕괴 방지)
+
+    // 간소화 후 링이 4점(삼각형+닫힘) 미만이면 원본 링을 유지 (폴리곤 붕괴 방지)
     function safeSimplify(ring) {
         const simplified = simplifyCoordinates(ring, tolerance);
-        return (simplified && simplified.length >= 3) ? simplified : ring;
+        return (simplified && simplified.length >= 4) ? simplified : ring;
     }
 
     let simplifiedCoords;
-    if (territory.type === 'Polygon') {
-        simplifiedCoords = territory.coordinates.map(ring => safeSimplify(ring));
-    } else if (territory.type === 'MultiPolygon') {
-        simplifiedCoords = territory.coordinates.map(poly => 
+    if (geoType === 'Polygon') {
+        simplifiedCoords = geoCoords.map(ring => safeSimplify(ring));
+    } else if (geoType === 'MultiPolygon') {
+        simplifiedCoords = geoCoords.map(poly =>
             poly.map(ring => safeSimplify(ring))
         );
     } else {
-        return { type: territory.type, coordinates: territory.coordinates };
+        return { type: geoType, coordinates: geoCoords };
     }
-    
-    const result = { type: territory.type, coordinates: simplifiedCoords };
+
+    const result = { type: geoType, coordinates: simplifiedCoords };
     _simplifiedCoordsCache.set(cacheKey, result);
-    
+
     // 캐시 크기 제한 (메모리 보호)
     if (_simplifiedCoordsCache.size > 1000) {
         const firstKey = _simplifiedCoordsCache.keys().next().value;
         _simplifiedCoordsCache.delete(firstKey);
     }
-    
+
     return result;
 }
 
@@ -9864,6 +9866,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         return;
                     }
                     const geometry = getSimplifiedGeometry(territory, simplifyTol);
+                    if (!geometry) return;
                     const neutralKey = '__unowned__';
                     if (!allTerritoryFeatures.has(neutralKey)) {
                         allTerritoryFeatures.set(neutralKey, {
@@ -9900,6 +9903,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 
                 // 🚀 [v3.6] 좌표 간소화 적용 (모바일 메모리 부족 해결)
                 const geometry = getSimplifiedGeometry(territory, simplifyTol);
+                if (!geometry) return; // 좌표 구조 불명 → 스킵
                 
                 // Feature 생성
                 const feature = {
@@ -11821,7 +11825,7 @@ function invalidateCountryLookupCache() {
 
     //  [IndexedDB] 영토 타일 캐싱 시스템
     const TERRITORY_DB_NAME = 'TerritoryTilesDB';
-    const TERRITORY_DB_VERSION = 1;
+    const TERRITORY_DB_VERSION = 2;  // 🚩 캐시 강제 무효화 (폴리곤 단순화 버그 수정)
     const TERRITORY_STORE_NAME = 'tiles';
     const TERRITORY_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
 
