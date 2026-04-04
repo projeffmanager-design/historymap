@@ -23975,8 +23975,24 @@ kingSelect.addEventListener('change', () => {
             });
             if (riverFeature) riverName = riverFeature.name || null;
         }
-        // 선박: 항상 표시 (순류 6km/h, 하루 10시간 운항)
-        const boatDays = _calcTravelTime(km, 6, 10);
+        // 선박: 강까지 도보(10%) + 수운(80%) + 목적지까지 도보(10%) 복합 추정
+        // 직선거리를 실제 강 경로로 이동한다고 가정한 근사치
+        const _boatWalkKm  = km * 0.10; // 강 접근/이탈 도보 구간
+        const _boatRiverKm = km * 0.80; // 수운 구간
+        const _boatWalkH   = (_boatWalkKm * 2) / 3.75;          // 왕복 도보 시간
+        const _boatRiverH  = _boatRiverKm / 6;                  // 수운 시간 (6km/h)
+        const _boatTotalH  = _boatWalkH + _boatRiverH;
+        // 하루 이동 가능 시간: 수운 10h + 도보 포함 실질 9h로 복합 계산
+        const boatDays = _calcTravelTime(_boatTotalH * (km / (_boatTotalH || 1)), 6, 9); // 등가 km/h 환산
+        // 더 직관적인 방법: 총 시간으로 직접 포맷
+        const _boatFormatted = (() => {
+            const h = _boatTotalH;
+            const dayH = 9; // 하루 9시간 이동
+            if (h < 1) { const m = Math.round(h * 60 / 10) * 10; return m <= 10 ? '30분 이내' : `약 ${m}분`; }
+            if (h < dayH) { const wh = Math.floor(h); const wm = Math.round((h - wh) * 60 / 10) * 10; return wm === 0 ? `약 ${wh}시간` : wm === 60 ? `약 ${wh+1}시간` : `약 ${wh}시간 ${wm}분`; }
+            const days = h / dayH; const whole = Math.floor(days); const frac = days - whole;
+            if (frac >= 0.8) return `약 ${whole+1}일`; if (frac >= 0.4) return `약 ${whole}일 반`; return whole <= 1 ? '약 1일' : `약 ${whole}일`;
+        })();
 
         // ── 카드 레이아웃 계산 ───────────────────────────────────────
         const headerText = `${fromName || '출발'} → ${toName || '도착'}`;
@@ -24006,9 +24022,9 @@ kingSelect.addEventListener('change', () => {
           <text x="${lx}" y="${y4}" dominant-baseline="central"
             font-size="11" fill="#7ab8cc" font-family="'Noto Serif KR',sans-serif">🚢 선박${riverName ? ` <tspan font-size="9.5" fill="rgba(120,180,210,0.65)">(${riverName})</tspan>` : ''}</text>
           <text x="${rx - 46}" y="${y4}" dominant-baseline="central" text-anchor="end"
-            font-size="9" fill="rgba(160,160,140,0.55)" font-family="sans-serif">6km/h ·</text>
+            font-size="9" fill="rgba(160,160,140,0.55)" font-family="sans-serif">복합 ·</text>
           <text x="${rx}" y="${y4}" dominant-baseline="central" text-anchor="end"
-            font-size="11" font-weight="700" fill="#a8d8ee" font-family="sans-serif">${boatDays}</text>`;
+            font-size="11" font-weight="700" fill="#a8d8ee" font-family="sans-serif">${_boatFormatted}</text>`;
 
         svg.innerHTML = `
           <line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}"
@@ -24056,7 +24072,7 @@ kingSelect.addEventListener('change', () => {
 
             <text x="0" y="${yNote}" dominant-baseline="central" text-anchor="middle"
               font-size="9.5" fill="rgba(140,155,165,0.6)" font-family="sans-serif"
-            ># 1리 ≒ 435m · 통상 이동 기준 · 지형에 따라 차이</text>
+            ># 1리 ≒ 435m · 통상 이동 기준 · 선박: 강 접근 도보(10%)+수운(80%)+이탈 도보(10%) 추정</text>
           </g>
         `;
     }
