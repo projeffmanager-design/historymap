@@ -7471,13 +7471,22 @@ body.force-mobile .marker-type-selector button {
         // 수도 인덱스 (렌더링된 국가만)
         const capitalByCountry = new Map();
         castles.forEach(c => {
-            if (!c.lat || !c.lng || !c.country_id) return;
-            if (!_renderedCountryIds.has(c.country_id)) return;
-            if (c.is_capital) {
-                const info = getActiveHistoryInfo(c.history, currentTotalMonths);
-                if (info && !capitalByCountry.has(c.country_id)) {
-                    capitalByCountry.set(c.country_id, c);
-                }
+            if (!c.lat || !c.lng) return;
+            if (!c.is_capital) return;
+            const info = getActiveHistoryInfo(c.history, currentTotalMonths);
+            if (!info) return;
+            // 현재 시점 history record에서 country_id + is_capital 동시 확인
+            const recCountryId = info.record.country_id
+                ? (typeof info.record.country_id === 'object'
+                    ? (info.record.country_id.$oid || String(info.record.country_id))
+                    : String(info.record.country_id))
+                : null;
+            if (!recCountryId) return;
+            if (!_renderedCountryIds.has(recCountryId)) return;
+            // history record 자체의 is_capital이 true인 것만 수도로 인정
+            if (!info.record.is_capital) return;
+            if (!capitalByCountry.has(recCountryId)) {
+                capitalByCountry.set(recCountryId, c);
             }
         });
 
