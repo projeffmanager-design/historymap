@@ -7743,6 +7743,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         const panel = document.getElementById('object-detail-panel');
         if (panel) panel.classList.remove('active');
         if (typeof clearRadarLayers === 'function') clearRadarLayers();
+        if (typeof clearDistanceLine === 'function') clearDistanceLine();
     }
 
     function openDetailPanel(castle, activeHistoryRecord, countryInfo) {
@@ -23563,14 +23564,109 @@ kingSelect.addEventListener('change', () => {
             historyContent.style.display = '';
             if (tabHistory) { tabHistory.style.borderBottomColor = '#c8a850'; tabHistory.style.color = '#c8a850'; }
             if (tabNearby)  { tabNearby.style.borderBottomColor  = 'transparent'; tabNearby.style.color  = '#5a7888'; }
-            // 역사기록 탭으로 돌아가면 레이더 제거
+            // 역사기록 탭으로 돌아가면 레이더 + 거리선 제거
             if (typeof clearRadarLayers === 'function') clearRadarLayers();
+            if (typeof clearDistanceLine === 'function') clearDistanceLine();
         }
     };
 
+    // ── 거리 직선 레이어 (SVG 직접 DOM 삽입 방식) ──────────────────
+    let _distanceLayers = [];
+    let _distanceLineGroup = null;
+    let _distanceLineCoords = null; // { fromLat, fromLng, toLat, toLng, km, ri }
+    let _distanceMoveHandler = null;
+    let _distanceZoomHandler = null;
+
+    function clearDistanceLine() {
+        _distanceLayers.forEach(l => { try { map.removeLayer(l); } catch(e){} });
+        _distanceLayers = [];
+        if (_distanceLineGroup) {
+            try { map.removeLayer(_distanceLineGroup); } catch(e){}
+            _distanceLineGroup = null;
+        }
+        const old = document.getElementById('_distanceSvgOverlay');
+        if (old) old.remove();
+        if (_distanceMoveHandler) { map.off('move zoom', _distanceMoveHandler); _distanceMoveHandler = null; }
+        if (_distanceZoomHandler) { map.off('zoomend moveend', _distanceZoomHandler); _distanceZoomHandler = null; }
+        _distanceLineCoords = null;
+    }
+
+    function _renderDistanceSvg() {
+        if (!_distanceLineCoords) return;
+        const { fromLat, fromLng, toLat, toLng, km, ri, fromName, toName } = _distanceLineCoords;
+
+        const p1 = map.latLngToContainerPoint([fromLat, fromLng]);
+        const p2 = map.latLngToContainerPoint([toLat, toLng]);
+        const mx = (p1.x + p2.x) / 2;
+        const my = (p1.y + p2.y) / 2;
+
+        let svg = document.getElementById('_distanceSvgOverlay');
+        const mapContainer = map.getContainer();
+        if (!svg) {
+            svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.id = '_distanceSvgOverlay';
+            svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;overflow:visible;';
+            mapContainer.appendChild(svg);
+        }
+
+        // 레이블 텍스트 구성
+        const mainText  = `${fromName} 부터 ${toName} 까지의 거리  ${km} km (${ri}리) 입니다.`;
+        const noteText  = '# 1리 ≒ 435m   여러 왕조의 평균치를 합산한 값';
+        // 텍스트 길이에 따라 rect 너비 자동 계산 (약 7px/글자 기준)
+        const mainW  = Math.max(mainText.length * 7.2, 200);
+        const boxW   = mainW + 24;
+        const boxH   = 46;
+        const boxX   = -(boxW / 2);
+        const boxY   = -(boxH / 2);
+
+        svg.innerHTML = `
+          <line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}"
+            stroke="rgba(0,0,0,0.5)" stroke-width="3" stroke-linecap="round"/>
+          <line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}"
+            stroke="white" stroke-width="1.2" stroke-dasharray="8 5" stroke-linecap="round"/>
+          <circle cx="${p2.x}" cy="${p2.y}" r="4" fill="white" stroke="rgba(0,0,0,0.5)" stroke-width="1.5"/>
+          <g transform="translate(${mx},${my})">
+            <rect x="${boxX}" y="${boxY}" width="${boxW}" height="${boxH}" rx="10" ry="10"
+              fill="rgba(10,16,22,0.92)" stroke="rgba(255,255,255,0.35)" stroke-width="0.8"/>
+            <text x="0" y="-8" dominant-baseline="central" text-anchor="middle"
+              font-size="12" font-weight="700" fill="white" font-family="sans-serif"
+            >${mainText}</text>
+            <text x="0" y="10" dominant-baseline="central" text-anchor="middle"
+              font-size="10" fill="rgba(180,190,200,0.75)" font-family="sans-serif"
+            >${noteText}</text>
+          </g>
+        `;
+    }
+
+    function drawDistanceLine(fromLat, fromLng, toLat, toLng, fromName, toName) {
+        clearDistanceLine();
+
+        const R = 6371;
+        const dLat = (toLat - fromLat) * Math.PI / 180;
+        const dLng = (toLng - fromLng) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(fromLat*Math.PI/180)*Math.cos(toLat*Math.PI/180)*Math.sin(dLng/2)**2;
+        const km = +(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))).toFixed(1);
+        const ri = Math.round(km * 1000 / 435);
+
+        _distanceLineCoords = { fromLat, fromLng, toLat, toLng, km, ri,
+            fromName: fromName || '', toName: toName || '' };
+        _renderDistanceSvg();
+
+        // 지도 이동/줌 시 SVG 좌표 갱신
+        _distanceMoveHandler = () => _renderDistanceSvg();
+        map.on('move zoom moveend zoomend', _distanceMoveHandler);
+    }
+    // ────────────────────────────────────────────────────────────────
+
     // 결과 항목 클릭 → 패널 내 탭 유지한 채 해당 좌표+시대로 지도 이동
-    window.goToNearbyItem = function(lat, lng, startYear, endYear) {
+    window.goToNearbyItem = function(lat, lng, startYear, endYear, destName) {
         if (typeof map === 'undefined') return;
+
+        // 중심 → 대상 직선 표시
+        if (_nearbyCenter && (_nearbyCenter.lat || _nearbyCenter.lng)) {
+            drawDistanceLine(_nearbyCenter.lat, _nearbyCenter.lng, lat, lng,
+                _nearbyCenter.name || '', destName || '');
+        }
 
         // ── 시대 이동 (yearInput + combinedSlider + updateUI 모두 동기화) ──
         if (startYear != null || endYear != null) {
@@ -23732,8 +23828,9 @@ kingSelect.addEventListener('change', () => {
                 const yearLabel = sy != null
                     ? (ey != null ? `${sy < 0 ? `BC${Math.abs(sy)}` : sy}~${ey < 0 ? `BC${Math.abs(ey)}` : ey}` : `${sy < 0 ? `BC${Math.abs(sy)}` : sy}~`)
                     : '';
+                const safeName = (c.name || '이름 없음').replace(/'/g, "\\'");
                 return `
-                <div onclick="goToNearbyItem(${c.lat},${c.lng},${sy ?? 'null'},${ey ?? 'null'})"
+                <div onclick="goToNearbyItem(${c.lat},${c.lng},${sy ?? 'null'},${ey ?? 'null'},'${safeName}')"
                      style="display:flex;justify-content:space-between;align-items:baseline;
                             padding:6px 4px;border-bottom:1px solid rgba(255,255,255,0.04);
                             cursor:pointer;border-radius:4px;transition:background 0.15s;"
@@ -23753,8 +23850,9 @@ kingSelect.addEventListener('change', () => {
                 const yearLabel = sy != null
                     ? (ey != null ? `${sy < 0 ? `BC${Math.abs(sy)}` : sy}~${ey}` : `${sy < 0 ? `BC${Math.abs(sy)}` : sy}년`)
                     : '';
+                const safeName = (c.name || '이름 없음').replace(/'/g, "\\'");
                 return `
-                <div onclick="goToNearbyItem(${c.lat},${c.lng},${sy ?? 'null'},${ey ?? 'null'})"
+                <div onclick="goToNearbyItem(${c.lat},${c.lng},${sy ?? 'null'},${ey ?? 'null'},'${safeName}')"
                      style="display:flex;justify-content:space-between;align-items:baseline;
                             padding:6px 4px;border-bottom:1px solid rgba(255,255,255,0.04);
                             cursor:pointer;border-radius:4px;transition:background 0.15s;"
