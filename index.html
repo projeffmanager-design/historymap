@@ -23904,20 +23904,37 @@ kingSelect.addEventListener('change', () => {
         _distanceLineCoords = null;
     }
 
-    // 🚀 거리 카드 계산 헬퍼
-    function _calcTravelDays(ri, riPerDay) {
-        const days = ri / riPerDay;
-        if (days < 1) {
-            const hours = Math.round(days * 8); // 하루 8시간 기준
-            return hours <= 0 ? '반나절 이내' : `약 ${hours}시간`;
+    // 🚀 거리 카드 계산 헬퍼 — km와 km/h 기준으로 소요 시간 계산
+    // 하루 이동 가능 시간: 기마 8h, 도보 8~10h
+    function _calcTravelTime(km, kmPerHour, hoursPerDay) {
+        const totalHours = km / kmPerHour;
+        if (totalHours < 1) {
+            const mins = Math.round(totalHours * 60 / 10) * 10; // 10분 단위 반올림
+            return mins <= 10 ? '30분 이내' : `약 ${mins}분`;
         }
+        if (totalHours < hoursPerDay) {
+            // 당일 도착 — 시간+분 표시
+            const h = Math.floor(totalHours);
+            const m = Math.round((totalHours - h) * 60 / 10) * 10;
+            return m === 0 ? `약 ${h}시간` : m === 60 ? `약 ${h+1}시간` : `약 ${h}시간 ${m}분`;
+        }
+        // 하루 이상 — 일 단위
+        const days = totalHours / hoursPerDay;
         const whole = Math.floor(days);
         const frac  = days - whole;
-        const half  = frac >= 0.4 && frac < 0.8;
-        const over  = frac >= 0.8;
-        if (over)     return `약 ${whole + 1}일`;
-        if (half)     return `약 ${whole}일 반`;
-        return whole === 0 ? '하루 이내' : `약 ${whole}일`;
+        if (frac >= 0.8) return `약 ${whole + 1}일`;
+        if (frac >= 0.4) return `약 ${whole}일 반`;
+        return whole <= 1 ? '약 1일' : `약 ${whole}일`;
+    }
+
+    // 구버전 호환용 (주변 목록에서 사용)
+    function _calcTravelDays(ri, riPerDay) {
+        const km = ri * 0.435;
+        // riPerDay → km/h 역산: 기마 100리/일(8h)=5.4km/h, 도보 70리/일(9h)=3.4km/h 등
+        // 단순하게 리/일×0.435/하루시간으로 환산
+        const hoursPerDay = riPerDay >= 100 ? 8 : 9;
+        const kmph = (riPerDay * 0.435) / hoursPerDay;
+        return _calcTravelTime(km, kmph, hoursPerDay);
     }
 
     function _renderDistanceSvg() {
@@ -23938,11 +23955,11 @@ kingSelect.addEventListener('change', () => {
             mapContainer.appendChild(svg);
         }
 
-        // ── 이동 수단별 소요일 계산 ──────────────────────────────────
-        // 기마 급속 행군: 100리/일 (시속 10~12km × 8시간)
-        const horseDays = _calcTravelDays(ri, 100);
-        // 도보 행군: 70리/일 (보수적 평균)
-        const footDays  = _calcTravelDays(ri, 70);
+        // ── 이동 수단별 소요 시간 계산 (통상 이동 기준) ─────────────
+        // 기마대 통상 행군: 시속 6km, 하루 8시간
+        const horseDays = _calcTravelTime(km, 6, 8);
+        // 보병대 통상 행군: 시속 3.75km, 하루 9시간 (군장 포함)
+        const footDays  = _calcTravelTime(km, 3.75, 9);
 
         // 인근 강 탐색: 두 지점의 중간 근처 naturalFeatures 중 river 타입
         let riverName = null;
@@ -23958,114 +23975,88 @@ kingSelect.addEventListener('change', () => {
             });
             if (riverFeature) riverName = riverFeature.name || null;
         }
-        // 선박: 강 경유 추정 시 120리/일
-        const boatDays = riverName ? _calcTravelDays(ri, 120) : null;
+        // 선박: 항상 표시 (순류 6km/h, 하루 10시간 운항)
+        const boatDays = _calcTravelTime(km, 6, 10);
 
         // ── 카드 레이아웃 계산 ───────────────────────────────────────
         const headerText = `${fromName || '출발'} → ${toName || '도착'}`;
         const distText   = `${km} km · ${ri}리`;
-        // 카드 너비: 헤더 길이 기반
-        const minW    = 220;
-        const headerW = Math.max((headerText.length + distText.length) * 7.5 + 40, minW);
-        const boxW    = headerW;
-        const rowH    = 18; // 각 행 높이
-        const rows    = boatDays ? 4 : 3; // 강 경유 행 포함 여부
-        const boxH    = 28 + rowH * rows + 20; // 상하 패딩 + 행들 + 주석
+        // 한글/CJK는 ~13px, 나머지는 ~7.5px로 너비 추정
+        const _estW = s => [...s].reduce((w, c) => w + (/[\u1100-\u9FFF]/.test(c) ? 13 : 7.5), 0);
+        const minW    = 260;
+        const boxW    = Math.max(_estW(headerText) + _estW(distText) + 60, minW);
+        const rowH    = 20;
+        const rows    = 3; // 기마대 + 보병대 + 선박 (항상 3행)
+        const boxH    = 32 + rowH * rows + 28; // 헤더+거리+구분선 영역 + 행들 + 주석
         const boxX    = -(boxW / 2);
         const boxY    = -(boxH / 2);
-        const lx      = boxX + 14; // 왼쪽 정렬 기준
-        const rx      = -lx;       // 오른쪽 정렬 기준
+        const lx      = boxX + 14;
+        const rx      = -lx;
 
         // ── 행 Y 좌표 ────────────────────────────────────────────────
-        const y0 = boxY + 16;          // 헤더
-        const y1 = y0 + 16;            // 거리 값
-        const ySep = y1 + 9;           // 구분선
-        const y2 = ySep + rowH;        // 기마
-        const y3 = y2 + rowH;          // 도보
-        const y4 = y3 + rowH;          // 선박 (있을 때만)
-        const yNote = (boatDays ? y4 : y3) + rowH + 2; // 주석
+        const y0    = boxY + 18;       // 헤더
+        const y1    = y0 + 18;         // 거리 값
+        const ySep  = y1 + 10;         // 구분선
+        const y2    = ySep + rowH;     // 기마대
+        const y3    = y2 + rowH;       // 보병대
+        const y4    = y3 + rowH;       // 선박
+        const yNote = y4 + rowH - 2;   // 주석
 
-        const boatRow = boatDays ? `
+        const boatRow = `
           <text x="${lx}" y="${y4}" dominant-baseline="central"
-            font-size="11" fill="#7ab8cc" font-family="'Noto Serif KR',sans-serif">
-            🚢 선박 (강 경유)
-          </text>
+            font-size="11" fill="#7ab8cc" font-family="'Noto Serif KR',sans-serif">🚢 선박${riverName ? ` <tspan font-size="9.5" fill="rgba(120,180,210,0.65)">(${riverName})</tspan>` : ''}</text>
+          <text x="${rx - 46}" y="${y4}" dominant-baseline="central" text-anchor="end"
+            font-size="9" fill="rgba(160,160,140,0.55)" font-family="sans-serif">6km/h ·</text>
           <text x="${rx}" y="${y4}" dominant-baseline="central" text-anchor="end"
-            font-size="11" font-weight="700" fill="#a8d8ee" font-family="sans-serif">
-            ${boatDays}
-            ${riverName ? `<tspan font-size="9.5" fill="rgba(120,180,210,0.7)"> · ${riverName} 이용</tspan>` : ''}
-          </text>` : '';
+            font-size="11" font-weight="700" fill="#a8d8ee" font-family="sans-serif">${boatDays}</text>`;
 
         svg.innerHTML = `
-          <!-- 그림자 선 -->
           <line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}"
             stroke="rgba(0,0,0,0.55)" stroke-width="4" stroke-linecap="round"/>
-          <!-- 흰 점선 -->
           <line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}"
             stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-dasharray="9 5" stroke-linecap="round"/>
-          <!-- 출발점 -->
           <circle cx="${p1.x}" cy="${p1.y}" r="5" fill="rgba(255,220,80,0.9)" stroke="rgba(0,0,0,0.5)" stroke-width="1.5"/>
-          <!-- 도착점 -->
           <circle cx="${p2.x}" cy="${p2.y}" r="5" fill="rgba(120,190,220,0.9)" stroke="rgba(0,0,0,0.5)" stroke-width="1.5"/>
 
-          <!-- 카드 배경 -->
           <g transform="translate(${mx},${my})">
-            <!-- 외곽 글로우 -->
             <rect x="${boxX-1}" y="${boxY-1}" width="${boxW+2}" height="${boxH+2}" rx="11" ry="11"
               fill="none" stroke="rgba(180,210,230,0.15)" stroke-width="1.5"/>
-            <!-- 메인 배경 -->
             <rect x="${boxX}" y="${boxY}" width="${boxW}" height="${boxH}" rx="10" ry="10"
               fill="rgba(8,14,22,0.94)" stroke="rgba(255,255,255,0.22)" stroke-width="0.8"/>
 
-            <!-- 헤더: 출발 → 도착 -->
             <text x="0" y="${y0}" dominant-baseline="central" text-anchor="middle"
               font-size="12.5" font-weight="700" fill="rgba(230,230,230,0.95)"
-              font-family="'Noto Serif KR','Nanum Myeongjo',sans-serif"
-            >${headerText}</text>
+              font-family="'Noto Serif KR','Nanum Myeongjo',sans-serif">${headerText}</text>
 
-            <!-- 거리 값 (크게) -->
             <text x="0" y="${y1}" dominant-baseline="central" text-anchor="middle"
               font-size="15" font-weight="900" fill="#ffe87a"
-              font-family="sans-serif" letter-spacing="0.5"
-            >${distText}</text>
+              font-family="sans-serif" letter-spacing="0.5">${distText}</text>
 
-            <!-- 구분선 -->
             <line x1="${boxX+12}" y1="${ySep}" x2="${-boxX-12}" y2="${ySep}"
               stroke="rgba(255,255,255,0.1)" stroke-width="0.8"/>
 
-            <!-- 기마 행군 -->
+            <!-- 기마대 -->
             <text x="${lx}" y="${y2}" dominant-baseline="central"
-              font-size="11" fill="rgba(200,195,180,0.85)" font-family="'Noto Serif KR',sans-serif">
-              🐴 기마 급속 행군
-            </text>
+              font-size="11" fill="rgba(210,200,170,0.9)" font-family="'Noto Serif KR',sans-serif">🐴 기마대</text>
+            <text x="${rx - 46}" y="${y2}" dominant-baseline="central" text-anchor="end"
+              font-size="9" fill="rgba(160,160,140,0.55)" font-family="sans-serif">6km/h ·</text>
             <text x="${rx}" y="${y2}" dominant-baseline="central" text-anchor="end"
-              font-size="11" font-weight="700" fill="rgba(255,220,120,0.95)" font-family="sans-serif">
-              ${horseDays}
-            </text>
-            <text x="${rx-horseDays.length*7-6}" y="${y2}" dominant-baseline="central" text-anchor="end"
-              font-size="9" fill="rgba(160,160,140,0.6)" font-family="sans-serif">100리/일 ·
-            </text>
+              font-size="11" font-weight="700" fill="rgba(255,215,100,0.95)" font-family="sans-serif">${horseDays}</text>
 
-            <!-- 도보 행군 -->
+            <!-- 보병대 -->
             <text x="${lx}" y="${y3}" dominant-baseline="central"
-              font-size="11" fill="rgba(200,195,180,0.85)" font-family="'Noto Serif KR',sans-serif">
-              🚶 도보 행군
-            </text>
+              font-size="11" fill="rgba(200,210,195,0.85)" font-family="'Noto Serif KR',sans-serif">🪖 보병대</text>
+            <text x="${rx - 52}" y="${y3}" dominant-baseline="central" text-anchor="end"
+              font-size="9" fill="rgba(160,160,140,0.55)" font-family="sans-serif">3.75km/h ·</text>
             <text x="${rx}" y="${y3}" dominant-baseline="central" text-anchor="end"
-              font-size="11" font-weight="700" fill="rgba(180,220,180,0.95)" font-family="sans-serif">
-              ${footDays}
-            </text>
-            <text x="${rx-footDays.length*7-6}" y="${y3}" dominant-baseline="central" text-anchor="end"
-              font-size="9" fill="rgba(160,160,140,0.6)" font-family="sans-serif">70리/일 ·
-            </text>
+              font-size="11" font-weight="700" fill="rgba(170,220,170,0.95)" font-family="sans-serif">${footDays}</text>
 
-            <!-- 선박 행 (강 경유 시) -->
+            <!-- 선박 (강 경유 시) -->
             ${boatRow}
 
-            <!-- 주석 -->
             <text x="0" y="${yNote}" dominant-baseline="central" text-anchor="middle"
-              font-size="9.5" fill="rgba(140,155,165,0.65)" font-family="sans-serif"
-            ># 1리 ≒ 435m · 여러 왕조 평균치</text>
+              font-size="9.5" fill="rgba(140,155,165,0.6)" font-family="sans-serif"
+            ># 1리 ≒ 435m · 통상 이동 기준 · 지형에 따라 차이</text>
           </g>
         `;
     }
@@ -24328,12 +24319,12 @@ kingSelect.addEventListener('change', () => {
                 return;
             }
 
-            // km → 리 변환 + 이동 수단 소요일 tooltip
+            // km → 리 변환 + 이동 수단 tooltip
             const fmtDist = km => {
                 const ri = Math.round(km * 1000 / 435);
-                const horse = _calcTravelDays(ri, 100);
-                const foot  = _calcTravelDays(ri, 70);
-                return `<span title="🐴 기마 ${horse} · 🚶 도보 ${foot} · 1리≒435m"
+                const horse = _calcTravelTime(km, 6, 8);
+                const foot  = _calcTravelTime(km, 3.75, 9);
+                return `<span title="🐴 기마대 ${horse} · 🪖 보병대 ${foot} · 1리≒435m (통상 이동 기준)"
                     style="cursor:default;">${km} km <span style="color:#7a9aaa;font-size:10.5px;">(${ri}리)</span></span>`;
             };
 
@@ -24356,8 +24347,8 @@ kingSelect.addEventListener('change', () => {
                     : '';
                 const safeName = (c.name || '이름 없음').replace(/'/g, "\\'");
                 const ri = Math.round(c.distanceKm * 1000 / 435);
-                const horse = _calcTravelDays(ri, 100);
-                const foot  = _calcTravelDays(ri, 70);
+                const horse = _calcTravelTime(c.distanceKm, 6, 8);
+                const foot  = _calcTravelTime(c.distanceKm, 3.75, 9);
                 return `
                 <div onclick="goToNearbyItem(${c.lat},${c.lng},${sy ?? 'null'},${ey ?? 'null'},'${safeName}')"
                      style="display:flex;justify-content:space-between;align-items:center;
@@ -24384,8 +24375,8 @@ kingSelect.addEventListener('change', () => {
                     : '';
                 const safeName = (c.name || '이름 없음').replace(/'/g, "\\'");
                 const ri2 = Math.round(c.distanceKm * 1000 / 435);
-                const horse2 = _calcTravelDays(ri2, 100);
-                const foot2  = _calcTravelDays(ri2, 70);
+                const horse2 = _calcTravelTime(c.distanceKm, 6, 8);
+                const foot2  = _calcTravelTime(c.distanceKm, 3.75, 9);
                 return `
                 <div onclick="goToNearbyItem(${c.lat},${c.lng},${sy ?? 'null'},${ey ?? 'null'},'${safeName}')"
                      style="display:flex;justify-content:space-between;align-items:center;
