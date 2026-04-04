@@ -5725,6 +5725,22 @@ body.force-mobile .marker-type-selector button {
 
             <!-- 주변 탐색 탭 콘텐츠 -->
             <div id="odp-tab-content-nearby" style="display:none;">
+                <!-- 지명 검색으로 거리 재기 -->
+                <div style="margin-bottom:12px; padding:8px 10px; background:rgba(255,255,255,0.04); border-radius:8px; border:1px solid rgba(90,160,200,0.2);">
+                    <div style="font-size:11px; color:#7ab8cc; margin-bottom:6px; font-weight:600;">📐 지명 검색 (거리 재기)</div>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <input id="nearbySearchInput" type="text" placeholder="지명 입력 (예: 평양, 장안)"
+                            style="flex:1; background:#111d28; border:1px solid rgba(90,160,200,0.35); border-radius:5px;
+                                   color:#d0e4ec; padding:5px 9px; font-size:12px; outline:none;"
+                            onkeydown="if(event.key==='Enter') searchNearbyPlace()" />
+                        <button onclick="searchNearbyPlace()"
+                            style="background:rgba(90,160,200,0.18); border:1px solid rgba(90,160,200,0.4);
+                                   border-radius:5px; color:#7ab8cc; padding:5px 10px; font-size:12px; cursor:pointer; white-space:nowrap;">
+                            검색
+                        </button>
+                    </div>
+                    <div id="nearbySearchResults" style="margin-top:6px;"></div>
+                </div>
                 <!-- 반경/유형 컨트롤 -->
                 <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
                     <select id="nearbyRadiusSelect" onchange="refreshNearbyResults()"
@@ -23775,6 +23791,97 @@ kingSelect.addEventListener('change', () => {
         odpSwitchTab('nearby');
         refreshNearbyResults();
     };
+
+    // ── 지명 검색으로 거리 재기 ──────────────────────────────────────
+    window.searchNearbyPlace = async function() {
+        const input = document.getElementById('nearbySearchInput');
+        const resultBox = document.getElementById('nearbySearchResults');
+        const query = input ? input.value.trim() : '';
+        if (!query) return;
+
+        resultBox.innerHTML = `<div style="color:#7ab8cc;font-size:11px;padding:4px 0;">검색 중...</div>`;
+
+        // ── 1) DB 검색 (castles에서 이름 매칭) ──────────────────────
+        const q = query.toLowerCase();
+        const dbHits = (typeof castles !== 'undefined' ? castles : [])
+            .filter(c => {
+                if (!c.lat || !c.lng) return false;
+                const n = (c.name || '').toLowerCase();
+                const nk = (c.name_ko || '').toLowerCase();
+                return n.includes(q) || nk.includes(q);
+            })
+            .slice(0, 8)
+            .map(c => ({
+                lat: c.lat, lng: c.lng,
+                name: c.name || c.name_ko || '이름 없음',
+                sub: '📚 DB (성·유적)',
+                source: 'db'
+            }));
+
+        // ── 2) Nominatim 실지도 검색 (병렬로 요청) ──────────────────
+        let nominatimHits = [];
+        try {
+            const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&accept-language=ko`;
+            const res = await fetch(url, { headers: { 'Accept-Language': 'ko' } });
+            const items = await res.json();
+            nominatimHits = items.map(item => ({
+                lat: parseFloat(item.lat),
+                lng: parseFloat(item.lon),
+                name: item.display_name.split(',')[0],
+                sub: '🗺️ ' + item.display_name.split(',').slice(1, 3).join(',').trim(),
+                source: 'map'
+            }));
+        } catch(e) { /* Nominatim 실패 시 무시 */ }
+
+        // ── 3) 결과 렌더링: DB 섹션 먼저, 실지도 섹션 아래 ──────────
+        const renderItem = (item) => {
+            const safeName = item.name.replace(/'/g, "\\'");
+            const borderColor = item.source === 'db' ? 'rgba(90,160,200,0.4)' : 'rgba(180,140,60,0.35)';
+            return `<div onclick="selectNearbySearchResult(${item.lat},${item.lng},'${safeName}',this)"
+                style="padding:5px 7px;margin-top:3px;border-radius:5px;cursor:pointer;
+                       font-size:12px;color:#d0e4ec;border:1px solid transparent;transition:background 0.15s;"
+                onmouseover="this.style.background='rgba(255,255,255,0.07)';this.style.borderColor='${borderColor}'"
+                onmouseout="this.style.background='none';this.style.borderColor='transparent'">
+                ${item.name}
+                <span style="color:#5a7888;font-size:10px;margin-left:5px;">${item.sub}</span>
+            </div>`;
+        };
+
+        const sectionTitle = (label, color) =>
+            `<div style="color:${color};font-size:10px;font-weight:700;margin-top:8px;margin-bottom:2px;
+                         padding-left:2px;letter-spacing:0.5px;opacity:0.8;">${label}</div>`;
+
+        let html = '';
+        if (dbHits.length) {
+            html += sectionTitle('● 역사 DB', '#7ab8cc');
+            html += dbHits.map(renderItem).join('');
+        }
+        if (nominatimHits.length) {
+            html += sectionTitle('● 실지도 (OpenStreetMap)', '#c8a850');
+            html += nominatimHits.map(renderItem).join('');
+        }
+        if (!html) {
+            html = `<div style="color:#8fa0b0;font-size:11px;padding:4px 0;">검색 결과가 없습니다.</div>`;
+        }
+
+        resultBox.innerHTML = html;
+    };
+
+    window.selectNearbySearchResult = function(lat, lng, name, el) {
+        // 선택 강조
+        const box = document.getElementById('nearbySearchResults');
+        if (box) box.querySelectorAll('div').forEach(d => d.style.border = '1px solid transparent');
+        if (el) el.style.border = '1px solid rgba(90,160,200,0.5)';
+
+        // 이 지점을 중심으로 거리선 그리기 (기존 _nearbyCenter → 이 지점)
+        if (_nearbyCenter && (_nearbyCenter.lat || _nearbyCenter.lng)) {
+            drawDistanceLine(_nearbyCenter.lat, _nearbyCenter.lng, lat, lng,
+                _nearbyCenter.name || '', name);
+        }
+        // 지도 이동
+        map.setView([lat, lng], Math.max(map.getZoom(), 6), { animate: true });
+    };
+    // ────────────────────────────────────────────────────────────────
 
     window.refreshNearbyResults = async function() {
         const radius = document.getElementById('nearbyRadiusSelect').value;
