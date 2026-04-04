@@ -20316,22 +20316,76 @@ kingSelect.addEventListener('change', () => {
                 map.setView([lat, lng], Math.max(map.getZoom(), 6), { animate: true });
             };
 
+            // 역사 DB 성 클릭: 마커가 표시되는 연도로 슬라이더 이동 후 flyTo 줌인
+            const _tbGoToCastle = (castle) => {
+                topbarSearchInput.value = castle.name || castle.name_ko || '';
+                topbarSearchResults.style.display = 'none';
+
+                // 현재 시점에 이미 활성화된 경우 → 그냥 이동
+                const currentTm = parseInt(combinedSlider.value);
+                const alreadyActive = getActiveHistoryInfo(castle.history, currentTm);
+
+                let targetYear = null, targetMonth = 1;
+
+                if (alreadyActive) {
+                    // 현재 연도 그대로 유지
+                } else if (Array.isArray(castle.history) && castle.history.length > 0) {
+                    // history 중 가장 이른 start_year 찾기
+                    let earliest = null;
+                    for (const rec of castle.history) {
+                        const sy = rec.start_year != null ? parseInt(rec.start_year) : null;
+                        const sm = rec.start_month != null ? parseInt(rec.start_month) || 1 : 1;
+                        if (sy != null && (earliest === null || yearMonthToTotalMonths(sy, sm) < yearMonthToTotalMonths(earliest.y, earliest.m))) {
+                            earliest = { y: sy, m: sm };
+                        }
+                    }
+                    if (earliest) { targetYear = earliest.y; targetMonth = earliest.m; }
+                }
+
+                const doFly = () => {
+                    map.flyTo([castle.lat, castle.lng], 10, { animate: true, duration: 1.2 });
+                };
+
+                if (targetYear !== null) {
+                    // 슬라이더 + UI 동기화
+                    const tm = yearMonthToTotalMonths(targetYear, targetMonth);
+                    const sMin = parseInt(combinedSlider.min);
+                    const sMax = parseInt(combinedSlider.max);
+                    const clamped = Math.min(sMax, Math.max(sMin, tm));
+                    combinedSlider.value = clamped;
+                    const mapped = totalMonthsToYearMonth(clamped);
+                    document.getElementById('yearInput').value = mapped.year;
+                    document.getElementById('monthInput').value = mapped.month;
+                    updateTime(mapped.year, mapped.month);
+                    updateUI(mapped.year, mapped.month);
+                    updateSliderTooltip(mapped.year, mapped.month);
+                    setTimeout(doFly, 120);
+                } else {
+                    doFly();
+                }
+            };
+
             // 섹션 제목 HTML
             const _tbSectionTitle = (label, color) =>
                 `<div style="color:${color};font-size:10px;font-weight:700;padding:6px 12px 2px;
                              letter-spacing:0.5px;opacity:0.85;">${label}</div>`;
 
-            // 결과 아이템 HTML
-            const _tbItem = (label, sub, lat, lng) => {
+            // 결과 아이템 HTML — castleObj 있으면 역사DB 동작, 없으면 단순 setView
+            const _tbItem = (label, sub, lat, lng, castleIdx) => {
                 const safeLabel = label.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-                return `<div class="topbar-result-item" onclick="(function(){
-                            map.setView([${lat},${lng}],Math.max(map.getZoom(),6),{animate:true});
-                            document.getElementById('topbarSearchInput').value='${safeLabel}';
-                            document.getElementById('topbarSearchResults').style.display='none';
-                        })()" style="display:flex;flex-direction:column;gap:2px;">
+                const onclickCode = castleIdx != null
+                    ? `_tbGoToCastleByIdx(${castleIdx})`
+                    : `(function(){map.setView([${lat},${lng}],Math.max(map.getZoom(),6),{animate:true});document.getElementById('topbarSearchInput').value='${safeLabel}';document.getElementById('topbarSearchResults').style.display='none';})()`;
+                return `<div class="topbar-result-item" onclick="${onclickCode}" style="display:flex;flex-direction:column;gap:2px;">
                     <span>${label}</span>
                     ${sub ? `<span style="font-size:10px;color:#5a8899;">${sub}</span>` : ''}
                 </div>`;
+            };
+
+            // castleIdx 기반 전역 핸들러 (onclick 인라인에서 호출)
+            window._tbGoToCastleByIdx = (idx) => {
+                const c = castles[idx];
+                if (c) _tbGoToCastle(c);
             };
 
             let _tbNominatimTimer = null;
@@ -20345,16 +20399,16 @@ kingSelect.addEventListener('change', () => {
                 topbarSearchResults.style.display = 'block';
 
                 // ── 1) 역사 DB: castles 배열에서 name/name_ko 포함 ──────
-                const dbHits = castles
-                    .filter(c => (c.name && c.name.toLowerCase().includes(ql)) ||
-                                 (c.name_ko && c.name_ko.toLowerCase().includes(ql)) ||
-                                 (c.general_name && c.general_name.toLowerCase().includes(ql)))
-                    .slice(0, 8)
-                    .map(c => ({
-                        lat: c.lat, lng: c.lng,
-                        label: c.name || c.name_ko || '',
-                        sub: c.general_name || ''
-                    }));
+                const dbHits = [];
+                for (let _i = 0; _i < castles.length; _i++) {
+                    const c = castles[_i];
+                    if ((c.name && c.name.toLowerCase().includes(ql)) ||
+                        (c.name_ko && c.name_ko.toLowerCase().includes(ql)) ||
+                        (c.general_name && c.general_name.toLowerCase().includes(ql))) {
+                        dbHits.push({ lat: c.lat, lng: c.lng, label: c.name || c.name_ko || '', sub: c.general_name || '', idx: _i });
+                        if (dbHits.length >= 8) break;
+                    }
+                }
 
                 // ── 2) Nominatim 실지도 ────────────────────────────────
                 let mapHits = [];
@@ -20374,11 +20428,11 @@ kingSelect.addEventListener('change', () => {
                 let html = '';
                 if (dbHits.length) {
                     html += _tbSectionTitle('● 역사 DB', '#7ab8cc');
-                    html += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng)).join('');
+                    html += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
                 }
                 if (mapHits.length) {
                     html += _tbSectionTitle('● 실지도 (OpenStreetMap)', '#c8a850');
-                    html += mapHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng)).join('');
+                    html += mapHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, null)).join('');
                 }
                 if (!html) {
                     html = '<div style="color:#8fa0b0;font-size:11px;padding:8px 12px;">검색 결과가 없습니다.</div>';
@@ -20402,22 +20456,22 @@ kingSelect.addEventListener('change', () => {
                 topbarSearchResults.innerHTML = '';
                 if (!query) { topbarSearchResults.style.display = 'none'; return; }
 
-                // DB 결과 즉시 표시
-                const dbHits = castles
-                    .filter(c => (c.name && c.name.toLowerCase().includes(ql)) ||
-                                 (c.name_ko && c.name_ko.toLowerCase().includes(ql)) ||
-                                 (c.general_name && c.general_name.toLowerCase().includes(ql)))
-                    .slice(0, 8)
-                    .map(c => ({
-                        lat: c.lat, lng: c.lng,
-                        label: c.name || c.name_ko || '',
-                        sub: c.general_name || ''
-                    }));
+                // DB 결과 즉시 표시 (인덱스 포함)
+                const dbHits = [];
+                for (let _i = 0; _i < castles.length; _i++) {
+                    const c = castles[_i];
+                    if ((c.name && c.name.toLowerCase().includes(ql)) ||
+                        (c.name_ko && c.name_ko.toLowerCase().includes(ql)) ||
+                        (c.general_name && c.general_name.toLowerCase().includes(ql))) {
+                        dbHits.push({ lat: c.lat, lng: c.lng, label: c.name || c.name_ko || '', sub: c.general_name || '', idx: _i });
+                        if (dbHits.length >= 8) break;
+                    }
+                }
 
                 let html = '';
                 if (dbHits.length) {
                     html += _tbSectionTitle('● 역사 DB', '#7ab8cc');
-                    html += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng)).join('');
+                    html += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
                 }
                 if (html) {
                     topbarSearchResults.innerHTML = html;
@@ -20446,11 +20500,11 @@ kingSelect.addEventListener('change', () => {
                     let fullHtml = '';
                     if (dbHits.length) {
                         fullHtml += _tbSectionTitle('● 역사 DB', '#7ab8cc');
-                        fullHtml += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng)).join('');
+                        fullHtml += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
                     }
                     if (mapHits.length) {
                         fullHtml += _tbSectionTitle('● 실지도 (OpenStreetMap)', '#c8a850');
-                        fullHtml += mapHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng)).join('');
+                        fullHtml += mapHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, null)).join('');
                     }
                     if (!fullHtml) fullHtml = '<div style="color:#8fa0b0;font-size:11px;padding:8px 12px;">검색 결과가 없습니다.</div>';
                     topbarSearchResults.innerHTML = fullHtml;
