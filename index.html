@@ -9618,12 +9618,18 @@ function getSimplifiedGeometry(territory, tolerance) {
     const cacheKey = `${territory._id || territory.name}_${tolerance}`;
     if (_simplifiedCoordsCache.has(cacheKey)) return _simplifiedCoordsCache.get(cacheKey);
     
+    // 간소화 후 링이 3점 미만이면 원본 링을 유지 (폴리곤 붕괴 방지)
+    function safeSimplify(ring) {
+        const simplified = simplifyCoordinates(ring, tolerance);
+        return (simplified && simplified.length >= 3) ? simplified : ring;
+    }
+
     let simplifiedCoords;
     if (territory.type === 'Polygon') {
-        simplifiedCoords = territory.coordinates.map(ring => simplifyCoordinates(ring, tolerance));
+        simplifiedCoords = territory.coordinates.map(ring => safeSimplify(ring));
     } else if (territory.type === 'MultiPolygon') {
         simplifiedCoords = territory.coordinates.map(poly => 
-            poly.map(ring => simplifyCoordinates(ring, tolerance))
+            poly.map(ring => safeSimplify(ring))
         );
     } else {
         return { type: territory.type, coordinates: territory.coordinates };
