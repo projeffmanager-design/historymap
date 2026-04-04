@@ -7492,6 +7492,9 @@ body.force-mobile .marker-type-selector button {
 
         let labelCount = 0;
 
+        // 라벨 후보 수집 후 겹침 제거 (픽셀 AABB)
+        const labelCandidates = [];
+
         _renderedCountryIds.forEach(countryId => {
             const country = getCountryInfoById(countryId);
             if (!country) return;
@@ -7519,6 +7522,42 @@ body.force-mobile .marker-type-selector button {
 
             if (!labelLat || !labelLng) return;
 
+            labelCandidates.push({ countryId, country, labelLat, labelLng, capital });
+        });
+
+        // ── 겹침 제거 (픽셀 AABB) ──────────────────────────────────
+        // 라벨 박스: 가로 countryFontSize * 글자수 * 0.65, 세로 countryFontSize + 4
+        const placed = []; // { px, py, w, h }
+        const visible = new Set();
+
+        for (const cand of labelCandidates) {
+            const pt = map.latLngToContainerPoint([cand.labelLat, cand.labelLng]);
+            const nameLen = (cand.country.name || '').length;
+            const w = Math.max(60, nameLen * countryFontSize * 0.68 + 24); // 국기 여유 포함
+            const h = countryFontSize + 8;
+            const px = pt.x - w / 2;
+            const py = pt.y - h / 2;
+
+            // 기존 배치된 라벨과 겹치는지 확인 (4px 여유)
+            const pad = 4;
+            const overlaps = placed.some(p =>
+                px < p.px + p.w + pad &&
+                px + w > p.px - pad &&
+                py < p.py + p.h + pad &&
+                py + h > p.py - pad
+            );
+
+            if (!overlaps) {
+                placed.push({ px, py, w, h });
+                visible.add(cand.countryId);
+            }
+        }
+
+        // ── 렌더링 ──────────────────────────────────────────────────
+        for (const cand of labelCandidates) {
+            if (!visible.has(cand.countryId)) continue;
+
+            const { country, labelLat, labelLng, capital } = cand;
             const countryColor = country.color || '#ffffff';
             const flagHtmlMacro = country.flag
                 ? `<img src="${toRawImageUrl(country.flag)}" class="country-flag-img" style="width:18px;height:12px;margin-right:4px;vertical-align:middle;border:0.5px solid rgba(255,255,255,0.3);">`
@@ -7543,7 +7582,7 @@ body.force-mobile .marker-type-selector button {
             }).addTo(macroCountryLayer);
 
             labelCount++;
-        });
+        }
 
         // 국가명 렌더링 완료 (로그 제거)
     }
@@ -11485,7 +11524,92 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         // console.log(`✅ 성/도시 렌더링 완료: 마커 ${markers.length}개 (뷰포트 기준)`);
         // 🎯 로딩 화면 해제 신호 — checkTerritoriesRendered가 이 플래그를 감지
         window._castleMarkersRendered = true;
+
+        // 🏷️ 마커 이름 라벨 겹침 방지 — DOM 렌더링 완료 후 실행
+        requestAnimationFrame(() => _applyMarkerLabelDeclutter());
     }
+
+// 🏷️ 마커 이름 라벨 겹침 방지 함수
+// markers[] 배열의 모든 마커를 순회하여 픽셀 좌표 기반 AABB 충돌 감지 후 겹치는 라벨 숨김
+function _applyMarkerLabelDeclutter() {
+    if (!map || !markers || markers.length === 0) return;
+
+    // 라벨 선택자 목록 (우선순위 높은 것부터 — capital 마커의 city-name이 먼저)
+    const LABEL_SELECTORS = '.feature-name, .city-name, .city-marker-text';
+
+    // 1단계: 모든 마커에서 (픽셀 좌표, 라벨 요소, 우선순위) 수집
+    const entries = [];
+    for (const m of markers) {
+        const el = m.getElement && m.getElement();
+        if (!el) continue;
+
+        // 라벨 요소 탐색 (클래스 기반 + inline span 폴백)
+        let labelEl = el.querySelector(LABEL_SELECTORS);
+        if (!labelEl) {
+            // PLACE_TYPE_CONFIG 스타일 — nameStyle inline span (마지막 span)
+            const spans = el.querySelectorAll('span');
+            if (spans.length > 0) labelEl = spans[spans.length - 1];
+        }
+        if (!labelEl) continue;
+
+        // 라벨 가시성 초기화 (이전 declutter 결과 리셋)
+        labelEl.style.visibility = '';
+
+        const latlng = m.getLatLng();
+        const pt = map.latLngToContainerPoint(latlng);
+
+        // 라벨 크기 추정 (getBoundingClientRect가 더 정확하지만 레이아웃 비용↑)
+        const text = labelEl.textContent || '';
+        const estW = Math.max(text.length * 7, 20); // 한자/한글 평균 ~7px
+        const estH = 14;
+
+        // 수도 마커 우선순위: zIndexOffset 1000 이상 또는 isCapital 플래그
+        const priority = (m.isCapital || (m.options && m.options.zIndexOffset >= 1000)) ? 0 : 1;
+
+        entries.push({ pt, labelEl, estW, estH, priority, latlng });
+    }
+
+    // 2단계: 수도 우선으로 정렬 (priority 0이 먼저)
+    entries.sort((a, b) => a.priority - b.priority);
+
+    // 3단계: AABB 겹침 체크 — 이미 점유된 영역과 비교
+    const occupied = []; // { x1, y1, x2, y2 }
+
+    for (const entry of entries) {
+        const { pt, labelEl, estW, estH, priority } = entry;
+
+        // 라벨 AABB (라벨은 마커 아이콘 아래에 위치)
+        const padding = 2; // 여유 간격
+        const x1 = pt.x - estW / 2 - padding;
+        const y1 = pt.y + 8 - padding; // 아이콘 높이 ~8px 아래부터 라벨 시작
+        const x2 = pt.x + estW / 2 + padding;
+        const y2 = y1 + estH + padding * 2;
+
+        // 수도는 항상 표시
+        if (priority === 0) {
+            labelEl.style.visibility = '';
+            occupied.push({ x1, y1, x2, y2 });
+            continue;
+        }
+
+        // 겹침 체크
+        let overlaps = false;
+        for (const occ of occupied) {
+            if (x1 < occ.x2 && x2 > occ.x1 && y1 < occ.y2 && y2 > occ.y1) {
+                overlaps = true;
+                break;
+            }
+        }
+
+        if (overlaps) {
+            labelEl.style.visibility = 'hidden';
+        } else {
+            labelEl.style.visibility = '';
+            occupied.push({ x1, y1, x2, y2 });
+        }
+    }
+}
+window._applyMarkerLabelDeclutter = _applyMarkerLabelDeclutter;
 
 // 🚀 [최적화] getCountryInfoById 캐시 — countries.find() 반복 호출 방지
 let _countryLookupMap = null;
@@ -14059,6 +14183,12 @@ function invalidateCountryLookupCache() {
                   updateMap(year, month, false, true);
               }, isMobileOnLoad ? 1000 : 600);
           }
+
+          // 🏷️ pan만 하고 마커 재생성이 없는 경우에도 라벨 겹침 재계산
+          clearTimeout(window._moveendDeclutterTimer);
+          window._moveendDeclutterTimer = setTimeout(() => {
+              if (typeof _applyMarkerLabelDeclutter === 'function') _applyMarkerLabelDeclutter();
+          }, isMobileOnLoad ? 1100 : 700);
       });
       
       // 🗺️ [v3.2] 보이는 영역의 영토만 증분 업데이트 (국가별 병합)
