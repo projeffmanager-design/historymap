@@ -2259,6 +2259,28 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         territory.bbox = calculateBBoxFromGeometry(territory.geometry);
                     }
                     
+                    // 2-1. GeoJSON 링 자동 닫기 (첫 좌표 ≠ 마지막 좌표인 경우 보정)
+                    const closeRings = (coords, depth) => {
+                        if (depth === 0) {
+                            // 개별 링: Array of [lng, lat]
+                            if (coords.length >= 3) {
+                                const first = coords[0];
+                                const last  = coords[coords.length - 1];
+                                if (first[0] !== last[0] || first[1] !== last[1]) {
+                                    coords.push([...first]);
+                                }
+                            }
+                        } else {
+                            coords.forEach(c => closeRings(c, depth - 1));
+                        }
+                    };
+                    const gtype = territory.geometry.type;
+                    if (gtype === 'Polygon') {
+                        closeRings(territory.geometry.coordinates, 1);
+                    } else if (gtype === 'MultiPolygon') {
+                        closeRings(territory.geometry.coordinates, 2);
+                    }
+                    
                     // 3. 시간 필드 자동 설정 (없으면)
                     if (territory.start_year === undefined) {
                         territory.start_year = territory.start || -3000;
