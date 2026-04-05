@@ -1507,6 +1507,19 @@ app.get('/api/newsletter', (req, res) => {
     res.json(NEWSLETTER_ISSUES);
 });
 
+// GET /api/newsletter-debug — Vercel 경로 진단용 (임시)
+app.get('/api/newsletter-debug', (req, res) => {
+    const candidates = [__dirname, process.cwd(), '/var/task'];
+    const result = {};
+    for (const base of candidates) {
+        const info = { base, files: [] };
+        try { info.files = fs.readdirSync(base).filter(f => f.endsWith('.md')); } catch (e) { info.error = e.message; }
+        result[base] = info;
+    }
+    result.loaded = Object.keys(NEWSLETTER_CONTENT);
+    res.json(result);
+});
+
 // GET /api/newsletter/:slug — 내용 반환 (마크다운 텍스트)
 app.get('/api/newsletter/:slug', (req, res) => {
     const slug  = req.params.slug.replace(/[^a-zA-Z0-9_\-]/g, '');
