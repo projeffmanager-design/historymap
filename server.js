@@ -155,6 +155,7 @@ const calculateBBoxFromGeometry = (geometry) => {
     return [minLon, minLat, maxLon, maxLat];
 }
 
+// � [신규 추가] CRUD 로깅 헬퍼 함수
 const logCRUD = (operation, collection, identifier, details = '') => {
     const timestamp = new Date().toISOString();
     const emoji = {
@@ -200,11 +201,6 @@ async function logActivity(type, actor, actorPosition, targetName, extra = {}, u
                              + (u.attendancePoints || 0);
                     actorPosition = getRealtimePosition(sc, null, u.designated_rank || null);
                 }
-
-                // DEBUG: affectedTileKeys summary
-                try {
-                    console.log('🔍 [DEBUG] affectedTileKeys:', affectedTileKeys ? Array.from(affectedTileKeys) : 'ALL (full rebuild)');
-                } catch (e) { /* ignore */ }
             } catch (_) { /* 실패 시 기존 actorPosition 유지 */ }
         }
 
@@ -257,6 +253,7 @@ async function logActivity(type, actor, actorPosition, targetName, extra = {}, u
     }
 }
 
+// �💡 [추가] 인증 미들웨어
 const verifyToken = (req, res, next) => { // (전역으로 이동)
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1]; // Bearer <token>
@@ -319,10 +316,8 @@ const verifyApprover = (req, res, next) => { // 동수국사 이상 승인 권�
 
         // 승인 권한이 있는 직급들 (정2품 수국사 이상)
         const approverPositions = RANK_CONFIG.roles.apiApprovers;
-        // position은 '정1품 감수국사(監修國史)' 형태로 저장되므로 부분 일치로 비교
-        const hasApproverPos = approverPositions.some(p => user.position && user.position.includes(p));
 
-        if (user.role !== 'admin' && user.role !== 'superuser' && !hasApproverPos) {
+        if (user.role !== 'admin' && user.role !== 'superuser' && !approverPositions.includes(user.position)) {
             console.log('⛔ [verifyApprover] 승인 권한 부족 - Position:', user.position);
             return res.status(403).json({ message: "승인 권한이 필요합니다. (정2품 수국사 이상)" });
         }
@@ -458,13 +453,24 @@ async function setupRoutesAndCollections() {
         let _castleCache = null;
         let _castleCacheTime = 0;
         const CASTLE_CACHE_TTL = 6 * 60 * 60 * 1000; // 6시간
+        const CASTLE_STATIC_FILE = path.join(__dirname, 'public', 'castles.json');
 
-        // NOTE: Static JSON cache (public/castles.json) has been disabled.
-        // Serving castle data is now DB-backed with an in-memory server cache only.
-        // This avoids stale/timing issues where frontend tiles render before
-        // castle JSON is available. To force a full refresh, restart the server
-        // or call the rebuildCastleCache() admin endpoint.
-        console.log('ℹ️ castles.json static-file usage disabled — serving castles from DB/in-memory cache');
+        // 🚀 [v3.6] 정적 파일에서 즉시 캐시 주입 (밀리초) — MongoDB 쿼리 없이 서버 시작
+        (function preloadCastleFromFile() {
+            if (fs.existsSync(CASTLE_STATIC_FILE)) {
+                try {
+                    const raw = fs.readFileSync(CASTLE_STATIC_FILE, 'utf8');
+                    _castleCache = JSON.parse(raw);
+                    _castleCacheTime = Date.now();
+                    console.log(`⚡ [캐시 사전주입] castle 정적 파일 로드: ${_castleCache.length}개 (${(raw.length/1024/1024).toFixed(1)}MB)`);
+                } catch (e) {
+                    console.warn('⚠️ castle 정적 파일 파싱 실패 (MongoDB fallback 사용):', e.message);
+                }
+            } else {
+                console.log('ℹ️ public/castles.json 없음 → 첫 요청 시 MongoDB 쿼리 (약 270초)');
+                console.log('   빠른 시작을 위해: node scripts/export_castles_to_json.js');
+            }
+        })();
         
         function invalidateCastleCache() {
             _castleCache = null;
@@ -474,24 +480,42 @@ async function setupRoutesAndCollections() {
         // ✏️ [v3.8] castles.json 즉시 패치 — 단일 항목 추가/수정/삭제를 파일에 바로 반영
         // 전체 재빌드(270초) 없이 해당 항목만 수술적으로 수정 → DB와 파일 동기화 유지
         function patchCastleInStaticFile(op, doc) {
-            // Static file usage disabled. Keep in-memory cache synchronized only.
+            // op: 'upsert' | 'delete'
+            // doc: { _id (string), ...fields }  — upsert 시 전체 문서, delete 시 _id만 필요
             try {
-                if (!_castleCache) return;
+                if (!fs.existsSync(CASTLE_STATIC_FILE)) return; // 파일 없으면 skip
+                const raw = fs.readFileSync(CASTLE_STATIC_FILE, 'utf8');
+                let arr = JSON.parse(raw);
                 const idStr = doc._id?.toString ? doc._id.toString() : String(doc._id);
+
                 if (op === 'upsert') {
-                    const idx = _castleCache.findIndex(c => String(c._id) === idStr);
+                    const idx = arr.findIndex(c => String(c._id) === idStr);
+                    // _id를 string으로 통일
                     const normalized = { ...doc, _id: idStr };
-                    if (idx >= 0) _castleCache[idx] = normalized;
-                    else _castleCache.push(normalized);
-                    _castleCacheTime = Date.now();
-                    console.log(`✏️ [캐시 갱신] castle upsert — ID: ${idStr}`);
+                    if (idx >= 0) {
+                        arr[idx] = normalized; // 수정
+                    } else {
+                        arr.push(normalized);  // 신규
+                    }
+                    // 메모리 캐시도 동기화
+                    if (_castleCache) {
+                        const ci = _castleCache.findIndex(c => String(c._id) === idStr);
+                        if (ci >= 0) _castleCache[ci] = normalized;
+                        else _castleCache.push(normalized);
+                        _castleCacheTime = Date.now();
+                    }
                 } else if (op === 'delete') {
-                    _castleCache = _castleCache.filter(c => String(c._id) !== idStr);
-                    _castleCacheTime = Date.now();
-                    console.log(`✏️ [캐시 갱신] castle delete — ID: ${idStr}`);
+                    arr = arr.filter(c => String(c._id) !== idStr);
+                    if (_castleCache) {
+                        _castleCache = _castleCache.filter(c => String(c._id) !== idStr);
+                        _castleCacheTime = Date.now();
+                    }
                 }
+
+                fs.writeFileSync(CASTLE_STATIC_FILE, JSON.stringify(arr));
+                console.log(`✏️ [즉시 패치] castles.json ${op} — ID: ${idStr}`);
             } catch (e) {
-                console.warn('⚠️ patchCastleInStaticFile 처리 중 오류 (무시):', e.message);
+                console.warn('⚠️ castles.json 즉시 패치 실패 (무시, 배치로 보완):', e.message);
             }
         }
 
@@ -499,30 +523,37 @@ async function setupRoutesAndCollections() {
         // 데이터 변경 직후 호출 안 함 (Atlas M0에서 270초 소요 → 배치로 일괄 처리)
         let _castleRebuildInProgress = false;
         async function rebuildCastleStaticFile(reason) {
-            // Legacy name retained for compatibility. This now rebuilds the
-            // in-memory castle cache from DB and does NOT write any static file.
             if (_castleRebuildInProgress) {
                 console.log(`⏳ [재빌드 스킵] 이미 진행 중 (사유: ${reason})`);
                 return;
             }
             _castleRebuildInProgress = true;
-            console.log(`🔄 [재빌드 시작] castle in-memory cache 갱신 중... (사유: ${reason})`);
+            console.log(`🔄 [재빌드 시작] castles.json 갱신 중... (사유: ${reason})`);
             const startTime = Date.now();
             try {
                 const query = { $or: [{ deleted: { $exists: false } }, { deleted: false }] };
                 const cursor = collections.castle.find(query);
                 const castles = [];
                 for await (const doc of cursor) {
-                    // keep raw ObjectId in DB objects; frontend will receive them via API
-                    castles.push(doc);
+                    castles.push({ ...doc, _id: doc._id?.toString ? doc._id.toString() : doc._id });
                 }
-                // 메모리 캐시 갱신
+                const json = JSON.stringify(castles);
+                fs.writeFileSync(CASTLE_STATIC_FILE, json);
+                // update metadata for incremental rebuilds
+                try {
+                    const metaPath = path.join(__dirname, 'public', 'castles.meta.json');
+                    fs.writeFileSync(metaPath, JSON.stringify({ lastRebuild: new Date().toISOString() }));
+                } catch (e) {
+                    console.warn('⚠️ castles.meta.json 쓰기 실패:', e.message);
+                }
+                // 메모리 캐시도 동시 갱신
                 _castleCache = castles;
                 _castleCacheTime = Date.now();
                 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                console.log(`✅ [재빌드 완료] castle cache 갱신: ${castles.length}개 (${elapsed}초)`);
+                console.log(`✅ [재빌드 완료] castles.json 갱신: ${castles.length}개, ${(json.length/1024/1024).toFixed(1)}MB (${elapsed}초)`);
             } catch (e) {
-                console.error('❌ [재빌드 실패] castle cache 갱신 오류:', e.message);
+                console.error('❌ [재빌드 실패] castles.json 갱신 오류:', e.message);
+                // 실패 시 메모리 캐시만 무효화 → 다음 GET 요청이 재쿼리
                 invalidateCastleCache();
             } finally {
                 _castleRebuildInProgress = false;
@@ -618,7 +649,7 @@ async function setupRoutesAndCollections() {
                     name: territory.name, name_ko: territory.name_ko,
                     type: territory.type, level: territory.level,
                     country: territory.country ? territory.country.toString() : null,
-                    country_id: territory.country_id ? territory.country_id.toString() : (territory.country ? territory.country.toString() : null),
+                    country_id: territory.country ? territory.country.toString() : null,
                     start_year: territory.start_year || territory.start || null,
                     end_year: territory.end_year || territory.end || null,
                 }
@@ -658,10 +689,7 @@ async function setupRoutesAndCollections() {
         // affectedIds: Set<string> — 비어 있으면 전체 재빌드 (force 모드)
         async function rebuildTerritoryTilesIncremental(reason, affectedIds = null) {
             if (_tileRebuildInProgress) {
-                console.log(`⏳ [타일 스킵] 이미 진행 중 (사유: ${reason}) — dirty 큐에 추가`);
-                // 진행 중이면 큐에 추가: 현재 재빌드 완료 후 자동 재빌드됨
-                if (affectedIds) affectedIds.forEach(id => _dirtyTerritoryIds.add(id));
-                _territoryDirty = true;
+                console.log(`⏳ [타일 스킵] 이미 진행 중 (사유: ${reason})`);
                 return;
             }
             _tileRebuildInProgress = true;
@@ -690,35 +718,25 @@ async function setupRoutesAndCollections() {
                 // 전체 재빌드: 모든 영토
                 // 증분: 영향받는 타일 bbox와 겹치는 영토 전체 (타일 내 다른 영토도 유지)
                 let territoriesToQuery = {};
-                if (!isFullRebuild) {
-                    if (affectedTileKeys.size > 0) {
-                        // 영향 타일들의 전체 bbox 범위 계산
-                        let qMinLat = 90, qMaxLat = -90, qMinLng = 180, qMaxLng = -180;
-                        for (const key of affectedTileKeys) {
-                            const [lat, lng] = key.split('_').map(Number);
-                            if (lat < qMinLat) qMinLat = lat;
-                            if (lat + TILE_SIZE > qMaxLat) qMaxLat = lat + TILE_SIZE;
-                            if (lng < qMinLng) qMinLng = lng;
-                            if (lng + TILE_SIZE > qMaxLng) qMaxLng = lng + TILE_SIZE;
-                        }
-                        // 포함 범위 + 새로 추가된 영토 (기존 타일에 없었을 수 있으므로 affectedIds도 직접 조회)
-                        territoriesToQuery = {
-                            $or: [
-                                { 'bbox.minLat': { $lt: qMaxLat }, 'bbox.maxLat': { $gt: qMinLat },
-                                  'bbox.minLng': { $lt: qMaxLng }, 'bbox.maxLng': { $gt: qMinLng } },
-                                { _id: { $in: [...affectedIds].map(id => { try { return new ObjectId(id); } catch(e) { return id; } }) } }
-                            ]
-                        };
-                    } else {
-                        // 기존 타일에 전혀 없던(신규) 영토만 대상인 경우: affectedIds로 직접 조회
-                        territoriesToQuery = { _id: { $in: [...affectedIds].map(id => { try { return new ObjectId(id); } catch(e) { return id; } }) } };
+                if (!isFullRebuild && affectedTileKeys.size > 0) {
+                    // 영향 타일들의 전체 bbox 범위 계산
+                    let qMinLat = 90, qMaxLat = -90, qMinLng = 180, qMaxLng = -180;
+                    for (const key of affectedTileKeys) {
+                        const [lat, lng] = key.split('_').map(Number);
+                        if (lat < qMinLat) qMinLat = lat;
+                        if (lat + TILE_SIZE > qMaxLat) qMaxLat = lat + TILE_SIZE;
+                        if (lng < qMinLng) qMinLng = lng;
+                        if (lng + TILE_SIZE > qMaxLng) qMaxLng = lng + TILE_SIZE;
                     }
+                    // + 새로 추가된 영토 (기존 타일에 없었을 수 있으므로 affectedIds도 직접 조회)
+                    territoriesToQuery = {
+                        $or: [
+                            { 'bbox.minLat': { $lt: qMaxLat }, 'bbox.maxLat': { $gt: qMinLat },
+                              'bbox.minLng': { $lt: qMaxLng }, 'bbox.maxLng': { $gt: qMinLng } },
+                            { _id: { $in: [...affectedIds].map(id => { try { return require('mongodb').ObjectId(id); } catch(e) { return id; } }) } }
+                        ]
+                    };
                 }
-
-                // DEBUG: log territoriesToQuery (stringify safe)
-                try {
-                    console.log('🔎 [DEBUG] territoriesToQuery:', JSON.stringify(territoriesToQuery));
-                } catch (e) { console.log('🔎 [DEBUG] territoriesToQuery: <unserializable>'); }
 
                 const cursor = collections.territories.find(territoriesToQuery);
                 const tileMap = new Map(); // key → { tile_lat, tile_lng, bounds, features[] }
@@ -733,11 +751,7 @@ async function setupRoutesAndCollections() {
 
                     // 전체 재빌드면 모든 타일, 증분이면 영향 타일만
                     for (const key of tileKeys) {
-                        // If this is a full rebuild, include all keys.
-                        // For incremental rebuilds: if we have a non-empty set of existing affected tiles, only include those.
-                        // However, when affectedTileKeys is empty (e.g. newly added territories not present in existing tiles),
-                        // we must still include the computed tile keys so new tiles are created.
-                        if (!isFullRebuild && affectedTileKeys.size > 0 && !affectedTileKeys.has(key)) continue;
+                        if (!isFullRebuild && !affectedTileKeys.has(key)) continue;
                         if (!tileMap.has(key)) {
                             const [lat, lng] = key.split('_').map(Number);
                             tileMap.set(key, { tile_lat: lat, tile_lng: lng,
@@ -747,20 +761,13 @@ async function setupRoutesAndCollections() {
                     }
                 }
 
-                // DEBUG: show computed tileMap keys before writing files
-                try {
-                    console.log('🧭 [DEBUG] computed tileMap keys:', Array.from(tileMap.keys()));
-                } catch (e) { console.log('🧭 [DEBUG] computed tileMap keys: <error>'); }
-
                 // 3. 전체 재빌드: 기존 파일 삭제 후 전체 저장 ──────────────────
                 if (isFullRebuild) {
                     const existing = fs.readdirSync(TILES_DIR).filter(f => f.endsWith('.json'));
                     for (const f of existing) fs.unlinkSync(path.join(TILES_DIR, f));
                     for (const [, tile] of tileMap) {
                         const filename = `tile_${tile.tile_lat}_${tile.tile_lng}.json`;
-                        const filepath = path.join(TILES_DIR, filename);
-                        try { console.log('✏️ [DEBUG] Writing (full) tile file:', filepath, 'features:', tile.features.length); } catch(e){}
-                        fs.writeFileSync(filepath, JSON.stringify({
+                        fs.writeFileSync(path.join(TILES_DIR, filename), JSON.stringify({
                             type: 'FeatureCollection', tile_lat: tile.tile_lat, tile_lng: tile.tile_lng,
                             bounds: tile.bounds, features: tile.features, feature_count: tile.features.length
                         }));
@@ -772,41 +779,22 @@ async function setupRoutesAndCollections() {
                         const filepath = path.join(TILES_DIR, filename);
                         const tile = tileMap.get(key);
                         if (tile && tile.features.length > 0) {
-                            try { console.log('✏️ [DEBUG] Writing (incremental affected) tile file:', filepath, 'features:', tile.features.length); } catch(e){}
                             fs.writeFileSync(filepath, JSON.stringify({
                                 type: 'FeatureCollection', tile_lat: tile.tile_lat, tile_lng: tile.tile_lng,
                                 bounds: tile.bounds, features: tile.features, feature_count: tile.features.length
                             }));
                         } else {
                             // 영토가 없어진 타일은 파일 삭제
-                            if (fs.existsSync(filepath)) {
-                                try { console.log('🗑️ [DEBUG] Deleting (incremental affected) tile file:', filepath); } catch(e){}
-                                fs.unlinkSync(filepath);
-                            }
+                            if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
                         }
                     }
                     // 새 영토가 새 타일을 만들 수 있으므로 기존 타일 외 신규 타일 저장
                     for (const [key, tile] of tileMap) {
                         if (affectedTileKeys.has(key)) continue; // 이미 처리됨
                         const filename = `tile_${tile.tile_lat}_${tile.tile_lng}.json`;
-                        const filepath = path.join(TILES_DIR, filename);
-                        // 🔧 기존 타일 파일이 있으면 기존 피처와 merge (신규 추가 시 기존 피처 유지)
-                        let mergedFeatures = tile.features;
-                        if (fs.existsSync(filepath)) {
-                            try {
-                                const existing = JSON.parse(fs.readFileSync(filepath, 'utf8'));
-                                const existingIds = new Set(tile.features.map(f => f.properties?._id));
-                                const oldFeatures = (existing.features || []).filter(f => !existingIds.has(f.properties?._id));
-                                mergedFeatures = [...oldFeatures, ...tile.features];
-                                console.log(`🔀 [DEBUG] Merging tile ${key}: existing ${oldFeatures.length} + new ${tile.features.length} = ${mergedFeatures.length}`);
-                            } catch (e) {
-                                console.warn(`⚠️ [DEBUG] Failed to read existing tile for merge (${filename}):`, e.message);
-                            }
-                        }
-                        try { console.log('✏️ [DEBUG] Writing (incremental new) tile file:', filepath, 'features:', mergedFeatures.length); } catch(e){}
-                        fs.writeFileSync(filepath, JSON.stringify({
+                        fs.writeFileSync(path.join(TILES_DIR, filename), JSON.stringify({
                             type: 'FeatureCollection', tile_lat: tile.tile_lat, tile_lng: tile.tile_lng,
-                            bounds: tile.bounds, features: mergedFeatures, feature_count: mergedFeatures.length
+                            bounds: tile.bounds, features: tile.features, feature_count: tile.features.length
                         }));
                     }
                 }
@@ -825,13 +813,6 @@ async function setupRoutesAndCollections() {
                 console.error('❌ [타일 재빌드 실패]', e.message);
             } finally {
                 _tileRebuildInProgress = false;
-                // 재빌드 중 큐된 dirty ID가 있으면 자동 재빌드 트리거
-                if (_territoryDirty && _dirtyTerritoryIds.size > 0) {
-                    const pendingIds = new Set(_dirtyTerritoryIds);
-                    console.log(`🔄 [타일 큐 재빌드] 대기 중인 ${pendingIds.size}개 영토 재빌드 시작`);
-                    setImmediate(() => rebuildTerritoryTilesIncremental('큐 자동 재빌드', pendingIds)
-                        .catch(e => console.error('❌ [큐 재빌드 실패]', e.message)));
-                }
             }
         }
 
@@ -963,7 +944,15 @@ async function setupRoutesAndCollections() {
                 if (!label_type) {
                     _castleCache = castles;
                     _castleCacheTime = Date.now();
-                    console.log(`💾 Castle 서버 캐시 저장: ${castles.length}개 (static file disabled)`);
+                    console.log(`💾 Castle 서버 캐시 저장: ${castles.length}개`);
+                    // 🚀 [v3.6] 정적 파일로도 저장 → 다음 서버 시작 시 즉시 로드
+                    try {
+                        const json = JSON.stringify(castles.map(c => ({ ...c, _id: c._id?.toString ? c._id.toString() : c._id })));
+                        fs.writeFileSync(CASTLE_STATIC_FILE, json);
+                        console.log(`💾 castles.json 저장 완료 (${(json.length/1024/1024).toFixed(1)}MB) → 다음 시작부터 즉시 로드`);
+                    } catch (e) {
+                        console.warn('⚠️ castles.json 저장 실패 (무시):', e.message);
+                    }
                 }
                 
                 res.json(castles);
@@ -1025,18 +1014,6 @@ async function setupRoutesAndCollections() {
                 patchCastleInStaticFile('upsert', insertedDocument);
 
                 logCRUD('CREATE', 'Castle', newCastle.name, `(ID: ${result.insertedId})`);
-
-                // 📜 사관활동 로그: 오브젝트(성/유적) 생성 기록
-                if (req.user) {
-                    const actor    = req.user.username || 'admin';
-                    const actorPos = req.user.position || null;
-                    const userId   = req.user.userId || req.user.id || req.user._id || null;
-                    const tName    = newCastle.name || '오브젝트';
-                    logActivity('castle_create', actor, actorPos, tName,
-                        { castle_id: result.insertedId.toString() }, userId)
-                        .catch(e => console.error('⚠️ [castle logActivity 실패]', e.message));
-                }
-
                 res.status(201).json({ 
                     message: "Castle 추가 성공", 
                     id: result.insertedId.toString(),
@@ -1134,6 +1111,7 @@ async function setupRoutesAndCollections() {
             }
         });
 
+        // � [신규] GET: 마커 출처 상태 조회 — DB/JSON 존재 여부 확인 (편집창 배지용)
         app.get('/api/castle/:id/source-status', async (req, res) => {
             try {
                 const { id } = req.params;
@@ -1153,11 +1131,16 @@ async function setupRoutesAndCollections() {
                     }
                 }
 
-                // JSON file usage disabled — rely on in-memory cache only
+                // JSON(castles.json) 존재 여부 — 메모리 캐시 우선
                 let inJson = false;
                 const idStr = String(id);
                 if (_castleCache) {
                     inJson = _castleCache.some(c => String(c._id) === idStr);
+                } else if (fs.existsSync(CASTLE_STATIC_FILE)) {
+                    try {
+                        const arr = JSON.parse(fs.readFileSync(CASTLE_STATIC_FILE, 'utf8'));
+                        inJson = arr.some(c => String(c._id) === idStr);
+                    } catch (e) { /* 파싱 실패 시 false */ }
                 }
 
                 res.json({ inDb, dbDeleted, inJson });
@@ -1166,6 +1149,7 @@ async function setupRoutesAndCollections() {
             }
         });
 
+        // �🚩 [신규 추가] GET: 개별 성 정보 조회
         app.get('/api/castle/:id', async (req, res) => {
             try {
                 const { id } = req.params;
@@ -1292,86 +1276,6 @@ async function setupRoutesAndCollections() {
 // GET: 앱 버전 반환 (login.html 등 외부 페이지용)
 app.get('/api/app-version', (req, res) => {
     res.json({ version: '3.6.60' });
-});
-
-// ──────────────────────────────────────────────────────────────────────
-// 🔭 반경 검색 API  GET /api/nearby
-//    ?lat=39.9&lng=116.4&radius=100  (radius: km, 기본 100km, 최대 1000km)
-//    ?type=castle|contribution|both  (기본 both)
-//    ?limit=50                       (기본 20, 최대 100)
-// 반환: { castles: [...], contributions: [...], center: {lat,lng}, radiusKm }
-// ──────────────────────────────────────────────────────────────────────
-app.get('/api/nearby', async (req, res) => {
-    try {
-        await setupRoutesAndCollections();
-
-        const lat    = parseFloat(req.query.lat);
-        const lng    = parseFloat(req.query.lng);
-        const radius = Math.min(parseFloat(req.query.radius) || 100, 1000);
-        const type   = req.query.type || 'both';
-        const limit  = Math.min(parseInt(req.query.limit) || 20, 100);
-
-        if (isNaN(lat) || isNaN(lng) ||
-            lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-            return res.status(400).json({ message: '유효하지 않은 좌표입니다.' });
-        }
-
-        const geoQuery = {
-            location: {
-                $nearSphere: {
-                    $geometry: { type: 'Point', coordinates: [lng, lat] },
-                    $maxDistance: radius * 1000
-                }
-            }
-        };
-
-        const [castles, contributions] = await Promise.all([
-            (type === 'both' || type === 'castle')
-                ? collections.castle.find(
-                    { ...geoQuery, deleted: { $ne: true } },
-                    { projection: { name: 1, lat: 1, lng: 1, description: 1,
-                                    country_id: 1, is_capital: 1, label_type: 1,
-                                    built_year: 1, destroyed_year: 1,
-                                    start_year: 1, end_year: 1 } }
-                  ).limit(limit).toArray()
-                : [],
-            (type === 'both' || type === 'contribution')
-                ? collections.contributions.find(
-                    { ...geoQuery, status: 'approved' },
-                    { projection: { name: 1, lat: 1, lng: 1, category: 1,
-                                    description: 1, source: 1,
-                                    submittedBy: 1, approvedAt: 1,
-                                    start_year: 1, end_year: 1, year: 1 } }
-                  ).limit(limit).toArray()
-                : []
-        ]);
-
-        const earthR = 6371;
-        const toRad  = d => d * Math.PI / 180;
-        const haversine = (a, b) => {
-            const dLat = toRad(b.lat - a.lat);
-            const dLng = toRad(b.lng - a.lng);
-            const h = Math.sin(dLat/2)**2
-                    + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat))
-                    * Math.sin(dLng/2)**2;
-            return earthR * 2 * Math.asin(Math.sqrt(h));
-        };
-        const center = { lat, lng };
-        const withDist = arr => arr.map(d => ({
-            ...d,
-            distanceKm: Math.round(haversine(center, { lat: d.lat, lng: d.lng }) * 10) / 10
-        })).sort((a, b) => a.distanceKm - b.distanceKm);
-
-        res.json({
-            center,
-            radiusKm: radius,
-            castles:       withDist(castles),
-            contributions: withDist(contributions)
-        });
-    } catch (err) {
-        console.error('❌ [/api/nearby]', err);
-        res.status(500).json({ message: '반경 검색 실패', error: err.message });
-    }
 });
 
 // GET: 모든 장수 정보 반환
@@ -1570,7 +1474,63 @@ app.delete('/api/countries/:name', verifyAdmin, async (req, res) => {
 });
 
 // ----------------------------------------------------
-// 👑 KINGS (왕) API 엔드포인트 (수정된 로직)
+// � NEWSLETTER (사관청 소식) API 엔드포인트
+// ----------------------------------------------------
+
+// 뉴스레터 파일명 → 메타데이터 파싱 헬퍼
+function parseNewsletterMeta(filename) {
+    // 파일명 예: newsletter_2026_01_02.md, newsletter_2026_02.md
+    const slug  = filename.replace(/\.md$/, '');
+    const parts = slug.replace('newsletter_', '').split('_');
+    let date, title;
+    if (parts.length === 3) {
+        // 합본호: 2026_01_02
+        date  = `${parts[0]}-${parts[1]}-01`;
+        title = `${parts[0]}년 ${parseInt(parts[1])}·${parseInt(parts[2])}월 합본호`;
+    } else if (parts.length === 2) {
+        // 단월호: 2026_02
+        date  = `${parts[0]}-${parts[1]}-01`;
+        title = `${parts[0]}년 ${parseInt(parts[1])}월호`;
+    } else {
+        date  = '2026-01-01';
+        title = slug;
+    }
+    return { slug, title, date };
+}
+
+// GET /api/newsletter — 목록 반환
+app.get('/api/newsletter', (req, res) => {
+    try {
+        const dir   = path.join(__dirname);
+        const files = fs.readdirSync(dir)
+            .filter(f => f.startsWith('newsletter_') && f.endsWith('.md'))
+            .sort();
+        const issues = files.map(parseNewsletterMeta);
+        res.json(issues);
+    } catch (e) {
+        console.error('newsletter list error:', e);
+        res.status(500).json({ message: '목록 조회 실패' });
+    }
+});
+
+// GET /api/newsletter/:slug — 내용 반환 (마크다운 텍스트)
+app.get('/api/newsletter/:slug', (req, res) => {
+    try {
+        const slug     = req.params.slug.replace(/[^a-zA-Z0-9_\-]/g, '');
+        const filePath = path.join(__dirname, `${slug}.md`);
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).send('Not found');
+        }
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.send(fs.readFileSync(filePath, 'utf-8'));
+    } catch (e) {
+        console.error('newsletter content error:', e);
+        res.status(500).send('서버 오류');
+    }
+});
+
+// ----------------------------------------------------
+// �👑 KINGS (왕) API 엔드포인트 (수정된 로직)
 // ----------------------------------------------------
 
 // GET: 모든 왕 정보 반환 (변경 없음)
@@ -2135,6 +2095,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // � [추가] ----------------------------------------------------
         // 🗺️ TERRITORIES API 엔드포인트 (행정구역 영토 폴리곤)
         // ----------------------------------------------------
         
@@ -2352,81 +2313,25 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     return territory;
                 });
                 
-                // osm_id 중복 시 upsert (덮어쓰기), 없으면 insert
-                const bulkOps = processedTerritories.map(t => {
-                    if (t.osm_id) {
-                        const { _id, ...doc } = t;
-                        return {
-                            updateOne: {
-                                filter: { osm_id: t.osm_id },
-                                update: { $set: doc },
-                                upsert: true
-                            }
-                        };
-                    }
-                    return { insertOne: { document: t } };
-                });
-                const bulkResult = await collections.territories.bulkWrite(bulkOps, { ordered: false });
-                const upsertedIds = Object.values(bulkResult.upsertedIds || {}).map(id => id.toString());
-                const insertedIds = Object.values(bulkResult.insertedIds || {}).map(id => id.toString());
-                const allResultIds = [...insertedIds, ...upsertedIds];
-                // upsert된 기존 문서 id도 수집 (수정된 경우 osm_id로 재조회)
-                const updatedOsmIds = processedTerritories
-                    .filter(t => t.osm_id && !upsertedIds.length)
-                    .map(t => t.osm_id);
-                let extraIds = [];
-                if (updatedOsmIds.length > 0) {
-                    const updated = await collections.territories.find(
-                        { osm_id: { $in: updatedOsmIds } },
-                        { projection: { _id: 1 } }
-                    ).toArray();
-                    extraIds = updated.map(d => d._id.toString());
-                }
-                const finalIds = [...new Set([...allResultIds, ...extraIds])];
-                const totalCount = (bulkResult.insertedCount || 0) + (bulkResult.upsertedCount || 0) + (bulkResult.modifiedCount || 0);
-                console.log(`✅ Territory 추가/수정 완료: insert=${bulkResult.insertedCount||0}, upsert=${bulkResult.upsertedCount||0}, modify=${bulkResult.modifiedCount||0}`);
+                const result = await collections.territories.insertMany(processedTerritories);
+                
+                console.log(`✅ Territory 추가 완료: ${result.insertedCount}개`);
                 
                 res.status(201).json({ 
                     message: "Territory 추가 성공", 
-                    count: totalCount,
-                    ids: finalIds,
-                    insertedId: finalIds[0] // 단일 추가 시 호환성
+                    count: result.insertedCount,
+                    ids: Object.values(result.insertedIds).map(id => id.toString()),
+                    insertedId: result.insertedIds[0] // 단일 추가 시 호환성
                 });
                 
-                // 📜 사관활동 로그: 지역 생성/수정 기록
-                const insertedCount = (bulkResult.insertedCount || 0) + (bulkResult.upsertedCount || 0);
-                const modifiedOnlyCount = bulkResult.modifiedCount || 0;
-                const totalAffected = insertedCount + modifiedOnlyCount;
-                if (totalAffected > 0 && req.user) {
-                    const actor    = req.user.username || 'admin';
-                    const actorPos = req.user.position || null;
-                    const userId   = req.user.userId || req.user.id || req.user._id || null;
-                    const logType  = insertedCount > 0 ? 'territory_create' : 'territory_update';
-                    if (processedTerritories.length === 1) {
-                        const tName = processedTerritories[0].name_ko || processedTerritories[0].name || '지역';
-                        logActivity(logType, actor, actorPos, tName, { count: 1 }, userId)
-                            .catch(e => console.error('⚠️ [territory logActivity 실패]', e.message));
-                    } else {
-                        logActivity(logType, actor, actorPos, null, { count: totalAffected }, userId)
-                            .catch(e => console.error('⚠️ [territory logActivity 실패]', e.message));
-                    }
-                }
-
+                // 🚀 캐시 무효화 + 즉시 증분 타일 재빌드 (백그라운드)
                 territoriesCache = null;
                 territoriesCacheTime = null;
-                // 수정된 문서 id 수집 (osm_id 기반 upsert된 경우)
-                const allModifiedIds = new Set(finalIds);
-                if (bulkResult.modifiedCount > 0) {
-                    const requeried = await collections.territories.find(
-                        { osm_id: { $in: processedTerritories.filter(t=>t.osm_id).map(t=>t.osm_id) } },
-                        { projection: { _id: 1 } }
-                    ).toArray();
-                    requeried.forEach(d => allModifiedIds.add(d._id.toString()));
-                }
-                for (const id of allModifiedIds) _dirtyTerritoryIds.add(id);
+                const newIds = new Set(Object.values(result.insertedIds).map(id => id.toString()));
+                for (const id of newIds) _dirtyTerritoryIds.add(id);
                 _territoryDirty = true;
                 console.log('🗑️ Territories 캐시 무효화됨 (POST)');
-                rebuildTerritoryTilesIncremental('영토 추가', allModifiedIds).catch(e =>
+                rebuildTerritoryTilesIncremental('영토 추가', newIds).catch(e =>
                     console.error('❌ [즉시 타일 재빌드 실패]', e.message));
             } catch (error) {
                 console.error("Territory 추가 중 오류:", error);
@@ -2473,21 +2378,6 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             } catch (error) {
                 console.error("영역 교차 검색 중 오류:", error);
                 res.status(500).json({ message: "영역 교차 검색 실패", error: error.message });
-            }
-        });
-
-        // GET: 영토 단건 조회 (백업 등 용도)
-        app.get('/api/territories/:id', verifyAdmin, async (req, res) => {
-            try {
-                const { id } = req.params;
-                const _id = toObjectId(id);
-                if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
-                const doc = await collections.territories.findOne({ _id });
-                if (!doc) return res.status(404).json({ message: "영토 정보를 찾을 수 없습니다." });
-                res.json(doc);
-            } catch (error) {
-                console.error("Territory 단건 조회 중 오류:", error);
-                res.status(500).json({ message: "영토 조회 실패", error: error.message });
             }
         });
 
@@ -4512,6 +4402,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // � [Admin API] castles.json 수동 재빌드 (즉시 실행)
         // 급하게 최신 데이터가 필요할 때 admin이 직접 트리거
         app.post('/api/admin/rebuild-castles', verifyAdmin, async (req, res) => {
             if (_castleRebuildInProgress) {
@@ -4899,8 +4790,7 @@ app.put('/api/contributions/:id/review', verifyToken, async (req, res) => {
         const user = await collections.users.findOne({ _id: toObjectId(userId) });
         
         const isAdminRole = user.role === 'admin' || user.role === 'superuser';
-        // position은 '종4품 시강학사(侍講學士)' 형태로 저장되므로 부분 일치로 비교
-        const hasReviewerPosition = reviewerPositions.some(p => user.position && user.position.includes(p));
+        const hasReviewerPosition = reviewerPositions.includes(user.position);
         
         if (!user || (!isAdminRole && !hasReviewerPosition)) {
             return res.status(403).json({ 
@@ -4938,6 +4828,7 @@ app.put('/api/contributions/:id/review', verifyToken, async (req, res) => {
     }
 });
 
+// � [추가] 사료 의견 조회 API (누구나 읽기 가능)
 app.get('/api/contributions/:id/comments', async (req, res) => {
     try {
         await setupRoutesAndCollections();
@@ -5008,6 +4899,7 @@ app.delete('/api/contributions/:id/comments/:commentId', verifyToken, async (req
     }
 });
 
+// �🚩 [추가] 최종 승인 API (동수국사 이상만 가능)
 app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
     try {
         await setupRoutesAndCollections();
@@ -5054,11 +4946,7 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
         console.log('🔍 [Approve] 사용자:', user.username, 'DB직급:', user.position, '실시간직급:', realtimePosition, '점수:', userScore);
         
         // 🚩 [수정] DB에 저장된 직급 또는 실시간 계산된 직급 중 하나라도 승인 권한이 있으면 허용
-        // position은 '종2품 동수국사(同修國史)' 형태로 저장되므로 부분 일치로 비교
-        const hasApproverPosition = approverPositions.some(p =>
-            (user.position && user.position.includes(p)) ||
-            (realtimePosition && realtimePosition.includes(p))
-        );
+        const hasApproverPosition = approverPositions.includes(user.position) || approverPositions.includes(realtimePosition);
         
         if (!user || !hasApproverPosition) {
             return res.status(403).json({ 
@@ -5260,8 +5148,7 @@ app.put('/api/contributions/:id/reject-final', verifyToken, async (req, res) => 
 
         const isAdmin = user.role === 'admin' || user.role === 'superuser';
         const approverPositions = RANK_CONFIG.roles.approvers;
-        // position은 '정1품 감수국사(監修國史)' 형태로 저장되므로 부분 일치로 비교
-        const hasApproverPosition = approverPositions.some(p => user.position && user.position.includes(p));
+        const hasApproverPosition = approverPositions.includes(user.position);
 
         if (!isAdmin && !hasApproverPosition) {
             return res.status(403).json({
