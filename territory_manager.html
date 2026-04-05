@@ -559,92 +559,42 @@
         }
 
         // ── OSM 가져오기 ──
-        // Overpass 미러 서버 목록 (504 대비 순차 fallback)
-        const OVERPASS_ENDPOINTS = [
-            'https://overpass-api.de/api/interpreter',
-            'https://overpass.kumi.systems/api/interpreter',
-            'https://overpass.openstreetmap.ru/api/interpreter'
-        ];
-
-        async function fetchOverpass(query, retries = 2) {
-            let lastErr;
-            for (const endpoint of OVERPASS_ENDPOINTS) {
-                for (let attempt = 0; attempt <= retries; attempt++) {
-                    try {
-                        const res = await fetch(endpoint, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'KoreaHistoryMap/1.0' },
-                            body: `data=${encodeURIComponent(query)}`
-                        });
-                        if (res.status === 429 || res.status === 503 || res.status === 504) {
-                            lastErr = new Error(`Overpass ${endpoint.split('/')[2]} 오류: ${res.status}`);
-                            // 재시도 전 잠깐 대기
-                            await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
-                            continue;
-                        }
-                        if (!res.ok) throw new Error(`Overpass 오류: ${res.status}`);
-                        return await res.json();
-                    } catch(e) {
-                        lastErr = e;
-                        if (attempt < retries) await new Promise(r => setTimeout(r, 800));
-                    }
-                }
-            }
-            throw lastErr || new Error('Overpass API 모든 서버 실패');
-        }
-
         async function fetchFromOSM() {
             const osmId = document.getElementById('osm_id').value.trim();
             if (!osmId) { log('OSM ID를 입력해주세요', 'error'); return; }
             if (!/^\d+$/.test(osmId)) { log('OSM ID는 숫자만 입력하세요', 'error'); return; }
 
             log(`🔍 OSM Relation ${osmId} 조회 중...`, 'info');
-            setProgress(10);
+            setProgress(20);
 
             try {
-                // 1. 이름 정보: Nominatim 우선 → Overpass fallback
-                let name = `OSM ${osmId}`, nameKo = '', nameEn = '', adminLevel = 4, type = 'province';
-                let nameFromNominatim = false;
+                // 1. Overpass 이름 정보
+                const overpassQuery = `[out:json][timeout:25];relation(${osmId});out body;`;
+                const overpassResponse = await fetch('https://overpass-api.de/api/interpreter', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'KoreaHistoryMap/1.0' },
+                    body: `data=${encodeURIComponent(overpassQuery)}`
+                });
+                if (!overpassResponse.ok) throw new Error(`Overpass API 오류: ${overpassResponse.status}`);
+                const overpassData = await overpassResponse.json();
+                setProgress(50);
+                if (!overpassData.elements || overpassData.elements.length === 0) throw new Error('OSM Relation을 찾을 수 없습니다');
 
-                try {
-                    const nmRes = await fetch(`https://nominatim.openstreetmap.org/lookup?osm_ids=R${osmId}&format=json`, {
-                        headers: { 'User-Agent': 'KoreaHistoryMap/1.0', 'Accept-Language': 'ko' }
-                    });
-                    if (nmRes.ok) {
-                        const nmData = await nmRes.json();
-                        if (nmData && nmData.length > 0) {
-                            const nm = nmData[0];
-                            name   = nm.display_name?.split(',')[0] || nm.name || name;
-                            nameKo = nm.localname || nm.name || '';
-                            nameEn = nm.name || '';
-                            const al = parseInt(nm.extratags?.admin_level || nm.address?.admin_level || '4');
-                            adminLevel = isNaN(al) ? 4 : al;
-                            nameFromNominatim = true;
-                            log('  ✅ Nominatim 이름 정보 로드', 'info');
-                        }
-                    }
-                } catch(e) { log('  ⚠️ Nominatim 이름 조회 실패, Overpass 시도...', 'warning'); }
-
-                if (!nameFromNominatim) {
-                    log('  🔄 Overpass로 이름 정보 조회 중...', 'info');
-                    const overpassData = await fetchOverpass(`[out:json][timeout:25];relation(${osmId});out body;`);
-                    setProgress(40);
-                    if (!overpassData.elements || overpassData.elements.length === 0) throw new Error('OSM Relation을 찾을 수 없습니다');
-                    const tags = overpassData.elements[0].tags || {};
-                    name   = tags.name || tags['name:en'] || tags['name:ko'] || `OSM ${osmId}`;
-                    nameKo = tags['name:ko'] || tags.name || '';
-                    nameEn = tags['name:en'] || tags.name || '';
-                    adminLevel = tags.admin_level ? parseInt(tags.admin_level) : 4;
-                }
-
-                setProgress(45);
-                if (adminLevel === 2 || adminLevel <= 3) type = 'country';
-                else if (adminLevel >= 6) type = 'admin_area';
+                const relation = overpassData.elements[0];
+                const tags = relation.tags || {};
+                const name   = tags.name   || tags['name:en'] || tags['name:ko'] || `OSM ${osmId}`;
+                const nameKo = tags['name:ko'] || tags.name  || '';
+                const nameEn = tags['name:en'] || tags.name  || '';
+                const adminLevel = tags.admin_level ? parseInt(tags.admin_level) : 4;
 
                 document.getElementById('name').value    = nameEn || name;
                 document.getElementById('name_ko').value = nameKo || name;
                 document.getElementById('code').value    = osmId;
-                document.getElementById('type').value    = type;
+
+                let type = 'province';
+                if (adminLevel === 2 || adminLevel <= 3) type = 'country';
+                else if (adminLevel >= 6) type = 'admin_area';
+                document.getElementById('type').value = type;
 
                 // hidden osm_id
                 let osmIdField = document.getElementById('osm_id_hidden');
@@ -656,7 +606,7 @@
                 osmIdField.value = `r${osmId}`;
 
                 // 2. GeoJSON (Nominatim 우선 → Overpass geom fallback)
-                setProgress(70);
+                setProgress(80);
                 let geometryLoaded = false;
 
                 try {
@@ -675,12 +625,18 @@
                             }
                         }
                     }
-                } catch (e) { log('  ⚠️ Nominatim GeoJSON 실패, Overpass fallback...', 'warning'); }
+                } catch (e) { log('  ⚠️ Nominatim 실패, Overpass fallback...', 'warning'); }
 
                 if (!geometryLoaded) {
-                    log('  🔄 Overpass 폴리곤 요청 중 (미러 서버 자동 전환)...', 'info');
+                    log('  🔄 Overpass 폴리곤 요청 중...', 'info');
                     try {
-                        const d = await fetchOverpass(`[out:json][timeout:60];relation(${osmId});out geom;`);
+                        const q = `[out:json][timeout:60];relation(${osmId});out geom;`;
+                        const r = await fetch('https://overpass-api.de/api/interpreter', {
+                            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'KoreaHistoryMap/1.0' },
+                            body: `data=${encodeURIComponent(q)}`
+                        });
+                        if (!r.ok) throw new Error(`Overpass geom 오류: ${r.status}`);
+                        const d = await r.json();
                         const rel = d.elements && d.elements[0];
                         if (rel && rel.members) {
                             const outerRings = rel.members.filter(m => m.type === 'way' && m.role === 'outer' && m.geometry).map(m => m.geometry.map(p => [p.lon, p.lat]));

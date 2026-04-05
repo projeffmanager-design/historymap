@@ -23847,6 +23847,18 @@ kingSelect.addEventListener('change', () => {
   .mc-comment-text { margin-top: 4px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
   .mc-delete-btn { float:right; background:none; border:none; color:#e74c3c; font-size:11px; cursor:pointer; padding:0 2px; opacity:0.7; }
   .mc-delete-btn:hover { opacity:1; }
+  .mc-reply-btn { background:none; border:none; color:#7ab8cc; font-size:11px; cursor:pointer; padding:0; margin-left:8px; opacity:0.8; }
+  .mc-reply-btn:hover { opacity:1; text-decoration:underline; }
+  .mc-replies { margin-left:20px; border-left:2px solid rgba(180,140,80,0.2); padding-left:10px; margin-top:6px; }
+  .mc-reply-item { padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px; color:#c0b8b0; }
+  .mc-reply-item:last-child { border-bottom:none; }
+  .mc-reply-input-area { margin-left:20px; margin-top:6px; display:none; }
+  .mc-reply-input-area textarea { width:100%; background:#1a2530; border:1px solid rgba(120,180,210,0.3); border-radius:4px; color:#e0d8cc; font-size:12px; padding:6px 8px; resize:none; font-family:inherit; line-height:1.4; box-sizing:border-box; }
+  .mc-reply-input-area .mc-reply-submit-row { display:flex; justify-content:flex-end; gap:6px; margin-top:4px; }
+  .mc-reply-input-area button { font-size:11px; padding:4px 10px; border:none; border-radius:3px; cursor:pointer; }
+  .mc-reply-cancel-btn { background:rgba(255,255,255,0.08); color:#9aabbd; }
+  .mc-reply-submit-btn { background:#5a9ab0; color:#fff; font-weight:bold; }
+  .mc-reply-submit-btn:hover { background:#7ab8cc; }
 </style>
 
 <script>
@@ -24488,18 +24500,92 @@ kingSelect.addEventListener('change', () => {
             list.innerHTML = '<div style="color:#9aabbd;font-size:13px;text-align:center;padding:20px 0;">아직 의견이 없습니다. 첫 번째 의견을 남겨보세요!</div>';
             return;
         }
+        const loggedIn = !!currentUser && !currentUser.isGuest;
         list.innerHTML = comments.map(c => {
             const date = new Date(c.created_at).toLocaleDateString('ko-KR', { year:'2-digit', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
             const canDelete = currentUser && (currentUser.username === c.author || currentUser.role === 'admin' || currentUser.role === 'superuser');
             const deleteBtn = canDelete ? `<button class="mc-delete-btn" onclick="deleteMarkerComment('${c._id}')">삭제</button>` : '';
+            const replyBtn = loggedIn ? `<button class="mc-reply-btn" onclick="toggleReplyInput('${c._id}')">↩ 답글</button>` : '';
+
+            // 답글 목록
+            const replies = (c.replies || []).map(r => {
+                const rDate = new Date(r.created_at).toLocaleDateString('ko-KR', { year:'2-digit', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+                const canDeleteR = currentUser && (currentUser.username === r.author || currentUser.role === 'admin' || currentUser.role === 'superuser');
+                const delBtnR = canDeleteR ? `<button class="mc-delete-btn" onclick="deleteMarkerComment('${r._id}')">삭제</button>` : '';
+                return `<div class="mc-reply-item" id="mc-item-${r._id}">
+                    ${delBtnR}
+                    <span class="mc-comment-author">↪ ${escapeHtml(r.author)}</span>
+                    <span class="mc-comment-date">${rDate}</span>
+                    <div class="mc-comment-text">${escapeHtml(r.text)}</div>
+                </div>`;
+            }).join('');
+
+            const repliesHtml = replies ? `<div class="mc-replies" id="mc-replies-${c._id}">${replies}</div>` : `<div class="mc-replies" id="mc-replies-${c._id}"></div>`;
+
+            // 답글 입력창 (처음엔 숨김)
+            const replyInputHtml = loggedIn ? `
+                <div class="mc-reply-input-area" id="mc-reply-input-${c._id}">
+                    <textarea rows="2" maxlength="300" placeholder="답글을 입력하세요... (300자 이내)" id="mc-reply-text-${c._id}"></textarea>
+                    <div class="mc-reply-submit-row">
+                        <button class="mc-reply-cancel-btn" onclick="toggleReplyInput('${c._id}')">취소</button>
+                        <button class="mc-reply-submit-btn" onclick="submitReply('${c._id}')">답글 등록</button>
+                    </div>
+                </div>` : '';
+
             return `<div class="mc-comment-item" id="mc-item-${c._id}">
                 ${deleteBtn}
                 <span class="mc-comment-author">${escapeHtml(c.author)}</span>
                 <span class="mc-comment-date">${date}</span>
+                ${replyBtn}
                 <div class="mc-comment-text">${escapeHtml(c.text)}</div>
+                ${repliesHtml}
+                ${replyInputHtml}
             </div>`;
         }).join('');
     }
+
+    window.toggleReplyInput = function(parentId) {
+        const area = document.getElementById(`mc-reply-input-${parentId}`);
+        if (!area) return;
+        const isVisible = area.style.display === 'block';
+        area.style.display = isVisible ? 'none' : 'block';
+        if (!isVisible) {
+            const ta = document.getElementById(`mc-reply-text-${parentId}`);
+            if (ta) { ta.value = ''; ta.focus(); }
+        }
+    };
+
+    window.submitReply = async function(parentId) {
+        if (currentUser && currentUser.isGuest) { alert('게스트 계정은 답글을 작성할 수 없습니다.'); return; }
+        const ta = document.getElementById(`mc-reply-text-${parentId}`);
+        if (!ta) return;
+        const text = ta.value.trim();
+        if (!text) return;
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        if (!token) return;
+        try {
+            const res = await fetch('/api/marker-comments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ castle_id: _mcCurrentCastleId, text, parent_id: parentId })
+            });
+            if (!res.ok) { const err = await res.json(); alert(err.message || '답글 등록 실패'); return; }
+            const newReply = await res.json();
+            // 답글 목록에 즉시 추가
+            const repliesDiv = document.getElementById(`mc-replies-${parentId}`);
+            if (repliesDiv) {
+                const rDate = new Date(newReply.created_at).toLocaleDateString('ko-KR', { year:'2-digit', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+                const canDeleteR = currentUser && (currentUser.username === newReply.author || currentUser.role === 'admin' || currentUser.role === 'superuser');
+                const delBtnR = canDeleteR ? `<button class="mc-delete-btn" onclick="deleteMarkerComment('${newReply._id}')">삭제</button>` : '';
+                const div = document.createElement('div');
+                div.className = 'mc-reply-item';
+                div.id = `mc-item-${newReply._id}`;
+                div.innerHTML = `${delBtnR}<span class="mc-comment-author">↪ ${escapeHtml(newReply.author)}</span><span class="mc-comment-date">${rDate}</span><div class="mc-comment-text">${escapeHtml(newReply.text)}</div>`;
+                repliesDiv.appendChild(div);
+            }
+            toggleReplyInput(parentId);
+        } catch (e) { alert('답글 등록 중 오류가 발생했습니다.'); }
+    };
 
     window.submitMarkerComment = async function() {
         // 게스트는 클라이언트 레벨에서도 제출 차단
@@ -24557,6 +24643,7 @@ kingSelect.addEventListener('change', () => {
             if (!res.ok) { alert('삭제 실패'); return; }
             const item = document.getElementById(`mc-item-${commentId}`);
             if (item) item.remove();
+            // 루트 댓글이 모두 삭제됐으면 빈 메시지 표시
             const list = document.getElementById('mcCommentList');
             if (!list.querySelector('.mc-comment-item')) {
                 list.innerHTML = '<div style="color:#9aabbd;font-size:13px;text-align:center;padding:20px 0;">아직 의견이 없습니다. 첫 번째 의견을 남겨보세요!</div>';

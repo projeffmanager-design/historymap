@@ -8,8 +8,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&family=Yeon+Sung&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <style>
         /* ── 전역 색상 변수 ── */
         :root {
@@ -1182,10 +1180,7 @@
                 ];
                 // 승인 권한: 동수국사(종2품) ~ 감수국사(정1품) - 재상급 (검토 없이 바로 승인 가능)
                 const approverPositions = ['동수국사', '수국사', '판사관사', '감수국사'];
-
-                // position은 '정1품 감수국사(監修國史)' 형태로 저장되므로 부분 일치로 비교
-                const positionMatches = (pos, list) => list.some(p => pos && pos.includes(p));
-
+                
                 // 본인이 작성한 사료가 아니고 승인되지 않은 경우 추천 버튼 표시
                 const isOwnContribution = submitter === currentUsername;
                 console.log('🔍 [ranking.html 권한 체크]');
@@ -1194,12 +1189,12 @@
                 console.log('  - isOwnContribution:', isOwnContribution);
                 console.log('  - userPosition:', userPosition);
                 console.log('  - status:', selectedContribution.status);
-                console.log('  - positionMatches(reviewer):', positionMatches(userPosition, reviewerPositions));
-
+                console.log('  - reviewerPositions.includes:', reviewerPositions.includes(userPosition));
+                
                 const isAdminRole = userRole === 'admin' || userRole === 'superuser';
                 const canVote = !isOwnContribution && selectedContribution.status === 'pending' && !isGuestUser;
-                const canReview = (isAdminRole || positionMatches(userPosition, reviewerPositions)) && selectedContribution.status === 'pending' && !isOwnContribution;
-                const canApprove = (isAdminRole || positionMatches(userPosition, approverPositions)) && (selectedContribution.status === 'reviewed' || selectedContribution.status === 'pending') && !isOwnContribution;
+                const canReview = (isAdminRole || reviewerPositions.includes(userPosition)) && selectedContribution.status === 'pending' && !isOwnContribution;
+                const canApprove = (isAdminRole || approverPositions.includes(userPosition)) && selectedContribution.status === 'reviewed' && !isOwnContribution;
                 
                 console.log('  - canVote:', canVote);
                 console.log('  - canReview:', canReview);
@@ -1281,14 +1276,6 @@
                         </div>
                         ` : ''}
                         
-                        ${(lat && lng) ? `
-                        <div style="margin-bottom: 20px;">
-                            <div style="color: #7ab8cc; font-size: 11px; font-weight: bold; text-transform: uppercase; margin-bottom: 8px;">🗺️ 위치 미리보기</div>
-                            <div id="minimap-${contributionId}" style="width: 100%; height: 220px; border-radius: 8px; border: 1px solid rgba(90,160,180,0.35); overflow: hidden; background: #1a2a3a;"></div>
-                            <div style="color: #5a8090; font-size: 11px; margin-top: 5px; text-align: right;">📍 ${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
-                        </div>
-                        ` : ''}
-
                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; margin-bottom: 20px;">
                             ${selectedContribution.source ? `
                             <div style="background: rgba(255,255,255,0.04); padding: 16px; border-radius: 8px; border: 1px solid rgba(180,140,80,0.22);">
@@ -1358,10 +1345,7 @@
                                     <button onclick="reviewContribution('${contributionId}', 'approved')" style="flex: 1; min-width: 130px; background: rgba(60,160,120,0.75); color: #e0f0e8; border: 1px solid rgba(60,160,120,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(70,175,130,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(60,160,120,0.75)';">✅ 검토 승인</button>
                                     <button onclick="reviewContribution('${contributionId}', 'rejected')" style="flex: 1; min-width: 130px; background: rgba(200,70,60,0.75); color: #f0e0dc; border: 1px solid rgba(200,70,60,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(220,80,70,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(200,70,60,0.75)';">❌ 검토 거부</button>
                                 ` : ''}
-                                ${canApprove ? `
-                                    <button onclick="approveContribution('${contributionId}')" style="flex: 1; min-width: 130px; background: rgba(180,140,80,0.75); color: #180e00; border: 1px solid rgba(180,140,80,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(200,160,90,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(180,140,80,0.75)';">⭐ 최종 승인</button>
-                                    <button onclick="rejectFinalContribution('${contributionId}')" style="flex: 1; min-width: 130px; background: rgba(160,50,40,0.75); color: #f0e0dc; border: 1px solid rgba(160,50,40,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(185,60,50,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(160,50,40,0.75)';">🚫 최종 반려</button>
-                                ` : ''}
+                                ${canApprove ? `<button onclick="approveContribution('${contributionId}')" style="flex: 1; min-width: 130px; background: rgba(180,140,80,0.75); color: #180e00; border: 1px solid rgba(180,140,80,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(200,160,90,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(180,140,80,0.75)';">⭐ 최종 승인</button>` : ''}
                             </div>
                         </div>
                         ` : ''}
@@ -1390,16 +1374,8 @@
                 
                 // 의견 목록 비동기 로드
                 loadComments(contributionId);
-
-                // 모달 먼저 열기 (Leaflet이 컨테이너 크기를 정확히 인식하도록)
+                
                 document.getElementById('contributionDetailModal').style.display = 'block';
-
-                // 미니맵 초기화 (모달 DOM 렌더링 완료 후)
-                if (lat && lng) {
-                    setTimeout(() => {
-                        initMiniMap(contributionId, lat, lng, markerName);
-                    }, 120);
-                }
             } catch (error) {
                 console.error('❌ 사료 상세 보기 실패:', error);
                 alert('사료 상세 정보를 표시하는데 실패했습니다.');
@@ -1417,51 +1393,6 @@
             document.getElementById('ownershipFilter').addEventListener('change', loadContributions);
         }
         
-        // 미니맵 초기화 함수
-        let _miniMapInstance = null;
-        function initMiniMap(contributionId, lat, lng, label) {
-            const container = document.getElementById(`minimap-${contributionId}`);
-            if (!container) return;
-
-            // 이전 인스턴스 제거
-            if (_miniMapInstance) {
-                _miniMapInstance.remove();
-                _miniMapInstance = null;
-            }
-
-            const map = L.map(container, {
-                center: [lat, lng],
-                zoom: 6,
-                zoomControl: true,
-                attributionControl: false,
-                dragging: true,
-                scrollWheelZoom: false
-            });
-
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                maxZoom: 18,
-                opacity: 0.85
-            }).addTo(map);
-
-            // 커스텀 마커 아이콘 (작은 원형)
-            const icon = L.divIcon({
-                className: '',
-                html: `<div style="width:14px;height:14px;background:#e0a030;border:2px solid #fff;border-radius:50%;box-shadow:0 0 6px rgba(0,0,0,0.6);"></div>`,
-                iconSize: [14, 14],
-                iconAnchor: [7, 7]
-            });
-
-            L.marker([lat, lng], { icon })
-                .addTo(map)
-                .bindPopup(`<b style="font-size:13px;">${label}</b><br><span style="color:#666;font-size:11px;">${lat.toFixed(5)}, ${lng.toFixed(5)}</span>`, { maxWidth: 200 })
-                .openPopup();
-
-            // 컨테이너 크기 재계산 (모달 내 렌더링 이슈 방지)
-            setTimeout(() => map.invalidateSize(), 50);
-
-            _miniMapInstance = map;
-        }
-
         // 디바운스 함수 (검색어 입력 시 과도한 요청 방지)
         function debounce(func, wait) {
             let timeout;
@@ -1714,50 +1645,9 @@
             }
         }
 
-        // 🚩 사료 최종 반려 함수
-        async function rejectFinalContribution(contributionId) {
-            try {
-                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-                if (!token) {
-                    alert('로그인이 필요합니다.');
-                    return;
-                }
-
-                const comment = prompt('반려 사유를 입력하세요 (선택사항):');
-                if (comment === null) return; // 취소 시 중단
-
-                if (!confirm('이 사료를 최종 반려하시겠습니까?')) {
-                    return;
-                }
-
-                const response = await fetch(`${API_BASE_URL}/contributions/${contributionId}/reject-final`, {
-                    method: 'PUT',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ comment })
-                });
-
-                const result = await response.json();
-
-                if (response.ok) {
-                    alert('최종 반려되었습니다.');
-                    document.getElementById('contributionDetailModal').style.display = 'none';
-                    loadContributions();
-                } else {
-                    alert(result.message || '반려에 실패했습니다.');
-                }
-            } catch (error) {
-                console.error('❌ 반려 실패:', error);
-                alert('반려에 실패했습니다.');
-            }
-        }
-
         // 모달 닫기
         document.getElementById('closeDetailBtn').addEventListener('click', () => {
             document.getElementById('contributionDetailModal').style.display = 'none';
-            if (_miniMapInstance) { _miniMapInstance.remove(); _miniMapInstance = null; }
         });
 
         document.getElementById('rankInfoBtn').addEventListener('click', () => {
