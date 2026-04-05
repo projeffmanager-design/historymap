@@ -1477,52 +1477,29 @@ app.delete('/api/countries/:name', verifyAdmin, async (req, res) => {
 // � NEWSLETTER (사관청 소식) API 엔드포인트
 // ----------------------------------------------------
 
-// 뉴스레터 파일명 → 메타데이터 파싱 헬퍼
-function parseNewsletterMeta(filename) {
-    // 파일명 예: newsletter_2026_01_02.md, newsletter_2026_02.md
-    const slug  = filename.replace(/\.md$/, '');
-    const parts = slug.replace('newsletter_', '').split('_');
-    let date, title;
-    if (parts.length === 3) {
-        // 합본호: 2026_01_02
-        date  = `${parts[0]}-${parts[1]}-01`;
-        title = `${parts[0]}년 ${parseInt(parts[1])}·${parseInt(parts[2])}월 합본호`;
-    } else if (parts.length === 2) {
-        // 단월호: 2026_02
-        date  = `${parts[0]}-${parts[1]}-01`;
-        title = `${parts[0]}년 ${parseInt(parts[1])}월호`;
-    } else {
-        date  = '2026-01-01';
-        title = slug;
-    }
-    return { slug, title, date };
-}
+// Vercel 서버리스 환경에서는 readdirSync가 불안정하므로
+// 목록은 정적으로 정의하고, 내용은 readFileSync로 제공
+const NEWSLETTER_ISSUES = [
+    { slug: 'newsletter_2026_01_02', title: '2026년 1·2월 합본호', date: '2026-01-01' },
+    { slug: 'newsletter_2026_02',    title: '2026년 2월호',        date: '2026-02-01' },
+    { slug: 'newsletter_2026_03',    title: '2026년 3월호',        date: '2026-03-01' },
+];
 
 // GET /api/newsletter — 목록 반환
 app.get('/api/newsletter', (req, res) => {
-    try {
-        const dir   = path.join(__dirname);
-        const files = fs.readdirSync(dir)
-            .filter(f => f.startsWith('newsletter_') && f.endsWith('.md'))
-            .sort();
-        const issues = files.map(parseNewsletterMeta);
-        res.json(issues);
-    } catch (e) {
-        console.error('newsletter list error:', e);
-        res.status(500).json({ message: '목록 조회 실패' });
-    }
+    res.json(NEWSLETTER_ISSUES);
 });
 
 // GET /api/newsletter/:slug — 내용 반환 (마크다운 텍스트)
 app.get('/api/newsletter/:slug', (req, res) => {
     try {
-        const slug     = req.params.slug.replace(/[^a-zA-Z0-9_\-]/g, '');
+        const slug  = req.params.slug.replace(/[^a-zA-Z0-9_\-]/g, '');
+        const issue = NEWSLETTER_ISSUES.find(i => i.slug === slug);
+        if (!issue) return res.status(404).send('Not found');
         const filePath = path.join(__dirname, `${slug}.md`);
-        if (!fs.existsSync(filePath)) {
-            return res.status(404).send('Not found');
-        }
+        const content  = fs.readFileSync(filePath, 'utf-8');
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        res.send(fs.readFileSync(filePath, 'utf-8'));
+        res.send(content);
     } catch (e) {
         console.error('newsletter content error:', e);
         res.status(500).send('서버 오류');
