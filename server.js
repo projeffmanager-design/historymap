@@ -1485,6 +1485,23 @@ const NEWSLETTER_ISSUES = [
     { slug: 'newsletter_2026_03',    title: '2026년 3월호',        date: '2026-03-01' },
 ];
 
+// Vercel 서버리스에서 __dirname 경로 문제를 피하기 위해
+// 모듈 로드 시점(빌드/콜드스타트)에 파일을 읽어 메모리에 캐시
+const NEWSLETTER_CONTENT = {};
+(function loadNewsletterFiles() {
+    const candidates = [__dirname, process.cwd(), '/var/task'];
+    for (const issue of NEWSLETTER_ISSUES) {
+        for (const base of candidates) {
+            try {
+                const fp = path.join(base, `${issue.slug}.md`);
+                NEWSLETTER_CONTENT[issue.slug] = fs.readFileSync(fp, 'utf-8');
+                break;
+            } catch (_) { /* 다음 경로 시도 */ }
+        }
+    }
+    console.log('[newsletter] loaded:', Object.keys(NEWSLETTER_CONTENT));
+})();
+
 // GET /api/newsletter — 목록 반환
 app.get('/api/newsletter', (req, res) => {
     res.json(NEWSLETTER_ISSUES);
@@ -1492,18 +1509,13 @@ app.get('/api/newsletter', (req, res) => {
 
 // GET /api/newsletter/:slug — 내용 반환 (마크다운 텍스트)
 app.get('/api/newsletter/:slug', (req, res) => {
-    try {
-        const slug  = req.params.slug.replace(/[^a-zA-Z0-9_\-]/g, '');
-        const issue = NEWSLETTER_ISSUES.find(i => i.slug === slug);
-        if (!issue) return res.status(404).send('Not found');
-        const filePath = path.join(__dirname, `${slug}.md`);
-        const content  = fs.readFileSync(filePath, 'utf-8');
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        res.send(content);
-    } catch (e) {
-        console.error('newsletter content error:', e);
-        res.status(500).send('서버 오류');
-    }
+    const slug  = req.params.slug.replace(/[^a-zA-Z0-9_\-]/g, '');
+    const issue = NEWSLETTER_ISSUES.find(i => i.slug === slug);
+    if (!issue) return res.status(404).send('Not found');
+    const content = NEWSLETTER_CONTENT[slug];
+    if (!content) return res.status(404).send('파일을 찾을 수 없습니다.');
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.send(content);
 });
 
 // ----------------------------------------------------
