@@ -77,6 +77,11 @@
     .leaflet-territory-pane {
         mix-blend-mode: multiply;
     }
+    /* 🌑 다크모드에서는 multiply → screen 으로 전환
+       (검정 배경에 multiply하면 모든 색이 검정이 되므로, screen으로 밝게 합성) */
+    body.dark-map .leaflet-territory-pane {
+        mix-blend-mode: screen;
+    }
     /* Leaflet 기본 파란색 path 스타일 완전 차단 — JS style 옵션이 적용되기 전 원색 깜빡임 방지 */
     .leaflet-territory-pane svg path {
         fill: transparent;
@@ -7256,6 +7261,11 @@ body.force-mobile .marker-type-selector button {
         position: 'topright',
         collapsed: true
     }).addTo(map);
+
+    // 🌑 Leaflet 레이어 컨트롤로 타일 전환 시 dark-map 클래스 동기화
+    map.on('baselayerchange', function(e) {
+        document.body.classList.toggle('dark-map', e.name === '다크모드');
+    });
     
     // 🚩 [제거] 연대표 토글 이벤트 리스너 (overlayMaps에서 제거됨)
     
@@ -22180,6 +22190,10 @@ kingSelect.addEventListener('change', () => {
                         mapEl.style.filter = '';
                     }
                 }
+
+                // 🌑 다크모드 여부에 따라 영토 블렌딩 모드 전환
+                // multiply(밝은 배경) ↔ screen(어두운 배경)
+                document.body.classList.toggle('dark-map', newLayerKey === '다크모드');
 
                 // 모바일 버튼 상태 업데이트
                 if (satelliteBtn) {
