@@ -1503,6 +1503,93 @@ app.get('/api/newsletter/:slug', (req, res) => {
 });
 
 // ----------------------------------------------------
+// 📍 NEARBY API — 특정 좌표 반경 내 성/사료 검색
+// ----------------------------------------------------
+app.get('/api/nearby', async (req, res) => {
+    try {
+        const lat    = parseFloat(req.query.lat);
+        const lng    = parseFloat(req.query.lng);
+        const radius = parseFloat(req.query.radius) || 100; // km
+        const type   = req.query.type || 'both';            // 'castle' | 'contrib' | 'both'
+        const limit  = Math.min(parseInt(req.query.limit) || 50, 200);
+
+        if (isNaN(lat) || isNaN(lng)) {
+            return res.status(400).json({ error: 'lat, lng 파라미터가 필요합니다.' });
+        }
+
+        // Haversine 거리 계산 (km)
+        const haversine = (lat1, lng1, lat2, lng2) => {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            const a = Math.sin(dLat/2)**2 +
+                      Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) *
+                      Math.sin(dLng/2)**2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        };
+
+        // 위/경도 bounding box 사전 필터 (radius km → 대략적 도(°) 변환)
+        const latDelta = radius / 111;
+        const lngDelta = radius / (111 * Math.cos(lat * Math.PI / 180));
+        const bbox = {
+            lat: { $gte: lat - latDelta, $lte: lat + latDelta },
+            lng: { $gte: lng - lngDelta, $lte: lng + lngDelta }
+        };
+
+        let castleResults = [];
+        let contribResults = [];
+
+        // ── 성/유적 검색 ──────────────────────────────────────────
+        if (type === 'castle' || type === 'both') {
+            const docs = await collections.castle.find({
+                ...bbox,
+                $or: [{ deleted: { $exists: false } }, { deleted: false }]
+            }, {
+                projection: { name: 1, lat: 1, lng: 1, start_year: 1, end_year: 1,
+                              built_year: 1, destroyed_year: 1, label_type: 1 }
+            }).toArray();
+
+            castleResults = docs
+                .map(c => ({
+                    ...c,
+                    distanceKm: Math.round(haversine(lat, lng, c.lat, c.lng) * 10) / 10
+                }))
+                .filter(c => c.distanceKm <= radius)
+                .sort((a, b) => a.distanceKm - b.distanceKm)
+                .slice(0, limit);
+        }
+
+        // ── 사료(기여) 검색 ───────────────────────────────────────
+        if (type === 'contrib' || type === 'both') {
+            const docs = await collections.contributions.find({
+                ...bbox,
+                lat:      { $exists: true, $ne: null },
+                lng:      { $exists: true, $ne: null },
+                category: { $ne: 'historical_record' },
+                status:   { $in: ['approved', 'pending', null, undefined] }
+            }, {
+                projection: { name: 1, lat: 1, lng: 1, category: 1,
+                              start_year: 1, end_year: 1, year: 1, status: 1 }
+            }).toArray();
+
+            contribResults = docs
+                .map(c => ({
+                    ...c,
+                    distanceKm: Math.round(haversine(lat, lng, c.lat, c.lng) * 10) / 10
+                }))
+                .filter(c => c.distanceKm <= radius)
+                .sort((a, b) => a.distanceKm - b.distanceKm)
+                .slice(0, limit);
+        }
+
+        res.json({ castles: castleResults, contributions: contribResults });
+    } catch (err) {
+        console.error('GET /api/nearby 오류:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ----------------------------------------------------
 // �👑 KINGS (왕) API 엔드포인트 (수정된 로직)
 // ----------------------------------------------------
 
