@@ -7025,8 +7025,8 @@ body.force-mobile .marker-type-selector button {
                 return _territoryStyleCache.get(cacheKey);
             }
 
-            // mix-blend-mode: multiply 합성으로 지형이 비쳐보이므로 opacity 약간 높임
-            const baseOpacity = isProvince ? 0.38 : 0.52;
+            // 🔑 province/city 모두 동일한 fillOpacity — level별 차이가 얼룩 원인 중 하나
+            const baseOpacity = 0.42;
             // 🔑 [개선] countryInfo가 null (국가 로딩 중)이면 회색 fallback 표시
             const baseColor = countryInfo && countryInfo.color ? countryInfo.color : '#888888';
 
@@ -7044,27 +7044,31 @@ body.force-mobile .marker-type-selector button {
                 colorForUse = '#a0b8cc';
             }
 
+            // 🔑 stroke를 fill과 동일한 색 + 낮은 opacity로 설정
+            //    → 같은 국가 영토 내부 경계에서 stroke가 누적되어 얼룩지는 현상 방지
+            //    province/city 모두 동일한 fillOpacity 사용 (level별 차이 제거)
+            const strokeOpacity = 0.35; // 경계선은 얇고 연하게 — 내부 경계 누적 방지
             let result;
             switch (mode) {
                 case 'ethnicity': {
                     const eth = countryInfo && countryInfo.ethnicity ? countryInfo.ethnicity : (countryInfo && countryInfo.name ? countryInfo.name : 'unknown');
                     const color = elegantColor(Array.isArray(eth) ? hashStringToColor(eth.join(',')) : hashStringToColor(String(eth)));
-                    result = { color: color, weight: 1, opacity: 0.85, fillColor: color, fillOpacity: baseOpacity };
+                    result = { color: color, weight: 0.5, opacity: strokeOpacity, fillColor: color, fillOpacity: baseOpacity };
                     break;
                 }
                 case 'random': {
                     const color = elegantColor(seededColor(territory._id ? String(territory._id) : (territory.name || 'territory')));
-                    result = { color: color, weight: 1, opacity: 0.85, fillColor: color, fillOpacity: baseOpacity };
+                    result = { color: color, weight: 0.5, opacity: strokeOpacity, fillColor: color, fillOpacity: baseOpacity };
                     break;
                 }
                 case 'grayscale': {
                     const color = toGrayscale(colorForUse);
-                    result = { color: color, weight: 1, opacity: 0.85, fillColor: color, fillOpacity: baseOpacity };
+                    result = { color: color, weight: 0.5, opacity: strokeOpacity, fillColor: color, fillOpacity: baseOpacity };
                     break;
                 }
                 case 'country':
                 default: {
-                    result = { color: colorForUse, weight: 1, opacity: 0.85, fillColor: colorForUse, fillOpacity: baseOpacity };
+                    result = { color: colorForUse, weight: 0.5, opacity: strokeOpacity, fillColor: colorForUse, fillOpacity: baseOpacity };
                     break;
                 }
             }
@@ -9926,6 +9930,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 
                 const tBounds = getTerritoryBounds(territory);
                 if (tBounds && (tBounds.maxLat < viewBox.minLat || tBounds.minLat > viewBox.maxLat || tBounds.maxLng < viewBox.minLng || tBounds.minLng > viewBox.maxLng)) {
+                    if (/Jilin|Changchun|Baicheng|길림|창춘|바이청/.test(territory.name || '')) {
+                        console.log('[OUTOFVIEW]', territory.name, JSON.stringify(tBounds), '뷰:', JSON.stringify(viewBox));
+                    }
                     skipReasons.outOfView++;
                     return;
                 }
@@ -9936,6 +9943,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 // 🚀 [v3.6] 캐시된 국가 계산 사용
                 const dominantResult = getCachedDominantCountry(territory, year, month);
                 if (!dominantResult) {
+                    if (/Jilin|Changchun|Baicheng|길림|창춘|바이청/.test(territory.name || '')) {
+                        console.log('[NO_COUNTRY]', territory.name, '→ dominantCountry=null (성 없음)');
+                    }
                     // 🗺️ castle 없는 territory → 중립 배경 레이어로 표시
                     // 민족/국가 필터 적용 시에는 중립 영역도 제외
                     if (selectedEthnicity !== 'all' || selectedCountryId !== 'all') {
@@ -10078,91 +10088,107 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     return b.area - a.area;
                 });
 
-                // 3) countryId별 "이미 렌더링된 province/country ring" 추적
-                //    city는 같은 countryId의 province ring에 흡수되면 skip
-                const provinceRingsByCountry = new Map(); // countryId → [[lat,lng], ...][]
+                // 3) countryId별 ring 추적
+                //    country ring → province 흡수 판정
+                //    country+province ring → city 흡수 판정
+                const countryRingsByCountry  = new Map(); // countryId → rings[] (country 레벨만)
+                const provinceRingsByCountry = new Map(); // countryId → rings[] (country+province 레벨)
 
-                // 4) countryId별로 최종 feature를 모아서 한 번에 L.geoJSON 생성
+                // 4) 국가별로 최종 feature 수집 (country→province→city 정렬된 allItems 순서 유지)
+                //    같은 색이면 상위 레벨에 흡수 → alpha 누적 얼룩 방지
                 const finalByCountry = new Map(); // countryId → { features[], style }
+                const finalUnowned = { features: [], style: null };
+
+                // 🐛 [DEBUG] 길림 지역 영토 흡수 로그
+                const _debugNames = ['Jilin','Changchun','길림','창춘'];
+                const _debugItems = allItems.filter(x => _debugNames.some(n => (x.f.properties?.name||'').includes(n)));
+                if (_debugItems.length) {
+                    console.log('[ABSORB DEBUG] 길림/창춘 items (정렬 후):');
+                    _debugItems.forEach(x => console.log('  level:', x.level, 'area:', x.area.toFixed(2), 'name:', x.f.properties?.name, 'countryId:', x.countryId));
+                }
 
                 for (const { f, countryId, style, level } of allItems) {
                     const geom = f.geometry;
+
+                    // 🗺️ 중립 영역(__unowned__)은 absorbed 로직 건너뜀 — 모두 표시
+                    if (countryId === '__unowned__') {
+                        if (!finalUnowned.style) finalUnowned.style = style;
+                        finalUnowned.features.push(f);
+                        continue;
+                    }
+
                     if (!geom) {
                         if (!finalByCountry.has(countryId)) finalByCountry.set(countryId, { features: [], style });
                         finalByCountry.get(countryId).features.push(f);
                         continue;
                     }
 
-                    // 🗺️ 중립 영역(__unowned__)은 absorbed 로직 건너뜀 — 모두 표시
-                    if (countryId === '__unowned__') {
-                        if (!finalByCountry.has(countryId)) finalByCountry.set(countryId, { features: [], style });
-                        finalByCountry.get(countryId).features.push(f);
-                        continue;
-                    }
-
-                    // province/country level은 항상 표시 (absorbed skip 없음)
-                    const isProvincePlus = (level === 'province' || level === 'country');
-
-                    if (!isProvincePlus) {
-                        // city: 같은 countryId의 province ring에 centroid가 있으면 skip
+                    // centroid 계산 헬퍼
+                    const getCentroid = (g) => {
                         let coords;
-                        if (geom.type === 'Polygon') coords = geom.coordinates[0];
-                        else if (geom.type === 'MultiPolygon') coords = (geom.coordinates[0] || [[]])[0];
-                        if (coords && coords.length >= 3) {
-                            const len = Math.min(coords.length, 60);
-                            let sumLng = 0, sumLat = 0;
-                            for (let i = 0; i < len; i++) { sumLng += coords[i][0]; sumLat += coords[i][1]; }
-                            const cLat = sumLat / len, cLng = sumLng / len;
-                            const pRings = provinceRingsByCountry.get(countryId) || [];
-                            let absorbed = false;
-                            for (const ring of pRings) {
-                                if (isPointInPolygon([cLat, cLng], ring)) { absorbed = true; break; }
-                            }
-                            if (absorbed) continue;
+                        if (g.type === 'Polygon') coords = g.coordinates[0];
+                        else if (g.type === 'MultiPolygon') coords = (g.coordinates[0] || [[]])[0];
+                        if (!coords || coords.length < 3) return null;
+                        const len = Math.min(coords.length, 60);
+                        let sLng = 0, sLat = 0;
+                        for (let i = 0; i < len; i++) { sLng += coords[i][0]; sLat += coords[i][1]; }
+                        return [sLat / len, sLng / len];
+                    };
+
+                    // ring 등록 헬퍼
+                    const pushRings = (map, key, g) => {
+                        if (!map.has(key)) map.set(key, []);
+                        const rings = map.get(key);
+                        if (g.type === 'Polygon') rings.push(g.coordinates[0].map(c => [c[1], c[0]]));
+                        else if (g.type === 'MultiPolygon') {
+                            for (const poly of g.coordinates) { if (poly[0]) rings.push(poly[0].map(c => [c[1], c[0]])); }
                         }
+                    };
+
+                    if (level === 'country') {
+                        // country: ring 등록만 (province/city 흡수 판정에 사용), bucket에도 추가
+                        pushRings(countryRingsByCountry,  countryId, geom);
+                        pushRings(provinceRingsByCountry, countryId, geom);
+                    } else if (level === 'province') {
+                        // province: country ring 안에 centroid가 있으면 skip (색이 같아서 이중 paint)
+                        const centroid = getCentroid(geom);
+                        if (centroid) {
+                            const cRings = countryRingsByCountry.get(countryId) || [];
+                            if (cRings.some(ring => isPointInPolygon(centroid, ring))) {
+                                if (_debugNames.some(n => (f.properties?.name||'').includes(n))) console.log('[ABSORB DEBUG] province SKIPPED (in country ring):', f.properties?.name);
+                                continue;
+                            }
+                        }
+                        // skip 안 됐으면 ring 등록 (city 흡수 판정에 사용)
+                        pushRings(provinceRingsByCountry, countryId, geom);
                     } else {
-                        // province/country: ring을 등록 (나중에 같은 국가 city가 흡수 판정에 사용)
-                        if (!provinceRingsByCountry.has(countryId)) provinceRingsByCountry.set(countryId, []);
-                        const rings = provinceRingsByCountry.get(countryId);
-                        if (geom.type === 'Polygon') {
-                            rings.push(geom.coordinates[0].map(c => [c[1], c[0]]));
-                        } else if (geom.type === 'MultiPolygon') {
-                            for (const poly of geom.coordinates) {
-                                if (poly[0]) rings.push(poly[0].map(c => [c[1], c[0]]));
+                        // city: country+province ring 안에 centroid가 있으면 skip
+                        const centroid = getCentroid(geom);
+                        if (centroid) {
+                            const pRings = provinceRingsByCountry.get(countryId) || [];
+                            if (pRings.some(ring => isPointInPolygon(centroid, ring))) {
+                                if (_debugNames.some(n => (f.properties?.name||'').includes(n))) console.log('[ABSORB DEBUG] city SKIPPED (in province ring):', f.properties?.name);
+                                continue;
                             }
                         }
                     }
 
+                    // bucket에 수집
                     if (!finalByCountry.has(countryId)) finalByCountry.set(countryId, { features: [], style });
                     finalByCountry.get(countryId).features.push(f);
                 }
 
-                // 5) 렌더링 순서: __unowned__ → province/country → city 순서로 레이어 추가
-                //    (province가 먼저 깔리고, city가 그 위에 덮임)
-                const provinceKeys = [];
-                const cityKeys = [];
-                for (const { countryId, level } of allItems) {
-                    const isProv = (level === 'province' || level === 'country');
-                    if (isProv && !provinceKeys.includes(countryId) && countryId !== '__unowned__') provinceKeys.push(countryId);
-                    if (!isProv && !cityKeys.includes(countryId) && countryId !== '__unowned__') cityKeys.push(countryId);
-                }
-                const orderedKeys = ['__unowned__', ...provinceKeys, ...cityKeys.filter(k => !provinceKeys.includes(k)), ...cityKeys.filter(k => provinceKeys.includes(k))];
-                for (const countryId of orderedKeys) {
-                    const entry = finalByCountry.get(countryId);
-                    if (!entry || entry.features.length === 0) continue;
-                    const featureCollection = { type: 'FeatureCollection', features: entry.features };
-                    const groupOpacity = entry.style.fillOpacity || 0.3;
-                    const pathStyle = Object.assign({}, entry.style, {
-                        fillOpacity: groupOpacity,
-                        opacity: entry.style.opacity || 0.6
-                    });
-                    const countryLayer = L.geoJSON(featureCollection, {
-                        style: pathStyle,
-                        renderer: sharedRenderer,
-                        pane: 'territoryPane'
-                    });
-                    territoryLayerGroup.addLayer(countryLayer);
-                }
+                // 5) 렌더링: __unowned__ → 각 국가 (province+city 합산, 1번만 그림)
+                const renderBucket = (bucket) => {
+                    if (!bucket || bucket.features.length === 0) return;
+                    const pathStyle = Object.assign({}, bucket.style);
+                    territoryLayerGroup.addLayer(L.geoJSON(
+                        { type: 'FeatureCollection', features: bucket.features },
+                        { style: pathStyle, renderer: sharedRenderer, pane: 'territoryPane' }
+                    ));
+                };
+                if (finalUnowned.style) renderBucket(finalUnowned);
+                for (const entry of finalByCountry.values()) renderBucket(entry);
             };
 
             // 레벨 구분 없이 전체 렌더링
@@ -14337,54 +14363,79 @@ function invalidateCountryLookupCache() {
               return la !== lb ? la - lb : b.area - a.area;
           });
 
-          const provinceRings = new Map();
-          const finalByCountry = new Map();
+          const countryRings2  = new Map(); // countryId → rings[] (country 레벨만)
+          const provinceRings2 = new Map(); // countryId → rings[] (country+province 레벨)
+          const finalByCountry2 = new Map(); // countryId → { features[], style }
+          const finalUnowned2  = { features: [], style: null };
+
+          // centroid 계산 헬퍼
+          const getCentroid2 = (g) => {
+              let coords;
+              if (g.type === 'Polygon') coords = g.coordinates[0];
+              else if (g.type === 'MultiPolygon') coords = (g.coordinates[0] || [[]])[0];
+              if (!coords || coords.length < 3) return null;
+              const len = Math.min(coords.length, 60);
+              let sLng = 0, sLat = 0;
+              for (let i = 0; i < len; i++) { sLng += coords[i][0]; sLat += coords[i][1]; }
+              return [sLat / len, sLng / len];
+          };
+          const pushRings2 = (map, key, g) => {
+              if (!map.has(key)) map.set(key, []);
+              const rings = map.get(key);
+              if (g.type === 'Polygon') rings.push(g.coordinates[0].map(c => [c[1], c[0]]));
+              else if (g.type === 'MultiPolygon') {
+                  for (const poly of g.coordinates) { if (poly[0]) rings.push(poly[0].map(c => [c[1], c[0]])); }
+              }
+          };
+
           for (const { f, countryId, style, level } of allItems) {
               const geom = f.geometry;
-              if (!geom) {
-                  if (!finalByCountry.has(countryId)) finalByCountry.set(countryId, { features: [], style });
-                  finalByCountry.get(countryId).features.push(f);
-                  continue;
-              }
               if (countryId === '__unowned__') {
-                  if (!finalByCountry.has(countryId)) finalByCountry.set(countryId, { features: [], style });
-                  finalByCountry.get(countryId).features.push(f);
+                  if (!finalUnowned2.style) finalUnowned2.style = style;
+                  finalUnowned2.features.push(f);
                   continue;
               }
-              if (level === 'province' || level === 'country') {
-                  if (!provinceRings.has(countryId)) provinceRings.set(countryId, []);
-                  const rings = provinceRings.get(countryId);
-                  if (geom.type === 'Polygon') rings.push(geom.coordinates[0].map(c => [c[1], c[0]]));
-                  else if (geom.type === 'MultiPolygon') {
-                      for (const poly of geom.coordinates) { if (poly[0]) rings.push(poly[0].map(c => [c[1], c[0]])); }
+              if (!geom) {
+                  if (!finalByCountry2.has(countryId)) finalByCountry2.set(countryId, { features: [], style });
+                  finalByCountry2.get(countryId).features.push(f);
+                  continue;
+              }
+
+              if (level === 'country') {
+                  // country: ring 등록, bucket에 추가
+                  pushRings2(countryRings2,  countryId, geom);
+                  pushRings2(provinceRings2, countryId, geom);
+              } else if (level === 'province') {
+                  // province: country ring 안에 포함되면 skip (같은 색 이중 paint 방지)
+                  const centroid = getCentroid2(geom);
+                  if (centroid) {
+                      const cRings = countryRings2.get(countryId) || [];
+                      if (cRings.some(ring => isPointInPolygon(centroid, ring))) continue;
                   }
+                  pushRings2(provinceRings2, countryId, geom);
               } else {
-                  // city: province 안에 포함되면 skip
-                  let coords = geom.type === 'Polygon' ? geom.coordinates[0]
-                      : geom.type === 'MultiPolygon' ? (geom.coordinates[0] || [[]])[0] : null;
-                  if (coords && coords.length >= 3) {
-                      const len = Math.min(coords.length, 60);
-                      let sLng = 0, sLat = 0;
-                      for (let i = 0; i < len; i++) { sLng += coords[i][0]; sLat += coords[i][1]; }
-                      const cLat = sLat / len, cLng = sLng / len;
-                      const pRings = provinceRings.get(countryId) || [];
-                      if (pRings.some(ring => isPointInPolygon([cLat, cLng], ring))) continue;
+                  // city: country+province ring 안에 포함되면 skip
+                  const centroid = getCentroid2(geom);
+                  if (centroid) {
+                      const pRings = provinceRings2.get(countryId) || [];
+                      if (pRings.some(ring => isPointInPolygon(centroid, ring))) continue;
                   }
               }
-              if (!finalByCountry.has(countryId)) finalByCountry.set(countryId, { features: [], style });
-              finalByCountry.get(countryId).features.push(f);
+
+              if (!finalByCountry2.has(countryId)) finalByCountry2.set(countryId, { features: [], style });
+              finalByCountry2.get(countryId).features.push(f);
           }
 
-          const orderedKeys = ['__unowned__',
-              ...allItems.filter(i => i.level==='province'||i.level==='country').map(i=>i.countryId).filter((v,i,a)=>a.indexOf(v)===i&&v!=='__unowned__'),
-              ...allItems.filter(i => i.level==='city').map(i=>i.countryId).filter((v,i,a)=>a.indexOf(v)===i&&v!=='__unowned__')
-          ];
-          for (const countryId of orderedKeys) {
-              const entry = finalByCountry.get(countryId);
-              if (!entry || entry.features.length === 0) continue;
-              const pathStyle = Object.assign({}, entry.style);
-              territoryLayerGroup.addLayer(L.geoJSON({ type: 'FeatureCollection', features: entry.features }, { style: pathStyle, pane: 'territoryPane' }));
-          }
+          // 렌더링: __unowned__ → 각 국가 (province+city 1번만 그려 alpha 누적 방지)
+          const addBucket2 = (bucket) => {
+              if (!bucket || bucket.features.length === 0) return;
+              territoryLayerGroup.addLayer(L.geoJSON(
+                  { type: 'FeatureCollection', features: bucket.features },
+                  { style: Object.assign({}, bucket.style), pane: 'territoryPane' }
+              ));
+          };
+          if (finalUnowned2.style) addBucket2(finalUnowned2);
+          for (const entry of finalByCountry2.values()) addBucket2(entry);
 
           // 새 레이어가 모두 추가된 뒤 다음 프레임에서 기존 그룹 제거 (깜빡임 방지)
           requestAnimationFrame(() => {

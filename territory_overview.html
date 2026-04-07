@@ -187,7 +187,7 @@
   #edit-msg.ok  { color: #6fcf97; }
   #edit-msg.err { color: #f2994a; }
 
-  /* 편집 버튼 in detail-panel */
+  /* 편집/삭제 버튼 in detail-panel */
   #btn-edit-territory {
     display: block; width: 100%; margin-top: 10px;
     padding: 6px; background: #e94560; color: #fff;
@@ -195,6 +195,49 @@
     font-weight: 600; cursor: pointer; text-align: center;
   }
   #btn-edit-territory:hover { background: #c73652; }
+  #btn-delete-territory {
+    display: block; width: 100%; margin-top: 5px;
+    padding: 6px; background: #3a1010; color: #f87171;
+    border: 1px solid #7f1d1d; border-radius: 5px; font-size: 12px;
+    font-weight: 600; cursor: pointer; text-align: center;
+  }
+  #btn-delete-territory:hover { background: #7f1d1d; color: #fff; }
+
+  /* OSM 코드 칩 */
+  .osm-chip {
+    display: inline-block; background: #0d2a1a; color: #4ade80;
+    border: 1px solid #166534; border-radius: 3px;
+    padding: 1px 6px; font-size: 10px; font-family: monospace;
+    cursor: pointer; user-select: all;
+  }
+  .osm-chip:hover { background: #166534; }
+  .osm-chip-r {
+    display: inline-block; background: #0d1a2a; color: #60a5fa;
+    border: 1px solid #1e40af; border-radius: 3px;
+    padding: 1px 6px; font-size: 10px; font-family: monospace;
+    cursor: pointer; user-select: all;
+  }
+  .osm-chip-r:hover { background: #1e40af; }
+
+  /* 삭제 확인 모달 */
+  #confirm-modal-backdrop {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.8); z-index: 1200;
+    align-items: center; justify-content: center;
+  }
+  #confirm-modal-backdrop.open { display: flex; }
+  #confirm-modal {
+    background: #1a0a0a; border: 1px solid #7f1d1d; border-radius: 10px;
+    width: 360px; max-width: 95vw; padding: 22px; position: relative;
+  }
+  #confirm-modal h2 { font-size: 14px; color: #f87171; margin-bottom: 10px; }
+  #confirm-modal p  { font-size: 12px; color: #ccc; margin-bottom: 16px; line-height: 1.6; }
+  #confirm-msg { font-size: 12px; min-height: 16px; margin-bottom: 8px; }
+  #confirm-msg.ok  { color: #4ade80; }
+  #confirm-msg.err { color: #f87171; }
+  .confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .modal-btn-delete { background: #7f1d1d; color: #fff; }
+  .modal-btn-delete:hover { background: #991b1b; }
 </style>
 </head>
 <body>
@@ -276,6 +319,19 @@
     <div class="edit-actions">
       <button class="modal-btn modal-btn-cancel" onclick="closeLoginModal()">취소</button>
       <button class="modal-btn modal-btn-save" onclick="doLogin()">🔓 로그인</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 삭제 확인 모달 ── -->
+<div id="confirm-modal-backdrop">
+  <div id="confirm-modal">
+    <h2>🗑️ 영토 삭제 확인</h2>
+    <p id="confirm-desc"></p>
+    <div id="confirm-msg"></div>
+    <div class="confirm-actions">
+      <button class="modal-btn modal-btn-cancel" onclick="closeConfirmModal()">취소</button>
+      <button class="modal-btn modal-btn-delete" id="btn-confirm-delete" onclick="doDelete()">🗑️ 삭제</button>
     </div>
   </div>
 </div>
@@ -544,19 +600,40 @@ function highlightItem(id) {
 function showDetail(t, loading = false) {
   const panel = document.getElementById('detail-panel');
   panel.style.display = 'block';
+
+  // OSM 코드 표시 헬퍼
+  let osmHtml = '';
+  if (t.osm_id) {
+    const raw = String(t.osm_id);
+    // r-prefix 버전과 숫자 버전 모두 표시
+    const numId = raw.startsWith('r') ? raw.slice(1) : raw;
+    const rId   = raw.startsWith('r') ? raw : 'r' + raw;
+    osmHtml = `
+    <div class="detail-row">
+      <div class="detail-key">OSM ID</div>
+      <div class="detail-val" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
+        <span class="osm-chip" title="클릭하여 복사" onclick="copyText('${numId}',this)">${numId}</span>
+        <span class="osm-chip-r" title="relation 형식 복사" onclick="copyText('${rId}',this)">${rId}</span>
+        <a href="https://www.openstreetmap.org/relation/${numId}" target="_blank"
+           style="font-size:10px;color:#60a5fa;text-decoration:none;" title="OSM에서 열기">🔗OSM</a>
+      </div>
+    </div>`;
+  }
+
   panel.innerHTML = `
     <h3>${getLabel(t)}</h3>
-    <div class="detail-row"><div class="detail-key">ID</div><div class="detail-val" style="font-size:10px">${t._id}</div></div>
+    <div class="detail-row"><div class="detail-key">ID</div><div class="detail-val" style="font-size:10px;font-family:monospace">${t._id}</div></div>
     <div class="detail-row"><div class="detail-key">타입</div><div class="detail-val">${t.type || '?'}</div></div>
     <div class="detail-row"><div class="detail-key">레벨</div><div class="detail-val">${t.level || '?'}</div></div>
     <div class="detail-row"><div class="detail-key">연도</div><div class="detail-val">${t.start_year ?? '?'} ~ ${t.end_year ?? '?'}</div></div>
-    ${t.code    ? `<div class="detail-row"><div class="detail-key">code</div><div class="detail-val">${t.code}</div></div>` : ''}
-    ${t.osm_id  ? `<div class="detail-row"><div class="detail-key">OSM ID</div><div class="detail-val">${t.osm_id}</div></div>` : ''}
-    ${t.bbox    ? `<div class="detail-row"><div class="detail-key">bbox</div><div class="detail-val" style="font-size:10px">lat ${t.bbox.minLat.toFixed(2)}~${t.bbox.maxLat.toFixed(2)}, lng ${t.bbox.minLng.toFixed(2)}~${t.bbox.maxLng.toFixed(2)}</div></div>` : ''}
+    ${t.code ? `<div class="detail-row"><div class="detail-key">code</div><div class="detail-val">${t.code}</div></div>` : ''}
+    ${osmHtml}
+    ${t.bbox ? `<div class="detail-row"><div class="detail-key">bbox</div><div class="detail-val" style="font-size:10px">lat ${t.bbox.minLat.toFixed(2)}~${t.bbox.maxLat.toFixed(2)}, lng ${t.bbox.minLng.toFixed(2)}~${t.bbox.maxLng.toFixed(2)}</div></div>` : ''}
     <div class="detail-row"><div class="detail-key">Geometry</div>
       <div class="detail-val" style="color:${loading ? '#aaa' : '#4fc3f7'}">${loading ? '⏳ 타일 로딩 중...' : '✅ 타일에서 표시 중'}</div>
     </div>
     <button id="btn-edit-territory" onclick="openEditModal('${t._id}')">✏️ 편집</button>
+    <button id="btn-delete-territory" onclick="openConfirmModal('${t._id}')">🗑️ 삭제</button>
   `;
 }
 
@@ -712,6 +789,88 @@ async function saveEdit() {
 function setEditMsg(msg, cls) {
   const el = document.getElementById('edit-msg');
   el.textContent = msg; el.className = cls;
+}
+
+// ── 클립보드 복사 ──
+function copyText(text, el) {
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = el.textContent;
+    el.textContent = '✓ 복사됨';
+    setTimeout(() => { el.textContent = orig; }, 1200);
+  }).catch(() => {});
+}
+
+// ── 삭제 확인 모달 ──
+let _deleteId = null;
+
+function openConfirmModal(id) {
+  const t = allTerritories.find(x => x._id === id);
+  if (!t) return;
+  _deleteId = id;
+  const osmInfo = t.osm_id ? ` (OSM: ${t.osm_id})` : '';
+  document.getElementById('confirm-desc').innerHTML =
+    `<b style="color:#f87171">${getLabel(t)}</b>${osmInfo}<br>` +
+    `ID: <code style="font-size:10px;color:#aaa">${t._id}</code><br><br>` +
+    `이 영토를 DB에서 영구 삭제합니다. 타일도 즉시 재빌드됩니다.<br>` +
+    `<span style="color:#f87171;font-weight:600;">되돌릴 수 없습니다.</span>`;
+  document.getElementById('confirm-msg').textContent = '';
+  document.getElementById('confirm-msg').className = '';
+  document.getElementById('btn-confirm-delete').disabled = false;
+  document.getElementById('confirm-modal-backdrop').classList.add('open');
+}
+
+function closeConfirmModal() {
+  document.getElementById('confirm-modal-backdrop').classList.remove('open');
+  _deleteId = null;
+}
+
+document.getElementById('confirm-modal-backdrop').addEventListener('click', function(e) {
+  if (e.target === this) closeConfirmModal();
+});
+
+async function doDelete() {
+  if (!_deleteId) return;
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+  if (!token || token === 'null' || token === 'undefined') {
+    closeConfirmModal();
+    openLoginModal(() => {
+      const t = allTerritories.find(x => x._id === _deleteId);
+      if (t) openConfirmModal(_deleteId);
+    });
+    return;
+  }
+
+  const id = _deleteId;
+  const btn = document.getElementById('btn-confirm-delete');
+  const msgEl = document.getElementById('confirm-msg');
+  btn.disabled = true;
+  msgEl.textContent = '삭제 중...'; msgEl.className = '';
+
+  try {
+    const res = await fetch(`${API_BASE}/territories/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      msgEl.textContent = `❌ ${json.message || '삭제 실패'}`; msgEl.className = 'err';
+      btn.disabled = false;
+      return;
+    }
+    msgEl.textContent = '✅ 삭제 완료!'; msgEl.className = 'ok';
+
+    // 로컬 목록에서 제거
+    allTerritories = allTerritories.filter(x => x._id !== id);
+    selectedId = null;
+    document.getElementById('detail-panel').style.display = 'none';
+    geomLayerGroup.clearLayers();
+    renderList(); renderBboxLayer(); updateStats();
+
+    setTimeout(closeConfirmModal, 800);
+  } catch(e) {
+    msgEl.textContent = `❌ 네트워크 오류: ${e.message}`; msgEl.className = 'err';
+    btn.disabled = false;
+  }
 }
 
 // ── 배포 상태 ──
