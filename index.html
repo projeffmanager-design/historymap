@@ -4853,6 +4853,7 @@ body.force-mobile .marker-type-selector button {
           <label><input type="checkbox" id="menu-layer-city" checked> 성/도시</label>
           <label><input type="checkbox" id="menu-layer-territory" checked> 영토</label>
           <label><input type="checkbox" id="menu-layer-country-label" checked> 국가명</label>
+          <label><input type="checkbox" id="menu-layer-admin-label" checked> 행정구역명</label>
           <label><input type="checkbox" id="menu-layer-place-label"> 지명</label>
           <label><input type="checkbox" id="menu-layer-ethnic-label"> 민족</label>
           <label><input type="checkbox" id="menu-layer-military"> 군대</label>
@@ -4952,6 +4953,9 @@ body.force-mobile .marker-type-selector button {
                             <input type="checkbox" class="mobile-layer-checkbox" data-layer="countryLabel" checked style="margin-right: 6px;"> 국가명
                         </label>
                         <label style="display: flex; align-items: center; padding: 4px 0; cursor: pointer; font-size: 11px;">
+                            <input type="checkbox" class="mobile-layer-checkbox" data-layer="adminLabel" checked style="margin-right: 6px;"> 행정구역명
+                        </label>
+                        <label style="display: flex; align-items: center; padding: 4px 0; cursor: pointer; font-size: 11px;">
                             <input type="checkbox" class="mobile-layer-checkbox" data-layer="ethnicLabel" style="margin-right: 6px;"> 민족
                         </label>
                         <label style="display: flex; align-items: center; padding: 4px 0; cursor: pointer; font-size: 11px;">
@@ -5027,6 +5031,7 @@ body.force-mobile .marker-type-selector button {
                 <button type="button" class="layer-toggle-btn" data-layer="city" style="padding: 2px 4px; font-size: 10px;">성도시</button>
                 <button type="button" class="layer-toggle-btn" data-layer="placeLabel" style="padding: 2px 4px; font-size: 10px;">지명</button>
                 <button type="button" class="layer-toggle-btn" data-layer="countryLabel" style="padding: 2px 4px; font-size: 10px;">국가명</button>
+                <button type="button" class="layer-toggle-btn" data-layer="adminLabel" style="padding: 2px 4px; font-size: 10px;">행정구역명</button>
                 <button type="button" class="layer-toggle-btn " data-layer="ethnicLabel" style="padding: 2px 4px; font-size: 10px;">민족</button>
                 <button type="button" class="layer-toggle-btn" data-layer="military" style="padding: 2px 4px; font-size: 10px;">군대</button>
                 <button type="button" class="layer-toggle-btn" data-layer="natural" style="padding: 2px 4px; font-size: 10px;">자연</button>
@@ -6113,7 +6118,7 @@ body.force-mobile .marker-type-selector button {
         <label for="labelType">라벨 타입:</label>
         <select id="labelType">
           <option value="place">지명 (산, 강, 지형)</option>
-          <option value="country">국가명 (고구려, 조선 등)</option>
+          <option value="country">행정구역명 (한성, 요동 등)</option>
           <option value="ethnic">민족 거주지 (한민족, 여진족 등)</option>
         </select>
       </div>
@@ -6843,6 +6848,7 @@ body.force-mobile .marker-type-selector button {
         city: true,         // 🔄 [수정] 성/도시 초기 ON (도시/성 마커 표시)
         placeLabel: true,  // 🔄 [수정] 지명 초기 ON (초보산 등 지명 표시)
         countryLabel: true, // ✨ [수정] 국가명 라벨 초기 ON
+        adminLabel: true,   // ✨ [신규] 행정구역명 라벨 초기 ON
         ethnicLabel: false, // ✨ [신규] 민족 거주지
         military: false,   // 🔄 [최적화] 군대 초기 OFF
         battle: false,     // 🔄 [최적화] 전장 초기 OFF
@@ -9034,21 +9040,20 @@ function getKingByYear(countryName, year, month) {
         // 라벨 타입별 가시성 체크
         const labelType = newCastle.label_type || 'place';
 
-        // 🚩 label_type='country'는 macroCountryLayer에서 영토 기반으로 표시하므로 제외
-        if (labelType === 'country') return;
-
-        let shouldRender = false;
-        if (labelType === 'ethnic') {
-            shouldRender = layerVisibility.ethnicLabel;
+        // 🚩 label_type='country'는 adminLabel 레이어로 제어
+        if (labelType === 'country') {
+            if (!layerVisibility.adminLabel) return;
+            // adminLabel이 켜져 있으면 아래에서 렌더링 진행
         } else {
-            shouldRender = layerVisibility.placeLabel;
-        }
-        
-
-        
-        if (!shouldRender) {
-            // console.log(`  ⏭️ ${labelType} 라벨 레이어가 꺼져있어 표시 안 함`);
-            return;
+            let shouldRender = false;
+            if (labelType === 'ethnic') {
+                shouldRender = layerVisibility.ethnicLabel;
+            } else {
+                shouldRender = layerVisibility.placeLabel;
+            }
+            if (!shouldRender) {
+                return;
+            }
         }
         
         const castleName = newCastle.name;
@@ -9247,7 +9252,7 @@ function getKingByYear(countryName, year, month) {
         const labelType = newCastle.label_type || 'place';
         let shouldRender = false;
         if (labelType === 'country') {
-            shouldRender = layerVisibility.countryLabel;
+            shouldRender = layerVisibility.adminLabel;
         } else if (labelType === 'ethnic') {
             shouldRender = layerVisibility.ethnicLabel;
         } else {
@@ -9371,7 +9376,7 @@ function getKingByYear(countryName, year, month) {
                   if (!isWithinDuration) return;
 
                   // 라벨 가시성 체크
-                  if (!layerVisibility.countryLabel) return;
+                  if (!layerVisibility.adminLabel) return;
 
                   const castleName = castle.name;
                   let marker;
@@ -9562,7 +9567,7 @@ function renderImmediateCountryLabels(year, month) {
     // console.log('🚩 [초고속 라벨] 전체 라벨 즉시 렌더링 시작');
     
     // 활성화된 레이어 확인
-    const shouldRenderCountry = layerVisibility.countryLabel;
+    const shouldRenderAdmin = layerVisibility.adminLabel;
     const shouldRenderPlace = layerVisibility.placeLabel;
     const shouldRenderEthnic = layerVisibility.ethnicLabel;
     
@@ -9588,16 +9593,13 @@ function renderImmediateCountryLabels(year, month) {
         const labelType = label.label_type || 'place';
         let shouldRender = false;
         
-        // � label_type='country'는 macroCountryLayer에서 영토 기반으로 표시하므로 여기서 제외
-        if (labelType === 'country') return;
-
-        // �🚀 [v2.0.5] 초기 로딩 시 중요 라벨 강제 표시
+        // 🚀 [v2.0.5] 초기 로딩 시 중요 라벨 강제 표시
         // importance가 3 이상인 라벨은 레이어 설정과 무관하게 표시
         const importance = label.importance || 0;
         const forceShow = false; // 초기 로딩 시에도 토글 버튼으로 제어
         
         if (labelType === 'country') {
-            shouldRender = shouldRenderCountry;
+            shouldRender = shouldRenderAdmin;
         } else if (labelType === 'ethnic') {
             shouldRender = shouldRenderEthnic;
         } else {
@@ -10775,23 +10777,24 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 return;
             }
             
-            // 🏷️ [최우선] 라벨은 history 배열이 없으므로 먼저 처리
+                // 🏷️ [최우선] 라벨은 history 배열이 없으므로 먼저 처리
             if (castle.is_label) {
                 const labelType = castle.label_type || 'place';
 
-                // 🚩 label_type='country'는 macroCountryLayer에서 영토 기반으로 표시하므로 제외
-                if (labelType === 'country') return;
-
-                let shouldRender = false;
-                if (labelType === 'ethnic') {
-                    shouldRender = layerVisibility.ethnicLabel;
+                // 🚩 label_type='country'는 adminLabel 레이어로 제어
+                if (labelType === 'country') {
+                    if (!layerVisibility.adminLabel) return;
+                    // adminLabel 켜져있으면 아래에서 렌더링 진행
                 } else {
-                    shouldRender = layerVisibility.placeLabel;
-                }
-                
-                if (!shouldRender) return;
-                
-                // 라벨의 시간 범위 체크 (built_year/destroyed_year 사용)
+                    let shouldRender = false;
+                    if (labelType === 'ethnic') {
+                        shouldRender = layerVisibility.ethnicLabel;
+                    } else {
+                        shouldRender = layerVisibility.placeLabel;
+                    }
+                    
+                    if (!shouldRender) return;
+                }                // 라벨의 시간 범위 체크 (built_year/destroyed_year 사용)
                 const startYear = castle.start_year || castle.built_year || -Infinity;
                 const endYear = castle.end_year || castle.destroyed_year || Infinity;
                 const isWithinDuration = startYear <= year && endYear >= year;
@@ -11873,6 +11876,7 @@ function invalidateCountryLookupCache() {
                 'menu-layer-city': 'city',
                 'menu-layer-territory': 'territoryPolygon',
                 'menu-layer-country-label': 'countryLabel',
+                'menu-layer-admin-label': 'adminLabel',
                 'menu-layer-place-label': 'placeLabel',
                 'menu-layer-ethnic-label': 'ethnicLabel',
                 'menu-layer-military': 'military',
@@ -20817,6 +20821,7 @@ kingSelect.addEventListener('change', () => {
             'menu-layer-city': 'city',
             'menu-layer-territory': 'territoryPolygon',
             'menu-layer-country-label': 'countryLabel',
+            'menu-layer-admin-label': 'adminLabel',
             'menu-layer-place-label': 'placeLabel',
             'menu-layer-ethnic-label': 'ethnicLabel',
             'menu-layer-military': 'military',
@@ -21975,28 +21980,35 @@ kingSelect.addEventListener('change', () => {
                         }
                     }
                 } else {
-                    // 즉시 라벨 레이어(국가/지명/민족) 끔 처리: 라벨 마커를 즉시 제거하여 UI 불일치 방지
-                    if (layerType === 'countryLabel' || layerType === 'placeLabel' || layerType === 'ethnicLabel') {
-                        // 🚩 [과제1] countryLabel/ethnicLabel 토글 시 거시 모드 국가명도 갱신
-                        if ((layerType === 'countryLabel' || layerType === 'ethnicLabel') && currentMacroMode !== undefined) {
+                    // 즉시 라벨 레이어(국가/행정구역/지명/민족) 끔 처리: 라벨 마커를 즉시 제거하여 UI 불일치 방지
+                    if (layerType === 'countryLabel' || layerType === 'adminLabel' || layerType === 'placeLabel' || layerType === 'ethnicLabel') {
+                        // 🚩 countryLabel 토글 시 거시 모드 국가명 갱신 (renderMacroCountryNames만 담당)
+                        if (layerType === 'countryLabel' && currentMacroMode !== undefined) {
                             renderMacroCountryNames();
                         }
-                        try {
-                            const labelKind = layerType === 'countryLabel' ? 'country' : (layerType === 'placeLabel' ? 'place' : 'ethnic');
-                            for (let i = allCastleMarkers.length - 1; i >= 0; i--) {
-                                const m = allCastleMarkers[i];
-                                const d = m?._castleData;
-                                if (!d) continue;
-                                const isLabel = !!d.is_label;
-                                const lt = d.label_type || (isLabel ? 'place' : null);
-                                if (isLabel && lt === labelKind) {
-                                    if (map.hasLayer(m)) map.removeLayer(m);
-                                    // also remove from labelLayerGroup if present
-                                    try { labelLayerGroup.removeLayer(m); } catch(e) {}
-                                    allCastleMarkers.splice(i, 1);
+                        // 🚩 ethnicLabel 토글 시도 거시 모드 갱신
+                        if (layerType === 'ethnicLabel' && currentMacroMode !== undefined) {
+                            renderMacroCountryNames();
+                        }
+                        // adminLabel/placeLabel/ethnicLabel: 마커 즉시 제거
+                        if (layerType !== 'countryLabel') {
+                            try {
+                                const labelKind = layerType === 'adminLabel' ? 'country' : (layerType === 'placeLabel' ? 'place' : 'ethnic');
+                                for (let i = allCastleMarkers.length - 1; i >= 0; i--) {
+                                    const m = allCastleMarkers[i];
+                                    const d = m?._castleData;
+                                    if (!d) continue;
+                                    const isLabel = !!d.is_label;
+                                    const lt = d.label_type || (isLabel ? 'place' : null);
+                                    if (isLabel && lt === labelKind) {
+                                        if (map.hasLayer(m)) map.removeLayer(m);
+                                        // also remove from labelLayerGroup if present
+                                        try { labelLayerGroup.removeLayer(m); } catch(e) {}
+                                        allCastleMarkers.splice(i, 1);
+                                    }
                                 }
-                            }
-                        } catch (err) { console.warn('라벨 즉시 제거 중 오류:', err); }
+                            } catch (err) { console.warn('라벨 즉시 제거 중 오류:', err); }
+                        }
                     }
                      const { year, month } = getCurrentYearMonth();
                      updateMap(year, month);
