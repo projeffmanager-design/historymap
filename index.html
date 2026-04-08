@@ -4886,6 +4886,8 @@ body.force-mobile .marker-type-selector button {
               <button id="menu-historyEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">📜 역사 기록 편집</button>
               <button id="menu-trashBtn" style="background: rgba(243,156,18,0.1); border-color: #f39c12; color: #f39c12;">🗑️ 휴지통</button>
               <hr style="border: 0; border-top: 1px solid #5d7185; margin: 8px 0;">
+              <button id="menu-rebuild-db" style="background: rgba(155,89,182,0.1); border-color: #9b59b6; color: #9b59b6;">🗄️ 서버 DB 동기화</button>
+              <hr style="border: 0; border-top: 1px solid #5d7185; margin: 8px 0;">
               <button id="menu-exitEditBtn" style="background: rgba(231,76,60,0.1); border-color: #e74c3c; color: #e74c3c;">🚪 편집모드 종료</button>
               <hr style="border: 0; border-top: 1px solid #5d7185; margin: 8px 0;">
           </div>
@@ -21313,7 +21315,77 @@ kingSelect.addEventListener('change', () => {
             });
         }
         
-        // 🚩 [수정] 햄버거 메뉴 - 로그아웃 버튼 → 2단계 확인 모달
+        // �️ [admin] 서버 DB 동기화 버튼 — castles.json / territories 재빌드
+        const menuRebuildDbBtn = document.getElementById('menu-rebuild-db');
+        if (menuRebuildDbBtn) {
+            menuRebuildDbBtn.addEventListener('click', async () => {
+                toggleHamburgerMenu();
+
+                const confirmed = confirm(
+                    '🗄️ 서버 DB 동기화\n\n' +
+                    'MongoDB 최신 데이터로 서버의 castles.json을 재빌드합니다.\n' +
+                    '(Vercel 프로덕션에서 수정한 내용을 로컬 서버에 반영할 때 사용)\n\n' +
+                    '시간이 1~5분 소요될 수 있습니다. 계속하시겠습니까?'
+                );
+                if (!confirmed) return;
+
+                menuRebuildDbBtn.disabled = true;
+                menuRebuildDbBtn.textContent = '🗄️ 재빌드 중...';
+
+                try {
+                    // castles.json 재빌드
+                    showLoadingStatus('서버 castles.json 재빌드 중...', 10);
+                    const castleRes = await fetch(`${API_BASE_URL}/admin/rebuild-castles`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+
+                    if (!castleRes.ok) {
+                        const err = await castleRes.json().catch(() => ({}));
+                        throw new Error(err.message || `castles 재빌드 실패 (${castleRes.status})`);
+                    }
+                    const castleResult = await castleRes.json();
+                    console.log('✅ castles.json 재빌드 완료:', castleResult);
+                    showLoadingStatus('castles.json 재빌드 완료 — 클라이언트 캐시 갱신 중...', 60);
+
+                    // 클라이언트 캐시도 즉시 무효화 (재빌드된 데이터를 바로 받아옴)
+                    const freshCastlesRes = await fetch(`${API_BASE_URL}/castle`, {
+                        headers: { 'Authorization': `Bearer ${token}` },
+                        cache: 'no-store'
+                    });
+                    if (freshCastlesRes.ok) {
+                        castles = await freshCastlesRes.json();
+                        await saveCastlesCache(castles);
+                        console.log(`✅ 클라이언트 castles 캐시 갱신: ${castles.length}개`);
+                    }
+
+                    showLoadingStatus('지도 재렌더링 중...', 90);
+                    requestUpdateMap(true);
+                    if (typeof renderImmediateCountryLabels === 'function') {
+                        const { year, month } = getCurrentYearMonth();
+                        renderImmediateCountryLabels(year, month);
+                    }
+
+                    showLoadingStatus('완료!', 100);
+                    setTimeout(() => hideLoadingStatus(), 1000);
+
+                    if (typeof showToast === 'function') {
+                        showToast(`✅ 서버 DB 동기화 완료! (castles ${castles.length}개)`, 'success');
+                    } else {
+                        alert(`✅ 서버 DB 동기화 완료!\ncastles: ${castles.length}개`);
+                    }
+                } catch (error) {
+                    console.error('❌ 서버 DB 동기화 오류:', error);
+                    hideLoadingStatus();
+                    alert(`❌ 동기화 실패: ${error.message}`);
+                } finally {
+                    menuRebuildDbBtn.disabled = false;
+                    menuRebuildDbBtn.textContent = '🗄️ 서버 DB 동기화';
+                }
+            });
+        }
+
+        // �🚩 [수정] 햄버거 메뉴 - 로그아웃 버튼 → 2단계 확인 모달
         const menuLogoutBtn = document.getElementById('menu-logout');
         if (menuLogoutBtn) {
             menuLogoutBtn.addEventListener('click', () => {
