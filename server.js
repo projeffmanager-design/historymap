@@ -455,6 +455,17 @@ async function setupRoutesAndCollections() {
         const CASTLE_CACHE_TTL = 6 * 60 * 60 * 1000; // 6시간
         const CASTLE_STATIC_FILE = path.join(__dirname, 'public', 'castles.json');
 
+        // 🔔 [v3.9] 마지막 castle 데이터 변경 시각 — 클라이언트 캐시 무효화용
+        // 서버 재시작 시엔 castles.json mtime 기반으로 초기화
+        let _castleLastModified = (() => {
+            try {
+                if (fs.existsSync(CASTLE_STATIC_FILE)) {
+                    return fs.statSync(CASTLE_STATIC_FILE).mtimeMs;
+                }
+            } catch (e) {}
+            return Date.now();
+        })();
+
         // 🚀 [v3.6] 정적 파일에서 즉시 캐시 주입 (밀리초) — MongoDB 쿼리 없이 서버 시작
         (function preloadCastleFromFile() {
             if (fs.existsSync(CASTLE_STATIC_FILE)) {
@@ -513,6 +524,7 @@ async function setupRoutesAndCollections() {
                 }
 
                 fs.writeFileSync(CASTLE_STATIC_FILE, JSON.stringify(arr));
+                _castleLastModified = Date.now();
                 console.log(`✏️ [즉시 패치] castles.json ${op} — ID: ${idStr}`);
             } catch (e) {
                 console.warn('⚠️ castles.json 즉시 패치 실패 (무시, 배치로 보완):', e.message);
@@ -549,6 +561,7 @@ async function setupRoutesAndCollections() {
                 // 메모리 캐시도 동시 갱신
                 _castleCache = castles;
                 _castleCacheTime = Date.now();
+                _castleLastModified = Date.now();
                 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
                 console.log(`✅ [재빌드 완료] castles.json 갱신: ${castles.length}개, ${(json.length/1024/1024).toFixed(1)}MB (${elapsed}초)`);
             } catch (e) {
@@ -866,10 +879,15 @@ async function setupRoutesAndCollections() {
             scheduleNext();
         })();
 
+        // 🔔 [v3.9] GET: castle 데이터 마지막 수정 시각 — 클라이언트 캐시 무효화용
+        // 극초경량(JSON 1줄)이므로 캐시 체크용으로 매 페이지 로드 시 호출해도 무방
+        app.get('/api/castle/version', (req, res) => {
+            res.json({ lastModified: _castleLastModified });
+        });
+
         // GET: 모든 성 정보 반환
         app.get('/api/castle', async (req, res) => { // (collections.castle로 변경)
-            try {
-                // 🚩 [추가] label_type 쿼리 파라미터로 필터링 지원
+            try {                // 🚩 [추가] label_type 쿼리 파라미터로 필터링 지원
                 const { label_type } = req.query;
                 
                 // 🚀 [v3.5] label_type 없는 전체 조회 시 서버 캐시 사용
