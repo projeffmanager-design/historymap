@@ -18972,6 +18972,7 @@ function invalidateCountryLookupCache() {
 
         const event = events.find(ev => ev._id === eventId);
         if (event) {
+            _eventLocationCleared = false; // 🚩 폼 열릴 때 초기화
             document.getElementById('eventMongoId').value = event._id;
             document.getElementById('eventYear').value = event.year;
             document.getElementById('eventMonth').value = event.month || 1;
@@ -19011,15 +19012,25 @@ function invalidateCountryLookupCache() {
 
         const _latVal = parseFloat(document.getElementById('eventLat').value);
         const _lngVal = parseFloat(document.getElementById('eventLng').value);
+        const _historyId = document.getElementById('eventHistoryId').value || null;
         const data = {
             year: parseInt(document.getElementById('eventYear').value),
             month: parseInt(document.getElementById('eventMonth').value) || 1,
             text: document.getElementById('eventText').value,
             photo: document.getElementById('eventPhoto').value || null,
-            lat: isNaN(_latVal) ? null : _latVal,
-            lng: isNaN(_lngVal) ? null : _lngVal,
-            history_id: document.getElementById('eventHistoryId').value || null,
         };
+        // 🚩 lat/lng/history_id는 값이 있을 때만 payload에 포함 (없으면 기존 DB 값 유지)
+        // 단, 명시적으로 "위치 초기화" 버튼을 눌렀다면 null로 삭제
+        if (_eventLocationCleared) {
+            data.lat = null;
+            data.lng = null;
+            data.history_id = null;
+        } else {
+            if (!isNaN(_latVal)) data.lat = _latVal;
+            if (!isNaN(_lngVal)) data.lng = _lngVal;
+            if (_historyId) data.history_id = _historyId;
+        }
+        _eventLocationCleared = false; // 저장 후 플래그 초기화
 
         if (isNaN(data.year) || !data.text) {
             return alert("연도와 이벤트 내용은 필수입니다.");
@@ -19069,6 +19080,7 @@ function invalidateCountryLookupCache() {
     // 📍 이벤트 위치 지도에서 선택 모드
     let _eventLocationPickingActive = false;
     let _eventLocationPickMarker = null;
+    let _eventLocationCleared = false; // 🚩 명시적 위치 삭제 플래그
 
     function _cancelEventLocationPicking() {
         if (!_eventLocationPickingActive) return;
@@ -19133,6 +19145,7 @@ function invalidateCountryLookupCache() {
         document.getElementById('eventLat').value = '';
         document.getElementById('eventLng').value = '';
         document.getElementById('eventHistoryId').value = '';
+        _eventLocationCleared = true; // 🚩 명시적 위치 삭제 플래그
         const msInput = document.getElementById('eventMarkerSearch');
         if (msInput) msInput.value = '';
         const nameDiv = document.getElementById('eventLocationSelectedName');

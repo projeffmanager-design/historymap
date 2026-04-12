@@ -1943,6 +1943,23 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (!event) {
                     return res.status(404).json({ message: "이벤트를 찾을 수 없습니다." });
                 }
+
+                // 🚩 [추가] history_id가 있고 lat/lng가 없으면 castle 좌표 join (전체 조회와 동일)
+                if (event.history_id && (event.lat == null || event.lng == null)) {
+                    try {
+                        const { ObjectId } = require('mongodb');
+                        const castleId = new ObjectId(event.history_id);
+                        const castle = await collections.castle.findOne(
+                            { _id: castleId },
+                            { projection: { _id: 1, lat: 1, lng: 1, name: 1 } }
+                        );
+                        if (castle && castle.lat != null && castle.lng != null) {
+                            event.lat = castle.lat;
+                            event.lng = castle.lng;
+                            event._castle_name = castle.name || null;
+                        }
+                    } catch(e) { /* ObjectId 변환 실패 무시 */ }
+                }
                 
                 res.json(event);
             } catch (error) {
