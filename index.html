@@ -13068,10 +13068,9 @@ function invalidateCountryLookupCache() {
           // 🔑 [핵심] countries 재할당 시 lookup 캐시 강제 무효화
           _countryLookupMap = null;
           
-          // 🚀 [백그라운드 로딩] events를 항상 비동기 로딩 (연대표/사건목록 공용)
-          if (events.length === 0) {
-              console.log('📅 [백그라운드] events 데이터 로딩 시작...');
-              fetchData('events').then(data => {
+          // 🚀 [백그라운드 로딩] events는 항상 서버에서 새로 로드 (castle join 좌표 포함)
+          console.log('📅 [백그라운드] events 데이터 서버에서 로딩 시작...');
+          fetchData('events').then(data => {
                   events = data || [];
                   console.log(`✅ [백그라운드] events ${events.length}개 네트워크에서 로드 완료`);
                   
@@ -13100,13 +13099,6 @@ function invalidateCountryLookupCache() {
                   console.error('❌ [백그라운드] events 로드 실패:', err);
                   events = [];
               });
-          } else if (events.length > 0) {
-              console.log(`♻️ [백그라운드] events 캐시 사용: ${events.length}개 (네트워크 스킵)`);
-              // 캐시된 events로 사이드바 렌더링 시도
-              if (typeof renderEventSidebar === 'function') {
-                  renderEventSidebar();
-              }
-          }
           
           // 🎯 [핵심] castles와 history는 캐시가 없을 때만 초기화 (캐시 데이터 보호!)
           if (castles.length === 0) {
@@ -14007,6 +13999,9 @@ function invalidateCountryLookupCache() {
               } else {
                   console.warn(`⚠️ 메모리에서 찾을 수 없음: ${eventId}`);
               }
+              
+              // 🚩 [추가] 메모리 갱신 후 IndexedDB 캐시도 즉시 갱신 (페이지 갱신 시 캐시에서 로드되므로)
+              await saveEventsCache(events);
               
               const { year, month } = getCurrentYearMonth();
               updateMap(year, month);
