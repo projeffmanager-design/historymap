@@ -7032,7 +7032,7 @@ body.force-mobile .marker-type-selector button {
         countryLabel: true, // ✨ [수정] 국가명 라벨 초기 ON
         adminLabel: true,   // ✨ [신규] 행정구역명 라벨 초기 ON
         ethnicLabel: false, // ✨ [신규] 민족 거주지
-        military: false,   // 🔄 [최적화] 군대 초기 OFF
+        military: true,    // 🔄 군대 초기 ON
         battle: false,     // 🔄 [최적화] 전장 초기 OFF
         natural: true,     // 🔄 [수정] 자연 초기 ON (산·강·바다 등 순수 지형)
         relic: true,       // 🏛️ [신규] 유적 레이어 (고분군·건설·사냥터·성곽 그리기 등)
@@ -8352,6 +8352,11 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     function closeEditPanel(formId) {
         const panel = document.getElementById(formId);
         if (panel) { panel.classList.remove('active'); panel.style.display = 'none'; }
+        // 🚩 eventForm 닫힐 때 지도 위 핀 마커 제거
+        if (formId === 'eventForm' && typeof _eventLocationPickMarker !== 'undefined' && _eventLocationPickMarker) {
+            map.removeLayer(_eventLocationPickMarker);
+            _eventLocationPickMarker = null;
+        }
         // 모든 편집 패널이 닫혔는지 확인 후 오버레이 제거
         const anyOpen = EDIT_PANEL_IDS.some(id => {
             const el = document.getElementById(id);
@@ -8996,7 +9001,7 @@ function getKingByYear(countryName, year, month) {
             }
             eventOverlay.classList.add('visible');
 
-            // 위치 결정: lat/lng 직접 지정 → history_id로 castle 매칭 → 해당 연도 수도 fallback
+            // 위치 결정: lat/lng 직접 지정 → history_id로 castle 매칭 (위치 없으면 이동 안 함)
             const locationHint = document.getElementById('event-overlay-location-hint');
             {
                 let flyLat = currentEvent.lat ?? currentEvent.location?.lat ?? null;
@@ -9013,30 +9018,9 @@ function getKingByYear(countryName, year, month) {
                     }
                 }
 
-                // 🚩 [추가] 여전히 좌표 없으면 해당 연도에 활성화된 수도(capital)로 fallback
-                if ((flyLat == null || flyLng == null) && typeof castles !== 'undefined' && castles.length > 0) {
-                    const capitals = castles.filter(c => {
-                        if (c.lat == null || c.lng == null) return false;
-                        const hist = Array.isArray(c.history) ? c.history : [];
-                        return hist.some(h => h.is_capital && (h.start_year ?? -9999) <= year && (h.end_year ?? 9999) >= year);
-                    });
-                    if (capitals.length > 0) {
-                        // 한반도 중심(37°N, 127°E)에 가장 가까운 수도 선택
-                        const scored = capitals.map(c => {
-                            const dlat = (c.lat - 37), dlng = (c.lng - 127);
-                            return { c, dist: dlat*dlat + dlng*dlng };
-                        });
-                        scored.sort((a, b) => a.dist - b.dist);
-                        const best = scored[0].c;
-                        flyLat = best.lat;
-                        flyLng = best.lng;
-                        flyLabel = best.name || null;
-                    }
-                }
-
                 if (flyLat != null && flyLng != null && !isNaN(flyLat) && !isNaN(flyLng)) {
-                    // 🚩 팝업 표시와 동시에 지도 자동 이동+확대
-                    map.flyTo([flyLat, flyLng], Math.max(map.getZoom(), 8), { animate: true, duration: 1.5 });
+                    // 위치가 있을 때만 지도 이동+확대 (최소 줌 10)
+                    map.flyTo([flyLat, flyLng], Math.max(map.getZoom(), 10), { animate: true, duration: 1.5 });
 
                     if (locationHint) {
                         const newHint = locationHint.cloneNode(true);
@@ -9044,7 +9028,7 @@ function getKingByYear(countryName, year, month) {
                         newHint.style.display = 'block';
                         newHint.addEventListener('click', (e) => {
                             e.stopPropagation();
-                            map.flyTo([flyLat, flyLng], Math.max(map.getZoom(), 8), { animate: true, duration: 1.2 });
+                            map.flyTo([flyLat, flyLng], Math.max(map.getZoom(), 10), { animate: true, duration: 1.2 });
                             eventOverlay.classList.remove('visible');
                             if (eventDisplayTimeout) { clearTimeout(eventDisplayTimeout); eventDisplayTimeout = null; }
                         });
@@ -20695,6 +20679,14 @@ kingSelect.addEventListener('change', () => {
         
         await initialize();
         initializeTopPanelToggle(); // 🚩 [추가] PC 버전 상단 패널 토글 초기화
+
+        // 🚩 [추가] initialize 완료 후 현재 연도 이벤트 재확인 (events 백그라운드 로딩 타이밍 보정)
+        if (typeof checkAndDisplayEvent === 'function' && typeof getCurrentYearMonth === 'function') {
+            setTimeout(() => {
+                const { year: _iy, month: _im } = getCurrentYearMonth();
+                checkAndDisplayEvent(_iy, _im);
+            }, 1500); // 백그라운드 events 로드 완료를 위해 1.5초 후 재확인
+        }
 
         createEthnicityFilters(); // 🚩 [추가] 민족 필터 생성
         createDynastyTimeline(); // 🚩 [수정] 연대표 생성 함수 호출 (내부에서 tick도 생성)
