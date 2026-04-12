@@ -6860,16 +6860,23 @@ body.force-mobile .marker-type-selector button {
             <label for="eventPhoto">사진 URL:</label>
             <input type="text" id="eventPhoto" placeholder="선택 사항">
         </div>
-        <div class="form-row" style="align-items:center;">
-            <label>위치 지정:</label>
-            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; flex:1;">
-                <input type="number" id="eventLat" step="any" placeholder="위도 (예: 37.5665)" style="width:140px; flex:none;">
-                <input type="number" id="eventLng" step="any" placeholder="경도 (예: 126.9780)" style="width:140px; flex:none;">
-                <button type="button" id="eventPickLocationBtn" style="white-space:nowrap; padding:4px 10px; font-size:12px; background:#2980b9; color:#fff; border:none; border-radius:4px; cursor:pointer;">🗺 지도에서 선택</button>
-                <button type="button" id="eventClearLocationBtn" style="white-space:nowrap; padding:4px 8px; font-size:12px; background:#c0392b; color:#fff; border:none; border-radius:4px; cursor:pointer;" title="위치 초기화">✕</button>
+        <div class="form-row" style="align-items:flex-start;">
+            <label style="padding-top:6px;">위치 지정:</label>
+            <div style="display:flex; flex-direction:column; gap:6px; flex:1;">
+                <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                    <input type="number" id="eventLat" step="any" placeholder="위도 (예: 37.5665)" style="width:130px; flex:none;">
+                    <input type="number" id="eventLng" step="any" placeholder="경도 (예: 126.9780)" style="width:130px; flex:none;">
+                    <button type="button" id="eventPickLocationBtn" style="white-space:nowrap; padding:4px 10px; font-size:12px; background:#2980b9; color:#fff; border:none; border-radius:4px; cursor:pointer;">🗺 지도 핀</button>
+                    <button type="button" id="eventClearLocationBtn" style="white-space:nowrap; padding:4px 8px; font-size:12px; background:#c0392b; color:#fff; border:none; border-radius:4px; cursor:pointer;" title="위치 초기화">✕</button>
+                </div>
+                <div style="display:flex; gap:6px; align-items:center; position:relative;">
+                    <input type="text" id="eventMarkerSearch" placeholder="🔍 마커 이름 검색 (성, 지명 등)..." style="flex:1; padding:4px 8px; font-size:12px; border:1px solid #4a6278; border-radius:4px; background:#1e2d3d; color:#ccc;">
+                    <div id="eventMarkerSearchResults" style="display:none; position:absolute; top:100%; left:0; right:0; max-height:160px; overflow-y:auto; background:#1e2d3d; border:1px solid #4a6278; border-radius:4px; z-index:9999; margin-top:2px;"></div>
+                </div>
+                <div id="eventLocationSelectedName" style="display:none; font-size:11px; color:#2ecc71; padding-left:2px;">✅ <span id="eventLocationSelectedNameText"></span></div>
             </div>
         </div>
-        <div id="eventLocationPickingHint" style="display:none; font-size:11px; color:#e67e22; margin-top:-6px; margin-bottom:8px; padding-left:120px; animation: blink 1s step-end infinite;">
+        <div id="eventLocationPickingHint" style="display:none; font-size:11px; color:#e67e22; margin-top:-4px; margin-bottom:8px; padding-left:120px; animation: blink 1s step-end infinite;">
             📍 지도를 클릭하면 해당 위치로 지정됩니다. [ESC]로 취소.
         </div>
         <div style="font-size:11px; color:#7f8c8d; margin-top:-4px; margin-bottom:8px; padding-left:120px;">
@@ -18924,6 +18931,19 @@ function invalidateCountryLookupCache() {
             document.getElementById('eventPhoto').value = event.photo || ''; // 🚩 [추가] 사진 URL 필드 채우기
             document.getElementById('eventLat').value = event.lat ?? '';
             document.getElementById('eventLng').value = event.lng ?? '';
+            // 마커 검색 필드 초기화
+            const msInput = document.getElementById('eventMarkerSearch');
+            if (msInput) msInput.value = '';
+            const nameDiv = document.getElementById('eventLocationSelectedName');
+            const nameText = document.getElementById('eventLocationSelectedNameText');
+            if (nameDiv && nameText) {
+                if (event.lat != null && event.lng != null) {
+                    nameText.textContent = `${event.lat}, ${event.lng}`;
+                    nameDiv.style.display = 'block';
+                } else {
+                    nameDiv.style.display = 'none';
+                }
+            }
             deleteBtn.style.display = 'inline-block';
             saveBtn.textContent = '저장';
         }
@@ -19002,20 +19022,29 @@ function invalidateCountryLookupCache() {
         const hint = document.getElementById('eventLocationPickingHint');
         if (hint) hint.style.display = 'none';
         const btn = document.getElementById('eventPickLocationBtn');
-        if (btn) { btn.textContent = '🗺 지도에서 선택'; btn.style.background = '#2980b9'; }
+        if (btn) { btn.textContent = '🗺 지도 핀'; btn.style.background = '#2980b9'; }
         if (_eventLocationPickMarker) { map.removeLayer(_eventLocationPickMarker); _eventLocationPickMarker = null; }
+    }
+
+    function _setEventLocation(lat, lng, label) {
+        document.getElementById('eventLat').value = lat;
+        document.getElementById('eventLng').value = lng;
+        const nameDiv = document.getElementById('eventLocationSelectedName');
+        const nameText = document.getElementById('eventLocationSelectedNameText');
+        if (nameDiv && nameText) {
+            if (label) { nameText.textContent = label; nameDiv.style.display = 'block'; }
+            else { nameDiv.style.display = 'none'; }
+        }
+        if (_eventLocationPickMarker) map.removeLayer(_eventLocationPickMarker);
+        _eventLocationPickMarker = L.marker([lat, lng], {
+            icon: L.divIcon({ className: '', html: '<div style="font-size:22px;line-height:1;filter:drop-shadow(0 1px 3px #000);">📍</div>', iconAnchor: [11, 22] })
+        }).addTo(map).bindPopup(`📍 ${label || ''} (${lat}, ${lng})`).openPopup();
     }
 
     function _onEventLocationMapClick(e) {
         const lat = parseFloat(e.latlng.lat.toFixed(5));
         const lng = parseFloat(e.latlng.lng.toFixed(5));
-        document.getElementById('eventLat').value = lat;
-        document.getElementById('eventLng').value = lng;
-        // 임시 마커 표시
-        if (_eventLocationPickMarker) map.removeLayer(_eventLocationPickMarker);
-        _eventLocationPickMarker = L.marker([lat, lng], {
-            icon: L.divIcon({ className: '', html: '<div style="font-size:22px;line-height:1;filter:drop-shadow(0 1px 3px #000);">📍</div>', iconAnchor: [11, 22] })
-        }).addTo(map).bindPopup(`📍 ${lat}, ${lng}`).openPopup();
+        _setEventLocation(lat, lng, null);
         _cancelEventLocationPicking();
     }
 
@@ -19030,7 +19059,7 @@ function invalidateCountryLookupCache() {
         const hint = document.getElementById('eventLocationPickingHint');
         if (hint) hint.style.display = 'block';
         const btn = document.getElementById('eventPickLocationBtn');
-        if (btn) { btn.textContent = '⏹ 선택 취소'; btn.style.background = '#e67e22'; }
+        if (btn) { btn.textContent = '⏹ 취소'; btn.style.background = '#e67e22'; }
         // 패널 닫히면 자동 취소
         const panel = document.getElementById('eventForm');
         if (panel) {
@@ -19047,7 +19076,66 @@ function invalidateCountryLookupCache() {
     document.getElementById('eventClearLocationBtn').addEventListener('click', () => {
         document.getElementById('eventLat').value = '';
         document.getElementById('eventLng').value = '';
+        const nameDiv = document.getElementById('eventLocationSelectedName');
+        if (nameDiv) nameDiv.style.display = 'none';
         if (_eventLocationPickMarker) { map.removeLayer(_eventLocationPickMarker); _eventLocationPickMarker = null; }
+    });
+
+    // 🔍 마커 검색 기능
+    const _eventMarkerSearchInput = document.getElementById('eventMarkerSearch');
+    const _eventMarkerSearchResults = document.getElementById('eventMarkerSearchResults');
+
+    function _getSearchableCastles() {
+        // castles 배열에서 좌표가 있는 항목만 추출
+        const list = [];
+        if (typeof castles !== 'undefined' && Array.isArray(castles)) {
+            castles.forEach(c => {
+                if (c.lat == null || c.lng == null) return;
+                const name = c.name || '';
+                if (!name) return;
+                list.push({ name, lat: c.lat, lng: c.lng, sub: c.desc ? c.desc.slice(0, 30) : '' });
+            });
+        }
+        return list;
+    }
+
+    _eventMarkerSearchInput.addEventListener('input', () => {
+        const q = _eventMarkerSearchInput.value.trim();
+        _eventMarkerSearchResults.innerHTML = '';
+        if (q.length < 1) { _eventMarkerSearchResults.style.display = 'none'; return; }
+
+        const items = _getSearchableCastles();
+        const lower = q.toLowerCase();
+        const matched = items.filter(it => it.name.toLowerCase().includes(lower) || it.name.includes(q)).slice(0, 20);
+
+        if (matched.length === 0) {
+            _eventMarkerSearchResults.innerHTML = '<div style="padding:6px 10px; font-size:12px; color:#888;">검색 결과 없음</div>';
+            _eventMarkerSearchResults.style.display = 'block';
+            return;
+        }
+        matched.forEach(it => {
+            const div = document.createElement('div');
+            div.style.cssText = 'padding:6px 10px; cursor:pointer; font-size:12px; color:#ccc; border-bottom:1px solid #2e3f50;';
+            div.innerHTML = `<strong style="color:#fff;">${it.name}</strong>${it.sub ? `<span style="color:#888; margin-left:6px;">${it.sub}</span>` : ''}`;
+            div.addEventListener('mouseenter', () => div.style.background = '#2e4a63');
+            div.addEventListener('mouseleave', () => div.style.background = '');
+            div.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                _setEventLocation(parseFloat(it.lat.toFixed(5)), parseFloat(it.lng.toFixed(5)), it.name);
+                _eventMarkerSearchInput.value = it.name;
+                _eventMarkerSearchResults.style.display = 'none';
+                map.flyTo([it.lat, it.lng], Math.max(map.getZoom(), 7), { animate: true, duration: 0.8 });
+            });
+            _eventMarkerSearchResults.appendChild(div);
+        });
+        _eventMarkerSearchResults.style.display = 'block';
+    });
+
+    _eventMarkerSearchInput.addEventListener('blur', () => {
+        setTimeout(() => { _eventMarkerSearchResults.style.display = 'none'; }, 200);
+    });
+    _eventMarkerSearchInput.addEventListener('focus', () => {
+        if (_eventMarkerSearchInput.value.trim()) _eventMarkerSearchInput.dispatchEvent(new Event('input'));
     });
 
     // ESC 키로 위치 선택 모드 취소
