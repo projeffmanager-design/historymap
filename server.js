@@ -1880,6 +1880,34 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         app.get('/api/events', async (req, res) => {
             try {
                 const events = await collections.events.find({}).sort({ year: 1, month: 1 }).toArray();
+
+                // 🚩 [추가] history_id가 있고 lat/lng가 없는 이벤트에 castle 좌표 자동 join
+                const needsCoords = events.filter(ev => ev.history_id && (ev.lat == null || ev.lng == null));
+                if (needsCoords.length > 0) {
+                    const { ObjectId } = require('mongodb');
+                    const ids = needsCoords.map(ev => {
+                        try { return new ObjectId(ev.history_id); } catch(e) { return null; }
+                    }).filter(Boolean);
+                    if (ids.length > 0) {
+                        const castleMap = new Map();
+                        const castleDocs = await collections.castle.find(
+                            { _id: { $in: ids } },
+                            { projection: { _id: 1, lat: 1, lng: 1, name: 1 } }
+                        ).toArray();
+                        castleDocs.forEach(c => castleMap.set(c._id.toString(), c));
+                        events.forEach(ev => {
+                            if (ev.history_id && (ev.lat == null || ev.lng == null)) {
+                                const c = castleMap.get(ev.history_id);
+                                if (c && c.lat != null && c.lng != null) {
+                                    ev.lat = c.lat;
+                                    ev.lng = c.lng;
+                                    ev._castle_name = c.name || null;
+                                }
+                            }
+                        });
+                    }
+                }
+
                 res.json(events);
             } catch (error) {
                 console.error("Events 조회 중 오류:", error);

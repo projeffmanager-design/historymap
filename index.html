@@ -8996,7 +8996,7 @@ function getKingByYear(countryName, year, month) {
             }
             eventOverlay.classList.add('visible');
 
-            // 위치 결정: lat/lng 직접 지정 → history_id로 castle 매칭 순서로 탐색
+            // 위치 결정: lat/lng 직접 지정 → history_id로 castle 매칭 → 해당 연도 수도 fallback
             const locationHint = document.getElementById('event-overlay-location-hint');
             {
                 let flyLat = currentEvent.lat ?? currentEvent.location?.lat ?? null;
@@ -9004,12 +9004,33 @@ function getKingByYear(countryName, year, month) {
                 let flyLabel = null;
 
                 // lat/lng 없으면 history_id로 castle 검색
-                if ((flyLat == null || flyLng == null) && currentEvent.history_id && typeof castles !== 'undefined') {
+                if ((flyLat == null || flyLng == null) && currentEvent.history_id && typeof castles !== 'undefined' && castles.length > 0) {
                     const linked = castles.find(c => c._id === currentEvent.history_id || String(c._id) === String(currentEvent.history_id));
                     if (linked && linked.lat != null && linked.lng != null) {
                         flyLat = linked.lat;
                         flyLng = linked.lng;
                         flyLabel = linked.name || null;
+                    }
+                }
+
+                // 🚩 [추가] 여전히 좌표 없으면 해당 연도에 활성화된 수도(capital)로 fallback
+                if ((flyLat == null || flyLng == null) && typeof castles !== 'undefined' && castles.length > 0) {
+                    const capitals = castles.filter(c => {
+                        if (c.lat == null || c.lng == null) return false;
+                        const hist = Array.isArray(c.history) ? c.history : [];
+                        return hist.some(h => h.is_capital && (h.start_year ?? -9999) <= year && (h.end_year ?? 9999) >= year);
+                    });
+                    if (capitals.length > 0) {
+                        // 한반도 중심(37°N, 127°E)에 가장 가까운 수도 선택
+                        const scored = capitals.map(c => {
+                            const dlat = (c.lat - 37), dlng = (c.lng - 127);
+                            return { c, dist: dlat*dlat + dlng*dlng };
+                        });
+                        scored.sort((a, b) => a.dist - b.dist);
+                        const best = scored[0].c;
+                        flyLat = best.lat;
+                        flyLng = best.lng;
+                        flyLabel = best.name || null;
                     }
                 }
 
@@ -13217,6 +13238,11 @@ function invalidateCountryLookupCache() {
                   }
                   populateCitySelectForEdit();
                   requestUpdateMap();
+                  // 🚩 [추가] castles 로드 완료 → history_id 기반 이벤트 위치 재확인
+                  if (typeof checkAndDisplayEvent === 'function') {
+                      const { year: _cy, month: _cm } = getCurrentYearMonth();
+                      checkAndDisplayEvent(_cy, _cm);
+                  }
                   console.log('🗺️ castles 마커+영토 재렌더링 예약 완료');
               }).catch(err => console.warn('⚠️ castles 백그라운드 로드 실패:', err.message));
           }
