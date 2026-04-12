@@ -3793,7 +3793,13 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             try {
                 const { status, userId } = req.query;
                 const query = {};
-                if (status) query.status = status;
+                if (status && status !== 'all') {
+                    query.status = status;
+                } else if (!status) {
+                    // 기본 조회: approved/rejected는 제외 (지도에서 불필요)
+                    query.status = { $in: ['pending', 'reviewed'] };
+                }
+                // status=all 이면 필터 없이 전체 반환 (관리자 페이지용)
                 if (userId) {
                     try { query.userId = toObjectId(userId); }
                     catch (e) { query.userId = userId; }
