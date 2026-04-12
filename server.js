@@ -1961,7 +1961,21 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const updatedEvent = req.body;
                 if (updatedEvent._id) delete updatedEvent._id;
 
-                const result = await collections.events.updateOne({ _id: _id }, { $set: updatedEvent });
+                // 🚩 null 값 필드는 $unset, 나머지는 $set으로 처리 (lat/lng/history_id 덮어쓰기 방지)
+                const setFields = {};
+                const unsetFields = {};
+                for (const [key, val] of Object.entries(updatedEvent)) {
+                    if (val === null || val === undefined) {
+                        unsetFields[key] = '';
+                    } else {
+                        setFields[key] = val;
+                    }
+                }
+                const updateOp = {};
+                if (Object.keys(setFields).length > 0) updateOp.$set = setFields;
+                if (Object.keys(unsetFields).length > 0) updateOp.$unset = unsetFields;
+
+                const result = await collections.events.updateOne({ _id: _id }, updateOp);
                 if (result.matchedCount === 0) return res.status(404).json({ message: "이벤트를 찾을 수 없습니다." });
                 res.json({ message: "Event 정보 업데이트 성공" });
             } catch (error) {
