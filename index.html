@@ -6841,6 +6841,7 @@ body.force-mobile .marker-type-selector button {
     <div class="edit-panel-inner">
     <form id="editEventForm">
         <input type="hidden" id="eventMongoId">
+        <input type="hidden" id="eventHistoryId">
         <div class="form-row" style="margin-bottom: 15px;">
             <label for="eventSelect">기존 이벤트:</label>
             <select id="eventSelect" style="flex-grow: 1;"></select>
@@ -7901,6 +7902,19 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                 map.flyTo([lat, lng], Math.max(map.getZoom(), 8), { animate: true, duration: 1.2 });
                 eventOverlay.classList.remove('visible');
                 if (eventDisplayTimeout) { clearTimeout(eventDisplayTimeout); eventDisplayTimeout = null; }
+            }
+        });
+        // 마우스 올리면 자동 닫힘 일시정지
+        eventOverlay.addEventListener('mouseenter', () => {
+            if (eventDisplayTimeout) { clearTimeout(eventDisplayTimeout); eventDisplayTimeout = null; }
+        });
+        // 마우스 벗어나면 3초 후 닫기
+        eventOverlay.addEventListener('mouseleave', () => {
+            if (eventOverlay.classList.contains('visible')) {
+                eventDisplayTimeout = setTimeout(() => {
+                    eventOverlay.classList.remove('visible');
+                    eventDisplayTimeout = null;
+                }, 3000);
             }
         });
     }
@@ -8982,28 +8996,42 @@ function getKingByYear(countryName, year, month) {
             }
             eventOverlay.classList.add('visible');
 
-            // 위치 힌트 표시 + 클릭 시 줌인
+            // 위치 결정: lat/lng 직접 지정 → history_id로 castle 매칭 순서로 탐색
             const locationHint = document.getElementById('event-overlay-location-hint');
-            if (locationHint) {
-                const lat = currentEvent.lat ?? currentEvent.location?.lat;
-                const lng = currentEvent.lng ?? currentEvent.location?.lng;
-                if (lat != null && lng != null && !isNaN(lat) && !isNaN(lng)) {
-                    locationHint.style.display = 'block';
-                    // 이전 클릭 핸들러 제거 후 재등록
-                    const newHint = locationHint.cloneNode(true);
-                    locationHint.parentNode.replaceChild(newHint, locationHint);
-                    newHint.style.display = 'block';
-                    newHint.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        map.flyTo([lat, lng], Math.max(map.getZoom(), 8), { animate: true, duration: 1.2 });
-                        eventOverlay.classList.remove('visible');
-                        if (eventDisplayTimeout) { clearTimeout(eventDisplayTimeout); eventDisplayTimeout = null; }
-                    });
-                    // 오버레이 전체 클릭도 줌인
+            {
+                let flyLat = currentEvent.lat ?? currentEvent.location?.lat ?? null;
+                let flyLng = currentEvent.lng ?? currentEvent.location?.lng ?? null;
+                let flyLabel = null;
+
+                // lat/lng 없으면 history_id로 castle 검색
+                if ((flyLat == null || flyLng == null) && currentEvent.history_id && typeof castles !== 'undefined') {
+                    const linked = castles.find(c => c._id === currentEvent.history_id || String(c._id) === String(currentEvent.history_id));
+                    if (linked && linked.lat != null && linked.lng != null) {
+                        flyLat = linked.lat;
+                        flyLng = linked.lng;
+                        flyLabel = linked.name || null;
+                    }
+                }
+
+                if (flyLat != null && flyLng != null && !isNaN(flyLat) && !isNaN(flyLng)) {
+                    // 🚩 팝업 표시와 동시에 지도 자동 이동+확대
+                    map.flyTo([flyLat, flyLng], Math.max(map.getZoom(), 8), { animate: true, duration: 1.5 });
+
+                    if (locationHint) {
+                        const newHint = locationHint.cloneNode(true);
+                        locationHint.parentNode.replaceChild(newHint, locationHint);
+                        newHint.style.display = 'block';
+                        newHint.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            map.flyTo([flyLat, flyLng], Math.max(map.getZoom(), 8), { animate: true, duration: 1.2 });
+                            eventOverlay.classList.remove('visible');
+                            if (eventDisplayTimeout) { clearTimeout(eventDisplayTimeout); eventDisplayTimeout = null; }
+                        });
+                    }
                     eventOverlay.style.cursor = 'pointer';
-                    eventOverlay._flyTarget = [lat, lng];
+                    eventOverlay._flyTarget = [flyLat, flyLng];
                 } else {
-                    locationHint.style.display = 'none';
+                    if (locationHint) locationHint.style.display = 'none';
                     eventOverlay.style.cursor = 'default';
                     eventOverlay._flyTarget = null;
                 }
@@ -18928,21 +18956,26 @@ function invalidateCountryLookupCache() {
             document.getElementById('eventYear').value = event.year;
             document.getElementById('eventMonth').value = event.month || 1;
             document.getElementById('eventText').value = event.text;
-            document.getElementById('eventPhoto').value = event.photo || ''; // 🚩 [추가] 사진 URL 필드 채우기
+            document.getElementById('eventPhoto').value = event.photo || '';
             document.getElementById('eventLat').value = event.lat ?? '';
             document.getElementById('eventLng').value = event.lng ?? '';
+            document.getElementById('eventHistoryId').value = event.history_id ?? '';
             // 마커 검색 필드 초기화
             const msInput = document.getElementById('eventMarkerSearch');
             if (msInput) msInput.value = '';
             const nameDiv = document.getElementById('eventLocationSelectedName');
             const nameText = document.getElementById('eventLocationSelectedNameText');
             if (nameDiv && nameText) {
-                if (event.lat != null && event.lng != null) {
-                    nameText.textContent = `${event.lat}, ${event.lng}`;
-                    nameDiv.style.display = 'block';
-                } else {
-                    nameDiv.style.display = 'none';
+                // history_id로 마커 이름 표시
+                const histId = event.history_id;
+                let label = null;
+                if (histId && typeof castles !== 'undefined') {
+                    const linked = castles.find(c => c._id === histId || String(c._id) === String(histId));
+                    if (linked) label = linked.name;
                 }
+                if (label) { nameText.textContent = label; nameDiv.style.display = 'block'; }
+                else if (event.lat != null && event.lng != null) { nameText.textContent = `${event.lat}, ${event.lng}`; nameDiv.style.display = 'block'; }
+                else { nameDiv.style.display = 'none'; }
             }
             deleteBtn.style.display = 'inline-block';
             saveBtn.textContent = '저장';
@@ -18960,9 +18993,10 @@ function invalidateCountryLookupCache() {
             year: parseInt(document.getElementById('eventYear').value),
             month: parseInt(document.getElementById('eventMonth').value) || 1,
             text: document.getElementById('eventText').value,
-            photo: document.getElementById('eventPhoto').value || null, // 🚩 [추가] 사진 URL 데이터 수집
+            photo: document.getElementById('eventPhoto').value || null,
             lat: parseFloat(document.getElementById('eventLat').value) || null,
             lng: parseFloat(document.getElementById('eventLng').value) || null,
+            history_id: document.getElementById('eventHistoryId').value || null,
         };
 
         if (isNaN(data.year) || !data.text) {
@@ -19076,6 +19110,9 @@ function invalidateCountryLookupCache() {
     document.getElementById('eventClearLocationBtn').addEventListener('click', () => {
         document.getElementById('eventLat').value = '';
         document.getElementById('eventLng').value = '';
+        document.getElementById('eventHistoryId').value = '';
+        const msInput = document.getElementById('eventMarkerSearch');
+        if (msInput) msInput.value = '';
         const nameDiv = document.getElementById('eventLocationSelectedName');
         if (nameDiv) nameDiv.style.display = 'none';
         if (_eventLocationPickMarker) { map.removeLayer(_eventLocationPickMarker); _eventLocationPickMarker = null; }
@@ -19086,14 +19123,13 @@ function invalidateCountryLookupCache() {
     const _eventMarkerSearchResults = document.getElementById('eventMarkerSearchResults');
 
     function _getSearchableCastles() {
-        // castles 배열에서 좌표가 있는 항목만 추출
         const list = [];
         if (typeof castles !== 'undefined' && Array.isArray(castles)) {
             castles.forEach(c => {
                 if (c.lat == null || c.lng == null) return;
                 const name = c.name || '';
                 if (!name) return;
-                list.push({ name, lat: c.lat, lng: c.lng, sub: c.desc ? c.desc.slice(0, 30) : '' });
+                list.push({ id: c._id, name, lat: c.lat, lng: c.lng, sub: c.desc ? c.desc.slice(0, 30) : '' });
             });
         }
         return list;
@@ -19122,6 +19158,8 @@ function invalidateCountryLookupCache() {
             div.addEventListener('mousedown', (e) => {
                 e.preventDefault();
                 _setEventLocation(parseFloat(it.lat.toFixed(5)), parseFloat(it.lng.toFixed(5)), it.name);
+                // history_id 저장 (이벤트 발생 시 자동 이동에 사용)
+                document.getElementById('eventHistoryId').value = it.id || '';
                 _eventMarkerSearchInput.value = it.name;
                 _eventMarkerSearchResults.style.display = 'none';
                 map.flyTo([it.lat, it.lng], Math.max(map.getZoom(), 7), { animate: true, duration: 0.8 });
