@@ -21188,6 +21188,23 @@ kingSelect.addEventListener('change', () => {
                 if (c) _tbGoToCastle(c);
             };
 
+            // 역사 기록 클릭 전역 핸들러 – 타임슬라이더를 해당 년/월로 이동
+            window._tbGoToHistory = (year, month, label, id) => {
+                document.getElementById('topbarSearchInput').value = label || '';
+                document.getElementById('topbarSearchResults').style.display = 'none';
+                const m = month || 1;
+                const totalMonths = yearMonthToTotalMonths(year, m);
+                const sMin = parseInt(combinedSlider.min);
+                const sMax = parseInt(combinedSlider.max);
+                const clamped = Math.min(sMax, Math.max(sMin, totalMonths));
+                combinedSlider.value = clamped;
+                const mapped = totalMonthsToYearMonth(clamped);
+                document.getElementById('yearInput').value = mapped.year;
+                document.getElementById('monthInput').value = mapped.month;
+                updateTime(mapped.year, mapped.month);
+                updateUI(mapped.year, mapped.month);
+            };
+
             // 실지도 결과 핀 마커 (한 개만 유지)
             let _tbMapPin = null;
             const _tbPinIcon = L.divIcon({
@@ -21247,6 +21264,22 @@ kingSelect.addEventListener('change', () => {
                     }
                 }
 
+                // ── 1-B) 역사 기록(history) 키워드 검색 ────────────────
+                let historyHits = [];
+                try {
+                    const hRes = await fetch(`${API_BASE_URL}/history/search?q=${encodeURIComponent(query)}&limit=6`);
+                    if (hRes.ok) {
+                        const hData = await hRes.json();
+                        historyHits = hData.map(h => ({
+                            label: h.event_name || '(제목 없음)',
+                            sub: `${h.year > 0 ? h.year + '년' : 'BC ' + Math.abs(h.year) + '년'}${h.month ? ' ' + h.month + '월' : ''}`,
+                            year: h.year,
+                            month: h.month || 1,
+                            id: h._id
+                        }));
+                    }
+                } catch(e) { /* 실패 무시 */ }
+
                 // ── 2) Nominatim 실지도 ────────────────────────────────
                 let mapHits = [];
                 let mapHitsGlobal = [];
@@ -21289,6 +21322,13 @@ kingSelect.addEventListener('change', () => {
                 if (dbHits.length) {
                     html += _tbSectionTitle('● 역사 DB', '#7ab8cc');
                     html += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
+                }
+                if (historyHits.length) {
+                    html += _tbSectionTitle('● 역사 기록', '#a888d4');
+                    html += historyHits.map((h, i) => `<div class="topbar-result-item" onclick="_tbGoToHistory(${h.year},${h.month},'${(h.label||'').replace(/'/g,"\\'")}','${(h.id||'').toString()}')" style="display:flex;flex-direction:column;gap:2px;">
+                        <span>${h.label}</span>
+                        <span style="font-size:10px;color:#8868b4;">${h.sub}</span>
+                    </div>`).join('');
                 }
                 if (mapHits.length) {
                     html += _tbSectionTitle('● 실지도 – 현재 화면', '#c8a850');

@@ -1795,6 +1795,28 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // GET: 역사 기록 키워드 검색
+        app.get('/api/history/search', async (req, res) => {
+            try {
+                const { q, limit: limitParam } = req.query;
+                if (!q || q.trim().length < 1) return res.json([]);
+                const keyword = q.trim();
+                const maxResults = Math.min(parseInt(limitParam) || 10, 30);
+                const results = await collections.history.find({
+                    $or: [
+                        { event_name: { $regex: keyword, $options: 'i' } },
+                        { 'records.korean.content': { $regex: keyword, $options: 'i' } },
+                        { 'records.true_history.content': { $regex: keyword, $options: 'i' } },
+                    ]
+                }, {
+                    projection: { event_name: 1, year: 1, month: 1 }
+                }).limit(maxResults).toArray();
+                res.json(results);
+            } catch (error) {
+                res.status(500).json({ message: "역사 기록 검색 실패", error: error.message });
+            }
+        });
+
         // GET: 특정 history 기록 단건 조회
         app.get('/api/history/:id', async (req, res) => {
             try {
