@@ -11234,11 +11234,14 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         const _isRelicType = _naturalTimeTypes.includes(_featureTypeForTime); // 유적 계열 여부
         // 🚩 [수정] built_year/destroyed_year가 명시된 경우 타입과 관계없이 시간 필터 적용
         const _hasExplicitDuration = (castle.built_year != null || castle.destroyed_year != null);
-        const isWithinDuration = activeHistoryInfo ? true : (effectiveIsNatural ?
-            (_isRelicType || _hasExplicitDuration
-                ? (((castle.built_year ?? -Infinity) <= year) && ((castle.destroyed_year ?? Infinity) >= year))
-                : true) // 산·강·바다·기타 지형은 항상 표시 (단, 연도 명시된 경우 제외)
-            : false);
+        // 🚩 [수정] is_military_flag는 history가 비어있어도 built_year/destroyed_year로 시간 체크
+        const isWithinDuration = activeHistoryInfo ? true : (castle.is_military_flag && _hasExplicitDuration ?
+            (((castle.built_year ?? -Infinity) <= year) && ((castle.destroyed_year ?? Infinity) >= year))
+            : (effectiveIsNatural ?
+                (_isRelicType || _hasExplicitDuration
+                    ? (((castle.built_year ?? -Infinity) <= year) && ((castle.destroyed_year ?? Infinity) >= year))
+                    : true) // 산·강·바다·기타 지형은 항상 표시 (단, 연도 명시된 경우 제외)
+                : false));
          // console.log 제거 (성능 최적화 — 루프 내 반복 호출 방지)
          const builtText = `${recordStartYear}년 ${recordStartMonth}월`;
          const destroyedText = recordEndYear === null ? '현재' : `${recordEndYear}년 ${recordEndMonth}월`;
