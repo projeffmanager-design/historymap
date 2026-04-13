@@ -1803,33 +1803,35 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const keyword = q.trim();
                 const maxResults = Math.min(parseInt(limitParam) || 10, 30);
 
-                // history 컬렉션 검색 (연구 기록)
-                const historyResults = await collections.history.find({
-                    $or: [
+                // $text 검색 (텍스트 인덱스 사용 – 빠름) + 짧은 단어나 한자는 $regex 폴백
+                const useText = keyword.length >= 2;
+                const historyQuery = useText
+                    ? { $text: { $search: keyword } }
+                    : { $or: [
                         { event_name: { $regex: keyword, $options: 'i' } },
                         { 'records.korean.content': { $regex: keyword, $options: 'i' } },
-                        { 'records.korean.source': { $regex: keyword, $options: 'i' } },
                         { 'records.foreign.content': { $regex: keyword, $options: 'i' } },
-                        { 'records.foreign.source': { $regex: keyword, $options: 'i' } },
-                        { 'records.chinese.content': { $regex: keyword, $options: 'i' } },
-                        { 'records.true_history.content': { $regex: keyword, $options: 'i' } },
-                    ]
-                }, {
-                    projection: { event_name: 1, year: 1, month: 1 }
-                }).limit(maxResults).toArray();
-
-                // source_records 컬렉션 검색 (원전 사료 – 한자 원문 포함)
-                const sourceResults = await collections.sourceRecords.find({
-                    $or: [
+                    ]};
+                const sourceQuery = useText
+                    ? { $text: { $search: keyword } }
+                    : { $or: [
                         { title: { $regex: keyword, $options: 'i' } },
                         { content: { $regex: keyword, $options: 'i' } },
                         { source: { $regex: keyword, $options: 'i' } },
-                    ]
-                }, {
-                    projection: { title: 1, content: 1, source: 1, year: 1, month: 1 }
-                }).limit(maxResults).toArray();
+                    ]};
 
-                // 결과 병합 – type 필드로 구분
+                // 두 컬렉션 동시 검색
+                const [historyResults, sourceResults] = await Promise.all([
+                    collections.history.find(historyQuery, {
+                        projection: { event_name: 1, year: 1, month: 1, ...(useText && { score: { $meta: 'textScore' } }) }
+                    }).sort(useText ? { score: { $meta: 'textScore' } } : { year: 1 }).limit(maxResults).toArray(),
+
+                    collections.sourceRecords.find(sourceQuery, {
+                        projection: { title: 1, content: 1, source: 1, year: 1, month: 1, ...(useText && { score: { $meta: 'textScore' } }) }
+                    }).sort(useText ? { score: { $meta: 'textScore' } } : { year: 1 }).limit(maxResults).toArray(),
+                ]);
+
+                // 결과 병합
                 const merged = [
                     ...historyResults.map(h => ({ ...h, type: 'history' })),
                     ...sourceResults.map(s => ({
