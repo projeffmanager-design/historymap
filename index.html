@@ -21267,15 +21267,17 @@ kingSelect.addEventListener('change', () => {
                 // ── 1-B) 역사 기록(history) 키워드 검색 ────────────────
                 let historyHits = [];
                 try {
-                    const hRes = await fetch(`${API_BASE_URL}/history/search?q=${encodeURIComponent(query)}&limit=6`);
+                    const hRes = await fetch(`${API_BASE_URL}/history/search?q=${encodeURIComponent(query)}&limit=8`);
                     if (hRes.ok) {
                         const hData = await hRes.json();
                         historyHits = hData.map(h => ({
                             label: h.event_name || '(제목 없음)',
-                            sub: `${h.year > 0 ? h.year + '년' : 'BC ' + Math.abs(h.year) + '년'}${h.month ? ' ' + h.month + '월' : ''}`,
+                            sub: `${h.year > 0 ? h.year + '년' : 'BC ' + Math.abs(h.year) + '년'}${h.month ? ' ' + h.month + '월' : ''}${h.type === 'source' && h.source ? ' · ' + h.source : ''}`,
+                            subDetail: h.type === 'source' ? (h.content_preview || '') : '',
                             year: h.year,
                             month: h.month || 1,
-                            id: h._id
+                            id: h._id,
+                            type: h.type || 'history'
                         }));
                     }
                 } catch(e) { /* 실패 무시 */ }
@@ -21324,11 +21326,20 @@ kingSelect.addEventListener('change', () => {
                     html += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
                 }
                 if (historyHits.length) {
-                    html += _tbSectionTitle('● 역사 기록', '#a888d4');
-                    html += historyHits.map((h, i) => `<div class="topbar-result-item" onclick="_tbGoToHistory(${h.year},${h.month},'${(h.label||'').replace(/'/g,"\\'")}','${(h.id||'').toString()}')" style="display:flex;flex-direction:column;gap:2px;">
-                        <span>${h.label}</span>
-                        <span style="font-size:10px;color:#8868b4;">${h.sub}</span>
-                    </div>`).join('');
+                    html += _tbSectionTitle('● 역사 기록 / 원전 사료', '#a888d4');
+                    html += historyHits.map((h) => {
+                        const isSource = h.type === 'source';
+                        const icon = isSource ? '📖' : '📚';
+                        const subColor = isSource ? '#b890e8' : '#8868b4';
+                        const detailHtml = (isSource && h.subDetail)
+                            ? `<span style="font-size:10px;color:#ccc;font-family:serif;margin-top:1px;">${h.subDetail.replace(/</g,'&lt;')}</span>`
+                            : '';
+                        return `<div class="topbar-result-item" onclick="_tbGoToHistory(${h.year},${h.month},'${(h.label||'').replace(/'/g,"\\'")}','${(h.id||'').toString()}')" style="display:flex;flex-direction:column;gap:1px;">
+                            <span>${icon} ${h.label}</span>
+                            <span style="font-size:10px;color:${subColor};">${h.sub}</span>
+                            ${detailHtml}
+                        </div>`;
+                    }).join('');
                 }
                 if (mapHits.length) {
                     html += _tbSectionTitle('● 실지도 – 현재 화면', '#c8a850');

@@ -1802,16 +1802,47 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (!q || q.trim().length < 1) return res.json([]);
                 const keyword = q.trim();
                 const maxResults = Math.min(parseInt(limitParam) || 10, 30);
-                const results = await collections.history.find({
+
+                // history 컬렉션 검색 (연구 기록)
+                const historyResults = await collections.history.find({
                     $or: [
                         { event_name: { $regex: keyword, $options: 'i' } },
                         { 'records.korean.content': { $regex: keyword, $options: 'i' } },
+                        { 'records.korean.source': { $regex: keyword, $options: 'i' } },
+                        { 'records.foreign.content': { $regex: keyword, $options: 'i' } },
+                        { 'records.foreign.source': { $regex: keyword, $options: 'i' } },
+                        { 'records.chinese.content': { $regex: keyword, $options: 'i' } },
                         { 'records.true_history.content': { $regex: keyword, $options: 'i' } },
                     ]
                 }, {
                     projection: { event_name: 1, year: 1, month: 1 }
                 }).limit(maxResults).toArray();
-                res.json(results);
+
+                // source_records 컬렉션 검색 (원전 사료 – 한자 원문 포함)
+                const sourceResults = await collections.sourceRecords.find({
+                    $or: [
+                        { title: { $regex: keyword, $options: 'i' } },
+                        { content: { $regex: keyword, $options: 'i' } },
+                        { source: { $regex: keyword, $options: 'i' } },
+                    ]
+                }, {
+                    projection: { title: 1, content: 1, source: 1, year: 1, month: 1 }
+                }).limit(maxResults).toArray();
+
+                // 결과 병합 – type 필드로 구분
+                const merged = [
+                    ...historyResults.map(h => ({ ...h, type: 'history' })),
+                    ...sourceResults.map(s => ({
+                        _id: s._id,
+                        event_name: s.title,
+                        year: s.year,
+                        month: s.month,
+                        source: s.source,
+                        content_preview: (s.content || '').slice(0, 60),
+                        type: 'source'
+                    }))
+                ];
+                res.json(merged);
             } catch (error) {
                 res.status(500).json({ message: "역사 기록 검색 실패", error: error.message });
             }
