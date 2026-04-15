@@ -416,9 +416,9 @@ app.use(express.static(__dirname));
 // 🚩 [추가] public 폴더를 정적 파일로 제공 (타일 파일 접근용)
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
-// 🚩 [추가] 루트(/) 요청 시 index.html 명시적 서빙 (Vercel 서버리스 환경 대응)
+// 🚩 [추가] 루트(/) 요청 시 login.html 명시적 서빙 (Vercel 서버리스 환경 대응)
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    res.sendFile(path.join(__dirname, 'login.html'));
 });
 
 // 🚩 [추가] .html 확장자 없는 경로도 해당 html 파일로 서빙 (fallback)
