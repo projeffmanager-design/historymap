@@ -422,6 +422,11 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'login.html'));
 });
 
+// 🚩 [추가] /map 요청 시 index.html 서빙 (URL에 .html 감추기)
+app.get('/map', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 // 🚩 [추가] .html 확장자 없는 경로도 해당 html 파일로 서빙 (fallback)
 app.get('/:page', (req, res, next) => {
     const page = req.params.page;
