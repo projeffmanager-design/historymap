@@ -411,7 +411,8 @@ app.use(async (req, res, next) => {
 });
 // 💡 [수정] Express 앱에서 정적 파일을 제공하는 경로를 'public' 폴더에서 프로젝트 루트로 변경합니다.
 // 이제 index.html, admin.html 등을 루트 디렉토리에서 직접 서비스할 수 있습니다.
-app.use(express.static(__dirname));
+// index: false → / 요청 시 index.html 자동 서빙 방지 (login.html을 먼저 보여주기 위함)
+app.use(express.static(__dirname, { index: false }));
 
 // 🚩 [추가] public 폴더를 정적 파일로 제공 (타일 파일 접근용)
 app.use('/public', express.static(path.join(__dirname, 'public')));
