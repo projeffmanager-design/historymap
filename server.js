@@ -1507,6 +1507,7 @@ const NEWSLETTER_ISSUES = [
     { slug: 'newsletter_2026_01_02', title: '2026년 1·2월 합본호', date: '2026-01-01' },
     { slug: 'newsletter_2026_02',    title: '2026년 2월호',        date: '2026-02-01' },
     { slug: 'newsletter_2026_03',    title: '2026년 3월호',        date: '2026-03-01' },
+    { slug: 'newsletter_2026_04',    title: '2026년 4월호',        date: '2026-04-16' },
 ];
 
 // fs/경로 의존 없이 newsletter_data.js에 내용 직접 embed

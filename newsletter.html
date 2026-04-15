@@ -34,13 +34,87 @@
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* ══════════════════════════════
+       팝업 모드 — body는 투명, 실제 콘텐츠는 .nl-popup 안에
+    ══════════════════════════════ */
     body {
-      background: var(--bg-deep);
+      background: transparent;
       color: var(--text-main);
       font-family: 'Nanum Myeongjo', 'Noto Serif KR', serif;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
+    }
+
+    /* 팝업 오버레이 배경 (팝업 모드일 때만 표시) */
+    body.popup-mode {
+      background: rgba(0,0,0,0.72);
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* 팝업 컨테이너 */
+    .nl-popup {
+      width: 92vw;
+      max-width: 1100px;
+      height: 88vh;
+      background: var(--bg-deep);
+      border: 1px solid var(--gold-border);
+      border-radius: 12px;
+      box-shadow: 0 8px 48px rgba(0,0,0,0.8), 0 0 0 1px rgba(212,168,67,0.12);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* 팝업 닫기 버튼 */
+    .nl-close-btn {
+      position: absolute;
+      top: 14px;
+      right: 16px;
+      z-index: 20;
+      background: rgba(26,20,8,0.85);
+      border: 1px solid var(--gold-border);
+      border-radius: 50%;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 1rem;
+      color: var(--gold-dim);
+      transition: all 0.18s;
+      line-height: 1;
+      padding: 0;
+    }
+    .nl-close-btn:hover {
+      background: var(--bg-hover);
+      border-color: var(--gold);
+      color: var(--gold-bright);
+      box-shadow: 0 2px 8px rgba(212,168,67,0.25);
+    }
+
+    /* 일반 페이지 모드일 때 전체 레이아웃 */
+    body:not(.popup-mode) {
+      background: var(--bg-deep);
+      min-height: 100vh;
+    }
+    body:not(.popup-mode) .nl-popup {
+      width: 100%;
+      max-width: 100%;
+      height: 100vh;
+      border-radius: 0;
+      border: none;
+      box-shadow: none;
+    }
+    body:not(.popup-mode) .nl-close-btn {
+      display: none;
     }
 
     /* ══════════════════════════════
@@ -54,7 +128,7 @@
       background: linear-gradient(135deg, #1a1408 0%, #2a2010 50%, #1e1a0e 100%);
       border-bottom: 1px solid var(--gold-border);
       box-shadow: 0 2px 16px rgba(0,0,0,0.6), 0 1px 0 rgba(212,168,67,0.15);
-      padding: 0 28px;
+      padding: 0 52px 0 28px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -110,26 +184,7 @@
     }
 
     header .back-btn {
-      text-decoration: none;
-      background: linear-gradient(135deg, #2a2010 0%, #1e1a0e 100%);
-      border: 1px solid var(--gold-border);
-      color: var(--gold-dim);
-      padding: 8px 16px;
-      border-radius: 6px;
-      font-family: inherit;
-      font-size: 0.82rem;
-      cursor: pointer;
-      transition: all 0.2s;
-      white-space: nowrap;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.4);
-      letter-spacing: 0.02em;
-      flex-shrink: 0;
-    }
-    header .back-btn:hover {
-      background: linear-gradient(135deg, #3a2e18 0%, #2a2210 100%);
-      border-color: var(--gold);
-      color: var(--gold-bright);
-      box-shadow: 0 2px 8px rgba(212,168,67,0.2);
+      display: none;
     }
 
     /* ══════════════════════════════
@@ -139,7 +194,7 @@
       display: flex;
       flex: 1;
       overflow: hidden;
-      height: calc(100vh - var(--header-h));
+      height: calc(100% - var(--header-h));
     }
 
     /* ══════════════════════════════
@@ -404,7 +459,8 @@
 
     /* ── 모바일 반응형 ── */
     @media (max-width: 680px) {
-      header { padding: 0 14px; height: auto; min-height: 56px; }
+      .nl-popup { width: 100%; height: 100%; border-radius: 0; }
+      header { padding: 0 46px 0 14px; height: auto; min-height: 56px; }
       .title-group h1 { font-size: 1.05rem; }
       aside { width: 100%; min-width: unset; border-right: none; border-bottom: 1px solid var(--border); }
       .layout { flex-direction: column; height: auto; overflow: visible; }
@@ -415,6 +471,10 @@
 </head>
 <body>
 
+<div class="nl-popup" id="nl-popup">
+  <!-- 닫기 버튼 (팝업 모드일 때만 동작) -->
+  <button class="nl-close-btn" id="nl-close-btn" title="닫기">✕</button>
+
 <header>
   <div class="header-left">
     <div class="header-emblem">📜</div>
@@ -423,7 +483,6 @@
       <p>고려만리지도 사관들의 활동 보고서</p>
     </div>
   </div>
-  <a href="index.html" class="back-btn">← 지도로 돌아가기</a>
 </header>
 
 <div class="layout">
@@ -449,12 +508,56 @@
     <div id="md-content" style="display:none;"></div>
   </main>
 </div>
+</div><!-- /.nl-popup -->
 
 <script>
 (async () => {
   const listEl   = document.getElementById('issue-list');
   const loadMsg  = document.getElementById('loading-msg');
   const mdEl     = document.getElementById('md-content');
+
+  // ── 팝업 모드 감지 및 초기화 ──
+  // index.html에서 iframe으로 열리거나, window.opener가 있으면 팝업 모드
+  const isPopup = window.self !== window.top || !!window.opener || (new URLSearchParams(location.search).get('popup') === '1');
+  if (isPopup) {
+    document.body.classList.add('popup-mode');
+  }
+
+  // 닫기 버튼
+  const closeBtn = document.getElementById('nl-close-btn');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      if (isPopup && window.self !== window.top) {
+        // iframe 팝업: 부모에게 닫기 메시지
+        window.parent.postMessage({ type: 'nl-close' }, '*');
+      } else if (window.opener) {
+        window.close();
+      } else {
+        // 직접 접근 시에는 숨기기
+        document.body.classList.remove('popup-mode');
+      }
+    });
+  }
+
+  // 오버레이 배경 클릭 시 닫기 (팝업 모드에서 .nl-popup 바깥 클릭)
+  document.body.addEventListener('click', (e) => {
+    if (isPopup && e.target === document.body) {
+      if (window.self !== window.top) {
+        window.parent.postMessage({ type: 'nl-close' }, '*');
+      }
+    }
+  });
+
+  // ESC 키 닫기
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isPopup) {
+      if (window.self !== window.top) {
+        window.parent.postMessage({ type: 'nl-close' }, '*');
+      } else if (window.opener) {
+        window.close();
+      }
+    }
+  });
 
   // ── 뉴스레터 목록 로드 ──
   let issues = [];

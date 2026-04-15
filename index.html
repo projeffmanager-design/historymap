@@ -328,8 +328,17 @@
         // 강제 리로드 (캐시 무시)
         if (!window.location.hash.includes('reloaded')) {
             console.log('🔄 강제 리로드 실행 (데이터는 보존)...');
+            // 🚩 [추가] sessionStorage 토큰을 리로드 후 복원하기 위해 임시 백업
+            const _sToken = sessionStorage.getItem('token');
+            if (_sToken) localStorage.setItem('_session_token_backup', _sToken);
             window.location.href = window.location.pathname + '?v=' + CONFIG.APP_VERSION + '&t=' + Date.now() + '#reloaded';
             return;
+        }
+        // 🚩 [추가] 리로드 후 sessionStorage 토큰 복원
+        const _backupToken = localStorage.getItem('_session_token_backup');
+        if (_backupToken && !sessionStorage.getItem('token')) {
+            sessionStorage.setItem('token', _backupToken);
+            localStorage.removeItem('_session_token_backup');
         }
     }
     
@@ -4974,9 +4983,19 @@ body.force-mobile .marker-type-selector button {
           <!-- 🚩 [수정] PC용 컨트롤 토글 버튼을 아이디 오른쪽으로 이동 -->
           <!-- 모바일에서는 톱니 버튼 제거 -->
           <button id="pcTopPanelToggleBtn" class="button-style" title="컨트롤 패널 숨기기/보이기" style="display:none;">⚙️</button>
-          <a id="newsletterLink" href="newsletter.html" class="button-style" style="background-color: #f39c12; border-color: #e67e22; font-weight: 600; display:inline-flex; align-items:center; justify-content:center; text-decoration:none; padding:5px 5px; line-height:1; box-sizing:border-box;">📜 사관청 소식</a>
+          <button id="newsletterLink" class="button-style" style="background-color: #f39c12; border-color: #e67e22; font-weight: 600; display:inline-flex; align-items:center; justify-content:center; padding:5px 5px; line-height:1; box-sizing:border-box; cursor:pointer;">📜 사관청 소식</button>
           <button id="rankingBtn" class="button-style" style="background-color: #f39c12; border-color: #e67e22; font-weight: 600;">사관(史館)랭킹</button>
       </div>
+  </div>
+
+  <!-- 사관청 소식 팝업 오버레이 -->
+  <div id="newsletter-popup-overlay" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,0.72); align-items:center; justify-content:center;">
+    <iframe id="newsletter-popup-iframe"
+      src=""
+      style="width:92vw; max-width:1100px; height:88vh; border:1px solid #5a4010; border-radius:12px; box-shadow:0 8px 48px rgba(0,0,0,0.8); background:#1a1610;"
+      frameborder="0"
+      allowtransparency="true">
+    </iframe>
   </div>
 
   <!-- Hamburger Menu Overlay -->
@@ -23090,6 +23109,43 @@ kingSelect.addEventListener('change', () => {
                 );
             });
         }
+
+        // 📜 사관청 소식 버튼 — iframe 팝업으로 열기
+        (function() {
+            const nlBtn     = document.getElementById('newsletterLink');
+            const nlOverlay = document.getElementById('newsletter-popup-overlay');
+            const nlIframe  = document.getElementById('newsletter-popup-iframe');
+            if (!nlBtn || !nlOverlay || !nlIframe) return;
+
+            function openNewsletter() {
+                if (!nlIframe.src || !nlIframe.src.includes('newsletter.html')) {
+                    nlIframe.src = 'newsletter.html?popup=1';
+                }
+                nlOverlay.style.display = 'flex';
+                document.body.style.overflow = 'hidden';
+            }
+            function closeNewsletter() {
+                nlOverlay.style.display = 'none';
+                document.body.style.overflow = '';
+            }
+
+            nlBtn.addEventListener('click', openNewsletter);
+
+            // 오버레이 배경 클릭 시 닫기
+            nlOverlay.addEventListener('click', (e) => {
+                if (e.target === nlOverlay) closeNewsletter();
+            });
+
+            // ESC 키 닫기
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && nlOverlay.style.display === 'flex') closeNewsletter();
+            });
+
+            // iframe 내부에서 보내는 닫기 메시지
+            window.addEventListener('message', (e) => {
+                if (e.data && e.data.type === 'nl-close') closeNewsletter();
+            });
+        })();
 
 
         // 🗑️ 휴지통 관련 이벤트 리스너들
