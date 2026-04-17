@@ -1513,8 +1513,12 @@ const NEWSLETTER_ISSUES = [
 // fs/경로 의존 없이 newsletter_data.js에 내용 직접 embed
 const { ISSUES: _NL_ISSUES, CONTENT: _NL_CONTENT } = require('./newsletter_data');
 
-// GET /api/newsletter — 목록 반환
+// GET /api/newsletter — 목록 반환 (withContent=1 시 최신호 내용도 함께)
 app.get('/api/newsletter', (req, res) => {
+    if (req.query.withContent === '1' && _NL_ISSUES.length > 0) {
+        const latest = _NL_ISSUES[_NL_ISSUES.length - 1];
+        return res.json({ issues: _NL_ISSUES, latestSlug: latest.slug, latestContent: _NL_CONTENT[latest.slug] || '' });
+    }
     res.json(_NL_ISSUES);
 });
 
