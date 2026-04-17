@@ -12351,31 +12351,31 @@ function invalidateCountryLookupCache() {
     const TERRITORY_DB_NAME = 'TerritoryTilesDB';
     const TERRITORY_DB_VERSION = 2;  // 🚩 캐시 강제 무효화 (폴리곤 단순화 버그 수정)
     const TERRITORY_STORE_NAME = 'tiles';
-    const TERRITORY_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
+    const TERRITORY_CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7일 (정적 타일은 버전 기반 무효화)
 
     // 🚀 [IndexedDB] Castles 캐싱 시스템
     const CASTLES_DB_NAME = 'CastlesDB';
     const CASTLES_DB_VERSION = 5;  // 🚩 캐시 강제 무효화 (산성하 고분군 built_year 수정)
     const CASTLES_STORE_NAME = 'castles';
-    const CASTLES_CACHE_DURATION = 3 * 60 * 60 * 1000; // 3시간
+    const CASTLES_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
 
     // 🚀 [IndexedDB] Events 캐싱 시스템
     const EVENTS_DB_NAME = 'EventsDB';
     const EVENTS_DB_VERSION = 1;
     const EVENTS_STORE_NAME = 'events';
-    const EVENTS_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
+    const EVENTS_CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7일
 
     // 🚀 [IndexedDB] Drawings 캐싱 시스템
     const DRAWINGS_DB_NAME = 'DrawingsDB';
     const DRAWINGS_DB_VERSION = 1;
     const DRAWINGS_STORE_NAME = 'drawings';
-    const DRAWINGS_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
+    const DRAWINGS_CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7일
 
     // 🚀 [IndexedDB] Contributions 캐싱 시스템
     const CONTRIBUTIONS_DB_NAME = 'ContributionsDB';
     const CONTRIBUTIONS_DB_VERSION = 1;
     const CONTRIBUTIONS_STORE_NAME = 'contributions';
-    const CONTRIBUTIONS_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
+    const CONTRIBUTIONS_CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7일
 
     // IndexedDB 초기화 (영토)
     function openTerritoryDB() {
@@ -13503,174 +13503,214 @@ function invalidateCountryLookupCache() {
       };
 
       // 🔄 [정적 파일] 정적 타일 파일에서 영토 로드
-      // 🚀 [최적화] 전체 territories를 한 번만 로드 (287개 - 매우 적음)
+      // 🚀 [v4.0 뷰포트 Lazy Loading] 초기엔 뷰포트 타일만 → 나머지는 백그라운드
       let allTerritoriesLoaded = false;
-      
-      async function loadTerritoryFromStaticTiles(bounds) {
-          // 이미 로드된 경우 스킵
-          if (allTerritoriesLoaded && territories.length > 0) {
-              console.log(`✅ 캐시된 영토 사용: ${territories.length}개`);
-              const territoryBtns = document.querySelectorAll('[data-layer="territoryPolygon"]');
-              territoryBtns.forEach(btn => {
-                  if (btn.tagName === 'BUTTON') btn.textContent = `영토 ${territories.length}개`;
+
+      // ── 타일 단위 로딩 상태 추적 ──────────────────────────────────
+      let _tileIndexCache   = null;   // index.json 파싱 결과 (한 번만 fetch)
+      let _tilesBasePathCache = null; // 확인된 tiles 경로
+      let _loadedTileFiles  = new Set(); // 이미 로드한 tile filename
+      let _loadingTileFiles = new Set(); // 현재 fetch 중인 tile (중복 방지)
+      let _tileLoadBg       = false;  // 백그라운드 로딩 진행 중 여부
+
+      // 뷰포트 bounds → 해당 타일 목록 필터 (10도 패딩 포함)
+      function _tilesForBounds(tileIndex, vBounds, pad) {
+          pad = pad || 0;
+          return tileIndex.filter(tile => {
+              const b = tile.bounds;
+              return b.north + pad > vBounds.south &&
+                     b.south - pad < vBounds.north &&
+                     b.east  + pad > vBounds.west  &&
+                     b.west  - pad < vBounds.east;
+          });
+      }
+
+      // 타일 파일 1개 fetch → feature 배열 반환 (캐시 활용)
+      async function _fetchTile(tile, origin, basePath, version) {
+          if (_loadedTileFiles.has(tile.filename))  return []; // 이미 로드됨
+          if (_loadingTileFiles.has(tile.filename)) return []; // 현재 로딩 중
+          _loadingTileFiles.add(tile.filename);
+          try {
+              const url = `${origin}${basePath}/${tile.filename}?v=${version}`;
+              const resp = await fetch(url); // 브라우저 캐시 허용 (no-cache 헤더 제거)
+              if (!resp.ok) { console.warn(`타일 로드 실패: ${tile.filename}`); return []; }
+              const data = await resp.json();
+              _loadedTileFiles.add(tile.filename);
+              return data.features || [];
+          } catch(e) {
+              console.warn(`타일 오류: ${tile.filename}`, e);
+              return [];
+          } finally {
+              _loadingTileFiles.delete(tile.filename);
+          }
+      }
+
+      // feature 배열 → territories 전역 배열에 병합 (중복 제거)
+      function _mergeFeatures(newFeatures) {
+          const existingIds = new Set(territories.map(t => t._id));
+          let added = 0;
+          newFeatures.forEach(feature => {
+              const id = feature.properties?._id || feature.properties?.id || feature.id;
+              if (!id || existingIds.has(id)) return;
+              existingIds.add(id);
+              const countryId = feature.properties?.country_id || feature.properties?.country || null;
+              territories.push({
+                  _id: id,
+                  name: feature.properties?.name || '영토',
+                  name_ko: feature.properties?.name_ko,
+                  name_type: feature.properties?.name_type,
+                  type: feature.geometry?.type,
+                  coordinates: feature.geometry?.coordinates,
+                  bbox: feature.properties?.bbox,
+                  level: feature.properties?.level,
+                  country: countryId,
+                  properties: { ...feature.properties, country_id: countryId },
+                  osm_id: feature.properties?.osm_id,
+                  start: feature.properties?.start_year || feature.properties?.start,
+                  end: feature.properties?.end_year   || feature.properties?.end,
+                  fromTile: true
               });
+              added++;
+          });
+          return added;
+      }
+
+      // 타일 인덱스 + 경로 확정 (최초 1회 fetch)
+      async function _ensureTileIndex() {
+          if (_tileIndexCache) return { tileIndex: _tileIndexCache, basePath: _tilesBasePathCache };
+
+          const version   = new Date().toDateString(); // 하루 단위 캐시 버스팅
+          const origin    = window.location.origin;
+          const isLocal   = origin.includes('localhost') || origin.includes('127.0.0.1');
+          const primary   = isLocal ? '/public/tiles' : '/tiles';
+          const fallback  = isLocal ? '/tiles' : '/public/tiles';
+
+          let basePath = primary;
+          let resp = await fetch(`${origin}${primary}/index.json?v=${version}`);
+          if (!resp.ok) {
+              console.log(`🔄 ${primary} 실패, ${fallback} 시도...`);
+              basePath = fallback;
+              resp = await fetch(`${origin}${fallback}/index.json?v=${version}`);
+          }
+          if (!resp.ok) throw new Error(`타일 인덱스 로드 실패: ${resp.status}`);
+
+          _tileIndexCache    = await resp.json();
+          _tilesBasePathCache = basePath;
+          console.log(`📊 타일 인덱스: ${_tileIndexCache.length}개 타일 (경로: ${basePath})`);
+          return { tileIndex: _tileIndexCache, basePath };
+      }
+
+      async function loadTerritoryFromStaticTiles(bounds) {
+          // 전체 로드 완료 후 재호출 시: 렌더링만
+          if (allTerritoriesLoaded && territories.length > 0) {
+              console.log(`✅ 전체 영토 캐시 사용: ${territories.length}개`);
+              _updateTerritoryBtn();
               return;
           }
 
-          console.log(`📡 [정적 파일] 전체 영토 데이터 로딩...`);
-
-          const territoryBtns = document.querySelectorAll('[data-layer="territoryPolygon"]');
+          console.log(`🚀 [Viewport Lazy] 영토 뷰포트 로딩 시작...`);
           const startTime = Date.now();
+          const origin    = window.location.origin;
+          const version   = new Date().toDateString();
 
           try {
-              // 1. 타일 인덱스 로드
-              // 🎯 [로컬/서버 호환] 절대 경로 + 캐시 무효화
-              // - 로컬 개발: /public/tiles/ (Express static 미들웨어)
-              // - Vercel 배포: /tiles/ (public 폴더가 루트로 이동)
-              
-              // 🔥 [캐시 무효화] 타임스탬프 추가로 Vercel Edge Cache 우회
-              const timestamp = new Date().getTime();
-              const origin = window.location.origin; // 절대 경로 생성
-              
-              // 🚀 [v2.0.9] 환경 자동 감지 (404 에러 방지, 2.4초 단축)
-              const isLocal = origin.includes('localhost') || origin.includes('127.0.0.1');
-              const primaryPath = isLocal ? '/public/tiles' : '/tiles';
-              const fallbackPath = isLocal ? '/tiles' : '/public/tiles';
-              
-              let tilesBasePath = primaryPath;
-              let indexUrl = `${origin}${primaryPath}/index.json?v=${timestamp}`;
-              
-              console.log(`📡 [환경 감지] ${isLocal ? '로컬' : '배포'} 모드, 우선 경로: ${indexUrl}`);
-              
-              // 우선 경로 시도 + 캐시 무효화 헤더
-              let indexResponse = await fetch(indexUrl, {
-                  method: 'GET',
-                  headers: {
-                      'Accept': 'application/json',
-                      'Cache-Control': 'no-cache',
-                      'Pragma': 'no-cache'
-                  }
-              });
-              
-              // 404면 폴백 경로 시도
-              if (!indexResponse.ok) {
-                  console.log(`🔄 ${primaryPath} 실패, ${fallbackPath} 시도...`);
-                  tilesBasePath = fallbackPath;
-                  indexUrl = `${origin}${fallbackPath}/index.json?v=${timestamp}`;
-                  indexResponse = await fetch(indexUrl, {
-                      method: 'GET',
-                      headers: {
-                          'Accept': 'application/json',
-                          'Cache-Control': 'no-cache',
-                          'Pragma': 'no-cache'
-                      }
-                  });
-              }
-              
-              if (!indexResponse.ok) {
-                  throw new Error(`타일 인덱스 로드 실패: ${indexResponse.status} (URL: ${indexUrl})`);
-              }
-              
-              const tileIndex = await indexResponse.json();
-              console.log(`📊 타일 인덱스: ${tileIndex.length}개 타일 (경로: ${tilesBasePath})`);
+              const { tileIndex, basePath } = await _ensureTileIndex();
 
-              // 2. 모든 타일 파일들 로드 (287개 영토는 충분히 작아서 전체 로드 가능)
-              // 병렬로 10개씩 로드해서 서버 부하 방지
-              const batchSize = 10;
-              const allFeatures = [];
-              
-              for (let i = 0; i < tileIndex.length; i += batchSize) {
-                  const batch = tileIndex.slice(i, i + batchSize);
-                  const batchPromises = batch.map(async (tile) => {
+              // ── 1단계: 뷰포트 타일만 즉시 로드 ─────────────────────
+              const vBounds = {
+                  south: bounds.getSouth(), north: bounds.getNorth(),
+                  west:  bounds.getWest(),  east:  bounds.getEast()
+              };
+              const viewportTiles = _tilesForBounds(tileIndex, vBounds, 10); // 10도 여유
+              const newViewportTiles = viewportTiles.filter(t => !_loadedTileFiles.has(t.filename));
+
+              if (newViewportTiles.length > 0) {
+                  console.log(`📍 뷰포트 타일: ${newViewportTiles.length}개 로드 (전체 ${tileIndex.length}개 중)`);
+                  const vpFeatures = (await Promise.all(
+                      newViewportTiles.map(t => _fetchTile(t, origin, basePath, version))
+                  )).flat();
+                  const added = _mergeFeatures(vpFeatures);
+                  const elapsed1 = ((Date.now() - startTime) / 1000).toFixed(2);
+                  console.log(`✅ 뷰포트 로드 완료: +${added}개 (누계 ${territories.length}개, ${elapsed1}초)`);
+                  _updateTerritoryBtn();
+
+                  // 뷰포트 타일 로드 직후 즉시 렌더링
+                  if (territories.length > 0 && typeof updateVisibleTerritories === 'function') {
+                      updateVisibleTerritories();
+                  }
+              } else {
+                  console.log(`✅ 뷰포트 타일 이미 로드됨 (${territories.length}개)`);
+              }
+
+              // ── 2단계: 나머지 타일 백그라운드 로드 ──────────────────
+              const remainTiles = tileIndex.filter(t => !_loadedTileFiles.has(t.filename));
+              if (remainTiles.length > 0 && !_tileLoadBg) {
+                  _tileLoadBg = true;
+                  console.log(`⏳ 백그라운드 로딩 시작: 잔여 ${remainTiles.length}개 타일...`);
+                  // 마이크로태스크로 분리 — UI 블로킹 방지
+                  setTimeout(async () => {
                       try {
-                          // 감지된 경로 사용 + 캐시 무효화
-                          const tileUrl = `${origin}${tilesBasePath}/${tile.filename}?v=${timestamp}`;
-                          const tileResponse = await fetch(tileUrl, {
-                              method: 'GET',
-                              headers: {
-                                  'Accept': 'application/json',
-                                  'Cache-Control': 'no-cache',
-                                  'Pragma': 'no-cache'
-                              }
-                          });
-                          if (!tileResponse.ok) {
-                              console.warn(`타일 로드 실패: ${tile.filename}`);
-                              return [];
+                          const bgBatch = 5; // 동시 5개씩 (서버 부하 최소화)
+                          for (let i = 0; i < remainTiles.length; i += bgBatch) {
+                              const batch = remainTiles.slice(i, i + bgBatch);
+                              const bgFeatures = (await Promise.all(
+                                  batch.map(t => _fetchTile(t, origin, basePath, version))
+                              )).flat();
+                              _mergeFeatures(bgFeatures);
                           }
-                          const tileData = await tileResponse.json();
-                          return tileData.features || [];
-                      } catch (error) {
-                          console.warn(`타일 로드 오류: ${tile.filename}`, error);
-                          return [];
+                          allTerritoriesLoaded = true;
+                          const elapsedAll = ((Date.now() - startTime) / 1000).toFixed(2);
+                          console.log(`🎉 전체 영토 백그라운드 로드 완료: ${territories.length}개, 총 ${elapsedAll}초`);
+                          _updateTerritoryBtn();
+                          // 백그라운드 완료 후 현재 뷰 재렌더링 (새로 들어온 데이터 반영)
+                          if (typeof updateVisibleTerritories === 'function') updateVisibleTerritories();
+                      } catch(e) {
+                          console.error('백그라운드 타일 로딩 오류:', e);
+                      } finally {
+                          _tileLoadBg = false;
                       }
-                  });
-                  
-                  const batchResults = await Promise.all(batchPromises);
-                  allFeatures.push(...batchResults.flat());
-                  
-                  // 진행률 표시
-                  const progress = Math.floor((i + batch.length) / tileIndex.length * 100);
-                  territoryBtns.forEach(btn => {
-                      if (btn.tagName === 'BUTTON') {
-                          btn.textContent = `영토 로딩중... ${progress}%`;
-                      }
-                  });
+                  }, 200);
+              } else if (remainTiles.length === 0) {
+                  allTerritoriesLoaded = true;
+                  const elapsedAll = ((Date.now() - startTime) / 1000).toFixed(2);
+                  console.log(`🎉 전체 영토 로드 완료: ${territories.length}개, ${elapsedAll}초`);
+                  _updateTerritoryBtn();
               }
-
-              // 3. 🚀 [최적화] 중복 제거 - _id 기준으로 고유한 영토만 저장
-              const uniqueTerritories = new Map();
-              
-              allFeatures.forEach(feature => {
-                  const id = feature.properties?._id || feature.properties?.id || feature.id;
-                  if (id && !uniqueTerritories.has(id)) {
-                      const countryId = feature.properties?.country_id || feature.properties?.country || null;
-                      // properties에 country_id 보장 (calculateDominantCountry가 이를 사용)
-                      const props = {
-                          ...feature.properties,
-                          country_id: countryId
-                      };
-                      uniqueTerritories.set(id, {
-                          _id: id,
-                          name: feature.properties?.name || '영토',
-                          name_ko: feature.properties?.name_ko,
-                          name_type: feature.properties?.name_type,
-                          type: feature.geometry?.type,
-                          coordinates: feature.geometry?.coordinates,
-                          bbox: feature.properties?.bbox,
-                          level: feature.properties?.level,
-                          country: countryId,
-                          properties: props,
-                          osm_id: feature.properties?.osm_id,
-                          start: feature.properties?.start_year || feature.properties?.start,
-                          end: feature.properties?.end_year || feature.properties?.end,
-                          // mark that this territory record was sourced from static tiles
-                          fromTile: true
-                      });
-                  }
-              });
-              
-              territories = Array.from(uniqueTerritories.values());
-              allTerritoriesLoaded = true;
-              const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-              
-              console.log(`🎉 정적 파일 로드 완료!`);
-              console.log(`  📦 원본 features: ${allFeatures.length}개`);
-              console.log(`  ✅ 고유 영토: ${territories.length}개`);
-              console.log(`  ⏱️ 소요 시간: ${elapsed}초`);
-              
-              territoryBtns.forEach(btn => {
-                  if (btn.tagName === 'BUTTON') btn.textContent = `영토 ${territories.length}개`;
-              });
-
-              // 🚀 [최적화] updateMap 중복 호출 제거
-              // 최종 렌더링은 initialize() 함수 끝에서 한 번만 실행
-              console.log('✅ 영토 로드 완료 (렌더링은 최종 단계에서 수행)');
 
           } catch (error) {
               console.error('❌ 정적 파일 영토 로드 실패:', error);
-              // 폴백: MongoDB에서 로드
               console.log('🔄 MongoDB 폴백 사용');
               await loadTerritoryFromMongoDB(bounds);
+          }
+      }
+
+      function _updateTerritoryBtn() {
+          document.querySelectorAll('[data-layer="territoryPolygon"]').forEach(btn => {
+              if (btn.tagName === 'BUTTON')
+                  btn.textContent = allTerritoriesLoaded
+                      ? `영토 ${territories.length}개`
+                      : `영토 ${territories.length}개 (로딩중...)`;
+          });
+      }
+
+      // moveend 시 아직 안 로드된 새 뷰포트 타일 lazy-load
+      async function _loadNewViewportTiles() {
+          if (allTerritoriesLoaded || !_tileIndexCache || _tileLoadBg) return;
+          const origin  = window.location.origin;
+          const version = new Date().toDateString();
+          const vb = map.getBounds();
+          const vBounds = { south: vb.getSouth(), north: vb.getNorth(), west: vb.getWest(), east: vb.getEast() };
+          const newTiles = _tilesForBounds(_tileIndexCache, vBounds, 5)
+              .filter(t => !_loadedTileFiles.has(t.filename) && !_loadingTileFiles.has(t.filename));
+          if (newTiles.length === 0) return;
+          console.log(`🗺️ moveend: 새 뷰포트 타일 ${newTiles.length}개 로드`);
+          const features = (await Promise.all(
+              newTiles.map(t => _fetchTile(t, origin, _tilesBasePathCache, version))
+          )).flat();
+          const added = _mergeFeatures(features);
+          if (added > 0) {
+              _updateTerritoryBtn();
+              if (typeof updateVisibleTerritories === 'function') updateVisibleTerritories();
           }
       }
 
@@ -14600,6 +14640,12 @@ function invalidateCountryLookupCache() {
           window._moveendDeclutterTimer = setTimeout(() => {
               if (typeof _applyMarkerLabelDeclutter === 'function') _applyMarkerLabelDeclutter();
           }, isMobileOnLoad ? 1100 : 700);
+
+          // 🚀 [Viewport Lazy] 이동 후 새 뷰포트의 미로드 타일 추가 fetch
+          clearTimeout(window._moveendTileTimer);
+          window._moveendTileTimer = setTimeout(() => {
+              if (layerVisibility.territoryPolygon) _loadNewViewportTiles();
+          }, isMobileOnLoad ? 1200 : 800);
       });
       
       // 🗺️ [v3.2] 보이는 영역의 영토만 증분 업데이트 (국가별 병합)
