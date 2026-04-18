@@ -3668,9 +3668,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const usersWithStats = await Promise.all(users.map(async (user) => {
                     const loginCount = await collections.loginLogs.countDocuments({ userId: user._id });
                     
-                    // 기여도 통계 계산
+                    // 기여도 통계 계산 (userId ObjectId 또는 username 문자열 양쪽 집계)
                     const contributionStats = await collections.contributions.aggregate([
-                        { $match: { userId: user._id } },
+                        { $match: { $or: [{ userId: user._id }, { username: user.username }] } },
                         {
                             $group: {
                                 _id: null,

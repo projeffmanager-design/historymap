@@ -1069,6 +1069,12 @@ body.force-mobile #slider-year-tooltip {
     padding: 6px 16px !important;
     bottom: 52px !important;
 }
+/* 📱 모바일 연도 상시 표시 레이블 */
+body.force-mobile #mobile-year-label {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
 /* timeline-slider-wrapper가 있으면 숨김 (이미 timeline-control로 대체) */
 body.force-mobile #timeline-slider-wrapper {
     display: none !important;
@@ -4990,6 +4996,8 @@ body.force-mobile .marker-type-selector button {
 
   <!-- 사관청 소식 팝업 오버레이 -->
   <div id="newsletter-popup-overlay" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,0.72); align-items:center; justify-content:center;">
+    <button id="newsletter-popup-close" onclick="document.getElementById('newsletter-popup-overlay').style.display='none';"
+      style="display:none; position:fixed; top:12px; right:12px; z-index:10001; width:44px; height:44px; border-radius:50%; background:rgba(30,20,8,0.92); border:2px solid #c8a050; color:#f0d080; font-size:22px; line-height:1; cursor:pointer; align-items:center; justify-content:center; box-shadow:0 2px 12px rgba(0,0,0,0.6);">✕</button>
     <iframe id="newsletter-popup-iframe"
       src=""
       style="width:92vw; max-width:1100px; height:88vh; border:1px solid #5a4010; border-radius:12px; box-shadow:0 8px 48px rgba(0,0,0,0.8); background:#1a1610;"
@@ -5287,6 +5295,9 @@ body.force-mobile .marker-type-selector button {
                 <div id="timeline-step-row">
                     <!-- 뒤로 1개월 버튼 -->
                     <button id="sliderStepBack" class="slider-step-btn" title="1개월 뒤로"><svg width="7" height="12" viewBox="0 0 8 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 1L1 7L7 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+
+                    <!-- 📱 모바일 전용 연도 상시 표시 레이블 -->
+                    <div id="mobile-year-label" style="display:none; flex-shrink:0; min-width:72px; text-align:center; font-size:13px; font-weight:bold; color:#f0d080; line-height:1; pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,0.8);"></div>
 
                     <div id="timeline-slider-wrap">
                         <!-- 슬라이더 -->
@@ -12162,7 +12173,10 @@ function invalidateCountryLookupCache() {
             // 🚩 kingPanel / historyPanel: 설정값에 따라 패널 DOM 즉시 반영
             const kingPanel = document.getElementById('map-king-panel');
             const historyPanel = document.getElementById('map-history-panel');
-            if (kingPanel) kingPanel.style.display = layerVisibility.kingPanel ? 'block' : 'none';
+            // 📱 모바일에서는 왕패널 항상 숨김
+            const kingPanelVisible = window.innerWidth > 967 ? layerVisibility.kingPanel : false;
+            if (window.innerWidth <= 967) layerVisibility.kingPanel = false;
+            if (kingPanel) kingPanel.style.display = kingPanelVisible ? 'block' : 'none';
             if (historyPanel) historyPanel.style.display = layerVisibility.historyPanel ? 'flex' : 'none';
 
             // 🚩 햄버거 메뉴 체크박스 동기화 (DOMContentLoaded보다 늦게 완료되므로 여기서 재적용)
@@ -12339,6 +12353,15 @@ function invalidateCountryLookupCache() {
                     checkbox.checked = settings[layerKey];
                 }
             });
+
+            // 📱 모바일에서는 서버 설정과 무관하게 왕패널 항상 숨김
+            if (window.innerWidth <= 967) {
+                layerVisibility.kingPanel = false;
+                const kingPanelEl = document.getElementById('map-king-panel');
+                if (kingPanelEl) kingPanelEl.style.display = 'none';
+                const kingCb = document.querySelector('#mobile-layer-menu input[data-layer="kingPanel"]');
+                if (kingCb) kingCb.checked = false;
+            }
 
             console.log('🎉 레이어 설정 적용 완료');
         } catch (error) {
@@ -16321,6 +16344,10 @@ function invalidateCountryLookupCache() {
         // 툴팁 텍스트 설정
         const yearText = year <= 0 ? `기원전 ${Math.abs(year)}년` : `${year}년`;
         tooltip.textContent = yearText;
+
+        // 📱 모바일 연도 상시 표시 레이블 갱신
+        const mobileYearLabel = document.getElementById('mobile-year-label');
+        if (mobileYearLabel) mobileYearLabel.textContent = yearText;
         
         // year-indicator 업데이트 (슬라이더 핸들 중앙에 크게 표시)
         if (yearIndicator) {
@@ -23161,17 +23188,31 @@ kingSelect.addEventListener('change', () => {
             const nlBtn     = document.getElementById('newsletterLink');
             const nlOverlay = document.getElementById('newsletter-popup-overlay');
             const nlIframe  = document.getElementById('newsletter-popup-iframe');
+            const nlCloseBtn = document.getElementById('newsletter-popup-close');
             if (!nlBtn || !nlOverlay || !nlIframe) return;
+
+            function isMobile() {
+                return window.innerWidth <= 768;
+            }
 
             function openNewsletter() {
                 if (!nlIframe.src || !nlIframe.src.includes('newsletter.html')) {
                     nlIframe.src = 'newsletter.html?popup=1';
+                }
+                // 모바일: 전체화면, 닫기 버튼 표시
+                if (isMobile()) {
+                    nlIframe.style.cssText = 'width:100vw; max-width:100vw; height:100dvh; border:none; border-radius:0; box-shadow:none; background:#1a1610;';
+                    if (nlCloseBtn) nlCloseBtn.style.display = 'flex';
+                } else {
+                    nlIframe.style.cssText = 'width:92vw; max-width:1100px; height:88vh; border:1px solid #5a4010; border-radius:12px; box-shadow:0 8px 48px rgba(0,0,0,0.8); background:#1a1610;';
+                    if (nlCloseBtn) nlCloseBtn.style.display = 'none';
                 }
                 nlOverlay.style.display = 'flex';
                 document.body.style.overflow = 'hidden';
             }
             function closeNewsletter() {
                 nlOverlay.style.display = 'none';
+                if (nlCloseBtn) nlCloseBtn.style.display = 'none';
                 document.body.style.overflow = '';
             }
 
@@ -24644,6 +24685,15 @@ kingSelect.addEventListener('change', () => {
           if (nlOverlay && nlIframe) {
             if (!nlIframe.src || !nlIframe.src.includes('newsletter.html')) {
               nlIframe.src = 'newsletter.html?popup=1';
+            }
+            // 모바일: 전체화면 + 닫기 버튼
+            const nlCloseBtn2 = document.getElementById('newsletter-popup-close');
+            if (window.innerWidth <= 768) {
+              nlIframe.style.cssText = 'width:100vw; max-width:100vw; height:100dvh; border:none; border-radius:0; box-shadow:none; background:#1a1610;';
+              if (nlCloseBtn2) nlCloseBtn2.style.display = 'flex';
+            } else {
+              nlIframe.style.cssText = 'width:92vw; max-width:1100px; height:88vh; border:1px solid #5a4010; border-radius:12px; box-shadow:0 8px 48px rgba(0,0,0,0.8); background:#1a1610;';
+              if (nlCloseBtn2) nlCloseBtn2.style.display = 'none';
             }
             nlOverlay.style.display = 'flex';
             document.body.style.overflow = 'hidden';
