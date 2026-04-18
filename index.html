@@ -21465,10 +21465,19 @@ kingSelect.addEventListener('change', () => {
                 const dbHits = [];
                 for (let _i = 0; _i < castles.length; _i++) {
                     const c = castles[_i];
-                    if ((c.name && c.name.toLowerCase().includes(ql)) ||
-                        (c.name_ko && c.name_ko.toLowerCase().includes(ql)) ||
-                        (c.general_name && c.general_name.toLowerCase().includes(ql))) {
-                        dbHits.push({ lat: c.lat, lng: c.lng, label: c.name || c.name_ko || '', sub: c.general_name || '', idx: _i });
+                    const nameMatch =
+                        (c.name        && c.name.toLowerCase().includes(ql)) ||
+                        (c.name_ko     && c.name_ko.toLowerCase().includes(ql)) ||
+                        (c.general_name && c.general_name.toLowerCase().includes(ql)) ||
+                        (Array.isArray(c.history) && c.history.some(h => h.name && h.name.toLowerCase().includes(ql)));
+                    if (nameMatch) {
+                        // history에서 가장 적합한 이름 추출
+                        let label = c.name || c.name_ko || '';
+                        if (!label && Array.isArray(c.history)) {
+                            const h = c.history.find(h => h.name && h.name.toLowerCase().includes(ql));
+                            if (h) label = h.name;
+                        }
+                        dbHits.push({ lat: c.lat, lng: c.lng, label, sub: c.general_name || '', idx: _i });
                         if (dbHits.length >= 8) break;
                     }
                 }
