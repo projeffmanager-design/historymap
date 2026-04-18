@@ -41,12 +41,15 @@ const RANK_CONFIG = {
         review:        1,   // reviewScore 그대로 반영
         approval:      1,   // approvalScore 그대로 반영
         attendance:    1,   // attendancePoints 그대로 반영
+        commentCount:  1,   // 의견 1건당 획득 점수 (30자 이상, 일 5회 한도)
     },
     limits: {
         dailyVotes:         9999,  // 일일 추천 제한 없음
-        reviewBonus:         5,  // 검토 1회당 획득 점수
-        approvalBonus:       5,  // 관리자 패널 승인 시 획득 점수
-        finalApprovalBonus: 10,  // /approve API 최종승인 시 승인자 획득 점수
+        dailyComments:         5,  // 일일 의견 점수 획득 한도
+        commentMinLength:     30,  // 점수 획득 최소 글자 수
+        reviewBonus:           5,  // 검토 1회당 획득 점수
+        approvalBonus:         5,  // 관리자 패널 승인 시 획득 점수
+        finalApprovalBonus:   10,  // /approve API 최종승인 시 승인자 획득 점수
     },
     // 재상급 직급 (순위 기반 — 상위 4명 + 최소 점수 충족 시)
     ministerTiers: [
@@ -116,7 +119,8 @@ const buildPositionSwitch = () => {
             { $ifNull: ["$contributionStats.totalVotes", 0] },
             { $ifNull: ["$reviewScore", 0] },
             { $ifNull: ["$approvalScore", 0] },
-            { $ifNull: ["$attendancePoints", 0] }  // ⚡ 출석 점수 포함
+            { $ifNull: ["$attendancePoints", 0] },  // ⚡ 출석 점수 포함
+            { $multiply: [{ $ifNull: ["$commentScore", 0] }, RANK_CONFIG.scoreWeights.commentCount] } // 💬 의견 점수
         ]
     };
     const branches = RANK_CONFIG.tiers
@@ -196,9 +200,10 @@ async function logActivity(type, actor, actorPosition, targetName, extra = {}, u
                     const sc = (stats.totalCount    * RANK_CONFIG.scoreWeights.submitCount)
                              + (stats.approvedCount * RANK_CONFIG.scoreWeights.approvedCount)
                              + stats.totalVotes
-                             + (u.reviewScore    || 0)
-                             + (u.approvalScore  || 0)
-                             + (u.attendancePoints || 0);
+                             + (u.reviewScore      || 0)
+                             + (u.approvalScore    || 0)
+                             + (u.attendancePoints || 0)
+                             + (u.commentScore     || 0);
                     actorPosition = getRealtimePosition(sc, null, u.designated_rank || null);
                 }
             } catch (_) { /* 실패 시 기존 actorPosition 유지 */ }
@@ -3151,9 +3156,10 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     score = (stats.totalCount    * RANK_CONFIG.scoreWeights.submitCount)
                           + (stats.approvedCount * RANK_CONFIG.scoreWeights.approvedCount)
                           + stats.totalVotes
-                          + (user.reviewScore    || 0)
-                          + (user.approvalScore  || 0)
-                          + (user.attendancePoints || 0);
+                          + (user.reviewScore      || 0)
+                          + (user.approvalScore    || 0)
+                          + (user.attendancePoints || 0)
+                          + (user.commentScore     || 0);
                 } catch (error) {
                     console.error('점수 계산 에러:', error);
                     score = 0;
@@ -5528,7 +5534,48 @@ app.post('/api/marker-comments', verifyToken, async (req, res) => {
             await logActivity('comment', req.user.username, req.user.position || '', castleName, { castle_id: castle_id.toString() }, req.user.userId);
         } catch (_) {}
 
-        res.json({ ...comment, _id: result.insertedId });
+        // 💬 의견 점수 부여 (30자 이상 & 일 5회 한도 & 자기 사료 제외)
+        let pointAwarded = false;
+        try {
+            const trimmedText = text.trim();
+            const minLen  = RANK_CONFIG.limits.commentMinLength; // 30
+            const dailyMax = RANK_CONFIG.limits.dailyComments;   // 5
+            if (trimmedText.length >= minLen) {
+                // 오늘 이미 몇 번 점수를 받았는지 확인
+                const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+                const todayComments = await collections.markerComments.countDocuments({
+                    author_id: req.user.userId,
+                    created_at: { $gte: todayStart },
+                    _id: { $ne: result.insertedId },  // 방금 insert 제외
+                    scored: true
+                });
+                if (todayComments < dailyMax) {
+                    // 자기 사료 여부 확인
+                    const castleOwner = await collections.castle.findOne(
+                        { _id: toObjectId(castle_id) },
+                        { projection: { author_id: 1, author: 1 } }
+                    );
+                    const isSelfCastle = castleOwner && (
+                        String(castleOwner.author_id) === String(req.user.userId) ||
+                        castleOwner.author === req.user.username
+                    );
+                    if (!isSelfCastle) {
+                        await collections.users.updateOne(
+                            { _id: toObjectId(req.user.userId) },
+                            { $inc: { commentScore: RANK_CONFIG.scoreWeights.commentCount } }
+                        );
+                        // 점수 부여 표시 (일일 한도 카운트용)
+                        await collections.markerComments.updateOne(
+                            { _id: result.insertedId },
+                            { $set: { scored: true } }
+                        );
+                        pointAwarded = true;
+                    }
+                }
+            }
+        } catch (_) {}
+
+        res.json({ ...comment, _id: result.insertedId, pointAwarded });
     } catch (error) {
         res.status(500).json({ message: '의견 작성 실패', error: error.message });
     }

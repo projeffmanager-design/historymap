@@ -8288,8 +8288,11 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                     body: JSON.stringify({ castle_id: castleId, text })
                 });
                 if (!res.ok) { const err = await res.json(); alert(err.message || '등록 실패'); return; }
+                const data = await res.json();
                 if (odpCommentInput) odpCommentInput.value = '';
                 if (odpCharCount) odpCharCount.textContent = '0 / 500';
+                // +1P 토스트
+                if (data.pointAwarded) showToast('💬 의견 등록 +1P 획득!', 'point');
                 // 배지 카운트 갱신
                 try {
                     const id = String(castleId);
@@ -25682,6 +25685,9 @@ kingSelect.addEventListener('change', () => {
                 alert(err.message || '의견 등록 실패');
                 return;
             }
+            const data = await res.json();
+            // +1P 토스트
+            if (data.pointAwarded) showToast('💬 의견 등록 +1P 획득!', 'point');
             document.getElementById('mcTextInput').value = '';
             document.getElementById('mcCharCount').textContent = '0';
             await loadMarkerComments();
@@ -26587,6 +26593,24 @@ kingSelect.addEventListener('change', () => {
     });
 
     window.refreshActivityFeed = function() { fetchLogs(); };
+
+    // 🍞 전역 토스트 알림
+    window.showToast = function(msg, type = 'info', duration = 2800) {
+        const colors = { success: '#4caf82', info: '#7ab8cc', warn: '#c8a84b', point: '#d4af37' };
+        const bg = colors[type] || colors.info;
+        const el = document.createElement('div');
+        el.textContent = msg;
+        el.style.cssText = `position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);
+            background:${bg};color:#0e0c08;font-size:14px;font-weight:700;
+            padding:10px 22px;border-radius:24px;box-shadow:0 4px 18px rgba(0,0,0,0.45);
+            z-index:99999;opacity:0;transition:opacity 0.25s,transform 0.25s;pointer-events:none;white-space:nowrap;`;
+        document.body.appendChild(el);
+        requestAnimationFrame(() => { el.style.opacity = '1'; el.style.transform = 'translateX(-50%) translateY(0)'; });
+        setTimeout(() => {
+            el.style.opacity = '0'; el.style.transform = 'translateX(-50%) translateY(10px)';
+            setTimeout(() => el.remove(), 280);
+        }, duration);
+    };
 })();
 </script>
 
