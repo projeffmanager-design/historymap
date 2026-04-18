@@ -12853,23 +12853,46 @@ const loadingMessages = [
         const percentageEl = document.getElementById('loading-percentage-initial');
         
         if (messageEl && progressBar && percentageEl) {
-            // 메시지가 제공되지 않으면 랜덤 선택
             const displayMessage = message || loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
             messageEl.textContent = displayMessage;
-            progressBar.style.width = percent + '%';
-            percentageEl.textContent = percent + '%';
+            if (percent !== undefined && percent !== null) {
+                progressBar.style.width = percent + '%';
+                percentageEl.textContent = Math.floor(percent) + '%';
+            }
         }
     }
-    
+
+    // 📊 가짜 진행률 — 실제 로딩과 무관하게 자연스럽게 채움
+    let _fakeProgress = 0;
+    let _fakeTimer = null;
+
+    function startFakeProgress(targetPercent = 90, intervalMs = 50) {
+        clearInterval(_fakeTimer);
+        _fakeProgress = 0;
+        _fakeTimer = setInterval(() => {
+            if (_fakeProgress >= targetPercent) { clearInterval(_fakeTimer); return; }
+            const speed = _fakeProgress < 30 ? 2 : _fakeProgress < 60 ? 1 : 0.5;
+            _fakeProgress = Math.min(_fakeProgress + speed, targetPercent);
+            showLoadingStatus(null, _fakeProgress);
+        }, intervalMs);
+    }
+
+    function completeFakeProgress() {
+        clearInterval(_fakeTimer);
+        showLoadingStatus('역사의 기록이 완성되었습니다.', 100);
+    }
+
     function hideLoadingStatus() {
+        // 100% 채운 뒤 페이드아웃
+        completeFakeProgress();
         // 🚀 [v2.0.6] 초기 로딩 화면 제거
         const initialScreen = document.getElementById('initial-loading-screen');
         if (initialScreen) {
-            initialScreen.style.transition = 'opacity 0.25s ease-out';
-            initialScreen.style.opacity = '0';
             setTimeout(() => {
-                initialScreen.remove();
-            }, 260);
+                initialScreen.style.transition = 'opacity 0.25s ease-out';
+                initialScreen.style.opacity = '0';
+                setTimeout(() => { initialScreen.remove(); }, 260);
+            }, 150); // 100% 표시 후 잠깐 보여주고 닫기
         }
     }
 
@@ -12878,8 +12901,9 @@ const loadingMessages = [
       const startTime = performance.now();
       
       try {
-      // 🎯 로딩 패널 표시
+      // 🎯 로딩 시작 — 가짜 진행률 즉시 가동 (캐시 유무 무관)
       showLoadingStatus('역사의 문을 여는 중입니다...', 0);
+      startFakeProgress(90, 50);
 
       // 🎯 [핵심] 캐시 데이터 먼저 확인 (초기화 전에!)
       const cachedCountries = localStorage.getItem('countries_cache');
@@ -12900,7 +12924,6 @@ const loadingMessages = [
           castlesPromise,
           castleVersionPromise
       ]);
-
       // 🔔 [v3.9] 서버 수정 시각 vs 캐시 저장 시각 비교 → 서버가 더 최신이면 캐시 무시
       let effectiveCachedCastles = cachedCastles;
       if (cachedCastles && cachedCastles.length > 0 && castleServerVersion) {
@@ -13018,7 +13041,7 @@ const loadingMessages = [
               console.log('🔒 [캐시 렌더링] isInitializing 플래그 복원');
               
               console.log('🗺️ [즉시 렌더링] 캐시 데이터로 국가 색상이 입혀진 완전한 지도 렌더링 완료 (0.5초)');
-              showLoadingStatus('과거의 기록을 복원했습니다...', 35);
+              showLoadingStatus('과거의 기록을 복원했습니다...');
               
               // ℹ️ 참고: 이 시점은 castles 백그라운드 로드 전이므로 색칠 가능 수는 과소 집계됨 (정상)
           }
@@ -13028,14 +13051,14 @@ const loadingMessages = [
       }
 
       // ===== 🚀 [1단계] 레이어 설정 우선 로드 (0-5%) =====
-          showLoadingStatus('지도 제작 도구를 준비하는 중입니다...', 5);
+          showLoadingStatus('지도 제작 도구를 준비하는 중입니다...');
           const layerSettings = await loadLayerSettings();
           console.log('📋 활성화된 레이어:', Object.entries(layerVisibility).filter(([k, v]) => v).map(([k]) => k));
           
           // ===== 🚀 [2단계] 필수 데이터만 병렬 로딩 (5-60%) =====
           console.log('🚀 필수 데이터 병렬 로딩 시작...');
           const parallelStartTime = performance.now();
-          showLoadingStatus('산둥 반도에서 사신이 오고 있습니다...', 25);
+          showLoadingStatus('산둥 반도에서 사신이 오고 있습니다...');
           
           // 🎯 [최적화] 레이어 설정에 따라 로딩할 데이터 결정
           // 🚀 [최적화] history, castles 제외 - 지도 렌더링 후 백그라운드 로드
@@ -13086,8 +13109,7 @@ const loadingMessages = [
                       timingMap[key] = duration;
                       
                       completedCount++;
-                      const progress = 10 + Math.floor((completedCount / totalLoads) * 50);
-                      showLoadingStatus(`${key} 데이터 로드 완료...`, progress);
+                      showLoadingStatus(`${key} 데이터 로드 완료...`);
                       console.log(`⏱️ [타이밍] ${key}: ${duration}초`);
                       return [key, data];
                   } catch (error) {
@@ -13151,13 +13173,13 @@ const loadingMessages = [
           console.log(`✅ 병렬 로딩 완료: countries ${countries.length}, events ${events.length}, history (지연 로딩), castles (캐시: ${castles.length}개)`);
           
           // 🚀 [최적화] 시간 목록 생성 (history 없이 events만 먼저)
-          showLoadingStatus('역사의 시간축을 정렬하고 있습니다...', 60);
+          showLoadingStatus('역사의 시간축을 정렬하고 있습니다...');
           // 🚩 [v3.6.36] 연도 단위로만 저장 (월 무시 → ‹ › 버튼이 연도 단위로 이동)
           const eventTimes = [...new Set(events.map(e => e.year))].map(y => yearMonthToTotalMonths(y, 1));
           historyEventTimes = [...new Set(eventTimes)].sort((a, b) => a - b);
           console.log(`📅 연대표 시간 목록 (events만): ${historyEventTimes.length}개 시점`);
           
-          showLoadingStatus('강역을 검증하고 있습니다...', 75);
+          showLoadingStatus('강역을 검증하고 있습니다...');
           
           // 🚀 [v2.0.8] 영토 데이터를 필수 로딩으로 변경 (빈 지도 현상 방지)
           if (layerVisibility.territoryPolygon) {
@@ -13166,7 +13188,7 @@ const loadingMessages = [
                   console.log('🗺️ 영토 데이터 필수 로딩 시작... (빈 지도 방지)');
                   const territoryStartTime = performance.now();
                   try {
-                      showLoadingStatus('대륙의 강역을 복원하는 중입니다...', 77);
+                      showLoadingStatus('대륙의 강역을 복원하는 중입니다...');
                       await loadTerritoryTiles();
                       const territoryLoadTime = ((performance.now() - territoryStartTime) / 1000).toFixed(2);
                       console.log(`✅ 영토 데이터 로딩 완료: ${territories.length}개 (${territoryLoadTime}초)`);
@@ -13200,7 +13222,7 @@ const loadingMessages = [
           // ===== 🚀 [최적화] 추가 데이터 병렬 로딩 (80-90%) =====
           const additionalStartTime = performance.now();
           console.log('📦 추가 데이터 병렬 로딩 시작...');
-          showLoadingStatus('재위 시기와 활동 범위를 공간적으로 검증 중입니다...', 82);
+          showLoadingStatus('재위 시기와 활동 범위를 공간적으로 검증 중입니다...');
           
           const additionalLoadPromises = {};
           
@@ -13461,7 +13483,7 @@ const loadingMessages = [
           }
                       
           // 🎯 [v2.1.2] 로딩 완료 조건 개선
-          showLoadingStatus('역사의 전장이 준비되었습니다!', 100);
+          showLoadingStatus('역사의 전장이 준비되었습니다!');
           
           let _checkRetryCount = 0;
           const _checkMaxRetries = 10; // 최대 5초 대기 (500ms × 10회)
