@@ -13479,15 +13479,13 @@ const loadingMessages = [
               }).catch(err => console.warn('⚠️ castles 백그라운드 로드 실패:', err.message));
           }
           
-          // 왕 데이터 (항상 로드 — 패널 OFF여도 편집 폼에서 필요)
-          additionalLoadPromises.kings = fetchData('kings');
-          
+          // ❌ kings: 백그라운드 로드로 전환 (병목 제거)
           // ❌ drawings: 제거 - 사용자 그리기 데이터, 백그라운드 로드로 전환 (21초 병목 제거)
           // ❌ contributions: 제거 - 사용자 기여 데이터, 백그라운드 로드로 전환 (4초 병목 제거)
           
           // ❌ naturalFeatures: 제거 — 백그라운드 로드로 전환 (10초 병목 제거)
 
-          // 🚀 병렬 실행
+          // 🚀 병렬 실행 (현재 additionalLoadPromises가 비어있어도 안전하게 실행)
           const additionalTimingMap = {};
           const additionalResults = await Promise.all(
               Object.entries(additionalLoadPromises).map(async ([key, promise]) => {
@@ -13501,7 +13499,7 @@ const loadingMessages = [
                       return [key, data];
                   } catch (error) {
                       console.error(`❌ ${key} 로드 실패:`, error);
-                      return [key, key === 'kings' ? {} : []];
+                      return [key, []];
                   }
               })
           );
@@ -13509,28 +13507,29 @@ const loadingMessages = [
           const additionalEndTime = performance.now();
           const additionalDuration = ((additionalEndTime - additionalStartTime) / 1000).toFixed(2);
           console.log(`⏱️ [타이밍] 추가 데이터 Promise.all 전체: ${additionalDuration}초`);
-          console.log(`📊 [타이밍] 추가 데이터 상세:`, additionalTimingMap);
           
-          const additionalData = Object.fromEntries(additionalResults);
-          
-          // 왕 데이터 처리 (kingPanel ON/OFF 무관하게 항상 로드 — 왕 편집 폼에서 필요)
-          kings = {};
-          if (Array.isArray(additionalData.kings)) {
-              let totalKings = 0;
-              additionalData.kings.forEach(item => {
-                  if (item.country_id && Array.isArray(item.kings)) {
-                      kings[item.country_id] = item.kings;
-                      totalKings += item.kings.length;
+          // 🚀 [백그라운드 로딩] kings — 왕 편집 폼에서 필요하지만 로딩 차단 불필요
+          fetchData('kings').then(data => {
+              kings = {};
+              if (Array.isArray(data)) {
+                  let totalKings = 0;
+                  data.forEach(item => {
+                      if (item.country_id && Array.isArray(item.kings)) {
+                          kings[item.country_id] = item.kings;
+                          totalKings += item.kings.length;
+                      }
+                  });
+                  console.log(`✅ [백그라운드] 왕 데이터 로드 완료: ${Object.keys(kings).length}개 국가, 총 ${totalKings}명 왕`);
+                  if (yearInput && monthInput) {
+                      const _ky = parseInt(yearInput.value) || 400;
+                      const _km = parseInt(monthInput.value) || 1;
+                      updateKingLabel(_ky, _km);
                   }
-              });
-              console.log(`✅ 왕 데이터 로드 완료: ${Object.keys(kings).length}개 국가, 총 ${totalKings}명 왕`);
-              // 🔄 [왕 패널] 데이터 로드 완료 후 패널 즉시 갱신
-              if (yearInput && monthInput) {
-                  const _ky = parseInt(yearInput.value) || 400;
-                  const _km = parseInt(monthInput.value) || 1;
-                  updateKingLabel(_ky, _km);
               }
-          }
+          }).catch(err => {
+              console.warn('⚠️ [백그라운드] kings 로드 실패:', err.message);
+              kings = {};
+          });
           
           // 🚀 [백그라운드 로딩] drawings — 캐시 유무와 무관하게 항상 최신 데이터로 갱신
           // 🚩 [버그수정] 캐시만 사용하면 새로 저장한 drawing이 재방문 시 누락됨 → 항상 백그라운드 재검증
