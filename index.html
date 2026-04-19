@@ -8579,6 +8579,11 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
             map.removeLayer(_eventLocationPickMarker);
             _eventLocationPickMarker = null;
         }
+        // 🚩 castleForm 닫힐 때 좌표 피커 핀 제거
+        if (formId === 'castleForm' && window._coordPickerPin) {
+            try { map.removeLayer(window._coordPickerPin); } catch(e) {}
+            window._coordPickerPin = null;
+        }
         // 모든 편집 패널이 닫혔는지 확인 후 오버레이 제거
         const anyOpen = EDIT_PANEL_IDS.some(id => {
             const el = document.getElementById(id);
@@ -16937,11 +16942,12 @@ const loadingMessages = [
             const lngEl = document.getElementById('castleLng');
             if (latEl) latEl.value = lat;
             if (lngEl) lngEl.value = lng;
-            // 지도에 핀 표시
-            if (_pickerPin) map.removeLayer(_pickerPin);
+            // 기존 핀 제거 후 새 핀 표시
+            if (_pickerPin) { map.removeLayer(_pickerPin); _pickerPin = null; }
             _pickerPin = L.marker([lat, lng], {
                 icon: L.divIcon({ className: '', html: '<div style="width:16px;height:16px;background:#f0c060;border:2px solid #fff;border-radius:50%;box-shadow:0 0 6px rgba(0,0,0,0.7);"></div>', iconAnchor: [8,8] })
             }).addTo(map).bindPopup(`📍 ${lat}, ${lng}`).openPopup();
+            window._coordPickerPin = _pickerPin;  // 외부에서 제거 가능하도록
             showToast(`📍 좌표 선택 완료: ${lat}, ${lng}`, 'point', 2500);
             _stopPicker();
         };
@@ -16991,7 +16997,7 @@ const loadingMessages = [
       popupContent.style.display = 'flex';
       popupContent.style.flexDirection = 'column';
       popupContent.style.gap = '8px'; // 버튼과 텍스트 사이의 간격
-      popupContent.innerHTML = `<span class="vintage-desc">${textToCopy}</span>`;
+      popupContent.innerHTML = `<span style="font-family:monospace;font-size:13px;font-weight:600;color:#f0d060;letter-spacing:0.04em;text-shadow:0 1px 3px rgba(0,0,0,0.7);">${textToCopy}</span>`;
       
       const copyButton = document.createElement('button');
       copyButton.innerText = '좌표 복사';
@@ -18280,6 +18286,8 @@ const loadingMessages = [
         map.removeLayer(editMarker);
         editMarker = null;
       }
+      // 좌표 피커 핀 제거
+      if (window._coordPickerPin) { try { map.removeLayer(window._coordPickerPin); } catch(e){} window._coordPickerPin = null; }
     });
 
     // 성 휴지통으로 이동
