@@ -4957,6 +4957,23 @@ body.force-mobile .marker-type-selector button {
               <button id="topbarSearchBtn" title="검색">🔍</button>
               <div id="topbarSearchResults"></div>
           </div>
+
+          <!-- 📍 좌표 이동 버튼 -->
+          <div id="coord-goto-wrap" style="display:flex;align-items:center;gap:4px;position:relative;">
+              <button id="coordGotoBtn" title="위도·경도로 이동"
+                  style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#c8ddf0;border-radius:6px;padding:4px 9px;font-size:13px;cursor:pointer;white-space:nowrap;transition:background .2s;">📍</button>
+              <div id="coordGotoBox"
+                  style="display:none;position:absolute;top:calc(100% + 6px);left:0;background:rgba(12,22,38,0.97);border:1px solid rgba(100,160,220,0.35);border-radius:8px;padding:8px 10px;white-space:nowrap;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,0.5);">
+                  <div style="font-size:10px;color:#7aa8c8;margin-bottom:5px;">위도, 경도 입력 (예: 37.5665, 126.9780)</div>
+                  <div style="display:flex;gap:5px;">
+                      <input id="coordGotoInput" type="text" placeholder="37.5665, 126.9780"
+                          style="width:175px;padding:4px 7px;font-size:12px;font-family:monospace;background:rgba(255,255,255,0.07);border:1px solid rgba(100,160,220,0.3);border-radius:5px;color:#d8eeff;outline:none;">
+                      <button id="coordGotoGo"
+                          style="padding:4px 10px;font-size:12px;background:#1a4a7a;border:1px solid #3a7abf;border-radius:5px;color:#c8e4ff;cursor:pointer;">이동</button>
+                  </div>
+                  <div id="coordGotoError" style="font-size:10px;color:#e87a7a;margin-top:4px;display:none;"></div>
+              </div>
+          </div>
       </div>
 
       <!-- 🏮 타이틀 중앙 고정 -->
@@ -6360,6 +6377,18 @@ body.force-mobile .marker-type-selector button {
           <input type="number" id="castleLat" step="any" required placeholder="위도">
           <input type="number" id="castleLng" step="any" required placeholder="경도">
         </div>
+      </div>
+      <!-- 📍 지도 클릭 좌표 선택 -->
+      <div style="margin: 4px 0 8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <button type="button" id="btnPickCoord"
+          style="background:#1e4a6e; border:1px solid #4a90c4; color:#a8d0f0; font-size:12px;
+                 padding:5px 12px; border-radius:5px; cursor:pointer; white-space:nowrap;">
+          📍 지도 클릭으로 좌표 선택
+        </button>
+        <span id="coordPickerStatus" style="font-size:11px; color:#7ab8cc; display:none;">
+          지도를 클릭하면 좌표가 자동 입력됩니다 — <span style="color:#f0c060;">ESC</span>로 취소
+        </span>
+        <span id="coordHoverDisplay" style="font-size:11px; color:#8fa8c0; display:none; font-family:monospace;"></span>
       </div>
 
       <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -7824,6 +7853,155 @@ body.force-mobile .marker-type-selector button {
 
     // 🚩 [과제1] zoomend 이벤트에 LOD 모드 전환 연결
     map.on('zoomend', applyLODMode);
+
+    // 🖱️ 지도 위 마우스 이동 시 커서 옆에 위도/경도 표시 + 십자선
+    (() => {
+        // ── 좌표 툴팁 ──
+        const tip = document.createElement('div');
+        tip.id = 'mapCoordTooltip';
+        tip.style.cssText = [
+            'position:fixed',
+            'padding:3px 7px',
+            'background:rgba(10,20,35,0.82)',
+            'color:#a8d8ff',
+            'font-size:11px',
+            'font-family:monospace',
+            'border-radius:4px',
+            'pointer-events:none',
+            'white-space:nowrap',
+            'display:none',
+            'z-index:99999',
+            'border:1px solid rgba(100,160,220,0.3)',
+            'box-shadow:0 1px 4px rgba(0,0,0,0.4)',
+        ].join(';');
+        document.body.appendChild(tip);
+
+        // ── 십자선 (가로/세로 각 1px 반투명 선, 중심 갭) ──
+        const CROSS_LEN = 28;  // 한쪽 길이 (px)
+        const CROSS_GAP = 9;   // 커서 중심 공백 반경 (px)
+        const mkLine = (id, horiz) => {
+            const el = document.createElement('div');
+            el.id = id;
+            const size = horiz
+                ? `width:${CROSS_LEN*2}px;height:1px;`
+                : `width:1px;height:${CROSS_LEN*2}px;`;
+            el.style.cssText = [
+                'position:fixed',
+                'pointer-events:none',
+                'display:none',
+                'z-index:99998',
+                size,
+                'background:linear-gradient(to right,transparent 0%,rgba(160,210,255,0.45) 20%,rgba(160,210,255,0.45) 80%,transparent 100%)',
+            ].join(';');
+            if (!horiz) el.style.background = 'linear-gradient(to bottom,transparent 0%,rgba(160,210,255,0.45) 20%,rgba(160,210,255,0.45) 80%,transparent 100%)';
+            document.body.appendChild(el);
+            return el;
+        };
+        // 가로선 2개(위쪽 갭 / 아래쪽 갭), 세로선 2개
+        const lTop    = mkLine('_cx_lt', false);  // 세로 위
+        const lBottom = mkLine('_cx_lb', false);  // 세로 아래
+        const lLeft   = mkLine('_cx_ll', true);   // 가로 왼
+        const lRight  = mkLine('_cx_lr', true);   // 가로 오른
+
+        const setCross = (x, y, show) => {
+            [lTop, lBottom, lLeft, lRight].forEach(l => { l.style.display = show ? 'block' : 'none'; });
+            if (!show) return;
+            // 세로 위: 중심에서 GAP만큼 위에서 LEN 길이
+            lTop.style.left = (x - 0) + 'px';
+            lTop.style.top  = (y - CROSS_GAP - CROSS_LEN) + 'px';
+            lTop.style.height = CROSS_LEN + 'px';
+            // 세로 아래
+            lBottom.style.left = (x - 0) + 'px';
+            lBottom.style.top  = (y + CROSS_GAP) + 'px';
+            lBottom.style.height = CROSS_LEN + 'px';
+            // 가로 왼
+            lLeft.style.left = (x - CROSS_GAP - CROSS_LEN) + 'px';
+            lLeft.style.top  = (y - 0) + 'px';
+            lLeft.style.width = CROSS_LEN + 'px';
+            // 가로 오른
+            lRight.style.left = (x + CROSS_GAP) + 'px';
+            lRight.style.top  = (y - 0) + 'px';
+            lRight.style.width = CROSS_LEN + 'px';
+        };
+
+        const mapEl = document.getElementById('map');
+        mapEl.addEventListener('mousemove', (e) => {
+            const latlng = map.mouseEventToLatLng(e);
+            const lat = latlng.lat.toFixed(5);
+            const lng = latlng.lng.toFixed(5);
+            tip.textContent = `${lat}, ${lng}`;
+            tip.style.display = 'block';
+            // 툴팁 위치 (오른쪽 아래, 화면 넘치면 반대쪽)
+            const offX = 16, offY = 16;
+            let tx = e.clientX + offX;
+            let ty = e.clientY + offY;
+            if (tx + tip.offsetWidth + 4 > window.innerWidth)  tx = e.clientX - tip.offsetWidth - offX;
+            if (ty + tip.offsetHeight + 4 > window.innerHeight) ty = e.clientY - tip.offsetHeight - offY;
+            tip.style.left = tx + 'px';
+            tip.style.top  = ty + 'px';
+            // 십자선 업데이트
+            setCross(e.clientX, e.clientY, true);
+        });
+        mapEl.addEventListener('mouseleave', () => {
+            tip.style.display = 'none';
+            setCross(0, 0, false);
+        });
+    })();
+
+    // 📍 좌표 이동 기능
+    (() => {
+        const btn   = document.getElementById('coordGotoBtn');
+        const box   = document.getElementById('coordGotoBox');
+        const input = document.getElementById('coordGotoInput');
+        const go    = document.getElementById('coordGotoGo');
+        const err   = document.getElementById('coordGotoError');
+        if (!btn) return;
+
+        let _gotoMarker = null;
+
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const open = box.style.display === 'none';
+            box.style.display = open ? 'block' : 'none';
+            btn.style.background = open ? 'rgba(30,100,180,0.35)' : 'rgba(255,255,255,0.08)';
+            if (open) setTimeout(() => input.focus(), 50);
+        });
+        document.addEventListener('click', (e) => {
+            if (!document.getElementById('coord-goto-wrap').contains(e.target)) {
+                box.style.display = 'none';
+                btn.style.background = 'rgba(255,255,255,0.08)';
+            }
+        });
+
+        const doGoto = () => {
+            err.style.display = 'none';
+            const raw = input.value.trim();
+            const parts = raw.split(/[\s,，]+/).filter(Boolean);
+            if (parts.length < 2) { err.textContent = '위도와 경도를 쉼표로 구분해 입력하세요.'; err.style.display = 'block'; return; }
+            const lat = parseFloat(parts[0]);
+            const lng = parseFloat(parts[1]);
+            if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+                err.textContent = '유효한 좌표 범위를 벗어났습니다.'; err.style.display = 'block'; return;
+            }
+            map.setView([lat, lng], 12, { animate: true, duration: 1.2 });
+            if (_gotoMarker) { map.removeLayer(_gotoMarker); _gotoMarker = null; }
+            _gotoMarker = L.marker([lat, lng], {
+                icon: L.divIcon({
+                    className: '',
+                    html: `<div style="font-size:22px;line-height:1;filter:drop-shadow(0 1px 3px #000);transform:translateX(-50%) translateY(-100%);">📍</div>`,
+                    iconSize: [0, 0], iconAnchor: [0, 0]
+                }),
+                zIndexOffset: 9000
+            }).addTo(map);
+            _gotoMarker.bindPopup(`<b>좌표 이동</b><br>위도 ${lat.toFixed(5)}<br>경도 ${lng.toFixed(5)}`).openPopup();
+            setTimeout(() => { if (_gotoMarker) { map.removeLayer(_gotoMarker); _gotoMarker = null; } }, 8000);
+            box.style.display = 'none';
+            btn.style.background = 'rgba(255,255,255,0.08)';
+        };
+
+        go.addEventListener('click', doGoto);
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doGoto(); });
+    })();
 
     // 🚩 natural feature 마커 scale 계산 (마커 재렌더 전에 먼저 저장)
     map.on('zoomend', () => {
@@ -16733,7 +16911,68 @@ const loadingMessages = [
       // 이 핸들러는 이제 비어있어도 되지만, 향후 다른 클릭 기반 기능을 위해 남겨둘 수 있습니다.
     });
 
-    // 🚩 [추가] 지도에서 우클릭 시 좌표 복사 팝업 표시
+    // � 좌표 선택 피커 모드
+    (function() {
+        let _pickerActive = false;
+        let _pickerPin = null;
+
+        const _moveHandler = (e) => {
+            const hov = document.getElementById('coordHoverDisplay');
+            if (hov) hov.textContent = `위도 ${e.latlng.lat.toFixed(6)}  경도 ${e.latlng.lng.toFixed(6)}`;
+        };
+        const _clickHandler = (e) => {
+            const lat = parseFloat(e.latlng.lat.toFixed(6));
+            const lng = parseFloat(e.latlng.lng.toFixed(6));
+            // 폼 필드에 자동 입력
+            const latEl = document.getElementById('castleLat');
+            const lngEl = document.getElementById('castleLng');
+            if (latEl) latEl.value = lat;
+            if (lngEl) lngEl.value = lng;
+            // 지도에 핀 표시
+            if (_pickerPin) map.removeLayer(_pickerPin);
+            _pickerPin = L.marker([lat, lng], {
+                icon: L.divIcon({ className: '', html: '<div style="width:16px;height:16px;background:#f0c060;border:2px solid #fff;border-radius:50%;box-shadow:0 0 6px rgba(0,0,0,0.7);"></div>', iconAnchor: [8,8] })
+            }).addTo(map).bindPopup(`📍 ${lat}, ${lng}`).openPopup();
+            showToast(`📍 좌표 선택 완료: ${lat}, ${lng}`, 'point', 2500);
+            _stopPicker();
+        };
+        const _keyHandler = (e) => { if (e.key === 'Escape') _stopPicker(); };
+
+        function _stopPicker() {
+            _pickerActive = false;
+            map.off('mousemove', _moveHandler);
+            map.off('click', _clickHandler);
+            document.removeEventListener('keydown', _keyHandler);
+            map.getContainer().style.cursor = '';
+            const btn    = document.getElementById('btnPickCoord');
+            const status = document.getElementById('coordPickerStatus');
+            const hov    = document.getElementById('coordHoverDisplay');
+            if (btn)    { btn.style.background = '#1e4a6e'; btn.style.borderColor = '#4a90c4'; btn.style.color = '#a8d0f0'; }
+            if (status) status.style.display = 'none';
+            if (hov)    { hov.style.display = 'none'; hov.textContent = ''; }
+        }
+
+        // 버튼 이벤트 연결 (DOM 준비 후)
+        document.addEventListener('DOMContentLoaded', () => {
+            const btn = document.getElementById('btnPickCoord');
+            if (!btn) return;
+            btn.addEventListener('click', () => {
+                if (_pickerActive) { _stopPicker(); return; }
+                _pickerActive = true;
+                map.on('mousemove', _moveHandler);
+                map.on('click', _clickHandler);
+                document.addEventListener('keydown', _keyHandler);
+                map.getContainer().style.cursor = 'crosshair';
+                btn.style.background = '#7a3010'; btn.style.borderColor = '#f0a060'; btn.style.color = '#ffd090';
+                const status = document.getElementById('coordPickerStatus');
+                const hov    = document.getElementById('coordHoverDisplay');
+                if (status) status.style.display = 'inline';
+                if (hov)    hov.style.display = 'inline';
+            });
+        });
+    })();
+
+    // �🚩 [추가] 지도에서 우클릭 시 좌표 복사 팝업 표시
     map.on('contextmenu', (e) => {
       const latlng = e.latlng;
       const textToCopy = `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
