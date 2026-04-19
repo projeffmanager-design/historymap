@@ -8872,12 +8872,16 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
             const record = historyList[index];
             if (!record) continue;
 
-            const startYear = normalizeHistoryNumber(record.start_year, -5000);
+            // 🔧 [버그수정] start_year 없으면 start 필드 폴백 (군대 마커 등 일부 데이터)
+            const rawStartYear = record.start_year ?? record.start;
+            const rawEndYear   = record.end_year   ?? record.end;
+
+            const startYear = normalizeHistoryNumber(rawStartYear, -5000);
             const startMonth = normalizeHistoryNumber(record.start_month, 1);
             const startTotalMonths = yearMonthToTotalMonths(startYear, startMonth);
 
-            const hasEndYear = !(record.end_year === undefined || record.end_year === null || record.end_year === '');
-            const endYear = hasEndYear ? normalizeHistoryNumber(record.end_year, null) : null;
+            const hasEndYear = !(rawEndYear === undefined || rawEndYear === null || rawEndYear === '');
+            const endYear = hasEndYear ? normalizeHistoryNumber(rawEndYear, null) : null;
             const endMonth = hasEndYear ? normalizeHistoryNumber(record.end_month, 12) : 12;
             const endTotalMonths = hasEndYear && endYear !== null
                 ? yearMonthToTotalMonths(endYear, endMonth)
@@ -21510,10 +21514,18 @@ kingSelect.addEventListener('change', () => {
                         }
                     }
                     if (earliest) { targetYear = earliest.y; targetMonth = earliest.m; }
+                } else if (castle.is_military_flag && castle.built_year != null) {
+                    targetYear = parseInt(castle.built_year);
+                    targetMonth = castle.built_month || 1;
                 }
 
                 const doFly = () => {
-                    map.flyTo([castle.lat, castle.lng], 10, { animate: true, duration: 1.2 });
+                    // 군대 마커: path_data가 있으면 첫 좌표 사용
+                    let flyLat = castle.lat, flyLng = castle.lng;
+                    if ((!flyLat || !flyLng) && Array.isArray(castle.path_data) && castle.path_data.length > 0) {
+                        flyLat = castle.path_data[0][0]; flyLng = castle.path_data[0][1];
+                    }
+                    if (flyLat && flyLng) map.flyTo([flyLat, flyLng], 10, { animate: true, duration: 1.2 });
                 };
 
                 if (targetYear !== null) {
@@ -21625,13 +21637,24 @@ kingSelect.addEventListener('change', () => {
 
                 // ── 1) 역사 DB: castles 배열에서 name/name_ko 포함 ──────
                 const dbHits = [];
+                const militaryHits = [];
                 for (let _i = 0; _i < castles.length; _i++) {
                     const c = castles[_i];
                     if ((c.name && c.name.toLowerCase().includes(ql)) ||
                         (c.name_ko && c.name_ko.toLowerCase().includes(ql)) ||
                         (c.general_name && c.general_name.toLowerCase().includes(ql))) {
-                        dbHits.push({ lat: c.lat, lng: c.lng, label: c.name || c.name_ko || '', sub: c.general_name || '', idx: _i });
-                        if (dbHits.length >= 8) break;
+                        if (c.is_military_flag) {
+                            // 군대 마커: path_data 첫 좌표 또는 lat/lng 사용
+                            let mLat = c.lat, mLng = c.lng;
+                            if ((!mLat || !mLng) && Array.isArray(c.path_data) && c.path_data.length > 0) {
+                                mLat = c.path_data[0][0]; mLng = c.path_data[0][1];
+                            }
+                            militaryHits.push({ lat: mLat, lng: mLng, label: c.name || c.name_ko || '', sub: c.general_name || '', idx: _i });
+                            if (militaryHits.length >= 6) continue;
+                        } else {
+                            dbHits.push({ lat: c.lat, lng: c.lng, label: c.name || c.name_ko || '', sub: c.general_name || '', idx: _i });
+                            if (dbHits.length >= 8) continue;
+                        }
                     }
                 }
 
@@ -21690,6 +21713,10 @@ kingSelect.addEventListener('change', () => {
 
                 // ── 3) 렌더링 ─────────────────────────────────────────
                 let html = '';
+                if (militaryHits.length) {
+                    html += _tbSectionTitle('⚔️ 군대 마커', '#e0a050');
+                    html += militaryHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
+                }
                 if (dbHits.length) {
                     html += _tbSectionTitle('● 역사 DB', '#7ab8cc');
                     html += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
