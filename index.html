@@ -46,7 +46,16 @@
     
     /* compact-popup — 새 팝업 스타일 블록에서 통합 관리 */
 
-    /* 🚩 [추가] 빈티지/수묵화 스타일 적용 — 타일 레이어에만 */
+    /* �️ 지도 커서 — 속 빈 원형 */
+    .leaflet-container {
+        cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='7' fill='none' stroke='rgba(200,220,255,0.85)' stroke-width='1.5'/%3E%3Ccircle cx='10' cy='10' r='1.5' fill='rgba(200,220,255,0.85)'/%3E%3C/svg%3E") 10 10, crosshair !important;
+    }
+    .leaflet-dragging .leaflet-container,
+    .leaflet-dragging .leaflet-grab {
+        cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='7' fill='none' stroke='rgba(200,220,255,0.6)' stroke-width='1.5' stroke-dasharray='3 2'/%3E%3C/svg%3E") 10 10, crosshair !important;
+    }
+
+    /* �🚩 [추가] 빈티지/수묵화 스타일 적용 — 타일 레이어에만 */
     #map {
         /* 🎞️ 로모 사진 느낌: 채도 절반 + 밝기 살짝 올림 + 냉색조 + 바랜 세피아 */
         filter: saturate(0.59) contrast(1.04) brightness(1.04) hue-rotate(-8deg) sepia(0.18);
@@ -4897,23 +4906,11 @@ body.force-mobile .marker-type-selector button {
     color: #f5e9d2;
     font-family: 'Noto Serif KR', serif;
   ">
-    <h2 style="font-size: 2.5em; margin-bottom: 20px; text-shadow: 2px 2px 4px #000;">
+    <h2 style="font-size: 2.5em; margin-bottom: 32px; text-shadow: 2px 2px 4px #000;">
       고려만리지도 <span style="font-size: 0.7em;">(高麗萬里地圖)</span>
     </h2>
-    
-    <!-- 🎯 랜덤 로딩 메시지 -->
-    <div id="loading-message-text" style="font-size: 1.2em; margin-bottom: 10px; color: #d4af37; min-height: 30px; text-align: center; padding: 0 20px;">
-      역사의 문을 여는 중입니다...
-    </div>
-    
-    <!-- 🎯 프로그레스 바 -->
-    <div style="width: 400px; max-width: 80%; background: rgba(0,0,0,0.3); border-radius: 8px; overflow: hidden; height: 8px; margin-bottom: 20px;">
-      <div id="loading-progress-bar-initial" style="width: 0%; height: 100%; background: linear-gradient(90deg, #d4af37, #f5e9d2); transition: width 0.3s ease; box-shadow: 0 0 10px rgba(212, 175, 55, 0.5);"></div>
-    </div>
-    
-    <!-- 🎯 퍼센트 표시 -->
-    <div id="loading-percentage-initial" style="font-size: 14px; color: #d4af37; margin-bottom: 30px; font-weight: bold;">0%</div>
-    
+
+    <!-- 🎯 스피너 (상단) -->
     <div style="
       width: 60px;
       height: 60px;
@@ -4921,7 +4918,21 @@ body.force-mobile .marker-type-selector button {
       border-top-color: #d4af37;
       border-radius: 50%;
       animation: spin 1s linear infinite;
+      margin-bottom: 28px;
     "></div>
+
+    <!-- 🎯 프로그레스 바 -->
+    <div style="width: 400px; max-width: 80%; background: rgba(0,0,0,0.3); border-radius: 8px; overflow: hidden; height: 8px; margin-bottom: 10px;">
+      <div id="loading-progress-bar-initial" style="width: 0%; height: 100%; background: linear-gradient(90deg, #d4af37, #f5e9d2); transition: width 0.3s ease; box-shadow: 0 0 10px rgba(212, 175, 55, 0.5);"></div>
+    </div>
+
+    <!-- 🎯 퍼센트 표시 -->
+    <div id="loading-percentage-initial" style="font-size: 13px; color: #d4af37; margin-bottom: 16px; font-weight: bold;">0%</div>
+
+    <!-- 🎯 로딩 메시지 -->
+    <div id="loading-message-text" style="font-size:1em;margin-bottom:10px;color:#d4af37;min-height:26px;text-align:center;padding:0 20px;">
+      역사의 문을 여는 중입니다...
+    </div>
     <style>
       @keyframes spin {
         to { transform: rotate(360deg); }
@@ -13028,18 +13039,17 @@ const loadingMessages = [
 ];
     
     function showLoadingStatus(message, percent) {
-        // 초기 로딩 화면 업데이트
         const messageEl = document.getElementById('loading-message-text');
         const progressBar = document.getElementById('loading-progress-bar-initial');
         const percentageEl = document.getElementById('loading-percentage-initial');
-        
-        if (messageEl && progressBar && percentageEl) {
-            const displayMessage = message || loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
-            messageEl.textContent = displayMessage;
-            if (percent !== undefined && percent !== null) {
-                progressBar.style.width = percent + '%';
-                percentageEl.textContent = Math.floor(percent) + '%';
-            }
+
+        if (messageEl && message) {
+            messageEl.textContent = message;
+        }
+
+        if (progressBar && percentageEl && percent !== undefined && percent !== null) {
+            progressBar.style.width = percent + '%';
+            percentageEl.textContent = Math.floor(percent) + '%';
         }
     }
 
