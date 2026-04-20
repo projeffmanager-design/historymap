@@ -5411,6 +5411,13 @@ body.force-mobile .marker-type-selector button {
                 <label for="drawingEndYear">종료:</label>
                 <input type="number" id="drawingEndYear" placeholder="선택">
                 
+                <button type="button" id="segmentEraseBtn" style="display:none; width:100%; margin-bottom:4px; background:rgba(180,80,20,0.15); border:1px solid rgba(180,80,20,0.5); color:#e8945a;">🧹 선분 지우기 모드</button>
+                <div id="segmentEraseHint" style="display:none; font-size:11px; color:#e8945a; margin-bottom:6px; padding:5px 8px; background:rgba(180,80,20,0.1); border-radius:4px; border:1px solid rgba(180,80,20,0.3);">
+                    🖱️ <b>마우스를 누른 채로 드래그</b>하면 지나간 선분이 빨간 점선으로 표시됩니다.<br>
+                    <span id="segmentEraseCount" style="color:#f39c12;">삭제: 0개</span> &nbsp;
+                    <button type="button" id="segmentEraseSaveBtn" style="font-size:11px; padding:2px 8px; background:#e67e22; border:none; color:white; border-radius:3px; cursor:pointer;">저장</button>
+                    <button type="button" id="segmentEraseCancelBtn" style="font-size:11px; padding:2px 8px; background:#5d7185; border:none; color:white; border-radius:3px; cursor:pointer;">취소</button>
+                </div>
                 <button type="button" id="cancelDrawingBtn">취소</button>
                 <button type="button" id="deleteDrawingBtn" class="danger" style="display:none;">삭제</button>
                 <button type="submit" id="saveDrawingBtn" class="primary">저장</button>
@@ -7082,6 +7089,7 @@ body.force-mobile .marker-type-selector button {
     let historyEventTimes = []; // 🚩 [추가] 역사 기록의 연/월 목록
     let historyYears = []; // 🚩 [추가] 역사 기록이 있는 연도 목록
     let drawings = []; // 🚩 [추가] 그리기 데이터 저장소
+    window.drawings = drawings; // 외부에서 접근 가능하도록 (지우개 저장 등)
     let territories = []; // 🚩 [추가] 영토 폴리곤 데이터 저장소
     let naturalFeatures = []; // 🌊 [추가] 자연 지형지물 (강, 산맥 등) 데이터 저장소
     let contributions = []; // 🚩 [추가] 유저 기여 데이터
@@ -11055,17 +11063,17 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const customColor = drawing.color || '#3388ff';
             
             switch (drawing.type) {
-                case 'wall': // 🚩 [수정] 성곽 스타일을 '凹' 텍스트를 이용한 텍스처로 변경
-                    // 🚩 [수정] onEachFeature를 사용하여 이벤트 핸들러 중복 바인딩 방지
-                    // 🚩 [핵심 수정] setText는 FeatureGroup을 반환하므로, 이벤트 바인딩을 onEachFeature에서 분리합니다.
-                    layer = L.geoJSON(drawing.geojson, { style: { color: 'transparent', weight: 10, opacity: 0 }, pane: 'drawingPane', renderer: drawingRenderer })
-                             .setText('凹', {
-                        repeat: true,
-                        offset: 0,
-                        attributes: { 'font-size': '12', 'fill': '#ffffff', 'dy': 5, 'class': 'svg-shadow-filter' }
+                case 'wall': // 성곽 스타일 — 단순 선으로 표현
+                    layer = L.geoJSON(drawing.geojson, {
+                        style: {
+                            color: customColor,
+                            weight: 3,
+                            opacity: 0.85,
+                        },
+                        pane: 'drawingPane',
+                        renderer: drawingRenderer,
+                        onEachFeature: (feature, fl) => bindDrawingEvents(fl, drawing)
                     });
-                    // 생성된 레이어 그룹에 직접 이벤트를 바인딩합니다.
-                    bindDrawingEvents(layer, drawing);
                     break;
                 
                 case 'river': // 🚩 [추가] 강 스타일
@@ -11194,6 +11202,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             }
 
             if (layer) {
+                layer._drawingDbId = drawing?._id?.$oid || drawing?._id?.toString?.() || drawing?._id;
                 drawnItems.addLayer(layer);
             }
           } catch (drawErr) {
@@ -11210,6 +11219,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             
             layer.on('click', (e) => {
                 L.DomEvent.stopPropagation(e);
+
+                // ✂️ 선분 지우기 모드 중이면 이 핸들러는 스킵 (아래 핸들러가 처리)
+                if (window._segmentEraseMode) return;
 
                 const isPrivileged = currentUser?.role === 'superuser' || currentUser?.role === 'admin';
 
@@ -11231,6 +11243,101 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     } catch(_) {}
                 }
             });
+
+            // ✂️ 지우개 모드: 레이어 클릭/mouseover 시 drawing 식별만 담당
+            layer.on('mouseover mousedown', (e) => {
+                if (!window._segmentEraseMode) return;
+                // 어느 drawing 위에 있는지 알려줌 (map mousemove 핸들러가 사용)
+                window._segmentEraseHoverDrawing = drawingData;
+            });
+            layer.on('mouseout', () => {
+                if (!window._segmentEraseMode) return;
+                window._segmentEraseHoverDrawing = null;
+            });
+        }
+
+        // ✂️ 지우개 드래그 핸들러 — 이미 등록된 경우 중복 등록 방지
+        if (!window._eraserMapHandlerRegistered) {
+            window._eraserMapHandlerRegistered = true;
+            window._eraserMouseDown = false;
+
+            map.on('mousedown', (e) => {
+                if (!window._segmentEraseMode) return;
+                if (e.originalEvent.button !== 0) return; // 좌클릭만
+                window._eraserMouseDown = true;
+                map.dragging.disable();
+                // 클릭 즉시도 지우기
+                _eraserApplyAt(e.latlng);
+            });
+            map.on('mousemove', (e) => {
+                if (!window._segmentEraseMode || !window._eraserMouseDown) return;
+                _eraserApplyAt(e.latlng);
+            });
+            // mouseup은 document에서 잡아야 버튼 위에서 손을 떼도 드래그 해제
+            document.addEventListener('mouseup', () => {
+                if (!window._eraserMouseDown) return;
+                window._eraserMouseDown = false;
+                map.dragging.enable();
+            });
+        }
+
+        function _eraserApplyAt(latlng) {
+            const d = window._segmentEraseDrawing;
+            if (!d) return;
+            const geom = d.geojson?.geometry || d.geojson;
+            if (!geom || geom.type !== 'MultiLineString') return;
+
+            const clickPt = [latlng.lng, latlng.lat];
+            // 지우개 반경: 현재 줌 레벨에 따라 조정 (도 단위)
+            const zoomFactor = Math.pow(2, 8 - map.getZoom()); // zoom 8기준
+            const eraseRadius = 0.3 * zoomFactor;
+
+            let changed = false;
+            geom.coordinates.forEach((line, idx) => {
+                if (window._segmentEraseSet?.has(idx)) return;
+                // 선분의 임의 점과 거리 체크
+                let minDist = Infinity;
+                for (let i = 0; i < line.length; i++) {
+                    const dist = Math.hypot(line[i][0] - clickPt[0], line[i][1] - clickPt[1]);
+                    if (dist < minDist) minDist = dist;
+                }
+                if (minDist < eraseRadius) {
+                    if (!window._segmentEraseSet) window._segmentEraseSet = new Set();
+                    window._segmentEraseSet.add(idx);
+                    changed = true;
+                }
+            });
+
+            if (!changed) return;
+
+            window._segmentEraseCount = window._segmentEraseSet.size;
+            document.getElementById('segmentEraseCount').textContent = `삭제: ${window._segmentEraseCount}개`;
+
+            // 해당 drawing 레이어만 교체 — 삭제 예정은 빨간색, 나머지는 원래 색
+            const drawingId = d._id?.$oid || d._id?.toString?.() || d._id;
+            const color = d.color || '#8B4513';
+
+            const toRemove = [];
+            drawnItems.eachLayer(l => { if (String(l._drawingDbId) === String(drawingId)) toRemove.push(l); });
+            toRemove.forEach(l => drawnItems.removeLayer(l));
+
+            // 삭제 예정 선분 → 빨간 점선으로 미리보기
+            const deletedCoords = geom.coordinates.filter((_, i) => window._segmentEraseSet.has(i));
+            const keepCoords    = geom.coordinates.filter((_, i) => !window._segmentEraseSet.has(i));
+
+            const makeLayer = (coords, style) => {
+                const g = JSON.parse(JSON.stringify(d.geojson));
+                (g.geometry || g).coordinates = coords;
+                const l = L.geoJSON(g, { style, pane: 'drawingPane', renderer: window._drawingRenderer,
+                    onEachFeature: (f, fl) => bindDrawingEvents(fl, d) });
+                l._drawingDbId = drawingId;
+                return l;
+            };
+
+            if (keepCoords.length > 0)
+                drawnItems.addLayer(makeLayer(keepCoords, { color, weight: 3, opacity: 0.85 }));
+            if (deletedCoords.length > 0)
+                drawnItems.addLayer(makeLayer(deletedCoords, { color: '#ff2222', weight: 3, opacity: 0.6, dashArray: '6,5' }));
         }
 
         castleLayerGroup.clearLayers(); // 마커 레이어는 기존처럼 클리어 후 다시 추가
@@ -13570,6 +13677,12 @@ const loadingMessages = [
           console.log(`✏️ [백그라운드] drawings 최신 데이터 재검증 시작 (현재 캐시: ${drawings.length}개)...`);
           fetchData('drawings').then(data => {
               if (!data) return;
+              // 지우개 저장 직후이면 덮어쓰지 않음 (저장한 결과가 이미 메모리에 반영됨)
+              if (window._eraserSavedAt && Date.now() - window._eraserSavedAt < 10000) {
+                  console.log('⏭️ [백그라운드] 지우개 저장 10초 이내 — drawings 덮어쓰기 건너뜀');
+                  window._eraserJustSaved = null;
+                  return;
+              }
               drawings = normalizeDrawings(data);
               console.log(`✅ [백그라운드] drawings ${drawings.length}개 네트워크에서 로드 완료`);
               
@@ -14439,10 +14552,18 @@ const loadingMessages = [
       };
       
       window.updateDrawingInMemory = async (drawingId, serverResponseData) => {
+          // 지우개 저장 10초 이내에는 서버 재fetch로 덮어쓰지 않음
+          if (window._eraserSavedAt && Date.now() - window._eraserSavedAt < 10000) {
+              console.log('⏭️ updateDrawingInMemory — 지우개 저장 직후 스킵');
+              return;
+          }
           // 서버에서 업데이트된 데이터를 다시 가져와서 동기화
           try {
               const updatedDrawing = await fetchData(`drawings/${drawingId}`);
-              const index = drawings.findIndex(d => d._id === drawingId);
+              const index = drawings.findIndex(d => {
+                  const did = d._id?.$oid || d._id?.toString?.() || d._id;
+                  return String(did) === String(drawingId);
+              });
               
               if (index !== -1 && updatedDrawing) {
                   drawings[index] = normalizeDrawings([updatedDrawing])[0];
@@ -20057,7 +20178,114 @@ kingSelect.addEventListener('change', () => {
         } catch (error) { alert(error.message); }
     });
 
-    document.getElementById('cancelDrawingBtn').addEventListener('click', () => { document.getElementById('drawingForm').style.display = 'none'; });
+    document.getElementById('cancelDrawingBtn').addEventListener('click', () => {
+        // 선분 지우기 모드도 같이 해제
+        window._segmentEraseMode = false;
+        window._segmentEraseDrawing = null;
+        window._segmentEraseCount = 0;
+        window._segmentEraseSet = null;
+        document.getElementById('segmentEraseHint').style.display = 'none';
+        document.getElementById('segmentEraseBtn').textContent = '✂️ 선분 지우기 모드';
+        document.getElementById('drawingForm').style.display = 'none';
+    });
+
+    // ✂️ 선분 지우기 모드 토글
+    document.getElementById('segmentEraseBtn').addEventListener('click', () => {
+        const d = window._segmentEraseDrawing;
+        if (!d) return;
+        window._segmentEraseMode = !window._segmentEraseMode;
+        window._segmentEraseCount = 0;
+        window._segmentEraseSet = new Set(); // 새 지우기 세션 시작 시 초기화
+        window._eraserMouseDown = false;
+        map.dragging.enable();
+        const btn = document.getElementById('segmentEraseBtn');
+        const hint = document.getElementById('segmentEraseHint');
+        if (window._segmentEraseMode) {
+            btn.textContent = '🧹 지우개 ON — 드래그로 지우기';
+            btn.style.background = 'rgba(180,80,20,0.4)';
+            hint.style.display = 'block';
+            document.getElementById('segmentEraseCount').textContent = '삭제: 0개';
+            map.getContainer().style.cursor = 'crosshair';
+        } else {
+            btn.textContent = '🧹 선분 지우기 모드';
+            btn.style.background = 'rgba(180,80,20,0.15)';
+            hint.style.display = 'none';
+            map.getContainer().style.cursor = '';
+        }
+    });
+
+    // ✂️ 선분 지우기 저장
+    document.getElementById('segmentEraseSaveBtn').addEventListener('click', async () => {
+        const d = window._segmentEraseDrawing;
+        if (!d) return;
+
+        // _segmentEraseSet에 누적된 인덱스들을 한 번에 geom에서 제거
+        const geom = d.geojson?.geometry || d.geojson;
+        if (geom && geom.type === 'MultiLineString' && window._segmentEraseSet?.size > 0) {
+            geom.coordinates = geom.coordinates.filter((_, idx) => !window._segmentEraseSet.has(idx));
+        }
+
+        const id = d._id?.$oid || d._id?.toString?.() || d._id;
+        // 이 플래그로 updateDrawingInMemory의 서버 재fetch + updateMap 호출을 막음
+        window._eraserJustSaved = id;
+        window._eraserSavedAt = Date.now(); // 저장 시각 기록
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+        try {
+            const r = await fetch(`/api/drawings/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ geojson: d.geojson })
+            });
+            if (!r.ok) throw new Error('저장 실패');
+
+            // 클로저 drawings 배열에서 해당 항목의 geojson 직접 교체
+            const memIdx = drawings.findIndex(x => {
+                const xid = x._id?.$oid || x._id?.toString?.() || x._id;
+                return String(xid) === String(id);
+            });
+            if (memIdx !== -1) {
+                drawings[memIdx].geojson = JSON.parse(JSON.stringify(d.geojson));
+                console.log('✅ 지우개 저장 — drawings 메모리 반영:', id, '남은 선분:', drawings[memIdx].geojson?.geometry?.coordinates?.length ?? drawings[memIdx].geojson?.coordinates?.length);
+                // IndexedDB 캐시도 갱신
+                if (typeof saveDrawingsCache === 'function') {
+                    saveDrawingsCache(drawings).catch(() => {});
+                }
+            } else {
+                console.warn('⚠️ drawings에서 찾지 못함:', id);
+            }
+
+            showToast('✅ 선분 삭제 저장 완료', 'success');
+            window._segmentEraseMode = false;
+            window._segmentEraseDrawing = null;
+            window._segmentEraseSet = null;
+            window._eraserMouseDown = false;
+            map.dragging.enable();
+            document.getElementById('segmentEraseHint').style.display = 'none';
+            document.getElementById('segmentEraseBtn').textContent = '🧹 선분 지우기 모드';
+            document.getElementById('segmentEraseBtn').style.background = 'rgba(180,80,20,0.15)';
+            map.getContainer().style.cursor = '';
+            document.getElementById('drawingForm').style.display = 'none';
+        } catch(e) {
+            showToast('❌ 저장 중 오류: ' + e.message, 'error');
+        }
+    });
+
+    // ✂️ 선분 지우기 취소 (변경사항 되돌리기)
+    document.getElementById('segmentEraseCancelBtn').addEventListener('click', () => {
+        window._segmentEraseMode = false;
+        window._segmentEraseSet = null;
+        window._eraserMouseDown = false;
+        map.dragging.enable();
+        map.getContainer().style.cursor = '';
+        document.getElementById('segmentEraseHint').style.display = 'none';
+        document.getElementById('segmentEraseBtn').textContent = '✂️ 선분 지우기 모드';
+        document.getElementById('segmentEraseBtn').style.background = 'rgba(180,80,20,0.15)';
+        // 지도 재렌더링 (원본 데이터 다시 로드)
+        drawnItems.clearLayers();
+        const currentYear = parseInt(document.getElementById('yearInput')?.value) || 0;
+        renderDrawings(currentYear);
+        showToast('↩️ 선분 삭제 취소됨', 'info');
+    });
 
     // 🚩 [추가] 색상 선택기 이벤트 - 선택한 색상 hex 값 표시
     document.getElementById('drawingColor').addEventListener('input', (e) => {
@@ -20120,12 +20348,22 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('drawingEndYear').value = drawingData.end_year || '';
             document.getElementById('deleteDrawingBtn').style.display = 'inline-block';
             document.getElementById('saveDrawingBtn').textContent = '저장';
+            // ✂️ 선분 지우기: wall/MultiLineString 타입만 표시
+            const isMultiLine = drawingData.type === 'wall' &&
+                (drawingData.geojson?.geometry?.type === 'MultiLineString' ||
+                 drawingData.geojson?.type === 'MultiLineString');
+            document.getElementById('segmentEraseBtn').style.display = isMultiLine ? 'block' : 'none';
+            document.getElementById('segmentEraseHint').style.display = 'none';
+            window._segmentEraseMode = false;
+            window._segmentEraseDrawing = isMultiLine ? drawingData : null;
         } else { // 추가 모드
             document.getElementById('drawingMongoId').value = '';
             document.getElementById('drawingColor').value = '#3388ff'; // 🚩 [추가] 기본 색상
             document.getElementById('drawingColorHex').textContent = '#3388ff';
             document.getElementById('drawingStartYear').value = yearInput.value; // 현재 연도 기본값
             document.getElementById('deleteDrawingBtn').style.display = 'none';
+            document.getElementById('segmentEraseBtn').style.display = 'none';
+            document.getElementById('segmentEraseHint').style.display = 'none';
             document.getElementById('saveDrawingBtn').textContent = '저장';
         }
     };
