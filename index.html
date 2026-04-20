@@ -24074,7 +24074,126 @@ kingSelect.addEventListener('change', () => {
             }
         };
 
-        // � 사료 상세보기 - 새 탭에서 ranking.html 열기 (sessionStorage 토큰 공유 문제 해결)
+        // 💬 사료 의견 팝업 모달
+        window.openContribComments = async (contribId, contribName, evt) => {
+            if (evt) evt.stopPropagation();
+            const modal = document.getElementById('contribCommentsModal');
+            const titleEl = document.getElementById('ccm-title');
+            const metaEl = document.getElementById('ccm-meta');
+            const listEl = document.getElementById('ccm-list');
+            const loginNotice = document.getElementById('ccm-login-notice');
+            const writeArea = document.getElementById('ccm-write-area');
+            const submitBtn = document.getElementById('ccm-submit-btn');
+            const inputEl = document.getElementById('ccm-comment-input');
+            const charcountEl = document.getElementById('ccm-charcount');
+
+            titleEl.textContent = `💬 의견 — ${contribName}`;
+            metaEl.textContent = '';
+            listEl.innerHTML = '<div style="text-align:center; color:#6a7f8e; padding:20px 0;">의견을 불러오는 중...</div>';
+            modal.style.display = 'block';
+            modal._contribId = contribId;
+
+            const tkn = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+            const me = tkn ? parseJwt(tkn) : null;
+            const isGuest = !me || me.isGuest;
+
+            if (isGuest) {
+                loginNotice.style.display = 'block';
+                writeArea.style.display = 'none';
+            } else {
+                loginNotice.style.display = 'none';
+                writeArea.style.display = 'block';
+                inputEl.value = '';
+                charcountEl.textContent = '0 / 500';
+            }
+
+            const renderComments = (comments) => {
+                if (!comments || comments.length === 0) {
+                    listEl.innerHTML = '<div style="text-align:center; color:#6a7f8e; padding:20px 0;">아직 의견이 없습니다. 첫 번째 의견을 남겨보세요!</div>';
+                    metaEl.textContent = '';
+                    return;
+                }
+                metaEl.textContent = `총 ${comments.length}개의 의견`;
+                listEl.innerHTML = [...comments].reverse().map(c => {
+                    const isOwn = me && (c.author === me.username);
+                    const dateStr = c.createdAt ? new Date(c.createdAt).toLocaleDateString('ko-KR', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+                    return `<div style="padding:8px 10px; margin-bottom:8px; background:rgba(255,255,255,0.04); border-radius:6px; border:1px solid rgba(255,255,255,0.07);">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:11px;">
+                            <span style="font-weight:600; color:${isOwn ? '#d4a843' : '#8ec8e8'};">${c.author}${isOwn ? ' 👤' : ''}</span>
+                            <span style="color:#4a6070;">${dateStr}</span>
+                        </div>
+                        <div style="font-size:13px; color:#d0e0f0; word-break:break-word; white-space:pre-wrap;">${c.text}</div>
+                        ${isOwn ? `<div style="text-align:right; margin-top:5px;"><button onclick="deleteCCMComment('${contribId}','${c._id}')" style="background:none;border:none;color:#c0392b;font-size:11px;cursor:pointer;">🗑️ 삭제</button></div>` : ''}
+                    </div>`;
+                }).join('');
+            };
+
+            try {
+                const res = await fetch(`/api/contributions/${contribId}/comments`);
+                renderComments(await res.json());
+            } catch(e) {
+                listEl.innerHTML = '<div style="text-align:center; color:#e74c3c; padding:20px 0;">의견을 불러오지 못했습니다.</div>';
+            }
+
+            inputEl.oninput = () => { charcountEl.textContent = `${inputEl.value.length} / 500`; };
+
+            submitBtn.onclick = async () => {
+                const text = inputEl.value.trim();
+                if (!text) return;
+                submitBtn.disabled = true;
+                submitBtn.textContent = '등록 중...';
+                try {
+                    const r = await fetch(`/api/contributions/${contribId}/comments`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tkn}` },
+                        body: JSON.stringify({ text })
+                    });
+                    if (!r.ok) throw new Error();
+                    const data = await r.json();
+                    inputEl.value = '';
+                    charcountEl.textContent = '0 / 500';
+                    if (data.pointAwarded) showToast('💬 의견 등록 +1P 획득!', 'point');
+                    const res2 = await fetch(`/api/contributions/${contribId}/comments`);
+                    renderComments(await res2.json());
+                } catch(e) {
+                    showToast('의견 등록에 실패했습니다.', 'error');
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '등록';
+                }
+            };
+
+            modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+        };
+
+        window.deleteCCMComment = async (contribId, commentId) => {
+            if (!confirm('이 의견을 삭제하시겠습니까?')) return;
+            const tkn = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+            try {
+                const r = await fetch(`/api/contributions/${contribId}/comments/${commentId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${tkn}` }
+                });
+                if (!r.ok) throw new Error();
+                // 목록 다시 불러오기
+                const res = await fetch(`/api/contributions/${contribId}/comments`);
+                const comments = await res.json();
+                const listEl = document.getElementById('ccm-list');
+                const metaEl = document.getElementById('ccm-meta');
+                if (!comments || comments.length === 0) {
+                    listEl.innerHTML = '<div style="text-align:center; color:#6a7f8e; padding:20px 0;">아직 의견이 없습니다.</div>';
+                    metaEl.textContent = '';
+                } else {
+                    metaEl.textContent = `총 ${comments.length}개의 의견`;
+                    const modal = document.getElementById('contribCommentsModal');
+                    if (modal._contribId) window.openContribComments(modal._contribId, document.getElementById('ccm-title').textContent.replace('💬 의견 — ', ''));
+                }
+            } catch(e) {
+                showToast('삭제에 실패했습니다.', 'error');
+            }
+        };
+
+        // 사료 상세보기 - 새 탭에서 ranking.html 열기
         window.openContribDetail = (id) => {
             const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
             const url = `ranking.html?contributionId=${encodeURIComponent(id)}${token ? '&t=' + encodeURIComponent(token) : ''}`;
