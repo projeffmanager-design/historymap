@@ -10498,7 +10498,16 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     if (/Jilin|Changchun|Baicheng|길림|창춘|바이청/.test(territory.name || '')) {
                         console.log('[NO_COUNTRY]', territory.name, '→ dominantCountry=null (성 없음)');
                     }
-                    // 🗺️ castle 없는 territory → 중립 배경 레이어로 표시
+                    // � [DEBUG] 서남아/유럽 no castle 로그
+                    const tBoundsNc = getTerritoryBounds(territory);
+                    if (tBoundsNc) {
+                        const midLat = (tBoundsNc.minLat + tBoundsNc.maxLat) / 2;
+                        const midLng = (tBoundsNc.minLng + tBoundsNc.maxLng) / 2;
+                        if ((midLat >= 20 && midLat <= 70) && (midLng >= -20 && midLng <= 90)) {
+                            console.log(`[NO_CASTLE] territory="${territory.name}" → 성 없음 (중립 표시)`);
+                        }
+                    }
+                    // �🗺️ castle 없는 territory → 중립 배경 레이어로 표시
                     // 민족/국가 필터 적용 시에는 중립 영역도 제외
                     if (selectedEthnicity !== 'all' || selectedCountryId !== 'all') {
                         skipReasons.noCountry++;
@@ -10525,6 +10534,15 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 let countryInfo = getCountryInfoById(dominantCountryId);
                 if (!countryInfo) {
                     skipReasons.countryNotFound++;
+                    // 🔍 [DEBUG] 서남아/유럽 지역 country not found 로그
+                    const tBoundsDbg = getTerritoryBounds(territory);
+                    if (tBoundsDbg) {
+                        const midLat = (tBoundsDbg.minLat + tBoundsDbg.maxLat) / 2;
+                        const midLng = (tBoundsDbg.minLng + tBoundsDbg.maxLng) / 2;
+                        if ((midLat >= 20 && midLat <= 70) && (midLng >= -20 && midLng <= 90)) {
+                            console.warn(`[COUNTRY_NOT_FOUND] territory="${territory.name}" dominantCountryId="${dominantCountryId}" (서남아/유럽)`);
+                        }
+                    }
                     return;
                 }
                 
@@ -15100,7 +15118,18 @@ const loadingMessages = [
 
               const dominantCountryId = dominantResult.countryId;
               const countryInfo = getCountryInfoById(dominantCountryId);
-              if (!countryInfo) return;
+              if (!countryInfo) {
+                  // 🔍 [DEBUG] 서남아/유럽 지역 country not found 로그
+                  const tBoundsDbg = getTerritoryBounds(territory);
+                  if (tBoundsDbg) {
+                      const midLat = (tBoundsDbg.minLat + tBoundsDbg.maxLat) / 2;
+                      const midLng = (tBoundsDbg.minLng + tBoundsDbg.maxLng) / 2;
+                      if ((midLat >= 20 && midLat <= 70) && (midLng >= -20 && midLng <= 90)) {
+                          console.warn(`[UV COUNTRY_NOT_FOUND] territory="${territory.name}" dominantCountryId="${dominantCountryId}" (서남아/유럽)`);
+                      }
+                  }
+                  return;
+              }
 
               if (selectedEthnicity !== 'all') {
                   if (!countryInfo.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity)) return;
