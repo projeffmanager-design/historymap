@@ -5420,6 +5420,7 @@ body.force-mobile .marker-type-selector button {
                 </div>
                 <button type="button" id="cancelDrawingBtn">취소</button>
                 <button type="button" id="deleteDrawingBtn" class="danger" style="display:none;">삭제</button>
+                <button type="button" id="duplicateDrawingBtn" style="display:none;">📋 복제</button>
                 <button type="submit" id="saveDrawingBtn" class="primary">저장</button>
             </form>
         </div>
@@ -20345,6 +20346,45 @@ kingSelect.addEventListener('change', () => {
         }
     });
 
+    // 📋 그리기 복제 버튼
+    document.getElementById('duplicateDrawingBtn').addEventListener('click', async () => {
+        const drawingId = document.getElementById('drawingMongoId').value;
+        if (!drawingId) return;
+
+        // 현재 폼 데이터 수집
+        const geoJsonRaw = document.getElementById('drawingGeoJson').value;
+        if (!geoJsonRaw) return alert('복제할 도형 데이터가 없습니다.');
+
+        const originalName = document.getElementById('drawingName').value;
+        const data = {
+            name: originalName + ' (복제)',
+            type: document.getElementById('drawingType').value,
+            color: document.getElementById('drawingColor').value,
+            start_year: parseInt(document.getElementById('drawingStartYear').value),
+            end_year: document.getElementById('drawingEndYear').value ? parseInt(document.getElementById('drawingEndYear').value) : null,
+            geojson: JSON.parse(geoJsonRaw)
+        };
+
+        if (!confirm(`"${originalName}"을(를) 복제하시겠습니까?\n복제본 이름: "${data.name}"`)) return;
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/drawings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify(data)
+            });
+            if (handleApiError(response, '도형 복제')) return;
+            if (!response.ok) throw new Error('복제 실패');
+
+            const responseData = await response.json();
+            addDrawingInMemory({ ...data, _id: responseData.id });
+            document.getElementById('drawingForm').style.display = 'none';
+            showToast(`✅ "${data.name}" 복제 완료`, 'success');
+        } catch (error) {
+            alert(error.message);
+        }
+    });
+
     // --- 11. 그리기 폼 관리 --- (🚩 [신규 추가])
     function openDrawingForm(geojson, drawingData = null) {
         closeAllFormsExcept('drawingForm');
@@ -20376,6 +20416,7 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('drawingStartYear').value = drawingData.start_year;
             document.getElementById('drawingEndYear').value = drawingData.end_year || '';
             document.getElementById('deleteDrawingBtn').style.display = 'inline-block';
+            document.getElementById('duplicateDrawingBtn').style.display = 'inline-block';
             document.getElementById('saveDrawingBtn').textContent = '저장';
             // ✂️ 선분 지우기: wall/MultiLineString 타입만 표시
             const isMultiLine = drawingData.type === 'wall' &&
@@ -20391,6 +20432,7 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('drawingColorHex').textContent = '#3388ff';
             document.getElementById('drawingStartYear').value = yearInput.value; // 현재 연도 기본값
             document.getElementById('deleteDrawingBtn').style.display = 'none';
+            document.getElementById('duplicateDrawingBtn').style.display = 'none';
             document.getElementById('segmentEraseBtn').style.display = 'none';
             document.getElementById('segmentEraseHint').style.display = 'none';
             document.getElementById('saveDrawingBtn').textContent = '저장';
