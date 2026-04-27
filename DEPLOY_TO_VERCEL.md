@@ -1,6 +1,6 @@
 Deploying to Vercel
 
-This project contains static assets (including `silla_genealogy.html`) and three serverless API endpoints that read from the `historyperson` MongoDB database.
+This project contains static assets (including `silla.html`) and three serverless API endpoints that read from the `historyperson` MongoDB database.
 
 Serverless functions (placed in `api-serverless/`):
 - `persons.js` → /api/인물 (returns TSV)
@@ -21,7 +21,7 @@ How to deploy
    - Key: MONGO_URI
    - Value: mongodb+srv://hwangjeffeha_db_user:YOUR_PASSWORD@historyperson.cowntkk.mongodb.net/
 4. After deployment, open:
-   https://<your-vercel-project>.vercel.app/silla_genealogy.html
+   https://<your-vercel-project>.vercel.app/silla.html
 
 Notes
 - Serverless functions reuse a cached MongoClient to reduce cold-start overhead.
