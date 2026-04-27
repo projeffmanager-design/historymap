@@ -5,14 +5,13 @@ let cachedDb = null;
 
 async function getDb() {
   if (cachedDb) return cachedDb;
-  const uri = process.env.MONGODB_URI || process.env.MONGO_URI || process.env.MONGO_IMPORT_URI;
-  if (!uri) throw new Error('MONGODB_URI (or MONGO_URI/MONGO_IMPORT_URI) not set');
-  const dbName = process.env.MONGODB_DB || 'historyperson';
+  const uri = process.env.MONGO_URI || process.env.MONGO_IMPORT_URI;
+  if (!uri) throw new Error('MONGO_URI not set');
   if (!cachedClient) {
     cachedClient = new MongoClient(uri, { maxPoolSize: 10 });
     await cachedClient.connect();
   }
-  cachedDb = cachedClient.db(dbName);
+  cachedDb = cachedClient.db('historyperson');
   return cachedDb;
 }
 
