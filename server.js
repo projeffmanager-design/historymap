@@ -422,9 +422,9 @@ app.use(express.static(__dirname, { index: false }));
 // 🚩 [추가] public 폴더를 정적 파일로 제공 (타일 파일 접근용)
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
-// 🚩 [추가] 루트(/) 요청 시 login.html 명시적 서빙 (Vercel 서버리스 환경 대응)
+// 🚩 [수정] 루트(/) 요청 시 index.html(지도) 서빙 — 게스트 자동 입장
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'login.html'));
+    res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 // 🚩 [추가] /map 요청 시 index.html 서빙 (URL에 .html 감추기)
