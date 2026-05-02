@@ -6866,7 +6866,21 @@ body.force-mobile .marker-type-selector button {
             <div class="odp-meta" id="odp-meta"></div>
             <div class="odp-desc" id="odp-desc" style="display:none;"></div>
 
-            <!-- ── 탭 바 (역사기록 / 주변탐색) ── -->
+            <!-- 🎙️ 사관 음성 보고 -->
+            <div id="odp-voice-section" style="display:none; margin: 8px 0 10px; padding: 8px 12px; background: rgba(180,140,80,0.08); border: 1px solid rgba(180,140,80,0.25); border-radius: 8px;">
+                <div style="font-size: 11px; color: #c8a850; margin-bottom: 6px; font-weight: 600; letter-spacing: 0.05em;">🎙️ 사관의 보고</div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <button id="odp-voice-btn"
+                        onclick="window._odpToggleVoice && window._odpToggleVoice()"
+                        style="flex-shrink:0; width:36px; height:36px; border-radius:50%; background:rgba(180,140,80,0.2); border:1px solid rgba(180,140,80,0.5); color:#d4a843; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition: background 0.2s;">
+                        ▶
+                    </button>
+                    <div style="flex:1; position:relative; height:4px; background:rgba(255,255,255,0.1); border-radius:2px; cursor:pointer;" id="odp-voice-bar" onclick="window._odpSeekVoice && window._odpSeekVoice(event)">
+                        <div id="odp-voice-progress" style="height:100%; width:0%; background:#c8a850; border-radius:2px; transition:width 0.3s linear; pointer-events:none;"></div>
+                    </div>
+                    <span id="odp-voice-time" style="flex-shrink:0; font-size:11px; color:#8a9aaa; min-width:36px; text-align:right;">0:00</span>
+                </div>
+            </div>
             <div id="odp-tab-bar" style="display:flex; border-bottom:1px solid rgba(180,140,80,0.2); margin-bottom:10px; gap:0;">
                 <button id="odp-tab-history" onclick="odpSwitchTab('history')"
                     style="flex:1; background:none; border:none; border-bottom:2px solid #c8a850;
@@ -7222,12 +7236,14 @@ body.force-mobile .marker-type-selector button {
 
     <div id="castleForm">
         <div class="edit-panel-header">
-            <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
+            <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0; overflow:hidden;">
                 <h3 style="white-space:nowrap; margin:0;">🏯 오브젝트 추가/편집</h3>
                 <div id="castleSourceBadges" style="display:none; gap:4px; align-items:center;">
                     <span id="castleSourceBadge-db"   style="font-size:10px; font-weight:bold; padding:2px 7px; border-radius:10px; background:#2c3e50; color:#7f8c8d; white-space:nowrap;">DB</span>
                     <span id="castleSourceBadge-json" style="font-size:10px; font-weight:bold; padding:2px 7px; border-radius:10px; background:#2c3e50; color:#7f8c8d; white-space:nowrap;">JSON</span>
                 </div>
+                <!-- 🆔 castle_id 칩 (편집 시에만 표시) -->
+                <span id="castleIdChip" style="display:none; font-size:10px; font-family:monospace; color:#7a9aae; background:rgba(0,0,0,0.3); padding:2px 7px; border-radius:10px; border:1px solid rgba(90,140,180,0.25); white-space:nowrap; cursor:pointer; max-width:130px; overflow:hidden; text-overflow:ellipsis;" title="클릭하여 복사" onclick="navigator.clipboard.writeText(this.dataset.id); this.textContent='✅ 복사됨!'; setTimeout(()=>{ this.textContent = this.dataset.id.slice(-8)+'…'; },1500);"></span>
             </div>
             <button type="button" class="edit-panel-close-btn" onclick="closeEditPanel('castleForm')">✕</button>
         </div>
@@ -7411,9 +7427,29 @@ body.force-mobile .marker-type-selector button {
         <textarea id="castleDesc" rows="3" style="display:none;"></textarea>
       </div>
       <!-- [성/도시·지명·전장] 사진 URL -->
-      <div class="form-row" id="castlePhotoRow">
-        <label for="castlePhoto">상단 이미지 URL:</label>
-        <input type="text" id="castlePhoto" placeholder="선택 사항">
+      <div class="form-row" id="castlePhotoRow" style="flex-direction:column; align-items:stretch; gap:6px;">
+        <label for="castlePhoto">상단 이미지:</label>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <input type="text" id="castlePhoto" placeholder="이미지 URL 직접 입력 또는 아래에서 파일 업로드" style="flex:1; min-width:0;">
+          <button type="button" onclick="uploadCastlePhotoFromUrl()"
+            title="URL에서 GitHub로 업로드 (403 이미지 우회)" style="background:rgba(40,120,180,0.2); border:1px solid rgba(40,120,180,0.4); border-radius:5px; color:#7cc4e8; padding:4px 9px; cursor:pointer; font-size:12px; white-space:nowrap;">🔗 저장</button>
+          <button type="button" onclick="_previewCastlePhoto()"
+            title="미리보기" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); border-radius:5px; color:#aaccdd; padding:4px 9px; cursor:pointer; font-size:13px; white-space:nowrap;">👁</button>
+        </div>
+        <!-- 파일 업로드 행 -->
+        <div style="display:flex; gap:6px; align-items:center;">
+          <label style="font-size:11px; color:#7a9aae; white-space:nowrap; min-width:fit-content; margin:0;">파일 업로드:</label>
+          <input type="file" id="castlePhotoFile" accept="image/*"
+            style="flex:1; min-width:0; background:#1e2a38; border:1px solid #4a6070; border-radius:4px; color:#d0e4ec; padding:3px 5px; font-size:11px;">
+          <button type="button" onclick="uploadCastlePhoto()"
+            style="background:rgba(40,120,180,0.25); border:1px solid rgba(40,120,180,0.45); border-radius:5px; color:#7cc4e8; padding:4px 10px; font-size:12px; cursor:pointer; white-space:nowrap; font-weight:600;">⬆ 업로드</button>
+        </div>
+        <div id="castlePhotoUploadMsg" style="display:none; font-size:11px; padding:3px 0;"></div>
+        <!-- 미리보기 썸네일 -->
+        <div id="castlePhotoThumb" style="display:none; margin-top:2px;">
+          <img id="castlePhotoThumbImg" src="" alt="미리보기"
+            style="max-width:100%; max-height:120px; border-radius:5px; border:1px solid rgba(255,255,255,0.15); object-fit:contain; background:#111;">
+        </div>
       </div>
       <!-- [자연] 설명 + 사진 URL -->
       <div id="naturalContentDetails" style="display:none; flex-direction:column; gap:0;">
@@ -7435,10 +7471,21 @@ body.force-mobile .marker-type-selector button {
           <textarea id="naturalDescProxy" rows="3" style="display:none;"
             oninput="document.getElementById('castleDesc').value=this.value"></textarea>
         </div>
-        <div class="form-row">
-          <label for="naturalPhotoProxy">상단 이미지 URL:</label>
-          <input type="text" id="naturalPhotoProxy" placeholder="팝업에 표시할 사진 URL (선택)" style="flex:1;"
-            oninput="document.getElementById('castlePhoto').value=this.value">
+        <div class="form-row" style="flex-direction:column; align-items:stretch; gap:6px;">
+          <label for="naturalPhotoProxy">상단 이미지:</label>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input type="text" id="naturalPhotoProxy" placeholder="이미지 URL 직접 입력 또는 파일 업로드" style="flex:1;"
+              oninput="document.getElementById('castlePhoto').value=this.value">
+            <button type="button" onclick="_previewCastlePhoto()" title="미리보기"
+              style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); border-radius:5px; color:#aaccdd; padding:4px 9px; cursor:pointer; font-size:13px;">👁</button>
+          </div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <label style="font-size:11px; color:#7a9aae; white-space:nowrap; min-width:fit-content; margin:0;">파일 업로드:</label>
+            <input type="file" id="naturalPhotoFile" accept="image/*"
+              style="flex:1; min-width:0; background:#1e2a38; border:1px solid #4a6070; border-radius:4px; color:#d0e4ec; padding:3px 5px; font-size:11px;">
+            <button type="button" onclick="uploadCastlePhoto('natural')"
+              style="background:rgba(40,120,180,0.25); border:1px solid rgba(40,120,180,0.45); border-radius:5px; color:#7cc4e8; padding:4px 10px; font-size:12px; cursor:pointer; white-space:nowrap; font-weight:600;">⬆ 업로드</button>
+          </div>
         </div>
       </div>
       <!-- [군대] 병력 수 + 장수 사진 -->
@@ -7598,6 +7645,32 @@ body.force-mobile .marker-type-selector button {
       <!-- 제출 사관명 표시 (편집 시에만) -->
       <div id="castleCreatedByRow" style="display:none; margin-bottom:8px; padding:6px 10px; background:rgba(255,255,255,0.05); border-radius:4px; font-size:12px; color:#9aabbd;">
         📌 제출 사관: <strong id="castleCreatedByDisplay" style="color:#d8cfc4;"></strong>
+      </div>
+
+      <!-- 🎙️ 음성 관리 (편집 시에만 표시) -->
+      <div id="castleVoiceSection" style="display:none; margin-bottom:12px; padding:10px 12px; background:rgba(180,140,80,0.07); border:1px solid rgba(180,140,80,0.2); border-radius:7px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+          <span style="font-size:12px; color:#c8a850; font-weight:600;">🎙️ 사관 음성 보고</span>
+          <span id="castleVoiceStatus" style="font-size:11px; color:#7a9aae;"></span>
+        </div>
+        <!-- 등록된 음성 미리듣기 -->
+        <div id="castleVoicePlayer" style="display:none; margin-bottom:8px;">
+          <audio id="castleVoiceAudioEl" controls style="width:100%; height:28px;"></audio>
+        </div>
+        <!-- 파일 업로드 -->
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <input type="file" id="castleVoiceFile" accept="audio/*"
+            style="flex:1; min-width:140px; background:#1e2a38; border:1px solid #4a6070; border-radius:4px; color:#d0e4ec; padding:4px; font-size:12px;">
+          <button type="button" id="castleVoiceUploadBtn" onclick="castleFormUploadVoice()"
+            style="background:rgba(180,140,80,0.2); border:1px solid rgba(180,140,80,0.4); border-radius:5px; color:#d4a843; font-size:12px; padding:5px 12px; cursor:pointer; white-space:nowrap; font-weight:600;">
+            ⬆ 등록
+          </button>
+          <button type="button" id="castleVoiceDeleteBtn" onclick="castleFormDeleteVoice()" style="display:none;
+            background:rgba(180,60,60,0.15); border:1px solid rgba(180,60,60,0.3); border-radius:5px; color:#e08080; font-size:12px; padding:5px 10px; cursor:pointer; white-space:nowrap;">
+            🗑 삭제
+          </button>
+        </div>
+        <div id="castleVoiceUploadMsg" style="font-size:11px; margin-top:5px; display:none;"></div>
       </div>
 
       <div class="form-actions" style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
@@ -8014,6 +8087,93 @@ body.force-mobile .marker-type-selector button {
     let markers = [];
     let allCastleMarkers = []; // 🚩 [추가] 모든 성 마커 저장소
     let currentOpenPopup = null; // 🚩 [추가] 현재 열린 팝업 추적
+
+    // 🎙️ 전역 오디오 제어 (마커 음성 보고)
+    let _voiceAudio = null; // 현재 재생 중인 Audio 객체
+
+    function _stopVoice() {
+        if (_voiceAudio) {
+            _voiceAudio.pause();
+            _voiceAudio.currentTime = 0;
+            _voiceAudio = null;
+        }
+        const btn = document.getElementById('odp-voice-btn');
+        const prog = document.getElementById('odp-voice-progress');
+        const timeEl = document.getElementById('odp-voice-time');
+        if (btn) btn.textContent = '▶';
+        if (prog) prog.style.width = '0%';
+        if (timeEl) timeEl.textContent = '0:00';
+    }
+
+    window._odpToggleVoice = function() {
+        if (!_voiceAudio) return;
+        if (_voiceAudio.paused) {
+            _voiceAudio.play();
+            const btn = document.getElementById('odp-voice-btn');
+            if (btn) btn.textContent = '⏸';
+        } else {
+            _voiceAudio.pause();
+            const btn = document.getElementById('odp-voice-btn');
+            if (btn) btn.textContent = '▶';
+        }
+    };
+
+    window._odpSeekVoice = function(event) {
+        if (!_voiceAudio || !_voiceAudio.duration) return;
+        const bar = document.getElementById('odp-voice-bar');
+        if (!bar) return;
+        const rect = bar.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+        _voiceAudio.currentTime = ratio * _voiceAudio.duration;
+    };
+
+    function _loadVoice(castleId) {
+        // ※ 아직 _stopVoice 하지 않음 — 새 마커에 음성이 있을 때만 기존 음성을 교체
+        const sec = document.getElementById('odp-voice-section');
+        if (!castleId) {
+            // 음성 없는 마커: 섹션만 숨기고 현재 재생은 유지
+            if (sec) sec.style.display = 'none';
+            return;
+        }
+        fetch(`/api/voice?id=${encodeURIComponent(String(castleId))}`)
+            .then(r => { if (!r.ok) throw new Error('no voice'); return r.json(); })
+            .then(data => {
+                if (!data.audio_url) throw new Error('no url');
+                // 새 음성이 있을 때만 기존 음성 중단 후 교체
+                _stopVoice();
+                const audio = new Audio(data.audio_url);
+                _voiceAudio = audio;
+                // 진행 바 업데이트
+                audio.addEventListener('timeupdate', () => {
+                    const prog = document.getElementById('odp-voice-progress');
+                    const timeEl = document.getElementById('odp-voice-time');
+                    if (prog && audio.duration) prog.style.width = `${(audio.currentTime / audio.duration) * 100}%`;
+                    if (timeEl) {
+                        const s = Math.floor(audio.currentTime);
+                        timeEl.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+                    }
+                });
+                audio.addEventListener('ended', () => {
+                    const btn = document.getElementById('odp-voice-btn');
+                    const prog = document.getElementById('odp-voice-progress');
+                    if (btn) btn.textContent = '▶';
+                    if (prog) prog.style.width = '0%';
+                    _voiceAudio = null;
+                });
+                // 패널 표시 & 자동 재생
+                if (sec) sec.style.display = '';
+                const btn = document.getElementById('odp-voice-btn');
+                if (btn) { btn.textContent = '⏸'; btn.title = '사관의 보고 일시정지'; }
+                audio.play().catch(() => {
+                    // 자동재생 차단 시 ▶ 버튼만 노출
+                    if (btn) { btn.textContent = '▶'; btn.title = '사관의 보고 재생'; }
+                });
+            })
+            .catch(() => {
+                // 음성 없음 — 섹션만 숨기고 현재 재생은 유지
+                if (sec) sec.style.display = 'none';
+            });
+    }
     let isInitializing = true; // 🚀 [최적화] 초기 로딩 플래그
     window._castleMarkersRendered = false; // 🎯 성/도시 마커 렌더링 완료 신호
 
@@ -9207,6 +9367,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     function closeDetailPanel() {
         const panel = document.getElementById('object-detail-panel');
         if (panel) panel.classList.remove('active');
+        _stopVoice(); // 🎙️ 패널 닫을 때 음성 정지
         if (typeof clearRadarLayers === 'function') clearRadarLayers();
         if (typeof clearDistanceLine === 'function') clearDistanceLine();
     }
@@ -9363,6 +9524,9 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
 
         // ── 패널 열기 (다른 편집 패널 닫지 않음, 오른쪽이라 겹치지 않음) ──
         panel.classList.add('active');
+
+        // 🎙️ 음성 보고 로드 (castle._id 기반)
+        _loadVoice(castle._id);
 
         // ── 사관 의견 미리보기 로드 ──
         const commentsSec = document.getElementById('odp-comments-section');
@@ -18208,6 +18372,20 @@ const loadingMessages = [
       document.getElementById('registerAsContributionBtn').style.display = 'none';
       // 신규 추가 시 제출 사관명 행 숨기기
       document.getElementById('castleCreatedByRow').style.display = 'none';
+      // 신규 추가 시 chip/음성 섹션 숨기기
+      const _newChip = document.getElementById('castleIdChip');
+      if (_newChip) _newChip.style.display = 'none';
+      const _newVoiceSec = document.getElementById('castleVoiceSection');
+      if (_newVoiceSec) _newVoiceSec.style.display = 'none';
+      // 신규 추가 시 이미지 썸네일/메시지 초기화
+      const _npt = document.getElementById('castlePhotoThumb');
+      const _npti = document.getElementById('castlePhotoThumbImg');
+      const _npm = document.getElementById('castlePhotoUploadMsg');
+      const _npf = document.getElementById('castlePhotoFile');
+      if (_npt) _npt.style.display = 'none';
+      if (_npti) _npti.src = '';
+      if (_npm) { _npm.style.display = 'none'; _npm.textContent = ''; }
+      if (_npf) _npf.value = '';
       // 신규 추가 시 출처 배지 숨기기
       const _sb = document.getElementById('castleSourceBadges');
       if (_sb) _sb.style.display = 'none';
@@ -18514,6 +18692,16 @@ const loadingMessages = [
         document.getElementById('originContributionId').value = '';
         document.getElementById('originContributor').value = '';
 
+        // 🖼️ 이미지 썸네일 / 업로드 메시지 초기화
+        const _photoThumb = document.getElementById('castlePhotoThumb');
+        const _photoThumbImg = document.getElementById('castlePhotoThumbImg');
+        const _photoMsg = document.getElementById('castlePhotoUploadMsg');
+        const _photoFile = document.getElementById('castlePhotoFile');
+        if (_photoThumb) _photoThumb.style.display = 'none';
+        if (_photoThumbImg) _photoThumbImg.src = '';
+        if (_photoMsg) { _photoMsg.style.display = 'none'; _photoMsg.textContent = ''; }
+        if (_photoFile) _photoFile.value = '';
+
         // 🚩 [추가] 제출 사관명 표시
         const createdByRow = document.getElementById('castleCreatedByRow');
         const createdByDisplay = document.getElementById('castleCreatedByDisplay');
@@ -18524,6 +18712,17 @@ const loadingMessages = [
             createdByRow.style.display = 'none';
         }
 
+        // 🆔 castle_id 칩 표시
+        const _chip = document.getElementById('castleIdChip');
+        if (_chip) {
+            _chip.dataset.id = castle._id;
+            _chip.textContent = castle._id.slice(-8) + '…';
+            _chip.style.display = 'inline-block';
+        }
+
+        // 🎙️ 음성 관리 섹션 로드
+        loadCastleVoiceSection(castle._id);
+
         // 🚩 [수정] 상단 대표 이름 필드만 채웁니다.
         document.getElementById('castleName').value = castle.name; // 메인 이름
         
@@ -18532,6 +18731,12 @@ const loadingMessages = [
         document.getElementById('castleDesc').value = castle.desc ?? '';
         loadDescToEditor(castle.desc ?? '');
         document.getElementById('castlePhoto').value = castle.photo ?? '';
+        // 🖼️ 기존 사진 있으면 썸네일 표시, 없으면 숨김
+        if (castle.photo) {
+            const _t = document.getElementById('castlePhotoThumb');
+            const _ti = document.getElementById('castlePhotoThumbImg');
+            if (_t && _ti) { _ti.src = castle.photo; _t.style.display = ''; }
+        }
         // 🚩 [추가] 커스텀 아이콘 필드 로드
         document.getElementById('customIcon').value = castle.custom_icon ?? '';
         document.getElementById('iconWidth').value = castle.icon_width ?? '';
@@ -19548,6 +19753,10 @@ const loadingMessages = [
         document.getElementById('cloneCastle').style.display = 'none';
         document.getElementById('registerAsContributionBtn').style.display = 'none';
         document.getElementById('castleCreatedByRow').style.display = 'none';
+        const _cloneChip = document.getElementById('castleIdChip');
+        if (_cloneChip) _cloneChip.style.display = 'none';
+        const _cloneVoiceSec = document.getElementById('castleVoiceSection');
+        if (_cloneVoiceSec) _cloneVoiceSec.style.display = 'none';
         document.querySelector('#addCastleForm button[type="submit"]').textContent = '추가';
 
         // 🚩 [수정] 역사 기록 행 추가 제거 - 기존 데이터만 유지
@@ -28847,6 +29056,189 @@ kingSelect.addEventListener('change', () => {
     };
 
 })();
+
+// =====================================================================
+// 🖼️ castleForm 이미지 업로드 함수 (GitHub)
+// =====================================================================
+async function uploadCastlePhoto(mode) {
+    // mode: undefined → castlePhotoFile / 'natural' → naturalPhotoFile
+    const fileInput = document.getElementById(mode === 'natural' ? 'naturalPhotoFile' : 'castlePhotoFile');
+    const msgEl = document.getElementById('castlePhotoUploadMsg');
+    const urlInput = document.getElementById(mode === 'natural' ? 'naturalPhotoProxy' : 'castlePhoto');
+    if (!fileInput || !fileInput.files[0]) return alert('파일을 선택하세요.');
+    const file = fileInput.files[0];
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#7fcf9f'; msgEl.textContent = '업로드 중…'; }
+    try {
+        const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+        const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+        const res = await fetch('/api/admin/upload-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}` },
+            body: JSON.stringify({ filename: file.name, contentBase64: base64, mimeType: file.type })
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.message || '업로드 실패');
+        }
+        const { url } = await res.json();
+        if (urlInput) urlInput.value = url;
+        document.getElementById('castlePhoto').value = url;
+        if (msgEl) { msgEl.style.color = '#7fcf9f'; msgEl.textContent = '✅ 업로드 완료!'; }
+        const thumb = document.getElementById('castlePhotoThumb');
+        const thumbImg = document.getElementById('castlePhotoThumbImg');
+        if (thumb && thumbImg) { thumbImg.src = url; thumb.style.display = ''; }
+        if (fileInput) fileInput.value = '';
+    } catch (e) {
+        if (msgEl) { msgEl.style.color = '#cf8080'; msgEl.textContent = '❌ ' + e.message; }
+    }
+}
+
+// URL 입력값을 서버 경유로 GitHub에 업로드 (403 외부 이미지 우회)
+async function uploadCastlePhotoFromUrl() {
+    const urlInput = document.getElementById('castlePhoto');
+    const msgEl = document.getElementById('castlePhotoUploadMsg');
+    const sourceUrl = urlInput?.value?.trim();
+    if (!sourceUrl) return alert('이미지 URL을 먼저 입력하세요.');
+    // 이미 raw.githubusercontent.com이면 그냥 사용
+    if (sourceUrl.includes('raw.githubusercontent.com')) {
+        _previewCastlePhoto();
+        return;
+    }
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#7fcf9f'; msgEl.textContent = '서버에서 이미지 가져오는 중…'; }
+    try {
+        const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+        const ext = sourceUrl.split('?')[0].split('.').pop().toLowerCase().replace(/[^a-z]/g,'') || 'jpg';
+        const res = await fetch('/api/admin/upload-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}` },
+            body: JSON.stringify({ sourceUrl, filename: `image.${ext}` })
+        });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.message || '업로드 실패'); }
+        const { url } = await res.json();
+        urlInput.value = url;
+        if (msgEl) { msgEl.style.color = '#7fcf9f'; msgEl.textContent = '✅ GitHub에 저장 완료!'; }
+        const thumb = document.getElementById('castlePhotoThumb');
+        const thumbImg = document.getElementById('castlePhotoThumbImg');
+        if (thumb && thumbImg) { thumbImg.src = url; thumb.style.display = ''; }
+    } catch (e) {
+        if (msgEl) { msgEl.style.color = '#cf8080'; msgEl.textContent = '❌ ' + e.message; }
+    }
+}
+
+function _previewCastlePhoto() {
+    const url = document.getElementById('castlePhoto').value.trim();
+    const thumb = document.getElementById('castlePhotoThumb');
+    const thumbImg = document.getElementById('castlePhotoThumbImg');
+    if (!url) return;
+    if (thumb && thumbImg) { thumbImg.src = url; thumb.style.display = url ? '' : 'none'; }
+}
+
+// =====================================================================
+// 🎙️ castleForm 음성 관리 함수
+// =====================================================================
+let _castleFormVoiceId = null;
+
+async function loadCastleVoiceSection(castleId) {
+    const sec = document.getElementById('castleVoiceSection');
+    const statusEl = document.getElementById('castleVoiceStatus');
+    const playerEl = document.getElementById('castleVoicePlayer');
+    const audioEl = document.getElementById('castleVoiceAudioEl');
+    const delBtn = document.getElementById('castleVoiceDeleteBtn');
+    const msgEl = document.getElementById('castleVoiceUploadMsg');
+    if (!sec) return;
+    sec.style.display = '';
+    statusEl.textContent = '확인 중…';
+    if (msgEl) { msgEl.style.display = 'none'; msgEl.textContent = ''; }
+    if (playerEl) playerEl.style.display = 'none';
+    if (delBtn) delBtn.style.display = 'none';
+    _castleFormVoiceId = null;
+    try {
+        const res = await fetch(`/api/voice?id=${castleId}`);
+        if (res.ok) {
+            const data = await res.json();
+            statusEl.textContent = '✅ 음성 등록됨';
+            if (audioEl) audioEl.src = data.audio_url;
+            if (playerEl) playerEl.style.display = '';
+            if (delBtn) delBtn.style.display = 'inline-block';
+            // voice doc _id 조회 (삭제용)
+            const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+            if (tok) {
+                const allRes = await fetch('/api/admin/voice', { headers: { 'Authorization': `Bearer ${tok}` } });
+                if (allRes.ok) {
+                    const list = await allRes.json();
+                    const found = list.find(v => v.castle_id === castleId);
+                    if (found) _castleFormVoiceId = found._id;
+                }
+            }
+        } else if (res.status === 404) {
+            statusEl.textContent = '등록된 음성 없음';
+        } else {
+            statusEl.textContent = '조회 실패';
+        }
+    } catch {
+        statusEl.textContent = '조회 실패';
+    }
+}
+
+async function castleFormUploadVoice() {
+    const castleId = editingCastleKey;
+    const fileInput = document.getElementById('castleVoiceFile');
+    const msgEl = document.getElementById('castleVoiceUploadMsg');
+    if (!castleId) return alert('저장된 마커에서만 사용 가능합니다.');
+    if (!fileInput || !fileInput.files[0]) return alert('파일을 선택하세요.');
+    const file = fileInput.files[0];
+    const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+    msgEl.style.display = 'block';
+    msgEl.style.color = '#7fcf9f';
+    msgEl.textContent = '업로드 중…';
+    try {
+        // 파일을 base64로 읽어 서버에 전송 → 서버가 Vercel Blob에 업로드 (CORS 우회)
+        const audioBase64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+        const res = await fetch('/api/admin/voice/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}` },
+            body: JSON.stringify({
+                castle_id: castleId,
+                audioBase64,
+                filename: file.name,
+                contentType: file.type || 'audio/mpeg',
+                speaker: '사관'
+            })
+        });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.message || '업로드 실패'); }
+        msgEl.textContent = '✅ 등록 완료!';
+        if (fileInput) fileInput.value = '';
+        await loadCastleVoiceSection(castleId);
+    } catch (e) {
+        msgEl.style.color = '#cf8080';
+        msgEl.textContent = '❌ ' + e.message;
+    }
+}
+
+async function castleFormDeleteVoice() {
+    if (!_castleFormVoiceId) return alert('음성 ID를 찾을 수 없습니다.');
+    if (!confirm('이 음성을 삭제하시겠습니까?')) return;
+    const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+    const res = await fetch(`/api/admin/voice/${_castleFormVoiceId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${tok}` }
+    });
+    if (res.ok) {
+        await loadCastleVoiceSection(editingCastleKey);
+    } else {
+        alert('삭제 실패');
+    }
+}
 </script>
 
 <!-- 연대표 패널 -->

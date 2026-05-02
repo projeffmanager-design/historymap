@@ -1,5 +1,6 @@
 // server.js
 require('dotenv').config(); // .env 파일의 환경 변수를 로드합니다.
+require('dotenv').config({ path: '.env.local', override: false }); // .env.local 추가 로드 (GITHUB_TOKEN 등)
 const express = require('express');
 const { ObjectId } = require('mongodb');
 // 💡 [추가] 인증 관련 라이브러리
@@ -10,6 +11,7 @@ const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
 const { connectToDatabase, collections } = require('./db'); // 🚩 [추가] DB 연결 모듈
+const { put: blobPut, del: blobDel } = require('@vercel/blob'); // 🎙️ [추가] Vercel Blob SDK
 
 const app = express();
 const port = 3000;
@@ -1327,6 +1329,221 @@ async function setupRoutesAndCollections() {
                 res.status(500).json({ message: "Castle 정보 영구 삭제 실패", error: error.message });
             }
         });
+
+        // ── 음성 API (realhistory.voice) ─────────────────────────────────────────
+
+        // GET /api/voice?id=<castleId>  — 지도에서 마커 클릭 시 음성 조회 (공개)
+        app.get('/api/voice', async (req, res) => {
+            try {
+                const id = req.query.id;
+                if (!id) return res.status(400).json({ message: 'id 파라미터 필요' });
+                const doc = await collections.voice.findOne({ castle_id: toObjectId(id) });
+                if (!doc) return res.status(404).json({ message: '음성 없음' });
+                res.json({ audio_url: doc.audio_url, speaker: doc.speaker || '사관' });
+            } catch (err) {
+                console.error('[voice] 조회 오류:', err);
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // GET /api/admin/voice  — 전체 목록 + castle 이름 join (관리자)
+        app.get('/api/admin/voice', verifyAdmin, async (req, res) => {
+            try {
+                const docs = await collections.voice.find({}).toArray();
+                const withNames = await Promise.all(docs.map(async d => {
+                    let castleName = '';
+                    try {
+                        const c = await collections.castle.findOne({ _id: d.castle_id }, { projection: { name: 1 } });
+                        castleName = c?.name || '';
+                    } catch (_) {}
+                    return {
+                        _id: String(d._id),
+                        castle_id: String(d.castle_id),
+                        castle_name: castleName,
+                        audio_url: d.audio_url,
+                        speaker: d.speaker || '사관',
+                        created_at: d.created_at
+                    };
+                }));
+                res.json(withNames);
+            } catch (err) {
+                console.error('[admin/voice] 목록 오류:', err);
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // POST /api/admin/voice/upload-url  — Blob 업로드 토큰 발급 (관리자, 하위호환 유지)
+        app.post('/api/admin/voice/upload-url', verifyAdmin, async (req, res) => {
+            try {
+                res.json({ blobToken: process.env.BLOB_READ_WRITE_TOKEN });
+            } catch (err) {
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // POST /api/admin/voice/upload  — 서버사이드 Blob 업로드 + DB 저장 one-shot (관리자)
+        //   Body JSON: { castle_id, audioBase64, filename, contentType, speaker? }
+        app.post('/api/admin/voice/upload', verifyAdmin, async (req, res) => {
+            try {
+                const { castle_id, audioBase64, filename, contentType, speaker } = req.body;
+                if (!castle_id || !audioBase64 || !filename) {
+                    return res.status(400).json({ message: 'castle_id, audioBase64, filename 필수' });
+                }
+                const buf = Buffer.from(audioBase64, 'base64');
+                const safeFilename = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+                const blob = await blobPut(safeFilename, buf, {
+                    access: 'public',
+                    contentType: contentType || 'audio/mpeg',
+                    token: process.env.BLOB_READ_WRITE_TOKEN
+                });
+                // DB 저장 (기존 레코드 있으면 덮어쓰기)
+                const existing = await collections.voice.findOne({ castle_id: toObjectId(castle_id) });
+                if (existing) {
+                    try { await blobDel(existing.audio_url, { token: process.env.BLOB_READ_WRITE_TOKEN }); } catch (_) {}
+                    await collections.voice.updateOne(
+                        { _id: existing._id },
+                        { $set: { audio_url: blob.url, speaker: speaker || '사관', updated_at: new Date() } }
+                    );
+                } else {
+                    await collections.voice.insertOne({
+                        castle_id: toObjectId(castle_id),
+                        audio_url: blob.url,
+                        speaker: speaker || '사관',
+                        created_at: new Date()
+                    });
+                }
+                res.json({ url: blob.url });
+            } catch (err) {
+                console.error('[voice/upload] 오류:', err);
+                res.status(500).json({ message: err.message || '서버 오류' });
+            }
+        });
+
+        // POST /api/admin/voice  — DB에 음성 레코드 저장 (관리자)
+        app.post('/api/admin/voice', verifyAdmin, async (req, res) => {
+            try {
+                const { castle_id, audio_url, speaker } = req.body;
+                if (!castle_id || !audio_url) return res.status(400).json({ message: 'castle_id, audio_url 필요' });
+                const existing = await collections.voice.findOne({ castle_id: toObjectId(castle_id) });
+                if (existing) {
+                    try { await blobDel(existing.audio_url, { token: process.env.BLOB_READ_WRITE_TOKEN }); } catch (_) {}
+                    await collections.voice.updateOne(
+                        { _id: existing._id },
+                        { $set: { audio_url, speaker: speaker || '사관', updated_at: new Date() } }
+                    );
+                    return res.json({ message: '음성 업데이트 완료', id: String(existing._id) });
+                }
+                const result = await collections.voice.insertOne({
+                    castle_id: toObjectId(castle_id),
+                    audio_url,
+                    speaker: speaker || '사관',
+                    created_at: new Date()
+                });
+                res.status(201).json({ message: '음성 등록 완료', id: String(result.insertedId) });
+            } catch (err) {
+                console.error('[admin/voice POST] 오류:', err);
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // PATCH /api/admin/voice/:id  — URL 또는 speaker 수정 (관리자)
+        app.patch('/api/admin/voice/:id', verifyAdmin, async (req, res) => {
+            try {
+                const { audio_url, speaker } = req.body;
+                const doc = await collections.voice.findOne({ _id: toObjectId(req.params.id) });
+                if (!doc) return res.status(404).json({ message: '레코드 없음' });
+                const update = { updated_at: new Date() };
+                if (audio_url && audio_url !== doc.audio_url) {
+                    try { await blobDel(doc.audio_url, { token: process.env.BLOB_READ_WRITE_TOKEN }); } catch (_) {}
+                    update.audio_url = audio_url;
+                }
+                if (speaker) update.speaker = speaker;
+                await collections.voice.updateOne({ _id: toObjectId(req.params.id) }, { $set: update });
+                res.json({ message: '수정 완료' });
+            } catch (err) {
+                console.error('[admin/voice PATCH] 오류:', err);
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // DELETE /api/admin/voice/:id  — DB + Blob 동시 삭제 (관리자)
+        app.delete('/api/admin/voice/:id', verifyAdmin, async (req, res) => {
+            try {
+                const doc = await collections.voice.findOne({ _id: toObjectId(req.params.id) });
+                if (!doc) return res.status(404).json({ message: '레코드 없음' });
+                try { await blobDel(doc.audio_url, { token: process.env.BLOB_READ_WRITE_TOKEN }); } catch (_) {}
+                await collections.voice.deleteOne({ _id: toObjectId(req.params.id) });
+                res.json({ message: '삭제 완료' });
+            } catch (err) {
+                console.error('[admin/voice DELETE] 오류:', err);
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // 🖼️ POST /api/admin/upload-image — GitHub 이미지 업로드 (관리자)
+        //   Body JSON: { filename, contentBase64, mimeType }
+        //   Returns: { url }  (raw.githubusercontent.com URL)
+        // ─────────────────────────────────────────────────────────────────────────
+        app.post('/api/admin/upload-image', verifyAdmin, async (req, res) => {
+            try {
+                const { filename, contentBase64, mimeType, sourceUrl } = req.body;
+                const githubToken = process.env.GITHUB_TOKEN;
+                if (!githubToken || githubToken === 'YOUR_GITHUB_PAT_HERE') {
+                    return res.status(503).json({ message: 'GITHUB_TOKEN 환경변수가 설정되지 않았습니다.' });
+                }
+                const axios = require('axios');
+                const owner = 'projeffmanager-design';
+                const repo = 'img';
+                const branch = 'main';
+
+                let base64Content = contentBase64;
+                let resolvedFilename = filename;
+
+                // sourceUrl 방식: 서버에서 이미지 다운로드 후 업로드 (403 우회)
+                if (sourceUrl && !contentBase64) {
+                    const ext = sourceUrl.split('?')[0].split('.').pop().toLowerCase().replace(/[^a-z]/g, '') || 'jpg';
+                    resolvedFilename = filename || `img_${Date.now()}.${ext}`;
+                    const imgRes = await axios.get(sourceUrl, {
+                        responseType: 'arraybuffer',
+                        timeout: 15000,
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                            'Accept': 'image/*,*/*'
+                        }
+                    });
+                    base64Content = Buffer.from(imgRes.data).toString('base64');
+                }
+
+                if (!resolvedFilename || !base64Content) {
+                    return res.status(400).json({ message: 'filename+contentBase64 또는 sourceUrl 필수' });
+                }
+
+                const safeFilename = `${Date.now()}_${resolvedFilename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+                const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${safeFilename}`;
+
+                // 기존 파일 sha 확인 (덮어쓰기 시 필요)
+                let sha;
+                try {
+                    const existing = await axios.get(apiUrl, {
+                        headers: { Authorization: `Bearer ${githubToken}`, 'User-Agent': 'historymap-server' }
+                    });
+                    sha = existing.data.sha;
+                } catch (_) { /* 신규 파일이면 sha 불필요 */ }
+
+                const body = { message: `Upload ${safeFilename}`, content: base64Content, branch };
+                if (sha) body.sha = sha;
+                await axios.put(apiUrl, body, {
+                    headers: { Authorization: `Bearer ${githubToken}`, 'User-Agent': 'historymap-server', 'Content-Type': 'application/json' }
+                });
+                const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${safeFilename}`;
+                res.json({ url: rawUrl });
+            } catch (err) {
+                console.error('[upload-image] 오류:', err?.response?.data || err.message);
+                res.status(500).json({ message: err?.response?.data?.message || '업로드 실패' });
+            }
+        });
+        // ─────────────────────────────────────────────────────────────────────────
 
 // ----------------------------------------------------
 // ⚔️ GENERAL (장수) API 엔드포인트 (NEW)

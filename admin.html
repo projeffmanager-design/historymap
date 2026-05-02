@@ -678,6 +678,60 @@
             <button id="nextPageBtn">다음</button>
         </div>
 
+        <!-- ══════════════ 🎙️ 음성 관리 ══════════════ -->
+        <h2>🎙️ 사관 음성 관리</h2>
+        <div id="voiceSection" style="background:#3e4a56; padding:20px; border-radius:8px; margin-bottom:30px;">
+
+            <!-- 업로드 폼 -->
+            <div style="background:rgba(0,0,0,0.2); border-radius:8px; padding:16px; margin-bottom:18px;">
+                <div style="font-size:14px; color:#a8c8e8; margin-bottom:12px; font-weight:600;">➕ 새 음성 등록 / 교체</div>
+                <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;">
+                    <div style="flex:1; min-width:180px;">
+                        <label style="font-size:12px; color:#8fa8c0; display:block; margin-bottom:4px;">도시 ID (castle._id)</label>
+                        <input id="voiceCastleId" type="text" placeholder="예) 68dc8697d3097eac5873f91e"
+                            style="width:100%; box-sizing:border-box; background:#1e2a38; border:1px solid #4a6070; border-radius:5px; color:#e0ecf8; padding:7px 10px; font-size:13px; font-family:monospace;">
+                    </div>
+                    <div style="flex:1; min-width:160px;">
+                        <label style="font-size:12px; color:#8fa8c0; display:block; margin-bottom:4px;">화자 (기본: 사관)</label>
+                        <input id="voiceSpeaker" type="text" placeholder="사관" value="사관"
+                            style="width:100%; box-sizing:border-box; background:#1e2a38; border:1px solid #4a6070; border-radius:5px; color:#e0ecf8; padding:7px 10px; font-size:13px;">
+                    </div>
+                    <div style="flex:2; min-width:200px;">
+                        <label style="font-size:12px; color:#8fa8c0; display:block; margin-bottom:4px;">MP3 파일 선택</label>
+                        <input id="voiceFileInput" type="file" accept="audio/*"
+                            style="background:#1e2a38; border:1px solid #4a6070; border-radius:5px; color:#e0ecf8; padding:6px; font-size:13px; width:100%; box-sizing:border-box;">
+                    </div>
+                    <button onclick="uploadVoice()" id="voiceUploadBtn"
+                        style="background:#2e7d9e; border:none; border-radius:6px; color:#fff; padding:8px 18px; font-size:13px; cursor:pointer; font-weight:600; height:36px; white-space:nowrap;">
+                        ⬆ 업로드 &amp; 등록
+                    </button>
+                </div>
+                <div id="voiceUploadStatus" style="margin-top:8px; font-size:12px; color:#7fcf9f; display:none;"></div>
+            </div>
+
+            <!-- 목록 테이블 -->
+            <div style="font-size:13px; color:#8fa8c0; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+                <span>📋 등록된 음성 목록</span>
+                <button onclick="loadVoiceList()" style="background:rgba(255,255,255,0.08); border:1px solid #4a6070; border-radius:5px; color:#a8c8e8; padding:4px 12px; font-size:12px; cursor:pointer;">새로고침</button>
+            </div>
+            <div style="overflow-x:auto;">
+                <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                    <thead>
+                        <tr style="background:#2c3a48; color:#8fa8c0;">
+                            <th style="padding:8px 10px; text-align:left; border-bottom:1px solid #4a6070;">도시명</th>
+                            <th style="padding:8px 10px; text-align:left; border-bottom:1px solid #4a6070;">castle_id</th>
+                            <th style="padding:8px 10px; text-align:left; border-bottom:1px solid #4a6070;">화자</th>
+                            <th style="padding:8px 10px; text-align:left; border-bottom:1px solid #4a6070;">음성 파일</th>
+                            <th style="padding:8px 10px; text-align:center; border-bottom:1px solid #4a6070;">작업</th>
+                        </tr>
+                    </thead>
+                    <tbody id="voiceTableBody">
+                        <tr><td colspan="5" style="text-align:center; color:#5a7888; padding:20px;">불러오는 중...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <h2>레이어 기본 설정</h2>
         <div id="layerSettingsContainer" style="background-color: #3e4a56; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
             <p style="margin-bottom: 15px; color: #ecf0f1;">지도 페이지에서 각 레이어가 기본적으로 표시될지 설정합니다.</p>
@@ -1742,10 +1796,199 @@
         // 🚩 [추가] 레이어 설정 이벤트 리스너
         document.getElementById('saveLayerSettingsBtn').addEventListener('click', saveLayerSettings);
 
-
-
         // 🚩 [추가] 초기화 시 레이어 설정 불러오기
         loadLayerSettings();
+
+        // ══════════════════════════════════════════
+        // 🎙️ 음성 관리 로직
+        // ══════════════════════════════════════════
+        const BLOB_UPLOAD_URL = 'https://wumvyfnefyefzo3c.public.blob.vercel-storage.com';
+
+        async function loadVoiceList() {
+            const tbody = document.getElementById('voiceTableBody');
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#5a7888;padding:20px;">불러오는 중...</td></tr>';
+            try {
+                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                const res = await fetch('/api/admin/voice', { headers: { 'Authorization': `Bearer ${token}` } });
+                if (!res.ok) throw new Error('목록 조회 실패');
+                const list = await res.json();
+                if (!list.length) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#5a7888;padding:20px;">등록된 음성 없음</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = list.map(v => `
+                    <tr id="voice-row-${v._id}" style="border-bottom:1px solid #3a4a58;">
+                        <td style="padding:8px 10px; color:#d0e4ec; font-weight:600;">${v.castle_name || '—'}</td>
+                        <td style="padding:8px 10px; color:#7a9aae; font-family:monospace; font-size:11px;">${v.castle_id}</td>
+                        <td style="padding:8px 10px;" id="voice-speaker-${v._id}">
+                            <span class="voice-speaker-display">${v.speaker}</span>
+                        </td>
+                        <td style="padding:8px 10px;">
+                            <audio controls src="${v.audio_url}" style="height:28px; max-width:200px;"></audio>
+                        </td>
+                        <td style="padding:8px 10px; text-align:center; white-space:nowrap;">
+                            <button onclick="editVoiceRow('${v._id}','${v.castle_id}','${v.speaker}','${v.audio_url}')"
+                                style="background:#2e5a7e; border:none; border-radius:4px; color:#a8d8f0; padding:4px 10px; font-size:12px; cursor:pointer; margin-right:4px;">✏ 수정</button>
+                            <button onclick="deleteVoice('${v._id}','${v.castle_name || v.castle_id}')"
+                                style="background:#7e2e2e; border:none; border-radius:4px; color:#f0a8a8; padding:4px 10px; font-size:12px; cursor:pointer;">🗑 삭제</button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#cf6060;padding:16px;">오류: ${e.message}</td></tr>`;
+            }
+        }
+
+        async function uploadVoice() {
+            const castleId = document.getElementById('voiceCastleId').value.trim();
+            const speaker  = document.getElementById('voiceSpeaker').value.trim() || '사관';
+            const fileInput = document.getElementById('voiceFileInput');
+            const statusEl = document.getElementById('voiceUploadStatus');
+            const btn = document.getElementById('voiceUploadBtn');
+
+            if (!castleId) { alert('도시 ID를 입력하세요.'); return; }
+            if (!fileInput.files[0]) { alert('MP3 파일을 선택하세요.'); return; }
+
+            const file = fileInput.files[0];
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+
+            btn.disabled = true; btn.textContent = '업로드 중...';
+            statusEl.style.display = 'block'; statusEl.style.color = '#7fcf9f';
+            statusEl.textContent = '① Vercel Blob에 파일 업로드 중...';
+
+            try {
+                // 1단계: Vercel Blob에 직접 업로드 (PUT)
+                const blobToken = '${process.env.BLOB_READ_WRITE_TOKEN}'; // server에서 발급
+                const infoRes = await fetch('/api/admin/voice/upload-url', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ filename: file.name, contentType: file.type || 'audio/mpeg' })
+                });
+                if (!infoRes.ok) throw new Error('토큰 발급 실패');
+                const { blobToken: bt } = await infoRes.json();
+
+                // Vercel Blob REST API로 직접 업로드
+                const uploadRes = await fetch(`https://blob.vercel-storage.com/${encodeURIComponent(file.name)}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${bt}`,
+                        'Content-Type': file.type || 'audio/mpeg',
+                        'x-content-type': file.type || 'audio/mpeg',
+                        'x-add-random-suffix': '0',
+                        'access': 'public'
+                    },
+                    body: file
+                });
+                if (!uploadRes.ok) throw new Error(`Blob 업로드 실패 (${uploadRes.status})`);
+                const blobResult = await uploadRes.json();
+                const audioUrl = blobResult.url;
+
+                statusEl.textContent = '② MongoDB에 등록 중...';
+
+                // 2단계: DB 저장
+                const saveRes = await fetch('/api/admin/voice', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ castle_id: castleId, audio_url: audioUrl, speaker })
+                });
+                if (!saveRes.ok) { const e = await saveRes.json(); throw new Error(e.message); }
+                const saved = await saveRes.json();
+
+                statusEl.textContent = `✅ 완료! ${saved.message}`;
+                document.getElementById('voiceCastleId').value = '';
+                fileInput.value = '';
+                await loadVoiceList();
+            } catch (e) {
+                statusEl.style.color = '#cf8080';
+                statusEl.textContent = `❌ 실패: ${e.message}`;
+            } finally {
+                btn.disabled = false; btn.textContent = '⬆ 업로드 & 등록';
+            }
+        }
+
+        function editVoiceRow(id, castleId, speaker, audioUrl) {
+            const row = document.getElementById(`voice-row-${id}`);
+            if (!row) return;
+            // 인라인 수정 UI 삽입
+            row.innerHTML = `
+                <td colspan="3" style="padding:8px 10px;">
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                        <input id="edit-speaker-${id}" value="${speaker}" placeholder="화자"
+                            style="background:#1e2a38; border:1px solid #4a6070; border-radius:4px; color:#e0ecf8; padding:5px 8px; font-size:12px; width:100px;">
+                        <span style="color:#6a8a9e; font-size:11px;">URL 직접 수정 또는 파일 재업로드:</span>
+                        <input id="edit-url-${id}" value="${audioUrl}"
+                            style="background:#1e2a38; border:1px solid #4a6070; border-radius:4px; color:#e0ecf8; padding:5px 8px; font-size:11px; font-family:monospace; flex:1; min-width:200px;">
+                        <input id="edit-file-${id}" type="file" accept="audio/*"
+                            style="background:#1e2a38; border:1px solid #4a6070; border-radius:4px; color:#e0ecf8; padding:4px; font-size:11px;">
+                    </div>
+                </td>
+                <td style="padding:8px 10px;">
+                    <audio controls src="${audioUrl}" style="height:28px; max-width:160px;"></audio>
+                </td>
+                <td style="padding:8px 10px; text-align:center; white-space:nowrap;">
+                    <button onclick="saveVoiceEdit('${id}','${castleId}')"
+                        style="background:#2e7a50; border:none; border-radius:4px; color:#a8f0c8; padding:4px 10px; font-size:12px; cursor:pointer; margin-right:4px;">💾 저장</button>
+                    <button onclick="loadVoiceList()"
+                        style="background:#4a5a6a; border:none; border-radius:4px; color:#c0d0e0; padding:4px 10px; font-size:12px; cursor:pointer;">취소</button>
+                </td>
+            `;
+        }
+
+        async function saveVoiceEdit(id, castleId) {
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            const speaker = document.getElementById(`edit-speaker-${id}`).value.trim();
+            const fileInput = document.getElementById(`edit-file-${id}`);
+            let audioUrl = document.getElementById(`edit-url-${id}`).value.trim();
+
+            try {
+                // 파일을 새로 선택한 경우 먼저 업로드
+                if (fileInput.files[0]) {
+                    const file = fileInput.files[0];
+                    const infoRes = await fetch('/api/admin/voice/upload-url', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ filename: file.name, contentType: file.type || 'audio/mpeg' })
+                    });
+                    const { blobToken: bt } = await infoRes.json();
+                    const uploadRes = await fetch(`https://blob.vercel-storage.com/${encodeURIComponent(file.name)}`, {
+                        method: 'PUT',
+                        headers: { 'Authorization': `Bearer ${bt}`, 'Content-Type': file.type || 'audio/mpeg', 'x-add-random-suffix': '0', 'access': 'public' },
+                        body: file
+                    });
+                    if (!uploadRes.ok) throw new Error('파일 업로드 실패');
+                    const blobResult = await uploadRes.json();
+                    audioUrl = blobResult.url;
+                }
+
+                const res = await fetch(`/api/admin/voice/${id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ audio_url: audioUrl, speaker })
+                });
+                if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
+                await loadVoiceList();
+            } catch (e) {
+                alert('수정 실패: ' + e.message);
+            }
+        }
+
+        async function deleteVoice(id, label) {
+            if (!confirm(`"${label}" 음성을 삭제하시겠습니까?\nDB와 Blob 파일이 모두 삭제됩니다.`)) return;
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            try {
+                const res = await fetch(`/api/admin/voice/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
+                await loadVoiceList();
+            } catch (e) {
+                alert('삭제 실패: ' + e.message);
+            }
+        }
+
+        // 초기 로드
+        loadVoiceList();
 
     </script>
 </body>
