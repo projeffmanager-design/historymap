@@ -12477,14 +12477,26 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         const _mBuiltYear      = castle.built_year      ?? castle.start_year   ?? null;
         const _mDestroyedYear  = castle.destroyed_year  ?? castle.end_year     ?? null;
         const _hasExplicitDuration = (_mBuiltYear != null || _mDestroyedYear != null);
-        // 🚩 [수정] is_military_flag는 history가 비어있어도 built_year/destroyed_year(또는 start/end_year)로 시간 체크
-        const isWithinDuration = activeHistoryInfo ? true : (castle.is_military_flag && _hasExplicitDuration ?
-            (((_mBuiltYear ?? -Infinity) <= year) && ((_mDestroyedYear ?? Infinity) >= year))
-            : (effectiveIsNatural ?
-                (_isRelicType || _hasExplicitDuration
+        // 🚩 [버그수정] 군대 마커는 activeHistoryInfo 여부와 무관하게 built_year/destroyed_year를 항상 우선 체크
+        //   (history 레코드가 있더라도 destroyed_year가 있으면 해당 연도 이후엔 숨겨야 함)
+        const isWithinDuration = (() => {
+            if (castle.is_military_flag) {
+                // 군대 마커: destroyed_year가 있으면 무조건 연도 범위 체크
+                if (_hasExplicitDuration) {
+                    return ((_mBuiltYear ?? -Infinity) <= year) && ((_mDestroyedYear ?? Infinity) >= year);
+                }
+                // destroyed_year도 built_year도 없는 군대 마커는 항상 표시
+                return true;
+            }
+            // 일반 마커: activeHistoryInfo 우선
+            if (activeHistoryInfo) return true;
+            if (effectiveIsNatural) {
+                return (_isRelicType || _hasExplicitDuration)
                     ? (((_mBuiltYear ?? -Infinity) <= year) && ((_mDestroyedYear ?? Infinity) >= year))
-                    : true) // 산·강·바다·기타 지형은 항상 표시 (단, 연도 명시된 경우 제외)
-                : false));
+                    : true; // 산·강·바다·기타 지형은 항상 표시
+            }
+            return false;
+        })();
          // console.log 제거 (성능 최적화 — 루프 내 반복 호출 방지)
          const builtText = `${recordStartYear}년 ${recordStartMonth}월`;
          const destroyedText = recordEndYear === null ? '현재' : `${recordEndYear}년 ${recordEndMonth}월`;
