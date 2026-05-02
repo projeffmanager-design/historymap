@@ -930,12 +930,15 @@
         /* ── 미니 맵 스타일 ── */
         #mini-map {
             width: 100%;
-            height: 250px;
+            height: 280px;
             border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            margin-top: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+            margin: 14px 0 18px 0;
+            overflow: hidden;
+            flex-shrink: 0;
         }
+        #mini-map .leaflet-control-zoom { display: none; }
 
         /* ── 반응형 ── */
         @media (max-width: 768px) {
@@ -1070,11 +1073,11 @@
                 <h2>📚 사료 상세 정보</h2>
                 <button class="close-btn" id="closeDetailBtn">&times;</button>
             </div>
+            <!-- 미니 맵: 제목 바로 아래, 본문 위 -->
+            <div id="mini-map"></div>
             <div id="contributionDetailContent">
                 <!-- 상세 내용이 여기에 동적으로 추가됩니다 -->
             </div>
-            <!-- 미니 맵 추가 -->
-            <div id="mini-map" style="width: 100%; height: 250px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); margin-top: 20px;"></div>
         </div>
     </div>
 
@@ -2223,27 +2226,49 @@
 
         // 미니 맵 관련 스크립트
         let miniMap;
+        let miniMapMarker;
 
         function initializeMiniMap(lat, lng) {
+            if (!lat || !lng) return;
+
             if (!miniMap) {
                 miniMap = L.map('mini-map', {
                     center: [lat, lng],
                     zoom: 6,
                     zoomControl: false,
                     attributionControl: false,
+                    scrollWheelZoom: false,
+                    doubleClickZoom: false,
+                    dragging: false,
                 });
 
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                     maxZoom: 18,
-                    minZoom: 5,
+                    minZoom: 3,
                 }).addTo(miniMap);
 
-                L.marker([lat, lng]).addTo(miniMap);
+                const darkIcon = L.divIcon({
+                    className: '',
+                    html: '<div style="width:14px;height:14px;border-radius:50%;background:#e05c3a;border:2px solid #fff;box-shadow:0 0 6px rgba(0,0,0,0.6);"></div>',
+                    iconSize: [14, 14],
+                    iconAnchor: [7, 7],
+                });
+                miniMapMarker = L.marker([lat, lng], { icon: darkIcon }).addTo(miniMap);
             } else {
+                // 기존 마커 제거 후 새 위치에 재배치
+                if (miniMapMarker) miniMap.removeLayer(miniMapMarker);
                 miniMap.setView([lat, lng], 6);
-                L.marker([lat, lng]).addTo(miniMap);
-                miniMap.invalidateSize();
+                const darkIcon = L.divIcon({
+                    className: '',
+                    html: '<div style="width:14px;height:14px;border-radius:50%;background:#e05c3a;border:2px solid #fff;box-shadow:0 0 6px rgba(0,0,0,0.6);"></div>',
+                    iconSize: [14, 14],
+                    iconAnchor: [7, 7],
+                });
+                miniMapMarker = L.marker([lat, lng], { icon: darkIcon }).addTo(miniMap);
             }
+
+            // 모달 렌더링 완료 후 크기 재계산 (회색 화면 방지)
+            setTimeout(() => { if (miniMap) miniMap.invalidateSize(); }, 120);
         }
 
         // 예시: 모달 열릴 때 미니 맵 업데이트
