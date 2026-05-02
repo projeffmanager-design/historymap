@@ -2525,6 +2525,65 @@ body.force-mobile .marker-type-selector button {
         white-space: nowrap;
         margin-top: -5px;
     }
+
+    /* ── 전장 마커 불꽃·연기 애니메이션 ── */
+    @keyframes battle-spark {
+        0%, 100% { transform: scale(1);   filter: brightness(1)   blur(1px); }
+        50%       { transform: scale(1.4); filter: brightness(1.6) blur(2px); }
+    }
+    @keyframes battle-smoke {
+        0%   { transform: translate(0, 0)         scale(0.4) rotate(0deg);   opacity: 0; }
+        10%  { opacity: 0.75; }
+        100% { transform: translate(18px, -38px)  scale(3)   rotate(80deg);  opacity: 0; }
+    }
+    .battle-fire-wrap {
+        position: absolute;
+        pointer-events: none;
+        z-index: 0; /* 아이콘보다 뒤 */
+        /* bottom/left/width/height는 JS에서 인라인으로 제어 */
+    }
+    .battle-smoke-particle {
+        position: absolute;
+        bottom: 4px;
+        left: 50%;
+        border-radius: 50%;
+        opacity: 0;
+        animation: battle-smoke 3.5s ease-out infinite;
+    }
+    .battle-smoke-particle.bs1 { width:28px; height:28px; margin-left:-14px; background:radial-gradient(circle,#2a2a2a 0%,#111 60%,transparent 100%); filter:blur(8px);  animation-delay:0s;    }
+    .battle-smoke-particle.bs2 { width:38px; height:38px; margin-left:-8px;  background:radial-gradient(circle,#444  0%,#222 60%,transparent 100%); filter:blur(12px); animation-delay:0.6s;  }
+    .battle-smoke-particle.bs3 { width:22px; height:22px; margin-left:-18px; background:radial-gradient(circle,#2a2a2a 0%,#111 60%,transparent 100%); filter:blur(7px);  animation-delay:1.2s;  }
+    .battle-smoke-particle.bs4 { width:44px; height:44px; margin-left:-5px;  background:radial-gradient(circle,#555  0%,#333 60%,transparent 100%); filter:blur(14px); animation-delay:1.9s;  }
+    .battle-smoke-particle.bs5 { width:32px; height:32px; margin-left:-20px; background:radial-gradient(circle,#2a2a2a 0%,#111 60%,transparent 100%); filter:blur(9px);  animation-delay:2.7s;  }
+    .battle-base-fire {
+        position: absolute;
+        bottom: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 18px;
+        height: 10px;
+        background: linear-gradient(to top, #fff, #ffae00, #ff4500);
+        border-radius: 50% 50% 20% 20%;
+        filter: blur(2px);
+        animation: battle-spark 0.15s infinite;
+        box-shadow: 0 0 10px #ff6600, 0 0 20px rgba(255,80,0,0.5);
+        z-index: 1;
+    }
+    .battle-base-fire.bf2 {
+        left: calc(50% + 10px);
+        width: 12px;
+        height: 7px;
+        animation-delay: 0.07s;
+    }
+    /* 전장 아이콘은 연기/불 위에 오도록 */
+    .custom-battle-marker { overflow: visible !important; }
+    .custom-battle-marker .battle-icon-wrap {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
     
     /* 지역명 라벨 마커 스타일 */
     .label-text-marker {
@@ -12793,7 +12852,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             seong:    { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E5%9F%8E.png?raw=true', size: 20, hanja: '城', label: '성'  },
             jin:      { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E9%8E%AD.png?raw=true', size: 20, hanja: '鎭', label: '진'  },
             gateway:  { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E1%84%80%E1%85%AA%E1%86%AB.png?raw=true', size: 20, hanja: '關', label: '관' },
-            battle:   { icon: 'https://data.dong-chinese.com/img/sinica/%E6%88%B0_2.png', size: 50, hanja: '戰', label: '전장' },
+            battle:   { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E5%9F%8E.png?raw=true', size: 35, hanja: '戰', label: '전장' },
         };
 
         // ── 4a. 왕성(capital): 커스텀 아이콘 우선, 없으면 낙관 마커 ──
@@ -12880,21 +12939,45 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                   </div>
                 </div>`;
             } else {
-                specialMarkerHtml = `
-                <div style="display:flex; flex-direction:column; align-items:center; gap:0;">
-                  <img src="${ptCfg.icon}" style="width:${sz}px;height:${sz}px;object-fit:contain;display:block);" onerror="this.style.display='none'">
-                  <div style="display:flex;align-items:center;gap:1px;width:max-content;margin-top:1px;">
-                    <span style="${hanjaStyle}">${ptCfg.hanja}</span>
-                    <span style="${nameStyle}">${castleName}</span>
-                  </div>
-                </div>`;
+                if (placeType === 'battle') {
+                    // ⚔️ 전장: 성 아이콘 하단 중앙에 불꽃+연기 정렬
+                    specialMarkerHtml = `
+                    <div style="position:relative; display:inline-flex; flex-direction:column; align-items:center;">
+                      <div style="position:relative; width:${sz}px; height:${sz}px;">
+                        <!-- 불꽃·연기: 성 왼쪽 상단 -->
+                        <div class="battle-fire-wrap" style="position:absolute; top:-10px; left:-4px; width:${sz}px; height:${sz}px; pointer-events:none; z-index:0;">
+                          <div class="battle-smoke-particle bs1"></div>
+                          <div class="battle-smoke-particle bs2"></div>
+                          <div class="battle-smoke-particle bs3"></div>
+                          <div class="battle-smoke-particle bs4"></div>
+                          <div class="battle-smoke-particle bs5"></div>
+                          <div class="battle-base-fire" style="bottom:0; left:30%; transform:translateX(-50%);"></div>
+                          <div class="battle-base-fire bf2" style="bottom:0; left:calc(30% + 8px); transform:none;"></div>
+                        </div>
+                        <!-- 성 아이콘 (불꽃 위) -->
+                        <img src="${ptCfg.icon}" style="width:${sz}px;height:${sz}px;object-fit:contain;display:block;position:relative;z-index:2;" onerror="this.style.display='none'">
+                      </div>
+                      <div style="display:flex;align-items:center;gap:1px;width:max-content;margin-top:2px;position:relative;z-index:2;">
+                        <span style="${nameStyle}">${castleName}</span>
+                      </div>
+                    </div>`;
+                } else {
+                    specialMarkerHtml = `
+                    <div style="display:flex; flex-direction:column; align-items:center; gap:0;">
+                      <img src="${ptCfg.icon}" style="width:${sz}px;height:${sz}px;object-fit:contain;display:block);" onerror="this.style.display='none'">
+                      <div style="display:flex;align-items:center;gap:1px;width:max-content;margin-top:1px;">
+                        <span style="${hanjaStyle}">${ptCfg.hanja}</span>
+                        <span style="${nameStyle}">${castleName}</span>
+                      </div>
+                    </div>`;
+                }
             }
             const specialIcon = L.divIcon({
                 className: `custom-${placeType}-marker`,
                 html: specialMarkerHtml,
-                iconSize: [100, sz],
-                iconAnchor: [50, 5],
-                popupAnchor: [0, -5]
+                iconSize: placeType === 'battle' ? [sz, sz + 14] : [100, sz],
+                iconAnchor: placeType === 'battle' ? [sz / 2, sz / 2] : [50, 5],
+                popupAnchor: [0, placeType === 'battle' ? -(sz / 2 + 8) : -5]
             });
             marker = L.marker([castle.lat, castle.lng], { icon: specialIcon });
 
