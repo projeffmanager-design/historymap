@@ -5039,6 +5039,21 @@ body.force-mobile .marker-type-selector button {
         overflow-y: auto;
         padding: 20px;
         box-sizing: border-box;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255,255,255,0.08) transparent;
+    }
+    #hamburger-menu-panel::-webkit-scrollbar {
+        width: 3px;
+    }
+    #hamburger-menu-panel::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    #hamburger-menu-panel::-webkit-scrollbar-thumb {
+        background: rgba(255,255,255,0.10);
+        border-radius: 2px;
+    }
+    #hamburger-menu-panel::-webkit-scrollbar-thumb:hover {
+        background: rgba(255,255,255,0.22);
     }
     
     #hamburger-menu-panel.active {
@@ -8119,10 +8134,10 @@ body.force-mobile .marker-type-selector button {
         try {
             const { r, g, b } = hexToRgb(hex);
             let [h, s, l] = rgbToHsl(r, g, b);
-            // Reduce saturation for a more muted, 'premium' look
-            s = Math.max(0.18, s * 0.7);
-            // Normalize lightness to a pleasant mid-range, but keep some variation
-            l = Math.min(0.62, Math.max(0.38, l * 0.95 + 0.02));
+            // Keep saturation vivid — only clamp extreme values
+            s = Math.max(0.45, Math.min(1.0, s));
+            // Keep lightness in a visible range without washing out
+            l = Math.min(0.72, Math.max(0.32, l));
             const rgb = hslToRgb(h, s, l);
             return rgbToHex(rgb.r, rgb.g, rgb.b);
         } catch (e) {
@@ -8162,7 +8177,7 @@ body.force-mobile .marker-type-selector button {
 
             // 🔑 province/city 모두 동일한 fillOpacity — 실제 level별 opacity는 renderBucket에서 덮어씀
             //    (country:0.55 / province:0.70 / city:0.82 — 독립 영토일수록 진하게)
-            const baseOpacity = 0.55;
+            const baseOpacity = 0.72;
             // 🔑 [개선] countryInfo가 null (국가 로딩 중)이면 회색 fallback 표시
             const baseColor = countryInfo && countryInfo.color ? countryInfo.color : '#888888';
 
@@ -8415,6 +8430,9 @@ body.force-mobile .marker-type-selector button {
     // 🚩 [수정] 기본 레이어를 위성모드로 변경
     let currentTileLayer = baseMaps['위성모드'];
     currentTileLayer.addTo(map);
+    // 🚩 초기 위성모드: CSS의 saturate(0.59) 필터를 제거해 영토 원색 표시
+    //    (switchTileLayer에서 위성→위성 전환 시와 동일한 처리)
+    (function() { const _m = document.getElementById('map'); if (_m) _m.style.filter = 'none'; })();
 
     // 🚩 [추가] 지도 우측 상단에 축척 컨트롤 (타일 토글 바로 하단)
     L.control.scale({ imperial: false, position: 'topright' }).addTo(map); // 미터법(metric)만 표시
