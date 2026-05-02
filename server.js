@@ -1014,6 +1014,15 @@ async function setupRoutesAndCollections() {
                 // 기존 newCastle.country 필드가 있다면 삭제 (마이그레이션 구조 유지)
                 if (newCastle.country) delete newCastle.country;
 
+                // 🚩 [수정] 군대(military) 마커 신규 생성 시에도 연도 필드 양방향 동기화
+                if (newCastle.is_military_flag) {
+                    if (newCastle.destroyed_year !== undefined) newCastle.end_year = newCastle.destroyed_year;
+                    if (newCastle.end_year !== undefined && newCastle.destroyed_year === undefined) newCastle.destroyed_year = newCastle.end_year;
+                    if (newCastle.built_year !== undefined) newCastle.start_year = newCastle.built_year;
+                    if (newCastle.start_year !== undefined && newCastle.built_year === undefined) newCastle.built_year = newCastle.start_year;
+                    console.log(`🎯 [군대 마커 신규 연도] built=${newCastle.built_year}, destroyed=${newCastle.destroyed_year}`);
+                }
+
                 // 🚩 [중복 방지] 같은 이름 + 유사 좌표(±0.001도 이내)의 castle이 이미 존재하면 추가 차단
                 if (newCastle.name && newCastle.lat != null && newCastle.lng != null) {
                     const COORD_TOLERANCE = 0.001;
@@ -1084,6 +1093,27 @@ async function setupRoutesAndCollections() {
                 }
                 // country 필드가 넘어온다면 삭제 (ID 기반 구조 유지)
                 if (updatedCastle.country) delete updatedCastle.country;
+
+                // 🚩 [수정] 군대(military) 마커의 경우 built_year/destroyed_year ↔ start_year/end_year 양방향 동기화
+                // 구형 데이터와 신형 데이터 모두 올바르게 저장되도록 보장
+                if (updatedCastle.is_military_flag) {
+                    // destroyed_year가 명시적으로 전달됐으면 end_year에도 동기화
+                    if (updatedCastle.destroyed_year !== undefined) {
+                        updatedCastle.end_year = updatedCastle.destroyed_year;
+                    }
+                    // end_year가 있고 destroyed_year는 없는 경우 역방향 동기화
+                    if (updatedCastle.end_year !== undefined && updatedCastle.destroyed_year === undefined) {
+                        updatedCastle.destroyed_year = updatedCastle.end_year;
+                    }
+                    // built_year ↔ start_year 동기화
+                    if (updatedCastle.built_year !== undefined) {
+                        updatedCastle.start_year = updatedCastle.built_year;
+                    }
+                    if (updatedCastle.start_year !== undefined && updatedCastle.built_year === undefined) {
+                        updatedCastle.built_year = updatedCastle.start_year;
+                    }
+                    console.log(`🎯 [군대 마커 연도 동기화] built_year=${updatedCastle.built_year}, destroyed_year=${updatedCastle.destroyed_year}, start_year=${updatedCastle.start_year}, end_year=${updatedCastle.end_year}`);
+                }
 
                 // 🛡️ [v3.8] is_capital 보호 — 폼이 항상 false로 보내지만
                 // history 배열에 is_capital:true 항목이 있으면 true로 복원
