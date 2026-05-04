@@ -3997,6 +3997,13 @@ body.force-mobile .marker-type-selector button {
         padding: 0;
     }
 
+    /* 🚩 [추가] 도시 마커: voice 이퀄라이저 잘림 방지 */
+    .custom-city-marker {
+        background: none !important;
+        border: none !important;
+        overflow: visible !important;
+    }
+
     /* 🚩 [삭제됨] 고대 지도 보기 버튼 컨테이너 스타일 (탑바로 이동됨) */
     /* #ancient-map-button-container {
         display: none; 
@@ -4519,19 +4526,7 @@ body.force-mobile .marker-type-selector button {
         }
         
         #map-search-filter {
-            position: absolute;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 1000;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: nowrap;
-            padding: 0;
-            background: transparent;
-            border: none;
-            box-shadow: none;
+            display: none !important; /* 🚩 [수정] 햄버거/탑바로 기능 이전 — 타일 리렌더 시 좌상단 노출 버그 방지 */
         }
 
         /* 각 필터 필 바 */
@@ -5539,15 +5534,22 @@ body.force-mobile .marker-type-selector button {
         border-color: rgba(255,255,255,0.22) !important;
     }
 
+    /* ── Topbar search box (wrapper) ── */
+    #topbar-search-box {
+        background: rgba(26,26,26,0.85) !important;
+        border-color: rgba(255,255,255,0.11) !important;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.4) !important;
+    }
+
     /* ── Topbar search input/button ── */
     #topbarSearchInput {
-        background: rgba(26,26,26,0.85) !important;
+        background: transparent !important;
         border-color: rgba(255,255,255,0.11) !important;
         font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif !important;
         color: #c8d4dc !important;
     }
     #topbarSearchBtn {
-        background: rgba(26,26,26,0.85) !important;
+        background: transparent !important;
         border-color: rgba(255,255,255,0.11) !important;
         color: #8899a8 !important;
     }
@@ -6419,8 +6421,8 @@ body.force-mobile .marker-type-selector button {
         
         
         
-        <!-- 🚩 [수정] 검색 및 필터를 지도 내부 하단에 배치 — 인라인 필 바 -->
-       <div id="map-search-filter">
+        <!-- 🚩 [비활성화] map-search-filter: 햄버거/탑바로 기능 이전 완료 — DOM은 유지(JS 참조용), 완전 숨김 -->
+       <div id="map-search-filter" style="display:none !important; visibility:hidden !important; pointer-events:none !important; position:fixed !important; top:-9999px !important; left:-9999px !important;">
 
     <!-- 민족 필터 필 -->
     <div class="filter-pill">
@@ -13496,8 +13498,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
               const customIcon = L.divIcon({
                 className: 'custom-city-marker',
                 html: markerHtml,
-                iconSize: [100, 26],
-                iconAnchor: [50, 5],
+                iconSize: [100, hasVoice ? 42 : 26],
+                iconAnchor: [50, hasVoice ? 19 : 5],
                 popupAnchor: [0, -5]
               });
               marker = L.marker([castle.lat, castle.lng], { icon: customIcon });
@@ -17086,6 +17088,9 @@ const loadingMessages = [
                         ethnicityFilterSelect.classList.remove('filter-active');
                     }
                 }
+                // 🚩 [추가] 햄버거 메뉴 필터도 동기화
+                const menuEth = document.getElementById('menu-ethnicity-select');
+                if (menuEth) menuEth.value = mapEthnicitySelect.value;
                 // 🚩 [추가] 선택된 민족 값을 전역 변수에 저장
                 selectedEthnicity = mapEthnicitySelect.value;
                 // 🚩 [추가] 필터 활성화 스타일 적용
@@ -23914,6 +23919,9 @@ kingSelect.addEventListener('change', () => {
             
             menuEthnicitySelect.addEventListener('change', () => {
                 selectedEthnicity = menuEthnicitySelect.value;
+                // 🚩 [추가] 필 바 동기화
+                const pillEth = document.getElementById('mapEthnicityFilterSelect');
+                if (pillEth) pillEth.value = menuEthnicitySelect.value;
                 const { year, month } = getCurrentYearMonth();
                 updateMap(year, month);
             });
@@ -23938,6 +23946,9 @@ kingSelect.addEventListener('change', () => {
             
             menuCountrySelect.addEventListener('change', () => {
                 selectedCountryId = menuCountrySelect.value;
+                // 🚩 [추가] 필 바 동기화
+                const pillCountry = document.getElementById('countryFilterSelect');
+                if (pillCountry) pillCountry.value = menuCountrySelect.value;
                 const { year, month } = getCurrentYearMonth();
                 updateMap(year, month);
             });
@@ -29763,33 +29774,23 @@ async function castleFormDeleteVoice() {
 </script>
 
 <script>
-// ── BGM 플레이어 ──────────────────────────────────────────
-(function() {
-  var TRACKS = [
-    '/public/bgm/Arirang Irony v2.mp3',
-    '/public/bgm/Arirang Irony.mp3',
-    '/public/bgm/왕좌의 지도.mp3'
-  ];
-  var trackNames = [
-    'Arirang Irony v2',
-    'Arirang Irony',
-    '왕좌의 지도'
-  ];
-  var idx = 0;
+// ── BGM 플레이어 (서버에서 목록 자동 로드 + 셔플 재생) ──────────────
+(function () {
   var audio = new Audio();
-  audio.loop = false;
+  audio.preload = 'auto';
   audio.volume = 0.4;
   var playing = false;
-  var muted = false;
+  var muted   = false;
+  var TRACKS = [], trackNames = [], queue = [], cursor = 0, currentIdx = -1;
 
-  function loadTrack(i) {
-    idx = ((i % TRACKS.length) + TRACKS.length) % TRACKS.length;
-    audio.src = TRACKS[idx];
-    var name = trackNames[idx];
-    var nameEl = document.getElementById('bgm-track-name');
-    if (nameEl) nameEl.textContent = name;
-    var miniTitle = document.getElementById('bgm-mini-title');
-    if (miniTitle) miniTitle.textContent = name;
+  /* ── 유틸 ── */
+  function shuffle(arr) {
+    var a = arr.slice();
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
   }
 
   function updateToggleBtn() {
@@ -29810,76 +29811,88 @@ async function castleFormDeleteVoice() {
     if (miniIcon) miniIcon.innerHTML = muted ? mutedSvg : unmutedSvg;
   }
 
-  audio.addEventListener('ended', function() {
-    loadTrack(idx + 1);
+  function showTrackName() {
+    var name = trackNames[currentIdx] || '';
+    var el1 = document.getElementById('bgm-track-name');
+    var el2 = document.getElementById('bgm-mini-title');
+    if (el1) el1.textContent = name;
+    if (el2) el2.textContent = name;
+  }
+
+  function playNext() {
+    if (TRACKS.length === 0) return;
+    if (cursor >= queue.length) {
+      var last = queue[queue.length - 1];
+      do { queue = shuffle(TRACKS.map(function(_, i){ return i; })); }
+      while (TRACKS.length > 1 && queue[0] === last);
+      cursor = 0;
+    }
+    currentIdx = queue[cursor++];
+    audio.src = TRACKS[currentIdx];
+    showTrackName();
     if (playing) audio.play().catch(function(){});
-  });
+  }
 
-  document.addEventListener('DOMContentLoaded', function() {
-    loadTrack(0);
-    // 자동재생 (브라우저 정책상 실패 시 첫 클릭 후 재생)
-    audio.play().then(function() {
-      playing = true;
-      updateToggleBtn();
-    }).catch(function() {
-      function onFirstInteraction() {
-        if (!playing) {
-          audio.play().then(function() {
-            playing = true;
-            updateToggleBtn();
-          }).catch(function(){});
+  audio.addEventListener('ended', playNext);
+
+  /* ── 초기화: 서버에서 목록 불러오기 ── */
+  function init() {
+    fetch('/api/bgm-list').then(function(r){ return r.json(); }).then(function(data) {
+      TRACKS     = data.tracks || [];
+      trackNames = data.names  || [];
+      if (TRACKS.length === 0) { console.warn('[BGM] mp3 없음'); return; }
+      queue  = shuffle(TRACKS.map(function(_, i){ return i; }));
+      cursor = 0;
+      // 트랙 로드 (재생은 사용자 인터랙션 후)
+      currentIdx = queue[cursor++];
+      audio.src  = TRACKS[currentIdx];
+      showTrackName();
+      // 자동재생 시도
+      audio.play().then(function(){ playing = true; updateToggleBtn(); }).catch(function(){
+        function onFirst() {
+          if (!playing) { audio.play().then(function(){ playing = true; updateToggleBtn(); }).catch(function(){}); }
+          document.removeEventListener('click',   onFirst);
+          document.removeEventListener('keydown', onFirst);
         }
-        document.removeEventListener('click', onFirstInteraction);
-        document.removeEventListener('keydown', onFirstInteraction);
-      }
-      document.addEventListener('click', onFirstInteraction);
-      document.addEventListener('keydown', onFirstInteraction);
-    });
+        document.addEventListener('click',   onFirst);
+        document.addEventListener('keydown', onFirst);
+      });
+    }).catch(function(e){ console.warn('[BGM] 목록 로드 실패:', e); });
+  }
 
-    var toggleBtn = document.getElementById('bgm-toggle-btn');
-    var nextBtn   = document.getElementById('bgm-next-btn');
-    var muteBtn   = document.getElementById('bgm-mute-btn');
+  /* ── 버튼 바인딩 ── */
+  document.addEventListener('DOMContentLoaded', function() {
+    init();
+
+    function bindClick(id, fn) { var el = document.getElementById(id); if (el) el.addEventListener('click', fn); }
+
+    function doToggle() {
+      if (playing) { audio.pause(); playing = false; }
+      else { audio.play().catch(function(){}); playing = true; }
+      updateToggleBtn();
+    }
+    function doMute() { muted = !muted; audio.muted = muted; updateMuteBtn(); }
+    function doNext() { var was = playing; audio.pause(); playNext(); if (was) { playing = true; audio.play().catch(function(){}); } updateToggleBtn(); }
+
+    bindClick('bgm-toggle-btn',  doToggle);
+    bindClick('bgm-next-btn',    doNext);
+    bindClick('bgm-mute-btn',    doMute);
+    bindClick('bgm-mini-toggle', doToggle);
+    bindClick('bgm-mini-mute',   doMute);
+
     var volSlider = document.getElementById('bgm-volume');
-
-    if (toggleBtn) toggleBtn.addEventListener('click', function() {
-      if (playing) { audio.pause(); playing = false; }
-      else { audio.play().catch(function(){}); playing = true; }
-      updateToggleBtn();
-    });
-
-    if (nextBtn) nextBtn.addEventListener('click', function() {
-      var wasPlaying = playing;
-      audio.pause();
-      loadTrack(idx + 1);
-      if (wasPlaying) { audio.play().catch(function(){}); }
-    });
-
-    if (muteBtn) muteBtn.addEventListener('click', function() {
-      muted = !muted;
-      audio.muted = muted;
-      updateMuteBtn();
-    });
-
-    if (volSlider) volSlider.addEventListener('input', function() {
-      audio.volume = parseFloat(this.value);
-    });
-
-    // ✅ 미니바 버튼
-    var miniToggle = document.getElementById('bgm-mini-toggle');
-    var miniMute   = document.getElementById('bgm-mini-mute');
-
-    if (miniToggle) miniToggle.addEventListener('click', function() {
-      if (playing) { audio.pause(); playing = false; }
-      else { audio.play().catch(function(){}); playing = true; }
-      updateToggleBtn();
-    });
-
-    if (miniMute) miniMute.addEventListener('click', function() {
-      muted = !muted;
-      audio.muted = muted;
-      updateMuteBtn();
-    });
+    if (volSlider) volSlider.addEventListener('input', function(){ audio.volume = parseFloat(this.value); });
   });
+
+  /* ── 전역 노출 ── */
+  window.bgmPlayer = {
+    audio: audio,
+    playNext: playNext,
+    pause:  function(){ audio.pause(); playing = false; updateToggleBtn(); },
+    resume: function(){ audio.play().catch(function(){}); playing = true; updateToggleBtn(); },
+    getCurrentName: function(){ return trackNames[currentIdx] || ''; },
+    getList: function(){ return trackNames.slice(); }
+  };
 })();
 </script>
 

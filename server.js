@@ -5850,6 +5850,24 @@ app.delete('/api/marker-comments/:commentId', verifyToken, async (req, res) => {
 });
 
 // For local development, listen on a port.
+
+// ── BGM 목록 API ──────────────────────────────────────────────────────
+app.get('/api/bgm-list', (req, res) => {
+    const dir = path.join(__dirname, 'public', 'bgm');
+    try {
+        const files = fs.readdirSync(dir)
+            .filter(f => f.toLowerCase().endsWith('.mp3'))
+            .sort();
+        const tracks = files.map(f => '/public/bgm/' + encodeURIComponent(f));
+        const names  = files.map(f => f.replace(/\.mp3$/i, ''));
+        res.set('Cache-Control', 'no-store');
+        res.json({ tracks, names });
+    } catch (err) {
+        console.error('BGM list error:', err);
+        res.status(500).json({ tracks: [], names: [] });
+    }
+});
+
 if (require.main === module) {
     setupRoutesAndCollections().then(() => {
         app.listen(port, () => {
