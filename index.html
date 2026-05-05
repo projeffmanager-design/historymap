@@ -279,7 +279,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.6.65',          // [v3.6.65] 벡터 타일 로드 방식으로 전환 — country_id 복원
+        APP_VERSION: '3.7.0',           // [v3.7.0] 사이클 재생속도·팝업억제·타일부트스트랩·BGM동적로드·검색드롭다운수정
         DATA_SCHEMA_VERSION: '2.1.1'    // tile_30_120: Tsushima data[]→features[] 이동 — 캐시 강제 갱신
     };
 
@@ -1456,6 +1456,25 @@ body.force-mobile .marker-type-selector button {
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&family=Yeon+Sung&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <script>
+  // === [playback] 재생 중 모든 Leaflet 팝업 억제 훅 ===
+  // window.isPlaying = true 동안 openPopup() 호출을 무음 차단
+  (function () {
+    if (typeof L === 'undefined' || !L.Layer) return;
+    const _origMarkerOpen = L.Marker.prototype.openPopup;
+    L.Marker.prototype.openPopup = function (...args) {
+      if (window.isPlaying) return this;
+      return _origMarkerOpen.apply(this, args);
+    };
+    const _origLayerOpen = L.Layer.prototype.openPopup;
+    L.Layer.prototype.openPopup = function (...args) {
+      if (window.isPlaying) return this;
+      return _origLayerOpen.apply(this, args);
+    };
+  })();
+  </script>
+
   <!-- 🚩 [추가] Leaflet.draw 플러그인 -->
   <script src="https://cdn.jsdelivr.net/npm/leaflet-textpath/leaflet.textpath.min.js"></script>
   <script>
@@ -4714,6 +4733,21 @@ body.force-mobile .marker-type-selector button {
         border-radius: 6px;
         box-shadow: 0 4px 18px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,255,255,0.04);
         z-index: 10000 !important;
+        transition: transform 0.1s ease-out; /* [playback] 팝업 위치 이동 시 부드럽게 */
+    }
+    /* [playback] 재생 중 자주 갱신되는 영역 — opacity 전환으로 깜빡임 완화 */
+    #timeLabelDisplay,
+    .leaflet-popup-content,
+    #map-history-records {
+        transition: opacity 0.12s ease-out;
+    }
+    /* [playback] 재생 중 hover 툴팁 숨김 */
+    body.playback-mode .leaflet-tooltip {
+        display: none !important;
+    }
+    /* [playback] 재생 중 모든 Leaflet 팝업 숨김 (openPopup 훅 보조) */
+    body.playback-mode .leaflet-popup {
+        display: none !important;
     }
     .leaflet-popup-tip {
         background: rgba(20, 30, 44, 0.93) !important;
@@ -5873,7 +5907,7 @@ body.force-mobile .marker-type-selector button {
       color: rgba(212, 175, 55, 0.45);
       font-family: monospace;
       letter-spacing: 0.05em;
-    ">v<span id="loading-screen-version-text">3.6.65</span></div>
+    ">v<span id="loading-screen-version-text">3.7.0</span></div>
   </div>
 
   
@@ -11742,7 +11776,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const tBounds = getTerritoryBounds(territory);
                 if (tBounds && (tBounds.maxLat < viewBox.minLat || tBounds.minLat > viewBox.maxLat || tBounds.maxLng < viewBox.minLng || tBounds.minLng > viewBox.maxLng)) {
                     if (/Jilin|Changchun|Baicheng|길림|창춘|바이청/.test(territory.name || '')) {
-                        console.log('[OUTOFVIEW]', territory.name, JSON.stringify(tBounds), '뷰:', JSON.stringify(viewBox));
+                        if (window.DEBUG_TERRITORY) console.log('[OUTOFVIEW]', territory.name, JSON.stringify(tBounds), '뷰:', JSON.stringify(viewBox));
                     }
                     skipReasons.outOfView++;
                     return;
@@ -11755,15 +11789,17 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const dominantResult = getCachedDominantCountry(territory, year, month);
                 if (!dominantResult) {
                     if (/Jilin|Changchun|Baicheng|길림|창춘|바이청/.test(territory.name || '')) {
-                        console.log('[NO_COUNTRY]', territory.name, '→ dominantCountry=null (성 없음)');
+                        if (window.DEBUG_TERRITORY) console.log('[NO_COUNTRY]', territory.name, '→ dominantCountry=null (성 없음)');
                     }
-                    // � [DEBUG] 서남아/유럽 no castle 로그
-                    const tBoundsNc = getTerritoryBounds(territory);
-                    if (tBoundsNc) {
-                        const midLat = (tBoundsNc.minLat + tBoundsNc.maxLat) / 2;
-                        const midLng = (tBoundsNc.minLng + tBoundsNc.maxLng) / 2;
-                        if ((midLat >= 20 && midLat <= 70) && (midLng >= -20 && midLng <= 90)) {
-                            console.log(`[NO_CASTLE] territory="${territory.name}" → 성 없음 (중립 표시)`);
+                    // [DEBUG] no castle
+                    if (window.DEBUG_TERRITORY) {
+                        const tBoundsNc = getTerritoryBounds(territory);
+                        if (tBoundsNc) {
+                            const midLat = (tBoundsNc.minLat + tBoundsNc.maxLat) / 2;
+                            const midLng = (tBoundsNc.minLng + tBoundsNc.maxLng) / 2;
+                            if ((midLat >= 20 && midLat <= 70) && (midLng >= -20 && midLng <= 90)) {
+                                console.log(`[NO_CASTLE] territory="${territory.name}" → 성 없음 (중립 표시)`);
+                            }
                         }
                     }
                     // �🗺️ castle 없는 territory → 중립 배경 레이어로 표시
@@ -16492,7 +16528,7 @@ const loadingMessages = [
                       const midLat = (tBoundsDbg.minLat + tBoundsDbg.maxLat) / 2;
                       const midLng = (tBoundsDbg.minLng + tBoundsDbg.maxLng) / 2;
                       if ((midLat >= 20 && midLat <= 70) && (midLng >= -20 && midLng <= 90)) {
-                          console.warn(`[UV COUNTRY_NOT_FOUND] territory="${territory.name}" dominantCountryId="${dominantCountryId}" (서남아/유럽)`);
+                          if (window.DEBUG_TERRITORY) console.warn(`[UV COUNTRY_NOT_FOUND] territory="${territory.name}" dominantCountryId="${dominantCountryId}" (서남아/유럽)`);
                       }
                   }
                   return;
@@ -17920,198 +17956,90 @@ const loadingMessages = [
     });
     // 🚩 [핵심 수정] 재생 제어 로직: BC/AD 전환 및 월 표시 문제 해결
     let playInterval = null;
-    
- function startPlayback() {
-        if (playInterval) return; 
 
-        playBtn.style.display = 'none';
-        pauseBtn.style.display = 'inline';
-        // 🚩 상단 재생 컨트롤 — 재생 중이므로 ⏸(일시정지) 버튼을 강조, ▶(재생)은 흐리게
+    // === [playback] 사이클 속도 상태 머신 ===
+    // 0=정지, 1=월/틱, 2=년/틱, 3=10년/틱, 4=▶▶▶▶ (100년)
+    let playbackMode = 0;
+    const PLAYBACK_TICK_MS = 200; // 틱 간격 (ms) — 모든 속도 공통
+    const PLAYBACK_STEP_MONTHS = { 1: 1, 2: 12, 3: 120 };
+    const PLAYBACK_LABELS = { 0: '▶', 1: '▶▶', 2: '▶▶▶', 3: '▶▶▶▶' };
+    const PLAYBACK_TITLES = { 0: '정지', 1: '재생 (월)', 2: '재생 (년)', 3: '재생 (10년)' };
+
+    function updatePlaybackButtonLabel() {
+        playBtn.textContent = PLAYBACK_LABELS[playbackMode];
+        playBtn.title = PLAYBACK_TITLES[playbackMode];
+        const tPB = document.getElementById('timelinePlayBtn');
+        if (tPB) {
+            tPB.textContent = PLAYBACK_LABELS[playbackMode];
+            tPB.title = PLAYBACK_TITLES[playbackMode];
+        }
+    }
+
+    function startPlayback() {
+        if (playInterval) return;
+
+        // 재생 시작 — 팝업 억제 플래그 설정
+        window.isPlaying = true;
+        document.body.classList.add('playback-mode');
+        if (typeof map !== 'undefined') map.closePopup();
+        updatePlaybackButtonLabel();
+
+        // 상단 재생 컨트롤 — 재생 중 표시
         const tPlayBtn  = document.getElementById('timelinePlayBtn');
         const tPauseBtn = document.getElementById('timelinePauseBtn');
-        if (tPlayBtn)  { tPlayBtn.classList.remove('active');  tPlayBtn.style.opacity = '0.4'; }
-        if (tPauseBtn) { tPauseBtn.classList.add('active');    tPauseBtn.style.opacity = '1'; tPauseBtn.style.color = '#fff'; }
-
-        const monthsPerSecond = parseInt(playbackSpeedSlider.value) || 12;
-        const intervalDuration = 1000 / monthsPerSecond; 
+        if (tPlayBtn)  { tPlayBtn.classList.add('active'); tPlayBtn.style.opacity = '1'; }
+        if (tPauseBtn) { tPauseBtn.classList.remove('active'); tPauseBtn.style.opacity = '0.4'; tPauseBtn.style.color = ''; }
+        updatePlaybackButtonLabel();
 
         playInterval = setInterval(() => {
-            let totalMonths = parseInt(combinedSlider.value);
-            
-            // 1. 총 월수를 1 증가
-            totalMonths++;
-            
-            // 2. 슬라이더 최대값을 초과하면 정지
+            if (playbackMode === 0) return; // safety
+
+            const stepMonths = PLAYBACK_STEP_MONTHS[playbackMode] || 1;
+            let totalMonths = parseInt(combinedSlider.value) + stepMonths;
+
             if (totalMonths > parseInt(combinedSlider.max)) {
+                totalMonths = parseInt(combinedSlider.max);
+                combinedSlider.value = totalMonths;
+                const { year, month } = totalMonthsToYearMonth(totalMonths);
+                yearInput.value = year;
+                monthInput.value = month;
+                updateTime(year, month);
+                playbackMode = 0;
+                updatePlaybackButtonLabel();
                 stopPlayback();
                 return;
             }
-            
-            // 3. 새로운 연/월 계산
-            const { year, month } = totalMonthsToYearMonth(totalMonths);
-            
-            // 4. UI 업데이트
+
             combinedSlider.value = totalMonths;
-            
+            const { year, month } = totalMonthsToYearMonth(totalMonths);
             yearInput.value = year;
             monthInput.value = month;
-
-            // 🚩 [수정] 재생 중에는 updateTime 함수를 호출하여 모든 UI와 지도를 일관성 있게 업데이트합니다.
             updateTime(year, month);
-            /*
-            updateMap(year, month);
-            updateUI(year, month);
-            checkAndDisplayEvent(year, month);
-            */
-        }, intervalDuration); 
+        }, PLAYBACK_TICK_MS);
     }
 
     function stopPlayback() {
         clearInterval(playInterval);
         playInterval = null;
-        playBtn.style.display = 'inline';
-        pauseBtn.style.display = 'none';
-        // 🚩 상단 재생 컨트롤 — 정지 중이므로 ▶(재생) 버튼을 강조, ⏸(일시정지)는 흐리게
+
+        // 재생 종료 — 팝업 억제 플래그 해제
+        window.isPlaying = false;
+        document.body.classList.remove('playback-mode');
+
+        // 상단 재생 컨트롤 — 정지 표시
         const tPlayBtn  = document.getElementById('timelinePlayBtn');
         const tPauseBtn = document.getElementById('timelinePauseBtn');
-        if (tPlayBtn)  { tPlayBtn.classList.add('active');     tPlayBtn.style.opacity  = '1'; tPlayBtn.style.color = ''; }
+        if (tPlayBtn)  { tPlayBtn.classList.add('active'); tPlayBtn.style.opacity = '1'; tPlayBtn.style.color = ''; }
         if (tPauseBtn) { tPauseBtn.classList.remove('active'); tPauseBtn.style.opacity = '0.4'; tPauseBtn.style.color = ''; }
+        updatePlaybackButtonLabel();
     }
 
-    // 초기화 함수 맨 마지막에 버튼 이벤트 리스너 연결
-    const originalInitialize = initialize;
-    initialize = async () => {
-        await originalInitialize();
-        
-        // 🚩 [추가] 재생 버튼 이벤트 연결
-        playBtn.addEventListener('click', startPlayback);
-        pauseBtn.addEventListener('click', stopPlayback);
-        
-        // 속도 슬라이더 값 변경 시 디스플레이 업데이트
-        playbackSpeedSlider.addEventListener('input', () => {
-            speedDisplay.textContent = `${playbackSpeedSlider.value}월/초`;
-            if (playInterval) {
-                stopPlayback();
-                startPlayback(); // 즉시 새 속도로 다시 시작
-            }
-        });
-        
-         // 슬라이더 실시간 업데이트 (드래그 중)
-         // 🚩 [개선 v2] rAF 기반으로 매 프레임 최신값 반영 — UI는 즉시, 지도는 rAF 1프레임 후
-         let _sliderRAF = null;
-         let _sliderLastMapYear = null;
-         let _sliderLastMapMonth = null;
-         let _sliderPendingYear = null;
-         let _sliderPendingMonth = null;
-
-         combinedSlider.addEventListener('input', () => {
-             // 작동 중에는 현재시간 레이블을 작게 표시(시각적 피드백)
-             const compactizeTimeLabels = () => {
-                 try { timeLabelDisplay?.classList.add('compact'); } catch(e){}
-                 try { document.getElementById('timeLabelDisplay-pc')?.classList.add('compact'); } catch(e){}
-                 try { document.getElementById('current-year-display')?.classList.add('compact'); } catch(e){}
-             };
-             compactizeTimeLabels();
-
-             const totalMonths = parseInt(combinedSlider.value);
-             const { year, month } = totalMonthsToYearMonth(totalMonths);
-
-             // UI·툴팁은 즉시 업데이트 (0ms 딜레이)
-             updateUI(year, month);
-             updateSliderTooltip(year, month);
-
-             // 지도 업데이트: rAF로 다음 프레임에 한 번만 실행 (연속 입력 시 마지막 값만)
-             _sliderPendingYear = year;
-             _sliderPendingMonth = month;
-             if (!_sliderRAF) {
-                 _sliderRAF = requestAnimationFrame(() => {
-                     _sliderRAF = null;
-                     // 이전 프레임과 연도/월이 같으면 지도 재렌더링 생략
-                     if (_sliderLastMapYear === _sliderPendingYear && _sliderLastMapMonth === _sliderPendingMonth) return;
-                     _sliderLastMapYear = _sliderPendingYear;
-                     _sliderLastMapMonth = _sliderPendingMonth;
-                     updateMap(_sliderLastMapYear, _sliderLastMapMonth);
-                 });
-             }
-         });
-
-         // 슬라이더 조작이 끝나면 compact 클래스 제거 + 최종 지도 업데이트 보장
-         const removeCompactLabels = () => {
-             try { timeLabelDisplay?.classList.remove('compact'); } catch(e){}
-             try { document.getElementById('timeLabelDisplay-pc')?.classList.remove('compact'); } catch(e){}
-             try { document.getElementById('current-year-display')?.classList.remove('compact'); } catch(e){}
-             // 🚩 slider-dragging 클래스 제거 (트랜지션 원상복구)
-             document.body.classList.remove('slider-dragging');
-             // rAF 취소 후 최종값으로 정확하게 지도 업데이트
-             if (_sliderRAF) {
-                 cancelAnimationFrame(_sliderRAF);
-                 _sliderRAF = null;
-             }
-             if (_sliderPendingYear !== null) {
-                 updateMap(_sliderPendingYear, _sliderPendingMonth, false, true);
-                 checkAndDisplayEvent(_sliderPendingYear, _sliderPendingMonth); // 🚩 슬라이더 조작 완료 시 이벤트 팝업 표시
-                 scheduleHistoryPanelUpdate(_sliderPendingYear); // 🚩 슬라이더 조작 완료 시 역사패널 동기화
-                 _sliderLastMapYear = _sliderPendingYear;
-                 _sliderLastMapMonth = _sliderPendingMonth;
-                 _sliderPendingYear = null;
-                 _sliderPendingMonth = null;
-             }
-         };
-         combinedSlider.addEventListener('change', removeCompactLabels);
-         combinedSlider.addEventListener('mouseup', removeCompactLabels);
-         combinedSlider.addEventListener('touchend', removeCompactLabels);
-        
-        // 초기 연도 표시 설정
-        const initialTotalMonths = parseInt(combinedSlider.value);
-        const { year: initialYear, month: initialMonth } = totalMonthsToYearMonth(initialTotalMonths);
-        updateSliderTooltip(initialYear, initialMonth);
-        
-        // 슬라이더에서 마우스가 벗어나도 툴팁 유지 (항상 표시)
-        // combinedSlider.addEventListener('mouseleave', () => {
-        //     const tooltip = document.getElementById('slider-year-tooltip');
-        //     tooltip.classList.remove('show');
-        // });
-        
-        // 슬라이더 조작 시 자동 정지
-        combinedSlider.addEventListener('mousedown', () => {
-            document.body.classList.add('slider-dragging');
-            stopPlayback();
-        });
-        combinedSlider.addEventListener('touchstart', () => {
-            document.body.classList.add('slider-dragging');
-            stopPlayback();
-        });
-        
-        // 초기 속도 디스플레이 설정
-        speedDisplay.textContent = `${playbackSpeedSlider.value}월/초`;
-        
-        // 🚩 [추가] 타임라인 컨트롤에서 Leaflet 이벤트 충돌 방지
-        const timelineDiv = document.getElementById('timeline-control');
-        if (timelineDiv) {
-            L.DomEvent.disableClickPropagation(timelineDiv);
-            L.DomEvent.disableScrollPropagation(timelineDiv);
-        }
-        
-        // 🚩 [제거] 이벤트 마커 생성 - 제거됨
-        
-        // 🚩 [수정] 연대표 사이드바 숨김 버튼 이벤트
-        const closeTimelineBtn = document.getElementById('close-timeline-sidebar');
-        if (closeTimelineBtn) {
-            closeTimelineBtn.addEventListener('click', () => {
-                const sidebar = document.getElementById('timeline-sidebar');
-                sidebar.style.display = 'none';
-                sidebar.style.opacity = '0';
-                sidebar.style.pointerEvents = 'none';
-                
-                // 햄버거 메뉴 체크박스도 해제
-                const timelineCheckbox = document.getElementById('menu-layer-timeline');
-                if (timelineCheckbox) {
-                    timelineCheckbox.checked = false;
-                    layerVisibility.timeline = false;
-                }
-            });
-        }
-    };
+    // 슬라이더 rAF 상태 변수 (전역 스코프에서 공유)
+    let _sliderRAF = null;
+    let _sliderLastMapYear = null;
+    let _sliderLastMapMonth = null;
+    let _sliderPendingYear = null;
+    let _sliderPendingMonth = null;
     
     // 🚩 [추가] 슬라이더 연도 툴팁 업데이트 함수
     // 🚩 왕목록 패널을 사관랭킹 하단에 붙이는 헬퍼
@@ -22873,7 +22801,103 @@ kingSelect.addEventListener('change', () => {
 
         // drawingForm 초기 위치는 openDrawingForm()에서 처음 열릴 때 설정됨 (드래그 이동 지원)
         
-        await initialize();
+        try {
+            await initialize();
+        } catch (e) {
+            console.error('[init] initialize() threw — continuing anyway:', e);
+        }
+
+        // ===== 🚩 [재생 버튼] 사이클 속도 버튼 설정 (▶→▶▶→▶▶▶→▶▶▶▶→▶) =====
+        function _cyclePlayback() {
+            playbackMode = (playbackMode + 1) % 4;
+            updatePlaybackButtonLabel();
+            if (playbackMode === 0) {
+                stopPlayback();
+            } else if (playbackMode === 1) {
+                startPlayback();
+            }
+            // 모드 2, 3: 타이머 유지, 틱에서 stepMonths만 바뀜
+        }
+        function _stopPlaybackBtn() {
+            playbackMode = 0;
+            updatePlaybackButtonLabel();
+            stopPlayback();
+        }
+
+        playBtn.onclick = null;
+        playBtn.addEventListener('click', _cyclePlayback);
+        pauseBtn.onclick = null;
+        pauseBtn.addEventListener('click', _stopPlaybackBtn);
+
+        // timelinePlayBtn: cycling (PC에서 보이는 버튼)
+        const _tPlayBtn = document.getElementById('timelinePlayBtn');
+        const _tPauseBtn = document.getElementById('timelinePauseBtn');
+        if (_tPlayBtn) {
+            _tPlayBtn.onclick = null;
+            _tPlayBtn.addEventListener('click', _cyclePlayback);
+            _tPlayBtn.textContent = PLAYBACK_LABELS[0];
+            _tPlayBtn.title = PLAYBACK_TITLES[0];
+        }
+        if (_tPauseBtn) {
+            _tPauseBtn.onclick = null;
+            _tPauseBtn.addEventListener('click', _stopPlaybackBtn);
+        }
+        playBtn.textContent = PLAYBACK_LABELS[0];
+        playBtn.title = PLAYBACK_TITLES[0];
+
+        // ===== 🚩 [슬라이더 핸들러] rAF 기반 실시간 업데이트 =====
+        combinedSlider.addEventListener('input', () => {
+            const compactizeTimeLabels = () => {
+                try { timeLabelDisplay?.classList.add('compact'); } catch(e){}
+                try { document.getElementById('timeLabelDisplay-pc')?.classList.add('compact'); } catch(e){}
+                try { document.getElementById('current-year-display')?.classList.add('compact'); } catch(e){}
+            };
+            compactizeTimeLabels();
+            const totalMonths = parseInt(combinedSlider.value);
+            const { year, month } = totalMonthsToYearMonth(totalMonths);
+            updateUI(year, month);
+            updateSliderTooltip(year, month);
+            _sliderPendingYear = year;
+            _sliderPendingMonth = month;
+            if (!_sliderRAF) {
+                _sliderRAF = requestAnimationFrame(() => {
+                    _sliderRAF = null;
+                    if (_sliderLastMapYear === _sliderPendingYear && _sliderLastMapMonth === _sliderPendingMonth) return;
+                    _sliderLastMapYear = _sliderPendingYear;
+                    _sliderLastMapMonth = _sliderPendingMonth;
+                    updateMap(_sliderLastMapYear, _sliderLastMapMonth);
+                });
+            }
+        });
+        const _removeCompactLabels = () => {
+            try { timeLabelDisplay?.classList.remove('compact'); } catch(e){}
+            try { document.getElementById('timeLabelDisplay-pc')?.classList.remove('compact'); } catch(e){}
+            try { document.getElementById('current-year-display')?.classList.remove('compact'); } catch(e){}
+            document.body.classList.remove('slider-dragging');
+            if (_sliderRAF) { cancelAnimationFrame(_sliderRAF); _sliderRAF = null; }
+            if (_sliderPendingYear !== null) {
+                updateMap(_sliderPendingYear, _sliderPendingMonth, false, true);
+                checkAndDisplayEvent(_sliderPendingYear, _sliderPendingMonth);
+                scheduleHistoryPanelUpdate(_sliderPendingYear);
+                _sliderLastMapYear = _sliderPendingYear;
+                _sliderLastMapMonth = _sliderPendingMonth;
+                _sliderPendingYear = null;
+                _sliderPendingMonth = null;
+            }
+        };
+        combinedSlider.addEventListener('change', _removeCompactLabels);
+        combinedSlider.addEventListener('mouseup', _removeCompactLabels);
+        combinedSlider.addEventListener('touchend', _removeCompactLabels);
+
+        // 슬라이더 조작 시 재생 정지 (playbackMode 리셋)
+        combinedSlider.addEventListener('mousedown', () => { document.body.classList.add('slider-dragging'); playbackMode = 0; updatePlaybackButtonLabel(); stopPlayback(); });
+        combinedSlider.addEventListener('touchstart', () => { document.body.classList.add('slider-dragging'); playbackMode = 0; updatePlaybackButtonLabel(); stopPlayback(); });
+
+        // 초기 슬라이더 툴팁
+        const _initTotalMonths = parseInt(combinedSlider.value);
+        const { year: _initYear, month: _initMonth } = totalMonthsToYearMonth(_initTotalMonths);
+        updateSliderTooltip(_initYear, _initMonth);
+
         initializeTopPanelToggle(); // 🚩 [추가] PC 버전 상단 패널 토글 초기화
 
         // 🚀 [territory bootstrap] 페이지 로드 직후 타일 인덱스 + 현재 viewport 타일 미리 로드
@@ -24939,21 +24963,11 @@ kingSelect.addEventListener('change', () => {
         }
         // 이제 패널은 버튼으로만 열고 닫을 수 있습니다.
 
-        // 🚩 [추가] 재생 관련 이벤트 리스너들을 이곳으로 통합합니다.
-        playBtn.addEventListener('click', startPlayback);
-        pauseBtn.addEventListener('click', stopPlayback);
-
+        // 속도 슬라이더 디스플레이 (TICK_MS 방식이므로 표시만)
         playbackSpeedSlider.oninput = () => {
             speedDisplay.textContent = `${playbackSpeedSlider.value}월/초`;
-            if (playInterval) {
-                stopPlayback();
-                startPlayback(); // 즉시 새 속도로 다시 시작
-            }
         };
-        speedDisplay.textContent = `${playbackSpeedSlider.value}월/초`; // 초기 표시
-
-        combinedSlider.addEventListener('mousedown', stopPlayback);
-        combinedSlider.addEventListener('touchstart', stopPlayback);
+        speedDisplay.textContent = `${playbackSpeedSlider.value}월/초`;
 
         // 🚩 [추가] 타임라인 1개월 스텝 버튼 (가속도 지원)
         (function() {
@@ -25001,15 +25015,10 @@ kingSelect.addEventListener('change', () => {
             setupSliderStepBtn('sliderStepFwd', +1);
         })();
 
-        // 🚩 [추가] 상단 재생 컨트롤 버튼 이벤트 연결 및 위치 설정
+        // 🚩 [수정] 상단 재생 컨트롤 — 위치 조정만 담당 (cycling 핸들러는 위에서 이미 등록)
         (function() {
-            const tPlayBtn  = document.getElementById('timelinePlayBtn');
-            const tPauseBtn = document.getElementById('timelinePauseBtn');
             const playCtrl  = document.getElementById('timeline-play-controls');
             const tileToggle = document.getElementById('map-tile-toggle-group');
-
-            if (tPlayBtn)  tPlayBtn.addEventListener('click',  () => { if (!playInterval) startPlayback(); });
-            if (tPauseBtn) tPauseBtn.addEventListener('click', () => { if (playInterval)  stopPlayback(); });
 
             // 타일 토글 바로 왼쪽에 위치하도록 right 동적 설정
             function positionPlayCtrl() {
