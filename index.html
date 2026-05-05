@@ -15434,7 +15434,15 @@ const loadingMessages = [
 
       // moveend 시 아직 안 로드된 새 뷰포트 타일 lazy-load
       async function _loadNewViewportTiles() {
-          if (allTerritoriesLoaded || !_tileIndexCache || _tileLoadBg) return;
+          if (allTerritoriesLoaded || _tileLoadBg) return;
+          if (!_tileIndexCache) {
+              try {
+                  await _ensureTileIndex();
+              } catch (e) {
+                  console.warn('[territory] tile index load failed, skipping viewport tiles:', e);
+                  return;
+              }
+          }
           const origin  = window.location.origin;
           const version = new Date().toDateString();
           const vb = map.getBounds();
@@ -22867,6 +22875,21 @@ kingSelect.addEventListener('change', () => {
         
         await initialize();
         initializeTopPanelToggle(); // 🚩 [추가] PC 버전 상단 패널 토글 초기화
+
+        // 🚀 [territory bootstrap] 페이지 로드 직후 타일 인덱스 + 현재 viewport 타일 미리 로드
+        // _loadNewViewportTiles의 self-healing 가드만으로도 작동하지만,
+        // 첫 moveend를 기다리지 않고 즉시 영토를 채우기 위함
+        if (layerVisibility?.territoryPolygon) {
+            try {
+                await _ensureTileIndex();
+                await _loadNewViewportTiles();
+                if (typeof updateVisibleTerritories === 'function') {
+                    updateVisibleTerritories();
+                }
+            } catch (e) {
+                console.warn('[territory] initial bootstrap failed:', e);
+            }
+        }
 
         // 🚩 [추가] initialize 완료 후 현재 연도 이벤트 재확인 (events 백그라운드 로딩 타이밍 보정)
         if (typeof checkAndDisplayEvent === 'function' && typeof getCurrentYearMonth === 'function') {
