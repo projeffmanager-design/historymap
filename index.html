@@ -8347,6 +8347,11 @@ body.force-mobile .marker-type-selector button {
             if (sec) sec.style.display = 'none';
             return;
         }
+        // 404 캐시: 이미 없는 것으로 확인된 id는 즉시 숨기고 종료
+        if (_loadVoice._noVoiceSet && _loadVoice._noVoiceSet.has(String(castleId))) {
+            if (sec) sec.style.display = 'none';
+            return;
+        }
         fetch(`/api/voice?id=${encodeURIComponent(String(castleId))}`)
             .then(r => { if (!r.ok) throw new Error('no voice'); return r.json(); })
             .then(data => {
@@ -8354,6 +8359,10 @@ body.force-mobile .marker-type-selector button {
                 // 새 음성이 있을 때만 기존 음성 중단 후 교체
                 _stopVoice();
                 const audio = new Audio(data.audio_url);
+                // BGM 뮤트 상태 이어받기
+                if (window.bgmPlayer && window.bgmPlayer.audio) {
+                    audio.muted = window.bgmPlayer.audio.muted;
+                }
                 _voiceAudio = audio;
                 // 진행 바 업데이트
                 audio.addEventListener('timeupdate', () => {
@@ -8384,6 +8393,9 @@ body.force-mobile .marker-type-selector button {
             .catch(() => {
                 // 음성 없음 — 섹션만 숨기고 현재 재생은 유지
                 if (sec) sec.style.display = 'none';
+                // 없는 id로 기록하여 이후 재요청 차단
+                if (!_loadVoice._noVoiceSet) _loadVoice._noVoiceSet = new Set();
+                _loadVoice._noVoiceSet.add(String(castleId));
             });
     }
     let isInitializing = true; // 🚀 [최적화] 초기 로딩 플래그
@@ -18542,7 +18554,25 @@ const loadingMessages = [
       // 신규 추가 시 출처 배지 숨기기
       const _sb = document.getElementById('castleSourceBadges');
       if (_sb) _sb.style.display = 'none';
-      
+
+      // 🚩 [추가] 설명 에디터(contenteditable) 초기화 — form.reset()으로 안 지워짐
+      const _descEditor = document.getElementById('castleDescEditor');
+      if (_descEditor) _descEditor.innerHTML = '';
+      const _descTa = document.getElementById('castleDesc');
+      if (_descTa) _descTa.value = '';
+
+      // 🚩 [추가] 이미지 URL 필드 초기화
+      const _photoInput = document.getElementById('castlePhoto');
+      if (_photoInput) _photoInput.value = '';
+
+      // 🚩 [추가] 장수 관련 필드 초기화
+      const _generalName = document.getElementById('generalName');
+      if (_generalName) _generalName.value = '';
+      const _generalPhoto = document.getElementById('generalPhoto');
+      if (_generalPhoto) _generalPhoto.value = '';
+      const _troopCount = document.getElementById('troopCount');
+      if (_troopCount) _troopCount.value = '';
+
       // 🚩 [추가] 커스텀 아이콘 필드 초기화
       document.getElementById('customIcon').value = '';
       document.getElementById('iconWidth').value = '';
@@ -29917,7 +29947,13 @@ async function castleFormDeleteVoice() {
       else { audio.play().catch(function(){}); playing = true; }
       updateToggleBtn();
     }
-    function doMute() { muted = !muted; audio.muted = muted; updateMuteBtn(); }
+    function doMute() {
+      muted = !muted;
+      audio.muted = muted;
+      // voice(해설) 오디오도 함께 음소거 동기화
+      if (window._voiceAudio) window._voiceAudio.muted = muted;
+      updateMuteBtn();
+    }
     function doNext() { var was = playing; audio.pause(); playNext(); if (was) { playing = true; audio.play().catch(function(){}); } updateToggleBtn(); }
 
     bindClick('bgm-toggle-btn',  doToggle);
