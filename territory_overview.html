@@ -505,6 +505,47 @@ function getLabel(t)   { return t.name_ko || t.name_en || t.name || t.code || St
 function getToken() {
   return localStorage.getItem('token') || sessionStorage.getItem('token') || '';
 }
+// Douglas-Peucker 꼭지점 단순화 (경위도 좌표 배열용)
+function dpSimplify(pts, tol) {
+  if (pts.length <= 2) return pts;
+  let maxD = 0, idx = 0;
+  const [ax, ay] = pts[0], [bx, by] = pts[pts.length - 1];
+  const dx = bx - ax, dy = by - ay, len = Math.sqrt(dx*dx + dy*dy);
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = len === 0
+      ? Math.sqrt((pts[i][0]-ax)**2 + (pts[i][1]-ay)**2)
+      : Math.abs(dy*pts[i][0] - dx*pts[i][1] + bx*ay - by*ax) / len;
+    if (d > maxD) { maxD = d; idx = i; }
+  }
+  if (maxD > tol) {
+    return [...dpSimplify(pts.slice(0, idx + 1), tol).slice(0, -1),
+            ...dpSimplify(pts.slice(idx), tol)];
+  }
+  return [pts[0], pts[pts.length - 1]];
+}
+function simplifyGeometry(geom, tol) {
+  if (!geom) return geom;
+  const simplifyRing = ring => {
+    const s = dpSimplify(ring, tol);
+    // 폐합 보장
+    if (s.length >= 2 && (s[0][0] !== s[s.length-1][0] || s[0][1] !== s[s.length-1][1])) s.push(s[0]);
+    return s.length >= 4 ? s : ring; // 최소 4점 미만이면 원본 유지
+  };
+  if (geom.type === 'Polygon') {
+    return { ...geom, coordinates: geom.coordinates.map(simplifyRing) };
+  }
+  if (geom.type === 'MultiPolygon') {
+    return { ...geom, coordinates: geom.coordinates.map(poly => poly.map(simplifyRing)) };
+  }
+  return geom;
+}
+function countGeometryVertices(geom) {
+  if (!geom || !geom.coordinates) return 0;
+  let n = 0;
+  const walk = c => Array.isArray(c[0]) ? c.forEach(walk) : n++;
+  walk(geom.coordinates);
+  return n;
+}
 function computeBBoxFromGeometry(geometry) {
   if (!geometry || !geometry.coordinates) return null;
   let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
@@ -668,11 +709,27 @@ async function openGeometryEdit(id) {
     }
 
     _originalGeometry = JSON.parse(JSON.stringify(geometry));
-    _editedGeometry = JSON.parse(JSON.stringify(geometry));
+
+    // 꼭지점이 너무 많으면 자동 단순화 (geoman이 모든 꼭지점에 마커 생성 → 브라우저 freeze)
+    const VERTEX_LIMIT = 500;
+    let editGeom = JSON.parse(JSON.stringify(geometry));
+    const vCount = countGeometryVertices(editGeom);
+    if (vCount > VERTEX_LIMIT) {
+      // 목표 ~300개 꼭지점이 되도록 tolerance 자동 조정
+      let tol = 0.001;
+      for (let i = 0; i < 8; i++) {
+        const s = simplifyGeometry(editGeom, tol);
+        if (countGeometryVertices(s) <= VERTEX_LIMIT) { editGeom = s; break; }
+        tol *= 2;
+      }
+      const after = countGeometryVertices(editGeom);
+      setGeomEditMsg(`⚠️ 꼭지점 ${vCount}개 → 단순화 후 ${after}개로 편집합니다 (저장 시 단순화된 geometry가 반영됩니다)`, 'dirty');
+    }
+    _editedGeometry = editGeom;
 
     geomLayerGroup.clearLayers();
     editableGeomLayer = L.geoJSON(
-      { type: 'Feature', properties: { _id: id }, geometry: _editedGeometry },
+      { type: 'Feature', properties: { _id: id }, geometry: editGeom },
       { style: { color: getColor(t), weight: 2, fillOpacity: 0.35, fillColor: getColor(t) } }
     ).addTo(geomLayerGroup);
 
@@ -680,7 +737,7 @@ async function openGeometryEdit(id) {
     editableGeomLayer.eachLayer(layer => {
       if (!layer.pm) return;
       layer.pm.enable({
-        allowSelfIntersection: false,
+        allowSelfIntersection: true,
         allowEditing: true,
         allowRemoval: true,
         allowCutting: false,
@@ -735,6 +792,42 @@ async function saveGeometryEdit() {
     setGeomEditMsg('❌ geometry/bbox 계산 실패', 'err');
     return;
   }
+
+  // 자기교차(self-intersection) 단순 감지: 선분 교차 검사
+  function segmentsIntersect(p1, p2, p3, p4) {
+    const d = (p2[0]-p1[0])*(p4[1]-p3[1]) - (p2[1]-p1[1])*(p4[0]-p3[0]);
+    if (Math.abs(d) < 1e-10) return false;
+    const t = ((p3[0]-p1[0])*(p4[1]-p3[1]) - (p3[1]-p1[1])*(p4[0]-p3[0])) / d;
+    const u = ((p3[0]-p1[0])*(p2[1]-p1[1]) - (p3[1]-p1[1])*(p2[0]-p1[0])) / d;
+    return t > 1e-10 && t < 1-1e-10 && u > 1e-10 && u < 1-1e-10;
+  }
+  function ringHasSelfIntersection(ring) {
+    const n = ring.length - 1; // 마지막은 첫점과 같으므로 제외
+    for (let i = 0; i < n - 1; i++) {
+      for (let j = i + 2; j < n; j++) {
+        if (i === 0 && j === n - 1) continue; // 인접 선분 제외
+        if (segmentsIntersect(ring[i], ring[i+1], ring[j], ring[j+1])) return true;
+      }
+    }
+    return false;
+  }
+  function geometryHasSelfIntersection(geom) {
+    if (!geom) return false;
+    const rings = geom.type === 'Polygon' ? geom.coordinates
+      : geom.type === 'MultiPolygon' ? geom.coordinates.flat() : [];
+    return rings.some(ringHasSelfIntersection);
+  }
+
+  if (geometryHasSelfIntersection(geometry)) {
+    setGeomEditMsg('⚠️ 경고: 꼭지점이 역전(자기교차)된 상태입니다. 계속 저장하려면 다시 저장 버튼을 누르세요.', 'err');
+    // 두 번 연속 누르면 저장되도록 플래그
+    if (!saveGeometryEdit._warnedOnce) {
+      saveGeometryEdit._warnedOnce = true;
+      return;
+    }
+  }
+  saveGeometryEdit._warnedOnce = false;
+
   setGeomEditMsg('저장 중...');
   try {
     const res = await fetch(`${API_BASE}/territories/${_geomEditId}`, {
@@ -801,27 +894,44 @@ async function loadData() {
 }
 
 // ── 2단계: 선택된 영토의 타일에서 geometry 로드 ──
+
+// 방법 A: timeout 포함 fetch 헬퍼
+async function fetchJsonWithTimeout(url, ms = 5000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function loadGeometryForTerritory(t) {
   if (!t.bbox) return null;
   const { minLat, maxLat, minLng, maxLng } = t.bbox;
 
-  // 해당 bbox에 걸치는 타일 파일 목록
   const matchingTiles = tileIndex.filter(tile =>
     tile.bounds.north > minLat && tile.bounds.south < maxLat &&
     tile.bounds.east  > minLng && tile.bounds.west  < maxLng
   );
   if (!matchingTiles.length) return null;
 
-  // 타일 파일 fetch (캐시 활용)
+  // 방법 B: Promise.allSettled — 일부 타일 실패해도 계속 진행
   const features = [];
-  await Promise.all(matchingTiles.map(async tile => {
+  await Promise.allSettled(matchingTiles.map(async tile => {
     if (!tileCache[tile.filename]) {
-      const r = await fetch(`${TILES_BASE}/${tile.filename}`).catch(() => null);
-      if (r && r.ok) tileCache[tile.filename] = await r.json();
+      const data = await fetchJsonWithTimeout(`${TILES_BASE}/${tile.filename}`, 5000);
+      if (data) tileCache[tile.filename] = data;
     }
     const tileData = tileCache[tile.filename];
     if (tileData?.features) {
-      tileData.features.filter(f => f.properties?._id === t._id).forEach(f => features.push(f));
+      tileData.features
+        .filter(f => f.properties?._id === t._id)
+        .forEach(f => features.push(f));
     }
   }));
 
@@ -939,11 +1049,10 @@ async function selectTerritory(id) {
   const t = allTerritories.find(x => x._id === id);
   if (!t) return;
   highlightItem(id);
-  showDetail(t, true); // loading 상태
-  renderBboxLayer();   // 선택 강조 갱신
 
-  // geometry 로드 (타일에서)
-  await renderGeometry(t);
+  // 방법 C: 상세 패널 먼저 표시, geometry는 비동기로 분리
+  showDetail(t, true);
+  renderBboxLayer();
 
   if (t.bbox) {
     map.fitBounds(
@@ -951,7 +1060,10 @@ async function selectTerritory(id) {
       { maxZoom: 9, padding: [30,30] }
     );
   }
-  showDetail(t, false);
+
+  renderGeometry(t)
+    .then(() => { if (selectedId === id) showDetail(t, false); })
+    .catch(() => { if (selectedId === id) showDetail(t, false); });
 }
 
 function highlightItem(id) {
