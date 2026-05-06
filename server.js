@@ -2858,6 +2858,21 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // GET: 영토 단건 조회 (full geometry 포함)
+        app.get('/api/territories/:id', async (req, res) => {
+            try {
+                const { id } = req.params;
+                const _id = toObjectId(id);
+                if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+                const territory = await collections.territories.findOne({ _id });
+                if (!territory) return res.status(404).json({ message: "영토 정보를 찾을 수 없습니다." });
+                res.json(territory);
+            } catch (error) {
+                console.error("영토 단건 조회 중 오류:", error);
+                res.status(500).json({ message: "영토 조회 실패", error: error.message });
+            }
+        });
+
         // PUT: 영토 폴리곤 업데이트
         app.put('/api/territories/:id', verifyAdmin, async (req, res) => {
             try {

@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>전체 영토 데이터 현황</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
@@ -53,6 +55,26 @@
     cursor: pointer;
   }
   #btn-refresh-deploy:hover { background: #1a4080; color: #e0e0e0; }
+  #btn-trigger-rebuild {
+    background: #7c3aed;
+    border: 1px solid #8b5cf6;
+    color: #fff;
+    border-radius: 4px;
+    padding: 2px 10px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  #btn-trigger-rebuild:hover { background: #8b5cf6; }
+  #btn-trigger-rebuild:disabled {
+    background: #2a2a3a;
+    border-color: #444;
+    color: #777;
+    cursor: not-allowed;
+  }
+  #lbl-pending-rebuild {
+    font-size: 11px;
+    color: #f2c94c;
+  }
   .stat-badge {
     display: inline-block; padding: 2px 8px; border-radius: 10px;
     font-size: 11px; font-weight: 600; margin: 0 2px;
@@ -195,6 +217,13 @@
     font-weight: 600; cursor: pointer; text-align: center;
   }
   #btn-edit-territory:hover { background: #c73652; }
+  #btn-geom-edit {
+    display: block; width: 100%; margin-top: 8px;
+    padding: 6px; background: #0f3460; color: #7dd3fc;
+    border: 1px solid #1a4080; border-radius: 5px; font-size: 12px;
+    font-weight: 600; cursor: pointer; text-align: center;
+  }
+  #btn-geom-edit:hover { background: #1a4080; color: #fff; }
   #btn-delete-territory {
     display: block; width: 100%; margin-top: 5px;
     padding: 6px; background: #3a1010; color: #f87171;
@@ -203,7 +232,42 @@
   }
   #btn-delete-territory:hover { background: #7f1d1d; color: #fff; }
 
-  /* OSM 코드 칩 */
+  #geom-edit-bar {
+    display: none;
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    z-index: 1400;
+    background: rgba(13,27,42,0.96);
+    border: 1px solid #1a4080;
+    border-radius: 10px;
+    padding: 10px 12px;
+    min-width: 420px;
+    max-width: 92vw;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  }
+  #geom-edit-bar.open { display: block; }
+  #geom-edit-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #7dd3fc;
+    margin-bottom: 6px;
+  }
+  #geom-edit-msg {
+    font-size: 11px;
+    min-height: 16px;
+    color: #9ca3af;
+    margin-bottom: 8px;
+  }
+  #geom-edit-msg.ok { color: #6fcf97; }
+  #geom-edit-msg.err { color: #f87171; }
+  #geom-edit-msg.dirty { color: #f2c94c; }
+  .geom-edit-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
   .osm-chip {
     display: inline-block; background: #0d2a1a; color: #4ade80;
     border: 1px solid #166534; border-radius: 3px;
@@ -261,6 +325,10 @@
   <div class="deploy-seg" style="color:#555;">
     <span id="lbl-commit">—</span>
   </div>
+  <div class="deploy-seg">
+    <span id="lbl-pending-rebuild">재빌드 대기 없음</span>
+  </div>
+  <button id="btn-trigger-rebuild" onclick="triggerManualTileRebuild()" disabled>🧱 타일 재빌드</button>
   <button id="btn-refresh-deploy" onclick="loadDeployStatus()">↻</button>
 </div>
 
@@ -382,6 +450,15 @@
   </div>
 </div>
 
+<div id="geom-edit-bar">
+  <div id="geom-edit-title">🧭 경계 편집 모드</div>
+  <div id="geom-edit-msg">영토 경계를 불러오는 중...</div>
+  <div class="geom-edit-actions">
+    <button class="modal-btn modal-btn-cancel" onclick="cancelGeometryEdit()">취소</button>
+    <button class="modal-btn modal-btn-save" onclick="saveGeometryEdit()">💾 경계 저장</button>
+  </div>
+</div>
+
 <script>
 const API_BASE   = 'http://127.0.0.1:3000/api';
 const LOCAL_API  = 'http://127.0.0.1:3000/api';
@@ -413,11 +490,293 @@ let labelGroup     = L.layerGroup().addTo(map);   // 이름 라벨
 let showLabels = true;
 let bboxMode   = false;
 let selectedId = null;
+let editableGeomLayer = null;
+let _geomEditId = null;
+let _geometryEditMode = false;
+let _editedGeometry = null;
+let _originalGeometry = null;
+let _fullTerritoryCache = {};
+let pendingRebuildQueue = new Map(); // id -> action(add|delete)
 
 // ── 유틸 ──
 function getColor(t)   { return TYPE_COLORS[t.type] || TYPE_COLORS.default; }
 function hasBbox(t)    { return !!(t.bbox); }
 function getLabel(t)   { return t.name_ko || t.name_en || t.name || t.code || String(t._id).slice(-6); }
+function getToken() {
+  return localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+}
+function computeBBoxFromGeometry(geometry) {
+  if (!geometry || !geometry.coordinates) return null;
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  const walk = (coords) => {
+    if (!Array.isArray(coords)) return;
+    if (typeof coords[0] === 'number') {
+      const [lng, lat] = coords;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+    } else {
+      coords.forEach(walk);
+    }
+  };
+  walk(geometry.coordinates);
+  if (![minLat, maxLat, minLng, maxLng].every(Number.isFinite)) return null;
+  return { minLat, maxLat, minLng, maxLng };
+}
+function normalizeGeometryOutput(gj) {
+  if (!gj) return null;
+  if (gj.type === 'Feature') return gj.geometry || null;
+  if (gj.type === 'FeatureCollection') {
+    const geoms = (gj.features || []).map(f => f.geometry).filter(Boolean);
+    if (!geoms.length) return null;
+    if (geoms.length === 1) return geoms[0];
+    if (geoms.every(g => g.type === 'Polygon')) {
+      return { type: 'MultiPolygon', coordinates: geoms.map(g => g.coordinates) };
+    }
+    return null;
+  }
+  return gj;
+}
+function updatePendingRebuildUI() {
+  const ids = Array.from(pendingRebuildQueue.keys());
+  const lbl = document.getElementById('lbl-pending-rebuild');
+  const btn = document.getElementById('btn-trigger-rebuild');
+  if (!ids.length) {
+    lbl.textContent = '재빌드 대기 없음';
+    btn.disabled = true;
+    return;
+  }
+  const addCount = Array.from(pendingRebuildQueue.values()).filter(v => v === 'add').length;
+  const delCount = Array.from(pendingRebuildQueue.values()).filter(v => v === 'delete').length;
+  const parts = [];
+  if (addCount) parts.push(`변경 ${addCount}`);
+  if (delCount) parts.push(`삭제 ${delCount}`);
+  lbl.textContent = `재빌드 대기 ${ids.length}건 (${parts.join(', ')})`;
+  btn.disabled = false;
+}
+function markTerritoryDirtyForRebuild(id, action = 'add') {
+  if (!id) return;
+  pendingRebuildQueue.set(String(id), action);
+  updatePendingRebuildUI();
+}
+async function triggerManualTileRebuild() {
+  if (!pendingRebuildQueue.size) return;
+  const btn = document.getElementById('btn-trigger-rebuild');
+  const lbl = document.getElementById('lbl-pending-rebuild');
+  btn.disabled = true;
+  lbl.textContent = '재빌드 요청 중...';
+  try {
+    const grouped = { add: [], delete: [] };
+    for (const [id, action] of pendingRebuildQueue.entries()) {
+      grouped[action === 'delete' ? 'delete' : 'add'].push(id);
+    }
+    if (grouped.add.length) {
+      const r1 = await fetch(`${LOCAL_API}/internal/tile-notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add', ids: grouped.add })
+      });
+      if (!r1.ok) throw new Error(`add notify HTTP ${r1.status}`);
+    }
+    if (grouped.delete.length) {
+      const r2 = await fetch(`${LOCAL_API}/internal/tile-notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', ids: grouped.delete })
+      });
+      if (!r2.ok) throw new Error(`delete notify HTTP ${r2.status}`);
+    }
+    pendingRebuildQueue.clear();
+    updatePendingRebuildUI();
+    lbl.textContent = '✅ 재빌드 요청 완료';
+    loadDeployStatus();
+  } catch (e) {
+    lbl.textContent = `❌ 재빌드 요청 실패: ${e.message}`;
+    btn.disabled = false;
+  }
+}
+function setGeomEditBar(open, title = '🧭 경계 편집 모드') {
+  const bar = document.getElementById('geom-edit-bar');
+  document.getElementById('geom-edit-title').textContent = title;
+  bar.classList.toggle('open', !!open);
+}
+function setGeomEditMsg(msg, cls = '') {
+  const el = document.getElementById('geom-edit-msg');
+  el.textContent = msg;
+  el.className = cls || '';
+}
+async function fetchFullTerritory(id) {
+  if (_fullTerritoryCache[id]) return _fullTerritoryCache[id];
+  const headers = {};
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const res = await fetch(`${API_BASE}/territories/${id}`, { headers, signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`territory API: HTTP ${res.status}`);
+    const json = await res.json();
+    _fullTerritoryCache[id] = json;
+    return json;
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw new Error('서버 응답 시간 초과 (10s)');
+    throw e;
+  }
+}
+function syncEditedGeometryFromLayer() {
+  if (!editableGeomLayer) return;
+  const geometry = normalizeGeometryOutput(editableGeomLayer.toGeoJSON());
+  if (!geometry) {
+    setGeomEditMsg('❌ geometry 변환 실패', 'err');
+    return;
+  }
+  _editedGeometry = geometry;
+  const bbox = computeBBoxFromGeometry(geometry);
+  if (bbox) {
+    setGeomEditMsg(
+      `수정됨 · ${geometry.type} · lat ${bbox.minLat.toFixed(2)}~${bbox.maxLat.toFixed(2)}, lng ${bbox.minLng.toFixed(2)}~${bbox.maxLng.toFixed(2)}`,
+      'dirty'
+    );
+  } else {
+    setGeomEditMsg(`수정됨 · ${geometry.type}`, 'dirty');
+  }
+}
+async function openGeometryEdit(id) {
+  try {
+    const t = allTerritories.find(x => x._id === id);
+    if (!t) return;
+
+    // geoman 로드 확인
+    if (typeof L.PM === 'undefined' && typeof L.pm === 'undefined') {
+      alert('leaflet-geoman 플러그인이 로드되지 않았습니다.\n페이지를 새로고침 후 다시 시도하세요.');
+      return;
+    }
+
+    _geomEditId = id;
+    _geometryEditMode = true;
+    setGeomEditBar(true, `🧭 ${getLabel(t)} 경계 편집`);
+    setGeomEditMsg('geometry 불러오는 중...');
+
+    const full = await fetchFullTerritory(id);
+    const geometry = full.geometry || full?.geojson?.geometry || null;
+    if (!geometry) {
+      setGeomEditMsg('❌ 편집할 geometry가 없습니다', 'err');
+      return;
+    }
+
+    _originalGeometry = JSON.parse(JSON.stringify(geometry));
+    _editedGeometry = JSON.parse(JSON.stringify(geometry));
+
+    geomLayerGroup.clearLayers();
+    editableGeomLayer = L.geoJSON(
+      { type: 'Feature', properties: { _id: id }, geometry: _editedGeometry },
+      { style: { color: getColor(t), weight: 2, fillOpacity: 0.35, fillColor: getColor(t) } }
+    ).addTo(geomLayerGroup);
+
+    let editEnabled = 0;
+    editableGeomLayer.eachLayer(layer => {
+      if (!layer.pm) return;
+      layer.pm.enable({
+        allowSelfIntersection: false,
+        allowEditing: true,
+        allowRemoval: true,
+        allowCutting: false,
+        allowRotation: false,
+        allowDrag: false,
+        snappable: false
+      });
+      layer.on('pm:edit', syncEditedGeometryFromLayer);
+      layer.on('pm:update', syncEditedGeometryFromLayer);
+      layer.on('pm:markerdragend', syncEditedGeometryFromLayer);
+      layer.on('pm:vertexremoved', syncEditedGeometryFromLayer);
+      editEnabled++;
+    });
+
+    if (editEnabled === 0) {
+      setGeomEditMsg('⚠️ geoman 미로드 — 꼭지점 편집 불가. 페이지를 새로고침하세요', 'err');
+      return;
+    }
+
+    const bounds = editableGeomLayer.getBounds();
+    if (bounds.isValid()) map.fitBounds(bounds, { padding: [30, 30] });
+    setGeomEditMsg('꼭지점을 드래그해 이동하거나, 우클릭으로 삭제하세요');
+  } catch (e) {
+    setGeomEditMsg(`❌ ${e.message}`, 'err');
+  }
+}
+function cancelGeometryEdit() {
+  _geometryEditMode = false;
+  _geomEditId = null;
+  _editedGeometry = null;
+  _originalGeometry = null;
+  editableGeomLayer = null;
+  setGeomEditBar(false);
+  if (selectedId) {
+    const t = allTerritories.find(x => x._id === selectedId);
+    if (t) renderGeometry(t);
+  } else {
+    geomLayerGroup.clearLayers();
+  }
+}
+async function saveGeometryEdit() {
+  if (!_geomEditId) return;
+  const token = getToken();
+  if (!token || token === 'null' || token === 'undefined') {
+    openLoginModal();
+    setGeomEditMsg('❌ 로그인 후 다시 저장하세요', 'err');
+    return;
+  }
+  const geometry = _editedGeometry || _originalGeometry;
+  const bbox = computeBBoxFromGeometry(geometry);
+  if (!geometry || !bbox) {
+    setGeomEditMsg('❌ geometry/bbox 계산 실패', 'err');
+    return;
+  }
+  setGeomEditMsg('저장 중...');
+  try {
+    const res = await fetch(`${API_BASE}/territories/${_geomEditId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ geometry, bbox })
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      setGeomEditMsg(`❌ ${json.message || '저장 실패'}`, 'err');
+      return;
+    }
+
+    const idx = allTerritories.findIndex(x => x._id === _geomEditId);
+    if (idx !== -1) {
+      allTerritories[idx] = { ...allTerritories[idx], bbox };
+    }
+    _fullTerritoryCache[_geomEditId] = {
+      ...(_fullTerritoryCache[_geomEditId] || {}),
+      ...json,
+      geometry,
+      bbox
+    };
+    markTerritoryDirtyForRebuild(_geomEditId, 'add');
+
+    setGeomEditMsg('✅ 경계 저장 완료!', 'ok');
+    renderList();
+    renderBboxLayer();
+    updateStats();
+
+    const id = _geomEditId;
+    setTimeout(async () => {
+      cancelGeometryEdit();
+      await selectTerritory(id);
+    }, 500);
+  } catch (e) {
+    setGeomEditMsg(`❌ 네트워크 오류: ${e.message}`, 'err');
+  }
+}
 
 // ── 1단계: lightweight 메타데이터 로드 ──
 async function loadData() {
@@ -508,6 +867,7 @@ function renderBboxLayer() {
 async function renderGeometry(t) {
   geomLayerGroup.clearLayers();
   if (!t) return;
+  if (_geometryEditMode && _geomEditId === t._id && editableGeomLayer) return;
 
   const color = getColor(t);
   const geoFC = await loadGeometryForTerritory(t);
@@ -572,6 +932,9 @@ function renderList() {
 
 // ── 선택 ──
 async function selectTerritory(id) {
+  if (_geometryEditMode && _geomEditId && _geomEditId !== id) {
+    cancelGeometryEdit();
+  }
   selectedId = id;
   const t = allTerritories.find(x => x._id === id);
   if (!t) return;
@@ -632,6 +995,7 @@ function showDetail(t, loading = false) {
     <div class="detail-row"><div class="detail-key">Geometry</div>
       <div class="detail-val" style="color:${loading ? '#aaa' : '#4fc3f7'}">${loading ? '⏳ 타일 로딩 중...' : '✅ 타일에서 표시 중'}</div>
     </div>
+    <button id="btn-geom-edit" onclick="openGeometryEdit('${t._id}')">🧭 경계 편집</button>
     <button id="btn-edit-territory" onclick="openEditModal('${t._id}')">✏️ 편집</button>
     <button id="btn-delete-territory" onclick="openConfirmModal('${t._id}')">🗑️ 삭제</button>
   `;
@@ -781,6 +1145,7 @@ async function saveEdit() {
       renderList(); renderBboxLayer(); updateStats();
       showDetail(allTerritories[idx]);
     }
+    markTerritoryDirtyForRebuild(_editId, 'add');
     setEditMsg('✅ 저장 완료!', 'ok');
     setTimeout(closeEditModal, 900);
   } catch(e) { setEditMsg(`❌ 네트워크 오류: ${e.message}`, 'err'); }
@@ -811,7 +1176,7 @@ function openConfirmModal(id) {
   document.getElementById('confirm-desc').innerHTML =
     `<b style="color:#f87171">${getLabel(t)}</b>${osmInfo}<br>` +
     `ID: <code style="font-size:10px;color:#aaa">${t._id}</code><br><br>` +
-    `이 영토를 DB에서 영구 삭제합니다. 타일도 즉시 재빌드됩니다.<br>` +
+    `이 영토를 DB에서 영구 삭제합니다. 삭제 후 상단 재빌드 버튼으로 반영하세요.<br>` +
     `<span style="color:#f87171;font-weight:600;">되돌릴 수 없습니다.</span>`;
   document.getElementById('confirm-msg').textContent = '';
   document.getElementById('confirm-msg').className = '';
@@ -861,6 +1226,7 @@ async function doDelete() {
 
     // 로컬 목록에서 제거
     allTerritories = allTerritories.filter(x => x._id !== id);
+    markTerritoryDirtyForRebuild(id, 'delete');
     selectedId = null;
     document.getElementById('detail-panel').style.display = 'none';
     geomLayerGroup.clearLayers();
@@ -926,6 +1292,7 @@ function relTime(date) {
 
 loadDeployStatus();
 setInterval(loadDeployStatus, 60000);
+updatePendingRebuildUI();
 loadData();
 </script>
 </body>

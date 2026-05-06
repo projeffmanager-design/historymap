@@ -4749,6 +4749,48 @@ body.force-mobile .marker-type-selector button {
     body.playback-mode .leaflet-popup {
         display: none !important;
     }
+
+    /* === [playback flicker fix] 재생 중 마커 이미지 단계별 숨김 === */
+
+    /* 재생 중 모든 마커 트랜지션·애니메이션 정지 (깜빡임 원인 제거) */
+    body.playback-mode .leaflet-marker-icon,
+    body.playback-mode .leaflet-marker-icon * {
+        transition: none !important;
+        animation-play-state: paused !important;
+    }
+
+    /* Mode 1 (월): 이미지만 살짝 페이드, 텍스트 유지 */
+    body.playback-mode[data-playback-mode="1"] .leaflet-marker-icon img {
+        opacity: 0.4;
+    }
+
+    /* Mode 2 (년) / Mode 3 (10년): 이미지·SVG 완전 숨김 */
+    body.playback-mode[data-playback-mode="2"] .leaflet-marker-icon img,
+    body.playback-mode[data-playback-mode="3"] .leaflet-marker-icon img,
+    body.playback-mode[data-playback-mode="2"] .leaflet-marker-icon svg,
+    body.playback-mode[data-playback-mode="3"] .leaflet-marker-icon svg {
+        visibility: hidden;
+    }
+
+    /* capital-marker 배경이미지 숨김 (빠른 속도) */
+    body.playback-mode[data-playback-mode="2"] .capital-marker .city-name,
+    body.playback-mode[data-playback-mode="3"] .capital-marker .city-name {
+        background-image: none !important;
+        background-color: rgba(0,0,0,0.2);
+    }
+
+    /* 전투/군사 마커: 이미지만 숨기고 마커 자체는 70% 불투명 유지 */
+    body.playback-mode[data-playback-mode="2"] .battle-marker,
+    body.playback-mode[data-playback-mode="3"] .battle-marker,
+    body.playback-mode[data-playback-mode="2"] .custom-flag-marker,
+    body.playback-mode[data-playback-mode="3"] .custom-flag-marker {
+        opacity: 0.7;
+    }
+
+    /* 정지 후 부드러운 복원 */
+    body:not(.playback-mode) .leaflet-marker-icon img {
+        transition: opacity 0.2s ease-in-out;
+    }
     .leaflet-popup-tip {
         background: rgba(20, 30, 44, 0.93) !important;
         border: none !important;
@@ -17990,6 +18032,8 @@ const loadingMessages = [
             tPB.textContent = PLAYBACK_LABELS[playbackMode];
             tPB.title = PLAYBACK_TITLES[playbackMode];
         }
+        // [playback flicker fix] body에 현재 속도 모드 기록
+        document.body.dataset.playbackMode = String(playbackMode);
     }
 
     function startPlayback() {
@@ -18042,6 +18086,7 @@ const loadingMessages = [
         // 재생 종료 — 팝업 억제 플래그 해제
         window.isPlaying = false;
         document.body.classList.remove('playback-mode');
+        document.body.dataset.playbackMode = '0'; // [playback flicker fix]
 
         // 상단 재생 컨트롤 — 정지 표시
         const tPlayBtn  = document.getElementById('timelinePlayBtn');
