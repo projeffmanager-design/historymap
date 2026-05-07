@@ -282,9 +282,6 @@ const verifyAdmin = (req, res, next) => { // (전역으로 이동)
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1];
 
-    console.log('🔍 [verifyAdmin] Authorization Header:', authHeader);
-    console.log('🔍 [verifyAdmin] Token:', token ? token.substring(0, 20) + '...' : 'null');
-
     if (!token) return res.status(401).json({ message: "인증 토큰이 없습니다." });
 
     jwt.verify(token, jwtSecret, (err, user) => {
@@ -292,8 +289,6 @@ const verifyAdmin = (req, res, next) => { // (전역으로 이동)
             console.log('❌ [verifyAdmin] JWT 검증 실패:', err.message);
             return res.status(403).json({ message: "유효하지 않은 토큰입니다.", error: err.message });
         }
-        
-        console.log('✅ [verifyAdmin] JWT 검증 성공 - User:', user.username, 'Role:', user.role);
         
         if (user.role !== 'admin' && user.role !== 'superuser') {
             console.log('⛔ [verifyAdmin] 권한 부족 - Role:', user.role);
@@ -308,9 +303,6 @@ const verifyApprover = (req, res, next) => { // 동수국사 이상 승인 권�
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1];
 
-    console.log('🔍 [verifyApprover] Authorization Header:', authHeader);
-    console.log('🔍 [verifyApprover] Token:', token ? token.substring(0, 20) + '...' : 'null');
-
     if (!token) return res.status(401).json({ message: "인증 토큰이 없습니다." });
 
     jwt.verify(token, jwtSecret, (err, user) => {
@@ -318,8 +310,6 @@ const verifyApprover = (req, res, next) => { // 동수국사 이상 승인 권�
             console.log('❌ [verifyApprover] JWT 검증 실패:', err.message);
             return res.status(403).json({ message: "유효하지 않은 토큰입니다.", error: err.message });
         }
-
-        console.log('✅ [verifyApprover] JWT 검증 성공 - User:', user.username, 'Position:', user.position);
 
         // 승인 권한이 있는 직급들 (정2품 수국사 이상)
         const approverPositions = RANK_CONFIG.roles.apiApprovers;
