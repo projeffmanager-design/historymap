@@ -12023,14 +12023,6 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const finalByCountry = new Map(); // countryId → { features[], style }
                 const finalUnowned = { features: [], style: null };
 
-                // 🐛 [DEBUG] 길림 지역 영토 흡수 로그
-                const _debugNames = ['Jilin','Changchun','길림','창춘'];
-                const _debugItems = allItems.filter(x => _debugNames.some(n => (x.f.properties?.name||'').includes(n)));
-                if (_debugItems.length) {
-                    console.log('[ABSORB DEBUG] 길림/창춘 items (정렬 후):');
-                    _debugItems.forEach(x => console.log('  level:', x.level, 'area:', x.area.toFixed(2), 'name:', x.f.properties?.name, 'countryId:', x.countryId));
-                }
-
                 for (const { f, countryId, style, level } of allItems) {
                     const geom = f.geometry;
 
@@ -12079,7 +12071,6 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         if (centroid) {
                             const cRings = countryRingsByCountry.get(countryId) || [];
                             if (cRings.some(ring => isPointInPolygon(centroid, ring))) {
-                                if (_debugNames.some(n => (f.properties?.name||'').includes(n))) console.log('[ABSORB DEBUG] province SKIPPED (in country ring):', f.properties?.name);
                                 continue;
                             }
                         }
@@ -12091,7 +12082,6 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         if (centroid) {
                             const pRings = provinceRingsByCountry.get(countryId) || [];
                             if (pRings.some(ring => isPointInPolygon(centroid, ring))) {
-                                if (_debugNames.some(n => (f.properties?.name||'').includes(n))) console.log('[ABSORB DEBUG] city SKIPPED (in province ring):', f.properties?.name);
                                 continue;
                             }
                         }
@@ -13849,11 +13839,18 @@ function invalidateCountryLookupCache() {
         }
     }
 
-    // 📦 [성능] TTL 캐시 확인 (30분)
-    const IDLE_CACHE_TTL = 30 * 60 * 1000;
+    // 📦 [성능] TTL 캐시 확인 — 데이터 종류별 다른 TTL
+    const _CACHE_TTL = {
+        events:        10 * 60 * 1000,  // 10분
+        contributions: 10 * 60 * 1000,  // 10분
+        drawings:      30 * 60 * 1000,  // 30분
+        naturalFeatures: 60 * 60 * 1000, // 60분
+        kings:         60 * 60 * 1000,  // 60분
+    };
     function isCacheStale(key) {
         const t = localStorage.getItem(key + '_fetchedAt');
-        return !t || (Date.now() - parseInt(t)) > IDLE_CACHE_TTL;
+        const ttl = _CACHE_TTL[key] || 30 * 60 * 1000;
+        return !t || (Date.now() - parseInt(t)) > ttl;
     }
     function markCacheFresh(key) {
         localStorage.setItem(key + '_fetchedAt', Date.now().toString());
@@ -15254,29 +15251,47 @@ const loadingMessages = [
                       updateHistoryPanel(_hy);
                   }
                   
-                  // 🚀 [최적화] 시간 목록 재생성을 requestIdleCallback으로 지연 (1,605개 시점 = DOM 부하)
+                  // 🚀 [Worker] 타임라인 연도 병합 계산 — 메인 스레드 블로킹 방지
                   const updateTimeline = async () => {
-                      // 🚩 [v3.6.36] 연도 단위로만 저장 (월 무시 → ‹ › 버튼이 연도 단위로 이동)
-                      const historyYearSet = new Set(history.map(h => h.year));
-                      const eventYearSet = new Set(events.map(e => e.year));
-                      // 🚩 source_records 연도 목록도 포함 (‹ › 버튼 탐색용)
-                      let sourceYearSet = new Set();
+                      let sourceYears = [];
                       try {
-                          const srcYears = await fetch('/api/source-records/years').then(r => r.json());
-                          srcYears.forEach(y => sourceYearSet.add(y));
-                          console.log(`📜 source_records 연도 ${srcYears.length}개 시간 목록에 추가`);
+                          sourceYears = await fetch('/api/source-records/years').then(r => r.json());
+                          console.log(`📜 source_records 연도 ${sourceYears.length}개 로드`);
                       } catch(e) { console.warn('source-records/years 로드 실패:', e); }
-                      const allYears = [...new Set([...historyYearSet, ...eventYearSet, ...sourceYearSet])];
-                      historyEventTimes = allYears.map(y => yearMonthToTotalMonths(y, 1)).sort((a, b) => a - b);
-                      console.log(`✅ 연대표 시간 목록 업데이트 완료: ${historyEventTimes.length}개 연도`);
+
+                      const historyYears = history.map(h => h.year).filter(y => y != null);
+                      const eventYears  = events.map(e => e.year).filter(y => y != null);
+
+                      // Web Worker로 계산 오프로드
+                      const workerCode = `
+                          self.onmessage = function(e) {
+                              const { historyYears, eventYears, sourceYears } = e.data;
+                              function yearMonthToTotalMonths(y, m) { return y * 12 + (m - 1); }
+                              const all = [...new Set([...historyYears, ...eventYears, ...sourceYears])];
+                              const times = all.map(y => yearMonthToTotalMonths(y, 1)).sort((a, b) => a - b);
+                              self.postMessage(times);
+                          };
+                      `;
+                      const blob = new Blob([workerCode], { type: 'application/javascript' });
+                      const workerUrl = URL.createObjectURL(blob);
+                      const worker = new Worker(workerUrl);
+                      worker.postMessage({ historyYears, eventYears, sourceYears });
+                      worker.onmessage = (e) => {
+                          historyEventTimes = e.data;
+                          console.log(`✅ [Worker] 연대표 시간 목록 완료: ${historyEventTimes.length}개 연도`);
+                          worker.terminate();
+                          URL.revokeObjectURL(workerUrl);
+                      };
+                      worker.onerror = (err) => {
+                          console.warn('⚠️ [Worker] 연대표 계산 실패, 메인 스레드로 fallback:', err.message);
+                          worker.terminate();
+                          URL.revokeObjectURL(workerUrl);
+                          const all = [...new Set([...historyYears, ...eventYears, ...sourceYears])];
+                          historyEventTimes = all.map(y => yearMonthToTotalMonths(y, 1)).sort((a, b) => a - b);
+                      };
                   };
-                  
-                  // 브라우저가 한가할 때 실행 (또는 2초 타임아웃)
-                  if (window.requestIdleCallback) {
-                      requestIdleCallback(() => updateTimeline(), { timeout: 2000 });
-                  } else {
-                      setTimeout(() => updateTimeline(), 500);
-                  }
+                  // Worker 계산 시작 (비동기 — 완료 시 historyEventTimes 자동 업데이트)
+                  updateTimeline();
               } catch (error) {
                   console.error('❌ history 백그라운드 로드 실패:', error);
                   history = [];
@@ -15553,6 +15568,10 @@ const loadingMessages = [
       // moveend 시 아직 안 로드된 새 뷰포트 타일 lazy-load
       async function _loadNewViewportTiles() {
           if (allTerritoriesLoaded || _tileLoadBg) return;
+          // 🔒 동시 실행 방지 (이전 호출이 진행 중이면 스킵)
+          if (window._tileViewportLoading) return;
+          window._tileViewportLoading = true;
+          try {
           if (!_tileIndexCache) {
               try {
                   await _ensureTileIndex();
@@ -15576,6 +15595,9 @@ const loadingMessages = [
           if (added > 0) {
               _updateTerritoryBtn();
               if (typeof updateVisibleTerritories === 'function') updateVisibleTerritories();
+          }
+          } finally {
+              window._tileViewportLoading = false;
           }
       }
 
@@ -16536,7 +16558,7 @@ const loadingMessages = [
           clearTimeout(window._moveendTileTimer);
           window._moveendTileTimer = setTimeout(() => {
               if (layerVisibility.territoryPolygon) _loadNewViewportTiles();
-          }, isMobileOnLoad ? 1200 : 800);
+          }, isMobileOnLoad ? 400 : 200);
       });
       
       // 🗺️ [v3.2] 보이는 영역의 영토만 증분 업데이트 (국가별 병합)
