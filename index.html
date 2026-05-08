@@ -8389,12 +8389,20 @@ body.force-mobile .marker-type-selector button {
             if (sec) sec.style.display = 'none';
             return;
         }
-        // 404 캐시: 이미 없는 것으로 확인된 id는 즉시 숨기고 종료
-        if (_loadVoice._noVoiceSet && _loadVoice._noVoiceSet.has(String(castleId))) {
+        // 404 캐시: 이미 없는 것으로 확인된 id는 즉시 숨기고 종료 (메모리 + localStorage 양쪽 확인)
+        const _id = String(castleId);
+        if (!_loadVoice._noVoiceSet) {
+            // localStorage에서 영구 캐시 복원
+            try {
+                const saved = JSON.parse(localStorage.getItem('_voiceNoSet') || '[]');
+                _loadVoice._noVoiceSet = new Set(saved);
+            } catch(_) { _loadVoice._noVoiceSet = new Set(); }
+        }
+        if (_loadVoice._noVoiceSet.has(_id)) {
             if (sec) sec.style.display = 'none';
             return;
         }
-        fetch(`/api/voice?id=${encodeURIComponent(String(castleId))}`)
+        fetch(`/api/voice?id=${encodeURIComponent(_id)}`)
             .then(r => { if (!r.ok) throw new Error('no voice'); return r.json(); })
             .then(data => {
                 if (!data.audio_url) throw new Error('no url');
@@ -8435,9 +8443,12 @@ body.force-mobile .marker-type-selector button {
             .catch(() => {
                 // 음성 없음 — 섹션만 숨기고 현재 재생은 유지
                 if (sec) sec.style.display = 'none';
-                // 없는 id로 기록하여 이후 재요청 차단
+                // 없는 id로 기록하여 이후 재요청 차단 (메모리 + localStorage 영구 저장)
                 if (!_loadVoice._noVoiceSet) _loadVoice._noVoiceSet = new Set();
-                _loadVoice._noVoiceSet.add(String(castleId));
+                _loadVoice._noVoiceSet.add(_id);
+                try {
+                    localStorage.setItem('_voiceNoSet', JSON.stringify([..._loadVoice._noVoiceSet]));
+                } catch(_) {}
             });
     }
     let isInitializing = true; // 🚀 [최적화] 초기 로딩 플래그
@@ -11679,7 +11690,10 @@ function requestUpdateMap(force = false) {
 }
 
 function updateMap(year, month, cacheOnly = false, force = false) {
-        // 🚀 [v2.0.9] requestAnimationFrame으로 렌더링 최적화 (초기 로딩 시에만)
+        // � 줌 애니메이션 중에는 territory 재렌더 차단 (zoomend에서 1회 렌더)
+        if (window._isZooming) return;
+
+        // �🚀 [v2.0.9] requestAnimationFrame으로 렌더링 최적화 (초기 로딩 시에만)
         if (!isInitializing && pendingUpdateMapRAF) {
             // 이미 예약된 렌더링이 있으면 취소하고 새로 예약
             cancelAnimationFrame(pendingUpdateMapRAF);
@@ -12202,10 +12216,10 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const riverEndTime = performance.now();
         }
 
-        // 🚀 [깜빡임 방지] 새 레이어가 모두 그려진 뒤 다음 프레임에서 기존 레이어 제거
+        // 새 레이어가 모두 그려진 뒤 다음 프레임에서 기존 레이어 제거 (깜빡임 방지)
         requestAnimationFrame(() => {
             if (oldTerritoryLayerGroup) {
-                oldTerritoryLayerGroup.clearLayers(); // 🔧 [메모리 누수 수정] GeoJSON 하위 레이어 해제
+                oldTerritoryLayerGroup.clearLayers();
                 map.removeLayer(oldTerritoryLayerGroup);
             }
             oldRenderers.forEach(r => { try { map.removeLayer(r); } catch(e) {} });
@@ -13072,6 +13086,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 // Use a normal function so `this` is bound to the marker instance
                 marker.on('click', function (e) { 
                     L.DomEvent.stopPropagation(e);
+                    // 🔊 전장이면 War 효과음, 일반이면 사운드 없음
+                    const _isBattle = activeHistoryRecord?.is_battle || castle.is_battle || castle.place_type === 'battle';
+                    if (_isBattle) playSfx('/public/sound effect/War.m4a');
                     openDetailPanel(castle, activeHistoryRecord, countryInfo);
                     if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) openCastleForm(castle._id); 
                 });
@@ -13170,6 +13187,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     
                     marker.on('click', (e) => { 
                         map.flyTo(e.latlng, 10);
+                        playSfx('/public/sound effect/militery.m4a');
                         openDetailPanel(castle, activeHistoryRecord, countryInfo);
                         if (editMode) openCastleForm(castle._id);
                         if (castle.voice) {
@@ -13267,6 +13285,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 
                 marker.on('click', (e) => { 
                     map.flyTo(e.latlng, 10); // 🚩 [수정] 클릭 시 줌인하며 이동
+                    playSfx('/public/sound effect/militery.m4a');
                     openDetailPanel(castle, activeHistoryRecord, countryInfo);
                     if (editMode) openCastleForm(castle._id);
                     if (castle.voice) {
@@ -13855,6 +13874,40 @@ function invalidateCountryLookupCache() {
     function markCacheFresh(key) {
         localStorage.setItem(key + '_fetchedAt', Date.now().toString());
     }
+
+    // 🔊 [사운드] 마커 클릭 효과음 — 동시 재생 방지, 볼륨 0.5
+    const _sfxCache = {};
+    function playSfx(src) {
+        try {
+            if (!_sfxCache[src]) {
+                const a = new Audio(src);
+                a.volume = 0.5;
+                _sfxCache[src] = a;
+            }
+            const audio = _sfxCache[src];
+            // 재생 중이면 처음부터 다시 / 아니면 그냥 play
+            if (!audio.paused) {
+                audio.currentTime = 0;
+            } else {
+                audio.currentTime = 0;
+                audio.play().catch(err => {
+                    // Autoplay 차단 시 새 Audio 객체로 재시도 (일부 브라우저는 clone이 필요)
+                    const clone = new Audio(src);
+                    clone.volume = 0.5;
+                    _sfxCache[src] = clone;
+                    clone.play().catch(() => {});
+                });
+            }
+        } catch(e) {}
+    }
+    // 사운드 파일 미리 load (재생 없이 버퍼링만 — Autoplay 정책 우회, 즉시 실행)
+    ['/public/sound effect/War.m4a', '/public/sound effect/militery.m4a'].forEach(src => {
+        const a = new Audio(src);
+        a.volume = 0.5;
+        a.preload = 'auto';
+        a.load();
+        _sfxCache[src] = a;
+    });
 
     async function fetchData(endpoint) {
       try {
@@ -15385,6 +15438,31 @@ const loadingMessages = [
       let _loadingTileFiles = new Set(); // 현재 fetch 중인 tile (중복 방지)
       let _tileLoadBg       = false;  // 백그라운드 로딩 진행 중 여부
 
+      // 🎨 [Quality-first] 타일 튜닝 상수
+      const TILE_BUFFER_DEG     = 20;   // 뷰포트 여유 (도) — 약 2 ring 추가
+      const TILE_BG_BATCH       = 14;   // 백그라운드 동시 타일 요청 수
+      const TILE_MAX_CONCURRENT = 14;   // moveend/move/zoomend 동시 요청 수
+      const MOVE_THROTTLE_MS    = 60;   // move 이벤트 throttle (ms)
+      const TILE_FADE_MS        = 140;  // 영토 레이어 교체 시 crossfade 시간 (ms)
+
+      // 🎨 [Quality-first] 타일 피처 메모리 LRU 캐시 (최대 200 타일 — re-pan 즉시 복원)
+      const MEMORY_TILE_CACHE_SIZE = 200;
+      const _tileFeaturesMemCache  = new Map(); // filename → features[]
+      function _tileCacheGet(filename) {
+          if (!_tileFeaturesMemCache.has(filename)) return null;
+          const val = _tileFeaturesMemCache.get(filename);
+          _tileFeaturesMemCache.delete(filename); // LRU: 재삽입으로 최신화
+          _tileFeaturesMemCache.set(filename, val);
+          return val;
+      }
+      function _tileCacheSet(filename, features) {
+          if (_tileFeaturesMemCache.size >= MEMORY_TILE_CACHE_SIZE) {
+              const firstKey = _tileFeaturesMemCache.keys().next().value;
+              _tileFeaturesMemCache.delete(firstKey); // 가장 오래된 항목 축출
+          }
+          _tileFeaturesMemCache.set(filename, features);
+      }
+
       // 뷰포트 bounds → 해당 타일 목록 필터 (10도 패딩 포함)
       function _tilesForBounds(tileIndex, vBounds, pad) {
           pad = pad || 0;
@@ -15397,18 +15475,26 @@ const loadingMessages = [
           });
       }
 
-      // 타일 파일 1개 fetch → feature 배열 반환 (캐시 활용)
+      // 타일 파일 1개 fetch → feature 배열 반환 (메모리 LRU 캐시 + 브라우저 캐시 활용)
       async function _fetchTile(tile, origin, basePath, version) {
-          if (_loadedTileFiles.has(tile.filename))  return []; // 이미 로드됨
+          if (_loadedTileFiles.has(tile.filename))  return []; // 이미 병합됨
           if (_loadingTileFiles.has(tile.filename)) return []; // 현재 로딩 중
+          // 🎨 [Quality-first] 메모리 LRU 캐시 확인 (force-refresh 후에도 재fetch 없이 즉시 복원)
+          const cached = _tileCacheGet(tile.filename);
+          if (cached) {
+              _loadedTileFiles.add(tile.filename);
+              return cached;
+          }
           _loadingTileFiles.add(tile.filename);
           try {
               const url = `${origin}${basePath}/${tile.filename}?v=${version}`;
               const resp = await fetch(url); // 브라우저 캐시 허용 (no-cache 헤더 제거)
               if (!resp.ok) { console.warn(`타일 로드 실패: ${tile.filename}`); return []; }
               const data = await resp.json();
+              const features = data.features || [];
               _loadedTileFiles.add(tile.filename);
-              return data.features || [];
+              _tileCacheSet(tile.filename, features); // 메모리 캐시에 저장
+              return features;
           } catch(e) {
               console.warn(`타일 오류: ${tile.filename}`, e);
               return [];
@@ -15493,7 +15579,7 @@ const loadingMessages = [
                   south: bounds.getSouth(), north: bounds.getNorth(),
                   west:  bounds.getWest(),  east:  bounds.getEast()
               };
-              const viewportTiles = _tilesForBounds(tileIndex, vBounds, 10); // 10도 여유
+              const viewportTiles = _tilesForBounds(tileIndex, vBounds, TILE_BUFFER_DEG); // 여유 pad
               const newViewportTiles = viewportTiles.filter(t => !_loadedTileFiles.has(t.filename));
 
               if (newViewportTiles.length > 0) {
@@ -15522,7 +15608,7 @@ const loadingMessages = [
                   // 마이크로태스크로 분리 — UI 블로킹 방지
                   setTimeout(async () => {
                       try {
-                          const bgBatch = 5; // 동시 5개씩 (서버 부하 최소화)
+                          const bgBatch = TILE_BG_BATCH; // 동시 요청 수
                           for (let i = 0; i < remainTiles.length; i += bgBatch) {
                               const batch = remainTiles.slice(i, i + bgBatch);
                               const bgFeatures = (await Promise.all(
@@ -15568,9 +15654,13 @@ const loadingMessages = [
       // moveend 시 아직 안 로드된 새 뷰포트 타일 lazy-load
       async function _loadNewViewportTiles() {
           if (allTerritoriesLoaded || _tileLoadBg) return;
-          // 🔒 동시 실행 방지 (이전 호출이 진행 중이면 스킵)
-          if (window._tileViewportLoading) return;
+          // 🔒 동시 실행 방지 — 진행 중이면 재실행 플래그만 세우고 리턴
+          if (window._tileViewportLoading) {
+              window._tileViewportPending = true;
+              return;
+          }
           window._tileViewportLoading = true;
+          window._tileViewportPending = false;
           try {
           if (!_tileIndexCache) {
               try {
@@ -15584,20 +15674,36 @@ const loadingMessages = [
           const version = new Date().toDateString();
           const vb = map.getBounds();
           const vBounds = { south: vb.getSouth(), north: vb.getNorth(), west: vb.getWest(), east: vb.getEast() };
-          const newTiles = _tilesForBounds(_tileIndexCache, vBounds, 5)
+          // 중심 좌표 계산 (중앙 타일 우선 정렬용)
+          const vCenterLng = (vBounds.west + vBounds.east) / 2;
+          const vCenterLat = (vBounds.south + vBounds.north) / 2;
+          let newTiles = _tilesForBounds(_tileIndexCache, vBounds, TILE_BUFFER_DEG)
               .filter(t => !_loadedTileFiles.has(t.filename) && !_loadingTileFiles.has(t.filename));
           if (newTiles.length === 0) return;
-          console.log(`🗺️ moveend: 새 뷰포트 타일 ${newTiles.length}개 로드`);
-          const features = (await Promise.all(
-              newTiles.map(t => _fetchTile(t, origin, _tilesBasePathCache, version))
-          )).flat();
-          const added = _mergeFeatures(features);
-          if (added > 0) {
-              _updateTerritoryBtn();
-              if (typeof updateVisibleTerritories === 'function') updateVisibleTerritories();
+          // 중심부 타일 우선 정렬
+          newTiles.sort((a, b) => {
+              const da = Math.hypot(((a.bounds.east+a.bounds.west)/2)-vCenterLng, ((a.bounds.north+a.bounds.south)/2)-vCenterLat);
+              const db = Math.hypot(((b.bounds.east+b.bounds.west)/2)-vCenterLng, ((b.bounds.north+b.bounds.south)/2)-vCenterLat);
+              return da - db;
+          });
+          console.log(`🗺️ 뷰포트 타일 ${newTiles.length}개 로드 (중심 우선)`);
+          // 동시 요청 수 제한
+          for (let i = 0; i < newTiles.length; i += TILE_MAX_CONCURRENT) {
+              const batch = newTiles.slice(i, i + TILE_MAX_CONCURRENT);
+              const features = (await Promise.all(
+                  batch.map(t => _fetchTile(t, origin, _tilesBasePathCache, version))
+              )).flat();
+              _mergeFeatures(features);
           }
+          _updateTerritoryBtn();
+          if (typeof updateVisibleTerritories === 'function') updateVisibleTerritories();
           } finally {
               window._tileViewportLoading = false;
+              // 로딩 중 새 뷰포트 이동이 있었으면 즉시 재실행
+              if (window._tileViewportPending) {
+                  window._tileViewportPending = false;
+                  setTimeout(_loadNewViewportTiles, 0);
+              }
           }
       }
 
@@ -16515,6 +16621,21 @@ const loadingMessages = [
       // 📖️ [추가] 지도 이동/줌 시 영토 증분 업데이트
       let updateTerritoryTimeout;
       let renderedTerritoryKeys = new Set(); // 이미 렌더링된 영토 추적
+
+      // � 줌 중 플래그 — 줌 애니메이션 중엔 territory 재렌더를 차단하고 끝나면 1회 렌더
+      window._isZooming = false;
+      map.on('zoomstart', () => { window._isZooming = true; });
+
+      // �🚀 [타일 선로딩] move 이벤트 throttle — 이동 중 앞쪽 타일 미리 로드
+      let _moveTileThrottleTimer = null;
+      map.on('move', () => {
+          if (!layerVisibility.territoryPolygon || allTerritoriesLoaded) return;
+          if (_moveTileThrottleTimer) return; // throttle 중
+          _moveTileThrottleTimer = setTimeout(() => {
+              _moveTileThrottleTimer = null;
+              if (!window._tileViewportLoading) _loadNewViewportTiles();
+          }, MOVE_THROTTLE_MS);
+      });
       
       map.on('moveend', () => {
           // 디바운스: 지도 이동이 끝난 후 territory 재렌더링
@@ -16560,11 +16681,32 @@ const loadingMessages = [
               if (layerVisibility.territoryPolygon) _loadNewViewportTiles();
           }, isMobileOnLoad ? 400 : 200);
       });
+
+      // � [부드러운 줌] zoomend: 플래그 해제 → territory 1회 재렌더 + 타일 로드
+      map.on('zoomend', () => {
+          window._isZooming = false;
+          // 타일 선로딩
+          if (layerVisibility.territoryPolygon) {
+              clearTimeout(window._zoomendTileTimer);
+              window._zoomendTileTimer = setTimeout(() => {
+                  _loadNewViewportTiles();
+              }, isMobileOnLoad ? 300 : 100);
+          }
+          // 영토 레이어 재렌더 (줌 레벨 변경으로 simplifyTol 달라질 수 있음)
+          if (layerVisibility.territoryPolygon && territories.length > 0) {
+              clearTimeout(window._zoomendRenderTimer);
+              window._zoomendRenderTimer = setTimeout(() => {
+                  if (!window._isZooming) updateVisibleTerritories();
+              }, isMobileOnLoad ? 350 : 150);
+          }
+      });
       
       // 🗺️ [v3.2] 보이는 영역의 영토만 증분 업데이트 (국가별 병합)
       // 🔧 [전면 재작성] updateVisibleTerritories — 매 호출마다 현재 연도 기준으로 완전 재렌더링
       // 누적 방식(이전)은 연도 변경 시 이전 국가명/폴리곤이 잔류하는 버그 유발
       function updateVisibleTerritories() {
+          // 🔄 줌 애니메이션 중에는 차단 (zoomend에서 1회 렌더)
+          if (window._isZooming) return;
           const { year, month } = getCurrentYearMonth();
           const currentZoom = map.getZoom();
           const simplifyTol = getSimplifyTolerance(currentZoom);
