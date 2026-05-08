@@ -8447,6 +8447,11 @@ body.force-mobile .marker-type-selector button {
                 if (!_loadVoice._noVoiceSet) _loadVoice._noVoiceSet = new Set();
                 _loadVoice._noVoiceSet.add(_id);
                 try {
+                    // Set 크기가 너무 커지면 오래된 절반 제거
+                    if (_loadVoice._noVoiceSet.size > 500) {
+                        const arr = [..._loadVoice._noVoiceSet];
+                        _loadVoice._noVoiceSet = new Set(arr.slice(arr.length / 2));
+                    }
                     localStorage.setItem('_voiceNoSet', JSON.stringify([..._loadVoice._noVoiceSet]));
                 } catch(_) {}
             });
@@ -13086,8 +13091,16 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 // Use a normal function so `this` is bound to the marker instance
                 marker.on('click', function (e) { 
                     L.DomEvent.stopPropagation(e);
-                    // 🔊 전장이면 War 효과음, 일반이면 사운드 없음
-                    const _isBattle = activeHistoryRecord?.is_battle || castle.is_battle || castle.place_type === 'battle';
+                    window._markerClickConsumed = true;
+                    // 🔊 전장 여부 판단 — castle 및 activeHistoryRecord의 모든 필드 체크
+                    const _isBattle = !!(
+                        activeHistoryRecord?.is_battle ||
+                        castle.is_battle ||
+                        castle.place_type === 'battle' ||
+                        castle.type === 'battle' ||
+                        (castle.properties && (castle.properties.is_battle || castle.properties.place_type === 'battle'))
+                    );
+                    console.log(`🔊 [SFX] castle="${castle.name||castle._id}" is_battle=${_isBattle}`, { ab: activeHistoryRecord?.is_battle, cb: castle.is_battle, pt: castle.place_type });
                     if (_isBattle) playSfx('/public/sound effect/War.m4a');
                     openDetailPanel(castle, activeHistoryRecord, countryInfo);
                     if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) openCastleForm(castle._id); 
@@ -13186,6 +13199,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     });
                     
                     marker.on('click', (e) => { 
+                        L.DomEvent.stopPropagation(e);
+                        window._markerClickConsumed = true;
                         map.flyTo(e.latlng, 10);
                         playSfx('/public/sound effect/militery.m4a');
                         openDetailPanel(castle, activeHistoryRecord, countryInfo);
@@ -13284,6 +13299,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 });
                 
                 marker.on('click', (e) => { 
+                    L.DomEvent.stopPropagation(e);
+                    window._markerClickConsumed = true;
                     map.flyTo(e.latlng, 10); // 🚩 [수정] 클릭 시 줌인하며 이동
                     playSfx('/public/sound effect/militery.m4a');
                     openDetailPanel(castle, activeHistoryRecord, countryInfo);
@@ -13401,24 +13418,23 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 </div>`;
             } else {
                 if (placeType === 'battle') {
-                    // ⚔️ 전장: 성 아이콘 하단 중앙에 불꽃+연기 정렬
+                    // ⚔️ 전장: 아이콘 중앙 포인트 정렬 (불꽃은 absolute로 튀어나오므로 anchor는 이미지 기준)
                     specialMarkerHtml = `
-                    <div style="position:relative; display:inline-flex; flex-direction:column; align-items:center;">
-                      <div style="position:relative; width:${sz}px; height:${sz}px;">
-                        <!-- 불꽃·연기: 성 왼쪽 상단 -->
-                        <div class="battle-fire-wrap" style="position:absolute; top:-10px; left:-4px; width:${sz}px; height:${sz}px; pointer-events:none; z-index:0;">
-                          <div class="battle-smoke-particle bs1"></div>
-                          <div class="battle-smoke-particle bs2"></div>
-                          <div class="battle-smoke-particle bs3"></div>
-                          <div class="battle-smoke-particle bs4"></div>
-                          <div class="battle-smoke-particle bs5"></div>
-                          <div class="battle-base-fire" style="bottom:0; left:30%; transform:translateX(-50%);"></div>
-                          <div class="battle-base-fire bf2" style="bottom:0; left:calc(30% + 8px); transform:none;"></div>
-                        </div>
-                        <!-- 성 아이콘 (불꽃 위) -->
-                        <img src="${ptCfg.icon}" style="width:${sz}px;height:${sz}px;object-fit:contain;display:block;position:relative;z-index:2;" onerror="this.style.display='none'">
+                    <div style="position:relative; width:${sz}px; height:${sz}px;">
+                      <!-- 불꽃·연기: absolute이므로 anchor 계산에 영향 없음 -->
+                      <div class="battle-fire-wrap" style="position:absolute; top:-10px; left:-4px; width:${sz}px; height:${sz}px; pointer-events:none; z-index:0;">
+                        <div class="battle-smoke-particle bs1"></div>
+                        <div class="battle-smoke-particle bs2"></div>
+                        <div class="battle-smoke-particle bs3"></div>
+                        <div class="battle-smoke-particle bs4"></div>
+                        <div class="battle-smoke-particle bs5"></div>
+                        <div class="battle-base-fire" style="bottom:0; left:30%; transform:translateX(-50%);"></div>
+                        <div class="battle-base-fire bf2" style="bottom:0; left:calc(30% + 8px); transform:none;"></div>
                       </div>
-                      <div style="display:flex;align-items:center;gap:1px;width:max-content;margin-top:2px;position:relative;z-index:2;">
+                      <!-- 성 아이콘 (불꽃 위, 크기 고정) -->
+                      <img src="${ptCfg.icon}" style="width:${sz}px;height:${sz}px;object-fit:contain;display:block;position:relative;z-index:2;" onerror="this.style.display='none'">
+                      <!-- 이름 라벨: absolute로 아이콘 바로 아래 중앙 정렬 -->
+                      <div style="position:absolute; top:${sz + 2}px; left:50%; transform:translateX(-50%); white-space:nowrap; z-index:2;">
                         <span style="${nameStyle}">${castleName}</span>
                       </div>
                     </div>`;
@@ -13436,9 +13452,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const specialIcon = L.divIcon({
                 className: `custom-${placeType}-marker`,
                 html: specialMarkerHtml,
-                iconSize: placeType === 'battle' ? [sz, sz + 14] : [100, sz],
+                iconSize:   placeType === 'battle' ? [sz, sz] : [100, sz],
                 iconAnchor: placeType === 'battle' ? [sz / 2, sz / 2] : [50, 5],
-                popupAnchor: [0, placeType === 'battle' ? -(sz / 2 + 8) : -5]
+                popupAnchor: [0, placeType === 'battle' ? -(sz / 2 + 4) : -5]
             });
             marker = L.marker([castle.lat, castle.lng], { icon: specialIcon });
 
@@ -13875,27 +13891,23 @@ function invalidateCountryLookupCache() {
         localStorage.setItem(key + '_fetchedAt', Date.now().toString());
     }
 
-    // 🔊 [사운드] 마커 클릭 효과음 — 동시 재생 방지, 볼륨 0.5
+    // 🔊 [사운드] 마커 클릭 효과음 — 볼륨 0.5
     const _sfxCache = {};
     function playSfx(src) {
         try {
-            if (!_sfxCache[src]) {
-                const a = new Audio(src);
-                a.volume = 0.5;
-                _sfxCache[src] = a;
-            }
-            const audio = _sfxCache[src];
-            // 재생 중이면 처음부터 다시 / 아니면 그냥 play
-            if (!audio.paused) {
-                audio.currentTime = 0;
-            } else {
-                audio.currentTime = 0;
-                audio.play().catch(err => {
-                    // Autoplay 차단 시 새 Audio 객체로 재시도 (일부 브라우저는 clone이 필요)
-                    const clone = new Audio(src);
-                    clone.volume = 0.5;
-                    _sfxCache[src] = clone;
-                    clone.play().catch(() => {});
+            // 항상 새 재생 시도 — 클릭 이벤트는 사용자 제스처이므로 Autoplay 정책 통과
+            const audio = _sfxCache[src] || new Audio(src);
+            audio.volume = 0.5;
+            _sfxCache[src] = audio;
+            audio.currentTime = 0;
+            const p = audio.play();
+            if (p && typeof p.catch === 'function') {
+                p.catch(() => {
+                    // 재생 실패 시 새 인스턴스로 재시도
+                    const fresh = new Audio(src);
+                    fresh.volume = 0.5;
+                    _sfxCache[src] = fresh;
+                    fresh.play().catch(() => {});
                 });
             }
         } catch(e) {}
@@ -18643,6 +18655,11 @@ const loadingMessages = [
     
     // 지도 클릭 시 성 추가 폼 열기 (편집 모드에서만)
     map.on('click', (e) => {
+      // 🛡️ 마커 클릭이 map click으로 버블링된 경우 무시
+      if (window._markerClickConsumed) {
+          window._markerClickConsumed = false;
+          return;
+      }
       // 지도 빈 곳 클릭 시 상세 패널 닫기
       closeDetailPanel();
 
