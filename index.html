@@ -4645,19 +4645,27 @@ body.force-mobile .marker-type-selector button {
         /* 아이콘 전용 버튼 */
         .filter-pill button.icon-only { padding: 0; width: 36px; }
         
-        /* 모든 편집 폼 모바일 스타일 */
+        /* 모든 편집 폼 모바일 스타일 — 비활성 시 화면 밖으로 숨김 */
         #castleForm, #historyForm, #editForm, #battleForm,
         #cityForm, #labelForm, #naturalForm, #armyForm, #eventForm, #editBattleForm {
             position: fixed !important;
-            top: 50% !important;
-            left: 50% !important;
-            transform: translate(-50%, -50%) !important;
+            top: -200vh !important;
+            left: -200vw !important;
+            transform: none !important;
             width: 90vw !important;
             max-width: 500px !important;
             max-height: 85vh !important;
             overflow-y: auto !important;
             z-index: 10000 !important;
             padding: 15px !important;
+        }
+        /* active 상태일 때만 화면 중앙에 표시 */
+        #castleForm.active, #historyForm.active, #editForm.active, #battleForm.active,
+        #cityForm.active, #labelForm.active, #naturalForm.active, #armyForm.active,
+        #eventForm.active, #editBattleForm.active {
+            top: 50% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) !important;
         }
         
         #castleForm input, #historyForm input, #editForm input, #battleForm input,
@@ -8927,6 +8935,22 @@ body.force-mobile .marker-type-selector button {
     window.addEventListener('resize', function() {
         // timeline-sidebar는 CSS 미디어 쿼리로 자동 조정됨
         // timeline-control 위치는 CSS로 고정됨
+
+        // 🚩 [수정] PC → 모바일 크기로 창이 줄어들 때 열려 있는 편집 폼 강제 닫기
+        // (모바일 CSS 미디어 쿼리가 active 폼을 전체화면으로 표시하는 문제 방지)
+        if (window.innerWidth <= 967) {
+            const EDIT_FORM_IDS = ['castleForm','eventForm','historicalRecordForm',
+                'historyForm','countryForm','kingForm','editCitySelectionForm','drawingForm','contributionForm'];
+            EDIT_FORM_IDS.forEach(function(id) {
+                const el = document.getElementById(id);
+                if (el && el.classList.contains('active')) {
+                    el.classList.remove('active');
+                }
+            });
+            // 편집 패널 오버레이도 닫기
+            const overlay = document.getElementById('editPanelOverlay');
+            if (overlay) overlay.style.display = 'none';
+        }
     });
     
     // 🚩 [수정] 기본 레이어를 위성모드로 변경
@@ -9780,7 +9804,10 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
 
         // ── 편집 버튼 ──
         const editBar = document.getElementById('odp-edit-bar');
-        if (canEditObjects()) {
+        // 🚫 모바일(현재 창 너비) + 비로그인/게스트는 편집 버튼 숨김
+        const _isMobileNow = window.innerWidth <= 967;
+        const _isGuestOrLoggedOut = !currentUser || currentUser.isGuest;
+        if (canEditObjects() && !(_isMobileNow && _isGuestOrLoggedOut)) {
             const btnEdit = document.getElementById('odp-btn-edit');
             const btnHist = document.getElementById('odp-btn-history');
             const btnDel  = document.getElementById('odp-btn-delete');
@@ -10014,6 +10041,13 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     }
 
     function openForm(formId) {
+        // 🚫 모바일(현재 창 너비 기준) + 비로그인/게스트: 편집 폼 차단
+        const GUEST_BLOCKED_FORMS = ['castleForm', 'eventForm', 'historicalRecordForm', 'historyForm', 'countryForm', 'kingForm', 'editCitySelectionForm'];
+        const _isMobileNow = window.innerWidth <= 967;
+        const _isGuestOrLoggedOut = !currentUser || currentUser.isGuest;
+        if (_isMobileNow && _isGuestOrLoggedOut && GUEST_BLOCKED_FORMS.includes(formId)) {
+            return; // 조용히 차단
+        }
         // 슬라이드 패널 방식으로 열기
         openEditPanel(formId);
     }
@@ -25605,6 +25639,21 @@ kingSelect.addEventListener('change', () => {
                 if (menuAccountMgmt) menuAccountMgmt.style.display = 'none';
                 const menuLogoutHamburger = document.getElementById('menu-logout');
                 if (menuLogoutHamburger) menuLogoutHamburger.style.display = 'none';
+                // 🚫 [추가] 모바일(현재 창 너비) + 비로그인/게스트: 필터창도 숨김
+                if (window.innerWidth <= 967) {
+                    const hamburgerPanel = document.getElementById('hamburger-menu-panel');
+                    if (hamburgerPanel) {
+                        // 필터 섹션 (h3 🔍 필터 + 그 아래 menu-section)
+                        Array.from(hamburgerPanel.querySelectorAll('h3')).forEach(h3 => {
+                            const txt = h3.textContent.trim();
+                            if (txt.includes('필터')) {
+                                h3.style.display = 'none';
+                                const sec = h3.nextElementSibling;
+                                if (sec && sec.classList.contains('menu-section')) sec.style.display = 'none';
+                            }
+                        });
+                    }
+                }
             } else {
                 if (accountLinkEl) accountLinkEl.style.display = 'inline-block';
                 // 🚩 [추가] 일반 유저는 기여 기능 표시
