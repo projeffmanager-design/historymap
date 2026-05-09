@@ -282,6 +282,9 @@
         APP_VERSION: '3.7.0',           // [v3.7.0] 사이클 재생속도·팝업억제·타일부트스트랩·BGM동적로드·검색드롭다운수정
         DATA_SCHEMA_VERSION: '2.1.1'    // tile_30_120: Tsushima data[]→features[] 이동 — 캐시 강제 갱신
     };
+    // 세션 캐시에서 schema version 을 참조할 수 있도록 전역 노출
+    window._APP_SCHEMA_VERSION = CONFIG.DATA_SCHEMA_VERSION;
+    window._APP_VERSION        = CONFIG.APP_VERSION;
 
     // 로딩 화면 우하단 버전 표기 — 가장 먼저 실행 (리다이렉트 전에도 보여야 함)
     // (DOM이 아직 파싱 중일 수 있으므로 HTML에도 하드코딩, 여기서는 DOMContentLoaded 후 재설정)
@@ -8345,6 +8348,114 @@ body.force-mobile .marker-type-selector button {
     window.drawings = drawings; // 외부에서 접근 가능하도록 (지우개 저장 등)
     let territories = []; // 🚩 [추가] 영토 폴리곤 데이터 저장소
     let naturalFeatures = []; // 🌊 [추가] 자연 지형지물 (강, 산맥 등) 데이터 저장소
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 📦 SESSION MAP CACHE  (session-scoped in-memory accumulation cache)
+    //
+    //  - 세션 시작 시 서버 최신 데이터 기준 스냅샷 고정
+    //  - 한 번 로드된 castle / territory 는 세션 동안 메모리에 유지
+    //  - 같은 타일/영역 재방문 시 네트워크 재요청 없이 즉시 렌더링
+    //  - 배포 후 버전 변화는 감지하되, 현재 세션은 강제 갱신하지 않음
+    // ═══════════════════════════════════════════════════════════════════════
+    window._sessionMapCache = {
+        // ── 세션 버전 스냅샷 (initialize() 에서 고정, 이후 불변) ──────────
+        sessionDataVersion:   null,  // castle lastModified timestamp (서버 응답)
+        sessionSchemaVersion: null,  // DATA_SCHEMA_VERSION 스냅샷
+        startedAt:            Date.now(),
+
+        // ── Entity Map: O(1) id lookup + 중복 방지 ─────────────────────
+        castlesById:     new Map(),  // castleId → castle object
+        territoriesById: new Map(),  // territoryId → territory object
+
+        // ── 로드 완료 타일 키 (_loadedTileFiles Set 과 동일 참조로 동기화) ─
+        loadedTerritoryTileKeys: null,
+
+        // ── In-flight 요청 dedup (castle 전용; territory tile 은 _loadingTileFiles) ─
+        inflightCastleRequests: new Map(),  // fetchKey → Promise<Castle[]>
+
+        // ── soft memory limit (기본: eviction 비활성) ────────────────────
+        SOFT_LIMIT_CASTLES:    20000,
+        SOFT_LIMIT_TERRITORIES: 5000,
+        _evictionEnabled:      false,
+    };
+
+    /**
+     * 세션 캐시에 castles 배열을 병합합니다.
+     *  - id 기준 중복 제거 (동일 id 가 이미 있으면 기존 값 유지)
+     *  - 전역 castles[] 와 castlesById Map 을 항상 동기화
+     * @param {Array} incoming  서버 또는 IndexedDB 에서 온 castle 배열
+     * @returns {number} 실제로 추가된 항목 수
+     */
+    function _mergeCastlesIntoSession(incoming) {
+        if (!incoming || !incoming.length) return 0;
+        const cache = window._sessionMapCache;
+        let added = 0;
+        for (const castle of incoming) {
+            const id = castle._id || castle.id;
+            if (!id) continue;
+            if (!cache.castlesById.has(id)) {
+                cache.castlesById.set(id, castle);
+                castles.push(castle);
+                added++;
+            }
+            // 동일 id 가 이미 있으면 기존 값 유지 (세션 snapshot 보호)
+        }
+        // soft eviction (활성화된 경우에만)
+        if (cache._evictionEnabled && cache.castlesById.size > cache.SOFT_LIMIT_CASTLES) {
+            _evictOldestCastles();
+        }
+        const isDev = (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+        if (isDev && added > 0) {
+            console.debug(`[SessionCache] +${added} castles merged (total: ${cache.castlesById.size})`);
+        }
+        return added;
+    }
+
+    /**
+     * 세션 캐시에서 castles 를 초기화합니다 (세션 시작 시 1회 호출).
+     * replace semantics: 기존 castlesById 를 비우고 새 배열로 교체.
+     * @param {Array} initial  초기 castle 배열
+     */
+    function _initCastlesSession(initial) {
+        const cache = window._sessionMapCache;
+        cache.castlesById.clear();
+        castles.length = 0;
+        _mergeCastlesIntoSession(initial);
+    }
+
+    /**
+     * soft eviction: castlesById 에서 가장 오래된(Map 삽입 순) 항목 절반 제거
+     */
+    function _evictOldestCastles() {
+        const cache = window._sessionMapCache;
+        const target  = Math.floor(cache.SOFT_LIMIT_CASTLES / 2);
+        const keys    = [...cache.castlesById.keys()];
+        const toRemove = keys.slice(0, keys.length - target);
+        toRemove.forEach(k => cache.castlesById.delete(k));
+        const remaining = new Set(cache.castlesById.keys());
+        for (let i = castles.length - 1; i >= 0; i--) {
+            const id = castles[i]._id || castles[i].id;
+            if (!remaining.has(id)) castles.splice(i, 1);
+        }
+        console.warn(`[SessionCache] eviction: removed ${toRemove.length} oldest castles (limit: ${cache.SOFT_LIMIT_CASTLES})`);
+    }
+
+    /**
+     * 세션 캐시 통계 (디버깅용 — console 에서 window._sessionCacheStats() 호출)
+     * @returns {Object}
+     */
+    window._sessionCacheStats = function() {
+        const cache = window._sessionMapCache;
+        return {
+            castlesCount:           cache.castlesById.size,
+            territoriesCount:       cache.territoriesById.size,
+            loadedTerritoryTiles:   cache.loadedTerritoryTileKeys ? cache.loadedTerritoryTileKeys.size : 0,
+            inflightCastleRequests: cache.inflightCastleRequests.size,
+            sessionDataVersion:     cache.sessionDataVersion,
+            sessionSchemaVersion:   cache.sessionSchemaVersion,
+            sessionAgeSeconds:      Math.floor((Date.now() - cache.startedAt) / 1000),
+        };
+    };
     let contributions = []; // 🚩 [추가] 유저 기여 데이터
     let markers = [];
     let allCastleMarkers = []; // 🚩 [추가] 모든 성 마커 저장소
@@ -14842,12 +14953,23 @@ const loadingMessages = [
           } catch (e) { /* 실패 시 캐시 그대로 사용 */ }
       }
       
+      // ── 📦 [SessionCache] 세션 버전 스냅샷 고정 (이후 불변) ───────────────
+      // 서버 castle lastModified 를 session data version 으로 고정합니다.
+      // 배포 후 버전이 바뀌어도 현재 세션은 이 스냅샷을 유지합니다.
+      window._sessionMapCache.sessionDataVersion   = String(castleServerVersion || Date.now());
+      window._sessionMapCache.sessionSchemaVersion = window._APP_SCHEMA_VERSION || '0';
+      // _loadedTileFiles 는 아직 생성 전 — initialize 완료 후 _ensureTileIndex 호출 시 동기화됨
+      // (아래 loadTerritoryTiles 흐름에서 자동 연결됨)
+      console.log(`[SessionCache] snapshot fixed — dataVersion: ${window._sessionMapCache.sessionDataVersion}, schema: ${window._sessionMapCache.sessionSchemaVersion}`);
+
       // castles: 캐시가 있으면 바로 사용, 없으면 백그라운드 로드
       if (effectiveCachedCastles && effectiveCachedCastles.length > 0) {
-          castles = effectiveCachedCastles;
+          // 🔄 [SessionCache] replace 가 아닌 init 사용 → castlesById Map 도 초기화
+          _initCastlesSession(effectiveCachedCastles);
           console.log(`💾 castles 캐시 사용: ${castles.length}개 (즉시 렌더링 가능)`);
       } else {
           castles = [];
+          window._sessionMapCache.castlesById.clear();
           console.log('🏰 castles: 캐시 없음, 백그라운드 DB 로드 예정');
       }
       
@@ -15126,13 +15248,22 @@ const loadingMessages = [
           // kings/naturalFeatures 완료 후 즉시 지도 렌더링, castles는 도착하면 재렌더링
           if ((layerVisibility.city || layerVisibility.territoryPolygon) && castles.length === 0) {
               // castle은 별도 비동기 처리 (서버 캐시 히트 시 즉시, 미스 시 ~280초 백그라운드)
-              fetchData('castle').then(async allCastlesData => {
+              // 🔄 [SessionCache] in-flight dedup: 동일 fetch key 가 이미 진행 중이면 기존 Promise 재사용
+              const _castleFetchKey = 'all_castles';
+              const _inflightMap    = window._sessionMapCache.inflightCastleRequests;
+              let _castlePromise    = _inflightMap.get(_castleFetchKey);
+              if (!_castlePromise) {
+                  _castlePromise = fetchData('castle');
+                  _inflightMap.set(_castleFetchKey, _castlePromise);
+                  _castlePromise.finally(() => _inflightMap.delete(_castleFetchKey));
+              }
+              _castlePromise.then(async allCastlesData => {
                   if (!allCastlesData || !Array.isArray(allCastlesData) || allCastlesData.length === 0) return;
                   console.log(`✅ castles 백그라운드 로드 완료: ${allCastlesData.length}개`);
                   const castleProcessStart = performance.now();
                   const countryNameMap = new Map();
                   countries.forEach(c => { if (c.name) countryNameMap.set(c.name, c._id); });
-                  castles = allCastlesData.map(castle => {
+                  const processedCastles = allCastlesData.map(castle => {
                       if (castle.history && Array.isArray(castle.history) && castle.history.length > 0) {
                           const firstHistory = castle.history[0];
                           if (firstHistory.start_year !== undefined && firstHistory.country_id && firstHistory.place_type !== undefined) return castle;
@@ -15167,7 +15298,9 @@ const loadingMessages = [
                       }
                       return { ...castle, history: processedHistory };
                   });
-                  console.log(`✅ castles 처리 완료: ${castles.length}개 (${((performance.now()-castleProcessStart)/1000).toFixed(2)}초)`);
+                  // 🔄 [SessionCache] replace 대신 merge — 세션 중 이미 로드된 항목 유지
+                  const addedCount = _mergeCastlesIntoSession(processedCastles);
+                  console.log(`✅ castles 처리 완료: ${castles.length}개 (신규 ${addedCount}개, ${((performance.now()-castleProcessStart)/1000).toFixed(2)}초)`);
                   saveCastlesCache(castles).catch(e => console.warn('⚠️ castles 캐시 저장 실패:', e));
                   if (layerVisibility.countryLabel || layerVisibility.placeLabel || layerVisibility.ethnicLabel) {
                       const { year, month } = getCurrentYearMonth();
@@ -15481,15 +15614,55 @@ const loadingMessages = [
       let _tileIndexCache   = null;   // index.json 파싱 결과 (한 번만 fetch)
       let _tilesBasePathCache = null; // 확인된 tiles 경로
       let _loadedTileFiles  = new Set(); // 이미 로드한 tile filename
+      // 🔄 [SessionCache] 외부에서 loadedTerritoryTileKeys 참조 가능하도록 노출
+      window._loadedTileFilesRef = _loadedTileFiles;
       let _loadingTileFiles = new Set(); // 현재 fetch 중인 tile (중복 방지)
       let _tileLoadBg       = false;  // 백그라운드 로딩 진행 중 여부
 
-      // 🎨 [Quality-first] 타일 튜닝 상수
-      const TILE_BUFFER_DEG     = 20;   // 뷰포트 여유 (도) — 약 2 ring 추가
-      const TILE_BG_BATCH       = 14;   // 백그라운드 동시 타일 요청 수
-      const TILE_MAX_CONCURRENT = 14;   // moveend/move/zoomend 동시 요청 수
-      const MOVE_THROTTLE_MS    = 60;   // move 이벤트 throttle (ms)
-      const TILE_FADE_MS        = 140;  // 영토 레이어 교체 시 crossfade 시간 (ms)
+      // ═══════════════════════════════════════════════════════════════════════
+      // 🎨 [Tile Prefetch + Coverage-based Swap] Device-mode strategy config
+      //  - desktop: quality-first (buffer 2ring, concurrent 8, swap threshold 0.85)
+      //  - mobile : conservative (buffer 1ring, concurrent 4, swap threshold 0.72)
+      // ═══════════════════════════════════════════════════════════════════════
+      const _tileDeviceMode = /Mobi|Android|iPhone/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+      const _tileStrategyConfig = _tileDeviceMode === 'mobile' ? {
+          bufferDeg:              10,   // buffer ring 1개 = 10°
+          prefetchNextZoomDeg:    true,
+          prefetchPrevZoomDeg:    false,
+          maxConcurrent:          4,
+          moveThrottleMs:         140,
+          swapCoverageThreshold:  0.72, // 72% 이상 준비돼야 렌더링
+          fadeMs:                 120,
+          maxMemoryTiles:         180,
+          bgBatch:                4,
+          // ── 메타타일 설정 ──────────────────────────────────────────
+          metatileSize:           20,   // 20°×20° (2x2)
+          useMetatile:            true,
+          // ── 방향성 prefetch ────────────────────────────────────────
+          directionalBias:        1.5,  // 이동 방향 타일 우선 가중치 (1.0 = bias 없음)
+      } : {
+          bufferDeg:              20,   // buffer ring 2개 = 20°
+          prefetchNextZoomDeg:    true,
+          prefetchPrevZoomDeg:    true,
+          maxConcurrent:          8,
+          moveThrottleMs:         80,
+          swapCoverageThreshold:  0.85, // 85% 이상 준비돼야 렌더링
+          fadeMs:                 140,
+          maxMemoryTiles:         400,
+          bgBatch:                14,
+          // ── 메타타일 설정 ──────────────────────────────────────────
+          metatileSize:           20,   // 20°×20° (2x2), --size 40 으로 4x4 가능
+          useMetatile:            true,
+          // ── 방향성 prefetch ────────────────────────────────────────
+          directionalBias:        2.0,  // 이동 방향 타일 우선 가중치
+      };
+
+      // 기존 상수와 호환 (내부 코드 참조용)
+      const TILE_BUFFER_DEG     = _tileStrategyConfig.bufferDeg;
+      const TILE_BG_BATCH       = _tileStrategyConfig.bgBatch;
+      const TILE_MAX_CONCURRENT = _tileStrategyConfig.maxConcurrent;
+      const MOVE_THROTTLE_MS    = _tileStrategyConfig.moveThrottleMs;
+      const TILE_FADE_MS        = _tileStrategyConfig.fadeMs;
 
       // 🎨 [Quality-first] 타일 피처 메모리 LRU 캐시 (최대 200 타일 — re-pan 즉시 복원)
       const MEMORY_TILE_CACHE_SIZE = 200;
@@ -15518,6 +15691,168 @@ const loadingMessages = [
                      b.south - pad < vBounds.north &&
                      b.east  + pad > vBounds.west  &&
                      b.west  - pad < vBounds.east;
+          });
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // 📦 METATILE SYSTEM  (20°×20° 메타타일 우선 로딩 — 요청 70% 감소)
+      //
+      //  흐름:
+      //    1. meta20_index.json 로드 (최초 1회)
+      //    2. 뷰포트에 필요한 메타타일 계산
+      //    3. 메타타일 1개 fetch → 자식 타일 4개 모두 loaded 로 마크
+      //    4. 메타타일 없는 영역만 개별 타일 폴백
+      // ═══════════════════════════════════════════════════════════════════════
+      let _metaIndexCache    = null;   // meta20_index.json 파싱 결과
+      let _metaBasePath      = null;   // 메타타일 디렉터리 경로
+      let _loadedMetaFiles   = new Set(); // 이미 로드한 메타타일
+      let _loadingMetaFiles  = new Set(); // 현재 fetch 중인 메타타일
+
+      /**
+       * 메타타일 인덱스 로드 (최초 1회, _ensureTileIndex 이후 호출)
+       */
+      async function _ensureMetaIndex() {
+          if (_metaIndexCache) return _metaIndexCache;
+          if (!_tileStrategyConfig.useMetatile || !_tilesBasePathCache) return null;
+          try {
+              const sz      = _tileStrategyConfig.metatileSize;
+              const origin  = window.location.origin;
+              const version = new Date().toDateString();
+              const metaDir  = `${_tilesBasePathCache}/meta${sz}`;
+              const metaResp = await fetch(`${origin}${metaDir}/index.json?v=${version}`);
+              if (!metaResp.ok) { console.warn('[Metatile] index 없음 — 개별 타일만 사용'); return null; }
+              const data = await metaResp.json();
+              _metaIndexCache = data.index || [];
+              _metaBasePath   = metaDir;
+              const isDev = (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+              if (isDev) console.debug(`[Metatile] 인덱스 로드: ${_metaIndexCache.length}개 메타타일 (${sz}°×${sz}°)`);
+              return _metaIndexCache;
+          } catch (e) {
+              console.warn('[Metatile] 인덱스 로드 실패 — 개별 타일 폴백:', e.message);
+              return null;
+          }
+      }
+
+      /**
+       * 메타타일 1개 fetch → features 반환 + 자식 타일 모두 loaded 마크
+       * @param {Object} meta  메타타일 인덱스 항목
+       */
+      async function _fetchMetatile(meta, origin, version) {
+          if (_loadedMetaFiles.has(meta.filename))  return [];
+          if (_loadingMetaFiles.has(meta.filename)) return [];
+
+          // 자식 타일 중 하나라도 이미 로드됐으면 메타타일 스킵
+          // (개별 타일이 더 최신일 수 있으므로 메타타일로 덮어쓰지 않음)
+          const childLoaded = (meta.child_tiles || []).filter(f => _loadedTileFiles.has(f)).length;
+          if (childLoaded === (meta.child_tiles || []).length) {
+              _loadedMetaFiles.add(meta.filename);
+              return []; // 자식 전부 로드됨 → 메타타일 불필요
+          }
+
+          _loadingMetaFiles.add(meta.filename);
+          try {
+              const url  = `${origin}${_metaBasePath}/${meta.filename}?v=${version}`;
+              const resp = await fetch(url);
+              if (!resp.ok) { console.warn(`[Metatile] 로드 실패: ${meta.filename}`); return []; }
+              const data     = await resp.json();
+              const features = data.features || [];
+
+              // 메타타일 로드 완료 → 자식 타일 전체를 loaded 로 마크 (재요청 방지)
+              (meta.child_tiles || []).forEach(f => {
+                  _loadedTileFiles.add(f);
+                  _loadingTileFiles.delete(f);
+              });
+              _loadedMetaFiles.add(meta.filename);
+
+              const isDev = (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+              if (isDev) console.debug(`[Metatile] ✅ ${meta.filename}: ${features.length} features (자식 ${(meta.child_tiles||[]).length}개 마크)`);
+              return features;
+          } catch (e) {
+              console.warn(`[Metatile] 오류: ${meta.filename}`, e);
+              return [];
+          } finally {
+              _loadingMetaFiles.delete(meta.filename);
+          }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // 🧭 DIRECTIONAL PREFETCH  (이동 방향 기반 타일 우선순위)
+      //
+      //  pan velocity vector 를 추적하여 이동 방향 타일에 높은 priority 부여.
+      //  오른쪽으로 pan 중 → 오른쪽 타일 먼저 로드, 왼쪽은 후순위.
+      // ═══════════════════════════════════════════════════════════════════════
+      let _panHistory = []; // { lat, lng, t } 최근 2~3 포인트
+      const PAN_HISTORY_MS = 300; // 이 시간 내 이동을 velocity 계산에 사용
+
+      /** 현재 pan velocity vector 업데이트 (map.on('move') 에서 호출) */
+      function _updatePanVelocity() {
+          const c   = map.getCenter();
+          const now = Date.now();
+          _panHistory.push({ lat: c.lat, lng: c.lng, t: now });
+          // 오래된 포인트 제거
+          _panHistory = _panHistory.filter(p => now - p.t <= PAN_HISTORY_MS);
+      }
+
+      /**
+       * 현재 이동 벡터 반환 (단위: °/ms)
+       * @returns {{ dlat: number, dlng: number }}  zero vector if stationary
+       */
+      function _getPanVelocity() {
+          if (_panHistory.length < 2) return { dlat: 0, dlng: 0 };
+          const oldest = _panHistory[0];
+          const newest = _panHistory[_panHistory.length - 1];
+          const dt     = newest.t - oldest.t;
+          if (dt <= 0) return { dlat: 0, dlng: 0 };
+          return {
+              dlat: (newest.lat - oldest.lat) / dt,
+              dlng: (newest.lng - oldest.lng) / dt,
+          };
+      }
+
+      /**
+       * 타일 목록을 이동 방향 기준으로 정렬한다.
+       *  - 이동 방향에 가까운 타일일수록 score 높음 → 앞에 배치
+       *  - velocity 가 0 이면 중심 거리 기준 정렬 (기존 동작)
+       *
+       * @param {Array}  tiles        정렬할 타일 배열
+       * @param {Object} vBounds      현재 뷰포트 bounds
+       * @param {Object} velocity     { dlat, dlng }
+       * @param {number} bias         방향성 가중치 (1.0 = 없음, 2.0 = 강함)
+       */
+      function _sortByDirectionalPriority(tiles, vBounds, velocity, bias) {
+          const cx    = (vBounds.west  + vBounds.east)  / 2;
+          const cy    = (vBounds.south + vBounds.north) / 2;
+          const speed = Math.hypot(velocity.dlat, velocity.dlng);
+          bias = bias || 1.0;
+
+          return tiles.slice().sort((a, b) => {
+              const ax = (a.bounds.west  + a.bounds.east)  / 2;
+              const ay = (a.bounds.south + a.bounds.north) / 2;
+              const bx = (b.bounds.west  + b.bounds.east)  / 2;
+              const by = (b.bounds.south + b.bounds.north) / 2;
+
+              // 중심까지 거리 (기본 정렬)
+              const distA = Math.hypot(ax - cx, ay - cy);
+              const distB = Math.hypot(bx - cx, by - cy);
+
+              if (speed < 1e-6) {
+                  // 정지 중 → 중심 거리 기준
+                  return distA - distB;
+              }
+
+              // 이동 방향 단위 벡터
+              const ux = velocity.dlng / speed;
+              const uy = velocity.dlat / speed;
+
+              // 각 타일의 방향 정렬 점수 (dot product: 1=완전 앞, -1=완전 뒤)
+              const dotA = ((ax - cx) * ux + (ay - cy) * uy);
+              const dotB = ((bx - cx) * ux + (by - cy) * uy);
+
+              // score = 거리 - bias * dot (앞쪽일수록 score 낮음 → 먼저 로드)
+              const scoreA = distA - bias * dotA;
+              const scoreB = distB - bias * dotB;
+
+              return scoreA - scoreB;
           });
       }
 
@@ -15550,15 +15885,18 @@ const loadingMessages = [
       }
 
       // feature 배열 → territories 전역 배열에 병합 (중복 제거)
+      // 🔄 [SessionCache] territoriesById Map 도 동기화하여 세션 누적 캐시 유지
       function _mergeFeatures(newFeatures) {
-          const existingIds = new Set(territories.map(t => t._id));
+          const sessionCache = window._sessionMapCache;
+          // territoriesById Map 을 source of truth 로 사용 (O(1) lookup)
           let added = 0;
           newFeatures.forEach(feature => {
               const id = feature.properties?._id || feature.properties?.id || feature.id;
-              if (!id || existingIds.has(id)) return;
-              existingIds.add(id);
+              if (!id) return;
+              // 세션 캐시에 이미 있으면 재삽입하지 않음 (세션 snapshot 보호)
+              if (sessionCache.territoriesById.has(id)) return;
               const countryId = feature.properties?.country_id || feature.properties?.country || null;
-              territories.push({
+              const territory = {
                   _id: id,
                   name: feature.properties?.name || '영토',
                   name_ko: feature.properties?.name_ko,
@@ -15573,9 +15911,22 @@ const loadingMessages = [
                   start: feature.properties?.start_year || feature.properties?.start,
                   end: feature.properties?.end_year   || feature.properties?.end,
                   fromTile: true
-              });
+              };
+              sessionCache.territoriesById.set(id, territory);
+              territories.push(territory);
               added++;
           });
+          // soft eviction (활성화된 경우에만)
+          if (sessionCache._evictionEnabled && sessionCache.territoriesById.size > sessionCache.SOFT_LIMIT_TERRITORIES) {
+              const excess = sessionCache.territoriesById.size - Math.floor(sessionCache.SOFT_LIMIT_TERRITORIES / 2);
+              const keys = [...sessionCache.territoriesById.keys()].slice(0, excess);
+              keys.forEach(k => sessionCache.territoriesById.delete(k));
+              const remaining = new Set(sessionCache.territoriesById.keys());
+              for (let i = territories.length - 1; i >= 0; i--) {
+                  if (!remaining.has(territories[i]._id)) territories.splice(i, 1);
+              }
+              console.warn(`[SessionCache] territory eviction: removed ${excess} entries`);
+          }
           return added;
       }
 
@@ -15601,6 +15952,12 @@ const loadingMessages = [
           _tileIndexCache    = await resp.json();
           _tilesBasePathCache = basePath;
           console.log(`📊 타일 인덱스: ${_tileIndexCache.length}개 타일 (경로: ${basePath})`);
+
+          // 메타타일 인덱스 백그라운드 프리로드 (타일 로딩 블록 안 함)
+          if (_tileStrategyConfig.useMetatile) {
+              _ensureMetaIndex().catch(() => {}); // 실패해도 무시
+          }
+
           return { tileIndex: _tileIndexCache, basePath };
       }
 
@@ -15698,6 +16055,7 @@ const loadingMessages = [
       }
 
       // moveend 시 아직 안 로드된 새 뷰포트 타일 lazy-load
+      // 🔄 [Coverage-based Swap] required 타일이 threshold 이상 준비될 때만 렌더링 호출
       async function _loadNewViewportTiles() {
           if (allTerritoriesLoaded || _tileLoadBg) return;
           // 🔒 동시 실행 방지 — 진행 중이면 재실행 플래그만 세우고 리턴
@@ -15723,26 +16081,127 @@ const loadingMessages = [
           // 중심 좌표 계산 (중앙 타일 우선 정렬용)
           const vCenterLng = (vBounds.west + vBounds.east) / 2;
           const vCenterLat = (vBounds.south + vBounds.north) / 2;
-          let newTiles = _tilesForBounds(_tileIndexCache, vBounds, TILE_BUFFER_DEG)
-              .filter(t => !_loadedTileFiles.has(t.filename) && !_loadingTileFiles.has(t.filename));
-          if (newTiles.length === 0) return;
-          // 중심부 타일 우선 정렬
-          newTiles.sort((a, b) => {
-              const da = Math.hypot(((a.bounds.east+a.bounds.west)/2)-vCenterLng, ((a.bounds.north+a.bounds.south)/2)-vCenterLat);
-              const db = Math.hypot(((b.bounds.east+b.bounds.west)/2)-vCenterLng, ((b.bounds.north+b.bounds.south)/2)-vCenterLat);
-              return da - db;
-          });
-          console.log(`🗺️ 뷰포트 타일 ${newTiles.length}개 로드 (중심 우선)`);
-          // 동시 요청 수 제한
-          for (let i = 0; i < newTiles.length; i += TILE_MAX_CONCURRENT) {
-              const batch = newTiles.slice(i, i + TILE_MAX_CONCURRENT);
-              const features = (await Promise.all(
-                  batch.map(t => _fetchTile(t, origin, _tilesBasePathCache, version))
-              )).flat();
-              _mergeFeatures(features);
+
+          // ── required tiles: 현재 뷰포트 (buffer 포함) ────────────────────
+          const requiredTiles = _tilesForBounds(_tileIndexCache, vBounds, TILE_BUFFER_DEG);
+          let newRequired = requiredTiles.filter(t => !_loadedTileFiles.has(t.filename) && !_loadingTileFiles.has(t.filename));
+
+          // ── coverage 계산: required 중 이미 로드된 비율 ──────────────────
+          const readyCount    = requiredTiles.filter(t => _loadedTileFiles.has(t.filename)).length;
+          const totalRequired = requiredTiles.length;
+          const coverage      = totalRequired === 0 ? 1 : readyCount / totalRequired;
+          const threshold     = _tileStrategyConfig.swapCoverageThreshold;
+
+          if (newRequired.length === 0) {
+              // 새로 로드할 필요 없고 coverage 충분하면 렌더링
+              if (coverage >= threshold && typeof updateVisibleTerritories === 'function') {
+                  updateVisibleTerritories();
+              }
+          } else {
+              // 🧭 방향성 우선 정렬 (pan velocity 기반)
+              const velocity = _getPanVelocity();
+              const bias     = _tileStrategyConfig.directionalBias || 1.0;
+              newRequired = _sortByDirectionalPriority(newRequired, vBounds, velocity, bias);
+
+              const isDev = (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+              if (isDev) console.debug(`[TilePrefetch] required: ${newRequired.length}개 로드, coverage: ${(coverage*100).toFixed(0)}%/${(threshold*100).toFixed(0)}%, vel:(${velocity.dlng.toExponential(1)},${velocity.dlat.toExponential(1)})`);
+
+              // ── 📦 메타타일 우선 로드 (사용 가능한 경우) ─────────────────
+              let metaFeaturesAll = [];
+              if (_tileStrategyConfig.useMetatile && _metaIndexCache) {
+                  // 뷰포트에 필요한 메타타일 추출 (이미 로드된 것 제외)
+                  const metaRequired = _tilesForBounds(_metaIndexCache, vBounds, TILE_BUFFER_DEG)
+                      .filter(m => !_loadedMetaFiles.has(m.filename) && !_loadingMetaFiles.has(m.filename));
+
+                  if (metaRequired.length > 0) {
+                      const mVelocity = _getPanVelocity();
+                      const metaSorted = _sortByDirectionalPriority(metaRequired, vBounds, mVelocity, bias);
+                      if (isDev) console.debug(`[Metatile] 뷰포트 메타타일: ${metaSorted.length}개 로드`);
+
+                      // 메타타일은 한 번에 4개씩 병렬 (각 1개 = 개별 4개 대체)
+                      for (let i = 0; i < metaSorted.length; i += 4) {
+                          const batch = metaSorted.slice(i, i + 4);
+                          const batchFeatures = (await Promise.all(
+                              batch.map(m => _fetchMetatile(m, origin, version))
+                          )).flat();
+                          if (batchFeatures.length > 0) {
+                              metaFeaturesAll = metaFeaturesAll.concat(batchFeatures);
+                              _mergeFeatures(batchFeatures);
+                          }
+                          // 메타타일 배치마다 coverage 재계산
+                          const nowMeta = requiredTiles.filter(t => _loadedTileFiles.has(t.filename)).length;
+                          if ((totalRequired === 0 ? 1 : nowMeta / totalRequired) >= threshold &&
+                              typeof updateVisibleTerritories === 'function') {
+                              updateVisibleTerritories();
+                          }
+                      }
+                  }
+              }
+
+              // ── foreground: 메타타일이 커버 못 한 개별 타일 로드 ──────────
+              // (메타타일 로드 후 _loadedTileFiles 마킹됐으므로 재계산)
+              const remaining = newRequired.filter(t => !_loadedTileFiles.has(t.filename) && !_loadingTileFiles.has(t.filename));
+
+              for (let i = 0; i < remaining.length; i += TILE_MAX_CONCURRENT) {
+                  const batch = remaining.slice(i, i + TILE_MAX_CONCURRENT);
+                  const features = (await Promise.all(
+                      batch.map(t => _fetchTile(t, origin, _tilesBasePathCache, version))
+                  )).flat();
+                  _mergeFeatures(features);
+
+                  // 배치 완료마다 coverage 재계산 → threshold 넘으면 즉시 렌더링
+                  const nowReady   = requiredTiles.filter(t => _loadedTileFiles.has(t.filename)).length;
+                  const nowCoverage = totalRequired === 0 ? 1 : nowReady / totalRequired;
+                  if (nowCoverage >= threshold && typeof updateVisibleTerritories === 'function') {
+                      updateVisibleTerritories(); // coverage 충족 즉시 swap
+                  }
+              }
           }
+
           _updateTerritoryBtn();
-          if (typeof updateVisibleTerritories === 'function') updateVisibleTerritories();
+
+          // ── background prefetch: zoom 인접 레벨 타일 미리 로드 ────────────
+          // (현재 뷰포트 타일 로드 완료 후 백그라운드에서 실행)
+          const bgTiles = [];
+
+          // zoom+1 prefetch (확대 예상 타일)
+          if (_tileStrategyConfig.prefetchNextZoomDeg) {
+              const nextBounds = {
+                  south: vBounds.south - 5, north: vBounds.north + 5,
+                  west:  vBounds.west  - 5, east:  vBounds.east  + 5
+              };
+              _tilesForBounds(_tileIndexCache, nextBounds, 0)
+                  .filter(t => !_loadedTileFiles.has(t.filename) && !_loadingTileFiles.has(t.filename))
+                  .forEach(t => bgTiles.push(t));
+          }
+
+          // zoom-1 prefetch (축소 예상 타일, desktop only)
+          if (_tileStrategyConfig.prefetchPrevZoomDeg) {
+              const prevBounds = {
+                  south: vBounds.south + 5, north: vBounds.north - 5,
+                  west:  vBounds.west  + 5, east:  vBounds.east  - 5
+              };
+              _tilesForBounds(_tileIndexCache, prevBounds, 0)
+                  .filter(t => !_loadedTileFiles.has(t.filename) && !_loadingTileFiles.has(t.filename) && !bgTiles.includes(t))
+                  .forEach(t => bgTiles.push(t));
+          }
+
+          if (bgTiles.length > 0) {
+              // background: 낮은 concurrency로 조용히 prefetch
+              const bgLimit = Math.max(2, Math.floor(TILE_MAX_CONCURRENT / 2));
+              setTimeout(async () => {
+                  for (let i = 0; i < bgTiles.length; i += bgLimit) {
+                      if (allTerritoriesLoaded) break;
+                      const batch = bgTiles.slice(i, i + bgLimit);
+                      const features = (await Promise.all(
+                          batch.map(t => _fetchTile(t, origin, _tilesBasePathCache, version))
+                      )).flat();
+                      _mergeFeatures(features);
+                  }
+                  _updateTerritoryBtn();
+              }, 0);
+          }
+
           } finally {
               window._tileViewportLoading = false;
               // 로딩 중 새 뷰포트 이동이 있었으면 즉시 재실행
@@ -16672,15 +17131,17 @@ const loadingMessages = [
       window._isZooming = false;
       map.on('zoomstart', () => { window._isZooming = true; });
 
-      // �🚀 [타일 선로딩] move 이벤트 throttle — 이동 중 앞쪽 타일 미리 로드
+      // 🚀 [Tile Prefetch] move throttle — device-mode 기반 (desktop: 80ms / mobile: 140ms)
+      // 이동 중 throttle preload, moveend 에서 finalize (부족분 보강)
       let _moveTileThrottleTimer = null;
       map.on('move', () => {
+          _updatePanVelocity(); // 🧭 방향성 prefetch용 velocity 추적
           if (!layerVisibility.territoryPolygon || allTerritoriesLoaded) return;
           if (_moveTileThrottleTimer) return; // throttle 중
           _moveTileThrottleTimer = setTimeout(() => {
               _moveTileThrottleTimer = null;
               if (!window._tileViewportLoading) _loadNewViewportTiles();
-          }, MOVE_THROTTLE_MS);
+          }, MOVE_THROTTLE_MS); // device-mode 기반 (desktop: 80ms / mobile: 140ms)
       });
       
       map.on('moveend', () => {
@@ -23125,6 +23586,56 @@ kingSelect.addEventListener('change', () => {
             console.error('[init] initialize() threw — continuing anyway:', e);
         }
 
+        // ── 📦 [SessionCache] _loadedTileFiles 참조 동기화 ──────────────────
+        // _loadedTileFiles 는 territory tile IIFE 스코프에 있으므로
+        // initialize() 완료 후 window 경유로 노출된 참조를 연결합니다.
+        // (tile IIFE 에서 window._loadedTileFilesRef = _loadedTileFiles 를 노출해야 함)
+        if (window._loadedTileFilesRef) {
+            window._sessionMapCache.loadedTerritoryTileKeys = window._loadedTileFilesRef;
+        }
+
+        // ── 📡 [SessionCache] 배포 버전 폴링 — 5분마다 서버 버전 확인 ────────
+        // 현재 세션은 강제 갱신하지 않으며, 새 버전이 감지되면 토스트 알림만 표시합니다.
+        (function _startVersionPolling() {
+            const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5분
+            let _noticeShown = false;
+
+            function _showRefreshNotice() {
+                if (_noticeShown) return;
+                _noticeShown = true;
+                // 상단 바에 비차단 알림 삽입
+                const notice = document.createElement('div');
+                notice.id = 'session-refresh-notice';
+                notice.style.cssText = [
+                    'position:fixed', 'top:44px', 'left:50%', 'transform:translateX(-50%)',
+                    'background:rgba(212,175,55,0.92)', 'color:#1a1a1a', 'font-size:12px',
+                    'padding:6px 18px', 'border-radius:20px', 'z-index:20000',
+                    'box-shadow:0 2px 8px rgba(0,0,0,0.4)', 'cursor:pointer',
+                    'font-family:Noto Serif KR,serif', 'white-space:nowrap'
+                ].join(';');
+                notice.textContent = '🔔 새 데이터가 있습니다. 새로고침 후 반영됩니다.';
+                notice.onclick = () => notice.remove();
+                document.body.appendChild(notice);
+                // 30초 후 자동 제거
+                setTimeout(() => notice.remove(), 30000);
+            }
+
+            setInterval(async () => {
+                try {
+                    const res = await fetch('/api/castle/version');
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    const latestVersion = String(data.lastModified || '');
+                    const sessionVersion = window._sessionMapCache.sessionDataVersion;
+                    if (latestVersion && sessionVersion && latestVersion !== sessionVersion) {
+                        const isDev = (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+                        if (isDev) console.debug(`[SessionCache] version drift detected: session=${sessionVersion} server=${latestVersion}`);
+                        _showRefreshNotice();
+                    }
+                } catch (e) { /* 폴링 실패는 무시 */ }
+            }, POLL_INTERVAL_MS);
+        })();
+
         // ===== 🚩 [재생 버튼] 사이클 속도 버튼 설정 (▶→▶▶→▶▶▶→▶▶▶▶→▶) =====
         function _cyclePlayback() {
             playbackMode = (playbackMode + 1) % 4;
@@ -23232,6 +23743,45 @@ kingSelect.addEventListener('change', () => {
                 console.warn('[territory] initial bootstrap failed:', e);
             }
         }
+
+        // 🌡️ [Warm Cache] idle 구간에서 저줌 광역 타일 사전 로드
+        // → 줌아웃 시 빈 타일 없이 즉시 렌더링 가능
+        // → desktop은 더 넓은 범위, mobile은 제한적으로 수행
+        (function _scheduleWarmCache() {
+            async function _warmLowZoomTiles() {
+                if (!_tileIndexCache || allTerritoriesLoaded) return;
+                // 타일 인덱스 전체를 bounds 기준으로 가져오되, 이미 로드된 것은 스킵
+                const warmCandidates = _tileIndexCache.filter(t => !_loadedTileFiles.has(t.filename));
+                if (warmCandidates.length === 0) return;
+                const bgLimit = _tileDeviceMode === 'mobile' ? 2 : 4;
+                const origin  = window.location.origin;
+                const version = new Date().toDateString();
+                const isDev   = (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+                if (isDev) console.debug(`[WarmCache] ${warmCandidates.length}개 타일 사전 로드 시작 (device: ${_tileDeviceMode})`);
+                for (let i = 0; i < warmCandidates.length; i += bgLimit) {
+                    if (allTerritoriesLoaded) break; // 이미 완료됐으면 중단
+                    const batch = warmCandidates.slice(i, i + bgLimit);
+                    try {
+                        const features = (await Promise.all(
+                            batch.map(t => _fetchTile(t, origin, _tilesBasePathCache, version))
+                        )).flat();
+                        _mergeFeatures(features);
+                    } catch(e) { /* warm cache 실패는 무시 */ }
+                }
+                if (_tileIndexCache && _loadedTileFiles.size >= _tileIndexCache.length) {
+                    allTerritoriesLoaded = true;
+                    _updateTerritoryBtn();
+                    if (isDev) console.debug('[WarmCache] 전체 타일 warm cache 완료');
+                }
+            }
+
+            // 앱 초기화 완료 후 idle 구간에서 실행
+            if ('requestIdleCallback' in window) {
+                requestIdleCallback(() => { void _warmLowZoomTiles(); }, { timeout: 3000 });
+            } else {
+                setTimeout(() => { void _warmLowZoomTiles(); }, 1500);
+            }
+        })();
 
         // 🚩 [추가] initialize 완료 후 현재 연도 이벤트 재확인 (events 백그라운드 로딩 타이밍 보정)
         if (typeof checkAndDisplayEvent === 'function' && typeof getCurrentYearMonth === 'function') {
@@ -24502,8 +25052,13 @@ kingSelect.addEventListener('change', () => {
                     // territories (서버에서 직접 fetch)
                     territories = [];
                     window.territories = [];
+                    // 🔄 [SessionCache] 세션 캐시도 함께 초기화 (안 하면 _mergeFeatures가 중복으로 간주해 재삽입 안 함)
+                    window._sessionMapCache.territoriesById.clear();
+                    window._sessionMapCache.castlesById.clear();
                     // 타일 캐시 상태 초기화 (안 하면 이미 로드됨으로 간주해 재fetch 안 함)
                     _loadedTileFiles = new Set();
+                    window._loadedTileFilesRef = _loadedTileFiles; // 참조 재동기화
+                    window._sessionMapCache.loadedTerritoryTileKeys = _loadedTileFiles;
                     _loadingTileFiles = new Set();
                     _tileIndexCache = null;
                     _tilesBasePathCache = null;
@@ -24523,7 +25078,9 @@ kingSelect.addEventListener('change', () => {
                         cache: 'no-store'
                     });
                     if (castlesRes.ok) {
-                        castles = await castlesRes.json();
+                        const freshCastles = await castlesRes.json();
+                        // 🔄 [SessionCache] 서버 최신 데이터로 세션 캐시 교체
+                        _initCastlesSession(freshCastles);
                         await saveCastlesCache(castles);
                         console.log(`✅ [강제 새로고침] castles ${castles.length}개 로드 완료`);
                     }
