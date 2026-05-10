@@ -11005,9 +11005,7 @@ function getKingByYear(countryName, year, month) {
     // 반환: { countryId, isExclusive, countriesInZone: [...] } 또는 null
     function calculateDominantCountry(territory, year, month) {
         // castles 기반으로만 지배 국가 계산 — 마커가 없으면 색칠 안 함
-        // (territory.properties.country_id 등 정적 필드는 사용하지 않음)
         
-        // castles 기반 지배 국가 계산
         let geometry;
         if (territory.geojson && territory.geojson.geometry) {
             geometry = territory.geojson.geometry;
@@ -11018,7 +11016,7 @@ function getKingByYear(countryName, year, month) {
         }
         
         const currentTotalMonths = yearMonthToTotalMonths(year, month);
-        const countryCount = {};          // countryId → 성 갯수
+        const countryCount = {};  // countryId → 가중치 합
         
         // Polygon 또는 MultiPolygon 처리 및 좌표 변환 (캐싱)
         let polygonData = [];
@@ -11037,14 +11035,23 @@ function getKingByYear(countryName, year, month) {
         } else {
             return null;
         }
-        
-        // 모든 성/도시 마커를 순회 — window._activeCastlesForTerritory가 있으면 그것을 사용 (성능 최적화 + 마커와 동기화)
+
+        // 영토 폴리곤 전체의 중심점(centroid) 계산
+        let centLat = 0, centLng = 0, centCount = 0;
+        for (const pg of polygonData) {
+            for (const [lat, lng] of pg.coords) {
+                centLat += lat; centLng += lng; centCount++;
+            }
+        }
+        const centroid = centCount > 0
+            ? { lat: centLat / centCount, lng: centLng / centCount }
+            : null;
+
+        // 모든 성/도시 마커를 순회
         const castleList = (window._activeCastlesForTerritory) || castles;
         const usePrecomputed = !!(window._activeCastlesForTerritory);
         
         (usePrecomputed ? castleList : castles).forEach(item => {
-            // 사전계산 목록 사용 시: { lat, lng, countryId, isCapital }
-            // 원본 castles 사용 시: castle 객체
             let cLat, cLng, countryId, isCapital;
             if (usePrecomputed) {
                 cLat = item.lat; cLng = item.lng;
@@ -11061,6 +11068,7 @@ function getKingByYear(countryName, year, month) {
                 if (typeof cid === 'object') cid = cid.$oid || String(cid);
                 cLat = castle.lat; cLng = castle.lng;
                 countryId = String(cid);
+                isCapital = !!(activeInfo?.record?.is_capital || castle.is_capital);
             }
             
             let isInside = false;
@@ -11076,24 +11084,31 @@ function getKingByYear(countryName, year, month) {
             }
             
             if (!isInside) return;
-            
-            // 성 갯수 카운트
-            countryCount[countryId] = (countryCount[countryId] || 0) + 1;
+
+            // ── 근접도 가중치 ──────────────────────────────────────────
+            // 폴리곤 중심점에 가까운 성일수록 더 강하게 반영
+            // weight = 1 / (distance² + ε)  → 가까울수록 큰 가중치
+            let proximityWeight = 1;
+            if (centroid) {
+                const dLat = cLat - centroid.lat;
+                const dLng = cLng - centroid.lng;
+                const dist2 = dLat * dLat + dLng * dLng;
+                proximityWeight = 1 / (dist2 + 0.0001); // ε = 0.0001° ≈ 11m
+            }
+            // 수도 +2배 보정 (동수 시 결정타)
+            const voteWeight = proximityWeight * (isCapital ? 2 : 1);
+            countryCount[countryId] = (countryCount[countryId] || 0) + voteWeight;
         });
         
         const uniqueCountries = Object.keys(countryCount);
         
-        // 구역 내 활성 마커가 0개 → 색칠 안 함
-        if (uniqueCountries.length === 0) {
-            return null;
-        }
+        if (uniqueCountries.length === 0) return null;
         
-        // 단일 국가 → 배타적 점유
         if (uniqueCountries.length === 1) {
             return { countryId: uniqueCountries[0], isExclusive: true, countriesInZone: uniqueCountries };
         }
         
-        // 다수결 — 성 갯수가 더 많은 국가
+        // 근접도 가중치 합이 가장 높은 국가가 승
         let dominantCountry = null;
         let maxCount = 0;
         for (const [countryId, count] of Object.entries(countryCount)) {
@@ -12117,7 +12132,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 let countryId = info ? (info.record.country_id || castle.country_id) : castle.country_id;
                 if (!countryId) return null;
                 if (typeof countryId === 'object') countryId = countryId.$oid || String(countryId);
-                return { lat: castle.lat, lng: castle.lng, countryId: String(countryId) };
+                const isCapital = !!(info?.record?.is_capital || castle.is_capital);
+                return { lat: castle.lat, lng: castle.lng, countryId: String(countryId), isCapital };
             }).filter(c => c && c.countryId);
             // 캐시 무효화 — 이 updateMap 호출에 맞게 새로 계산했으므로 캐시 클리어
             _dominantCountryCache.clear();
@@ -17426,7 +17442,8 @@ const loadingMessages = [
               let countryId = info ? (info.record.country_id || castle.country_id) : castle.country_id;
               if (!countryId) return null;
               if (typeof countryId === 'object') countryId = countryId.$oid || String(countryId);
-              return { lat: castle.lat, lng: castle.lng, countryId: String(countryId) };
+              const isCapital = !!(info?.record?.is_capital || castle.is_capital);
+              return { lat: castle.lat, lng: castle.lng, countryId: String(countryId), isCapital };
           }).filter(c => c && c.countryId);
 
           // ② 캐시 전부 초기화
