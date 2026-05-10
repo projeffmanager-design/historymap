@@ -1328,7 +1328,7 @@ async function setupRoutesAndCollections() {
                 const id = req.query.id;
                 if (!id) return res.status(400).json({ message: 'id 파라미터 필요' });
                 const doc = await collections.voice.findOne({ castle_id: toObjectId(id) });
-                if (!doc) return res.status(404).json({ message: '음성 없음' });
+                if (!doc) return res.json({ audio_url: null });
                 res.json({ audio_url: doc.audio_url, speaker: doc.speaker || '사관' });
             } catch (err) {
                 console.error('[voice] 조회 오류:', err);

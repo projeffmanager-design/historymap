@@ -3393,7 +3393,37 @@ body.force-mobile .marker-type-selector button {
             object-fit: cover;
             display: block;
             opacity: 0.88;
+            cursor: zoom-in;
+            transition: opacity 0.2s;
         }
+        .odp-hero img:hover { opacity: 1; }
+        /* ── 이미지 라이트박스 ── */
+        #img-lightbox {
+            display: none;
+            position: fixed; inset: 0; z-index: 99999;
+            background: rgba(0,0,0,0.88);
+            align-items: center; justify-content: center;
+            cursor: zoom-out;
+            backdrop-filter: blur(4px);
+        }
+        #img-lightbox.open { display: flex; }
+        #img-lightbox img {
+            max-width: 92vw; max-height: 88vh;
+            object-fit: contain;
+            border-radius: 6px;
+            box-shadow: 0 8px 48px rgba(0,0,0,0.7);
+            cursor: default;
+            user-select: none;
+        }
+        #img-lightbox-close {
+            position: absolute; top: 18px; right: 22px;
+            background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25);
+            color: #fff; font-size: 22px; width: 38px; height: 38px;
+            border-radius: 50%; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: background 0.2s;
+        }
+        #img-lightbox-close:hover { background: rgba(255,255,255,0.25); }
         .odp-hero-placeholder {
             width: 100%; height: 100%;
             display: flex; align-items: center; justify-content: center;
@@ -3479,6 +3509,18 @@ body.force-mobile .marker-type-selector button {
             background: #d4a843; border: 2px solid rgba(20,30,42,0.97);
         }
         .odp-tl-dot.current { background: #e74c3c; width: 10px; height: 10px; left: -6px; }
+        /* 전장 시점 — dot 빨간 검 모양, 행 배경 강조 */
+        .odp-tl-dot.battle-dot {
+            background: #c0392b;
+            border-color: #e74c3c;
+            box-shadow: 0 0 0 2px rgba(192,57,43,0.35);
+        }
+        .odp-tl-item.battle-record {
+            background: rgba(192,57,43,0.08);
+            border-radius: 6px;
+            border-left-color: #c0392b;
+        }
+        .odp-tl-item.battle-record .odp-tl-period { color: #e07070; }
         .odp-tl-period {
             font-size: 11px; color: #7a93a8; margin-bottom: 2px;
         }
@@ -7118,7 +7160,10 @@ body.force-mobile .marker-type-selector button {
         <!-- 히어로 이미지 -->
         <div class="odp-hero" id="odp-hero-wrap">
             <div class="odp-hero-placeholder" id="odp-hero-placeholder"></div>
-            <img id="odp-hero-img" src="https://i.pinimg.com/736x/1e/16/48/1e1648e22df86513371bdd6f6190c461.jpg" alt="" style="display:block;" onload="this.style.display='block'; document.getElementById('odp-hero-placeholder').style.display='none';" onerror="this.style.display='none'; document.getElementById('odp-hero-placeholder').style.display='flex';">
+            <img id="odp-hero-img" src="https://i.pinimg.com/736x/1e/16/48/1e1648e22df86513371bdd6f6190c461.jpg" alt="" style="display:block;"
+                onclick="openLightbox(this.src)"
+                onload="this.style.display='block'; document.getElementById('odp-hero-placeholder').style.display='none';"
+                onerror="this.style.display='none'; document.getElementById('odp-hero-placeholder').style.display='flex';">
             <div class="odp-hero-gradient"></div>
             <button class="odp-close-btn" onclick="closeDetailPanel()">✕</button>
         </div>
@@ -7759,9 +7804,39 @@ body.force-mobile .marker-type-selector button {
           <label for="troopCount">병력 (명):</label>
           <input type="number" id="troopCount" placeholder="숫자만 입력">
         </div>
-        <div class="form-row">
-          <label for="generalPhoto">장수 사진 URL:</label>
-          <input type="text" id="generalPhoto" placeholder="선택 사항">
+        <div class="form-row" style="flex-direction:column; align-items:stretch; gap:6px;">
+          <label for="generalPhoto">장수 사진:</label>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input type="text" id="generalPhoto" placeholder="URL 입력 또는 아래에서 파일/붙여넣기" style="flex:1; min-width:0;">
+            <button type="button" onclick="_previewGeneralPhoto()"
+              style="padding:4px 8px; font-size:11px; background:#1a2f44; border:1px solid #2a4a64; color:#8aaac8; border-radius:4px; cursor:pointer; white-space:nowrap;">미리보기</button>
+          </div>
+          <!-- 파일 선택 + 붙여넣기 영역 -->
+          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+            <input type="file" id="generalPhotoFile" accept="image/*"
+              style="display:none;" onchange="uploadGeneralPhoto()">
+            <button type="button" onclick="document.getElementById('generalPhotoFile').click()"
+              style="padding:4px 10px; font-size:11px; background:#1a2f44; border:1px solid #2a4a64; color:#8aaac8; border-radius:4px; cursor:pointer;">
+              📁 파일 선택
+            </button>
+            <div id="generalPhotoPasteArea"
+              tabindex="0"
+              title="여기에 이미지를 붙여넣으세요 (Ctrl+V)"
+              style="flex:1; min-width:120px; height:32px; border:1px dashed #2a5a7a; border-radius:4px; background:rgba(0,170,255,0.04);
+                     display:flex; align-items:center; justify-content:center; cursor:pointer;
+                     font-size:11px; color:#4a7a9a; transition:border-color 0.2s;"
+              onmouseenter="this.style.borderColor='#00aaff'; this.style.color='#8aaac8';"
+              onmouseleave="this.style.borderColor='#2a5a7a'; this.style.color='#4a7a9a';"
+              onclick="this.focus()">
+              📋 클릭 후 Ctrl+V 로 붙여넣기
+            </div>
+          </div>
+          <div id="generalPhotoUploadMsg" style="display:none; font-size:11px; padding:3px 0;"></div>
+          <div id="generalPhotoThumb" style="display:none; margin-top:2px;">
+            <img id="generalPhotoThumbImg" src="" alt=""
+              style="max-height:80px; max-width:120px; object-fit:contain; border-radius:4px; cursor:zoom-in;"
+              onclick="openLightbox(this.src)">
+          </div>
         </div>
       </div>
 
@@ -8464,11 +8539,56 @@ body.force-mobile .marker-type-selector button {
     // 🎙️ 전역 오디오 제어 (마커 음성 보고)
     let _voiceAudio = null; // 현재 재생 중인 Audio 객체
 
+    // BGM 덕킹 헬퍼 — voice 재생 중 BGM 볼륨 20%로 낮추고, 끝나면 복원
+    const BGM_DUCK_RATIO = 0.2; // voice 중 BGM 볼륨
+    let _bgmPreDuckVolume = null; // 덕킹 전 원래 볼륨
+    let _bgmDuckTimer = null;
+
+    function _duckBgm() {
+        const bp = window.bgmPlayer;
+        if (!bp || !bp.audio) return;
+        const slider = document.getElementById('bgm-volume');
+        _bgmPreDuckVolume = bp.audio.volume; // 현재 볼륨 저장
+        // 부드러운 페이드다운 (100ms)
+        const target = Math.min(_bgmPreDuckVolume, BGM_DUCK_RATIO);
+        const start = bp.audio.volume;
+        const steps = 10;
+        let step = 0;
+        clearInterval(_bgmDuckTimer);
+        _bgmDuckTimer = setInterval(() => {
+            step++;
+            bp.audio.volume = start + (target - start) * (step / steps);
+            if (step >= steps) { bp.audio.volume = target; clearInterval(_bgmDuckTimer); }
+        }, 10);
+    }
+
+    function _unduckBgm() {
+        const bp = window.bgmPlayer;
+        if (!bp || !bp.audio || _bgmPreDuckVolume === null) return;
+        const target = _bgmPreDuckVolume;
+        const start = bp.audio.volume;
+        const slider = document.getElementById('bgm-volume');
+        const steps = 20;
+        let step = 0;
+        clearInterval(_bgmDuckTimer);
+        _bgmDuckTimer = setInterval(() => {
+            step++;
+            bp.audio.volume = start + (target - start) * (step / steps);
+            if (step >= steps) {
+                bp.audio.volume = target;
+                if (slider) slider.value = target;
+                clearInterval(_bgmDuckTimer);
+                _bgmPreDuckVolume = null;
+            }
+        }, 15);
+    }
+
     function _stopVoice() {
         if (_voiceAudio) {
             _voiceAudio.pause();
             _voiceAudio.currentTime = 0;
             _voiceAudio = null;
+            _unduckBgm(); // 강제 정지 시에도 BGM 복원
         }
         const btn = document.getElementById('odp-voice-btn');
         const prog = document.getElementById('odp-voice-progress');
@@ -8481,11 +8601,12 @@ body.force-mobile .marker-type-selector button {
     window._odpToggleVoice = function() {
         if (!_voiceAudio) return;
         if (_voiceAudio.paused) {
-            _voiceAudio.play();
+            _voiceAudio.play().then(() => _duckBgm()).catch(() => {});
             const btn = document.getElementById('odp-voice-btn');
             if (btn) btn.textContent = '⏸';
         } else {
             _voiceAudio.pause();
+            _unduckBgm(); // 일시정지 시 BGM 복원
             const btn = document.getElementById('odp-voice-btn');
             if (btn) btn.textContent = '▶';
         }
@@ -8549,12 +8670,15 @@ body.force-mobile .marker-type-selector button {
                     if (btn) btn.textContent = '▶';
                     if (prog) prog.style.width = '0%';
                     _voiceAudio = null;
+                    _unduckBgm(); // ✅ voice 종료 → BGM 볼륨 복원
                 });
                 // 패널 표시 & 자동 재생
                 if (sec) sec.style.display = '';
                 const btn = document.getElementById('odp-voice-btn');
                 if (btn) { btn.textContent = '⏸'; btn.title = '사관의 보고 일시정지'; }
-                audio.play().catch(() => {
+                audio.play().then(() => {
+                    _duckBgm(); // ✅ 재생 성공 → BGM 볼륨 20%로 덕킹
+                }).catch(() => {
                     // 자동재생 차단 시 ▶ 버튼만 노출
                     if (btn) { btn.textContent = '▶'; btn.title = '사관의 보고 재생'; }
                 });
@@ -9790,6 +9914,8 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     function openDetailPanel(castle, activeHistoryRecord, countryInfo) {
         const panel = document.getElementById('object-detail-panel');
         if (!panel) return;
+        // 현재 열린 패널의 castle id 추적 (저장 후 갱신에 사용)
+        window._currentDetailCastleId = castle._id || castle.name;
         // 국가 상세 패널이 열려있으면 닫기
         const cdp = document.getElementById('country-detail-panel');
         if (cdp && cdp.classList.contains('active')) {
@@ -9898,10 +10024,25 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                 const hName = h.name || castleName;
                 const hNote = h.notes || h.note || '';
                 const hComment = h.comment || '';
-                const plLabel = h.place_type && h.place_type !== 'normal' ? ` <span style="font-size:10px;color:#8099ae;">[${PLACE_LABELS[h.place_type]||h.place_type}]</span>` : '';
 
-                return `<li class="odp-tl-item${isActive ? ' active-record' : ''}">
-                    <div class="odp-tl-dot${isActive ? ' current' : ''}"></div>
+                // 전장 여부: is_battle 플래그 OR place_type:'battle' 둘 다 체크
+                const hIsBattle = !!(h.is_battle || h.place_type === 'battle');
+                const hIsGateway = !!(h.is_gateway || h.place_type === 'gateway');
+
+                let plLabel = '';
+                if (hIsBattle) {
+                    plLabel = ` <span style="display:inline-block;font-size:10px;font-weight:700;color:#fff;background:#c0392b;padding:1px 6px;border-radius:8px;vertical-align:middle;letter-spacing:0.5px;">⚔️ 전장</span>`;
+                } else if (hIsGateway) {
+                    plLabel = ` <span style="font-size:10px;color:#e8b44a;">[${PLACE_LABELS['gateway']}]</span>`;
+                } else if (h.place_type && h.place_type !== 'normal') {
+                    plLabel = ` <span style="font-size:10px;color:#8099ae;">[${PLACE_LABELS[h.place_type]||h.place_type}]</span>`;
+                }
+
+                // 전장 시점엔 타임라인 dot도 빨간색으로 구분
+                const dotExtra = hIsBattle ? ' battle-dot' : '';
+
+                return `<li class="odp-tl-item${isActive ? ' active-record' : ''}${hIsBattle ? ' battle-record' : ''}">
+                    <div class="odp-tl-dot${isActive ? ' current' : ''}${dotExtra}"></div>
                     <div class="odp-tl-period">${period}</div>
                     <div class="odp-tl-name">${hName}${plLabel}</div>
                     ${hCountryName ? `<div class="odp-tl-country">${hFlag}${hCountryName}</div>` : ''}
@@ -13237,17 +13378,22 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 marker.on('click', function (e) { 
                     L.DomEvent.stopPropagation(e);
                     window._markerClickConsumed = true;
-                    // 🔊 전장 여부 판단 — castle 및 activeHistoryRecord의 모든 필드 체크
+
+                    // 🔊 클릭 순간 타임라인으로 재계산 (렌더 시점 클로저 값 아닌 현재 시간)
+                    const { year: _cy, month: _cm } = getCurrentYearMonth();
+                    const _clickHistoryInfo = getActiveHistoryInfo(castle.history, yearMonthToTotalMonths(_cy, _cm));
+                    const _clickRecord      = _clickHistoryInfo?.record || activeHistoryRecord;
+
+                    // 전장 여부: 클릭 시점 history 레코드 기준
                     const _isBattle = !!(
-                        activeHistoryRecord?.is_battle ||
+                        _clickRecord?.is_battle ||
+                        _clickRecord?.place_type === 'battle' ||
                         castle.is_battle ||
-                        castle.place_type === 'battle' ||
-                        castle.type === 'battle' ||
-                        (castle.properties && (castle.properties.is_battle || castle.properties.place_type === 'battle'))
+                        castle.place_type === 'battle'
                     );
-                    console.log(`🔊 [SFX] castle="${castle.name||castle._id}" is_battle=${_isBattle}`, { ab: activeHistoryRecord?.is_battle, cb: castle.is_battle, pt: castle.place_type });
-                    if (_isBattle) playSfx('/public/sound effect/War.m4a');
-                    openDetailPanel(castle, activeHistoryRecord, countryInfo);
+                    console.log(`🔊 [SFX] "${castle.name}" is_battle=${_isBattle}`, { is_battle: _clickRecord?.is_battle, place_type: _clickRecord?.place_type });
+                    if (_isBattle) playSfx('/public/sound%20effect/War.m4a');
+                    openDetailPanel(castle, _clickRecord, countryInfo);
                     if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) openCastleForm(castle._id); 
                 });
                 // 🚩 [핵심] _castleData 설정 — updateSingleNaturalFeature의 기존 마커 제거에 필요
@@ -13347,7 +13493,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         L.DomEvent.stopPropagation(e);
                         window._markerClickConsumed = true;
                         map.flyTo(e.latlng, 10);
-                        playSfx('/public/sound effect/militery.m4a');
+                        playSfx('/public/sound%20effect/militery.m4a');
                         openDetailPanel(castle, activeHistoryRecord, countryInfo);
                         if (editMode) openCastleForm(castle._id);
                         if (castle.voice) {
@@ -13447,7 +13593,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     L.DomEvent.stopPropagation(e);
                     window._markerClickConsumed = true;
                     map.flyTo(e.latlng, 10); // 🚩 [수정] 클릭 시 줌인하며 이동
-                    playSfx('/public/sound effect/militery.m4a');
+                    playSfx('/public/sound%20effect/militery.m4a');
                     openDetailPanel(castle, activeHistoryRecord, countryInfo);
                     if (editMode) openCastleForm(castle._id);
                     if (castle.voice) {
@@ -13630,9 +13776,15 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     if (link) { link.addEventListener('click', (ev) => { ev.stopPropagation(); const cId = link.dataset.countryId; const cInfo = getCountryInfoById(cId) || getCountryInfo(link.textContent.trim()); if (cInfo) showCountryInfoModal(cInfo); }, { once: true }); }
                 }
             });
-            marker.on('click', (e) => {
+            marker.on('click', function(e) {
                 map.flyTo(e.latlng, 10);
-                openDetailPanel(castle, activeHistoryRecord, countryInfo);
+                // 🔊 전장 효과음
+                const { year: _cy, month: _cm } = getCurrentYearMonth();
+                const _clickHistoryInfo = getActiveHistoryInfo(castle.history, yearMonthToTotalMonths(_cy, _cm));
+                const _clickRecord = _clickHistoryInfo?.record || activeHistoryRecord;
+                const _isBattle = !!(_clickRecord?.is_battle || _clickRecord?.place_type === 'battle' || castle.is_battle || castle.place_type === 'battle');
+                if (_isBattle) playSfx('/public/sound%20effect/War.m4a');
+                openDetailPanel(castle, _clickRecord, countryInfo);
                 if (editMode) openCastleForm(castle._id);
                 if (castle.voice) {
                     if (typeof window.stopAllVoice === 'function') window.stopAllVoice();
@@ -13826,7 +13978,13 @@ function updateMap(year, month, cacheOnly = false, force = false) {
               
               marker.on('click', (e) => { 
                 map.flyTo(e.latlng, 10); // 🚩 [수정] 클릭 시 줌인하며 이동
-                openDetailPanel(castle, activeHistoryRecord, countryInfo);
+                // 🔊 전장 효과음
+                const { year: _cy2, month: _cm2 } = getCurrentYearMonth();
+                const _clickHistoryInfo2 = getActiveHistoryInfo(castle.history, yearMonthToTotalMonths(_cy2, _cm2));
+                const _clickRecord2 = _clickHistoryInfo2?.record || activeHistoryRecord;
+                const _isBattle2 = !!(_clickRecord2?.is_battle || _clickRecord2?.place_type === 'battle' || castle.is_battle || castle.place_type === 'battle');
+                if (_isBattle2) playSfx('/public/sound%20effect/War.m4a');
+                openDetailPanel(castle, _clickRecord2, countryInfo);
                 if (editMode) openCastleForm(castle._id);
                 if (castle.voice) {
                     if (typeof window.stopAllVoice === 'function') window.stopAllVoice();
@@ -14040,25 +14198,25 @@ function invalidateCountryLookupCache() {
     const _sfxCache = {};
     function playSfx(src) {
         try {
-            // 항상 새 재생 시도 — 클릭 이벤트는 사용자 제스처이므로 Autoplay 정책 통과
-            const audio = _sfxCache[src] || new Audio(src);
+            const safeSrc = src.replace(/ /g, '%20'); // 경로 공백 인코딩
+            const audio = _sfxCache[safeSrc] || new Audio(safeSrc);
             audio.volume = 0.5;
-            _sfxCache[src] = audio;
+            _sfxCache[safeSrc] = audio;
             audio.currentTime = 0;
             const p = audio.play();
             if (p && typeof p.catch === 'function') {
                 p.catch(() => {
                     // 재생 실패 시 새 인스턴스로 재시도
-                    const fresh = new Audio(src);
+                    const fresh = new Audio(safeSrc);
                     fresh.volume = 0.5;
-                    _sfxCache[src] = fresh;
-                    fresh.play().catch(() => {});
+                    _sfxCache[safeSrc] = fresh;
+                    fresh.play().catch(err => console.warn('[SFX] 재생 실패:', safeSrc, err.message));
                 });
             }
-        } catch(e) {}
+        } catch(e) { console.warn('[SFX] 예외:', e); }
     }
     // 사운드 파일 미리 load (재생 없이 버퍼링만 — Autoplay 정책 우회, 즉시 실행)
-    ['/public/sound effect/War.m4a', '/public/sound effect/militery.m4a'].forEach(src => {
+    ['/public/sound%20effect/War.m4a', '/public/sound%20effect/militery.m4a'].forEach(src => {
         const a = new Audio(src);
         a.volume = 0.5;
         a.preload = 'auto';
@@ -20556,6 +20714,19 @@ const loadingMessages = [
               } else {
                   // 서버가 castle을 반환하지 않은 경우 직접 refetch
                   await updateCastleInMemory(editingCastleKey, null);
+              }
+              // 🖼️ 현재 열린 detail panel이 같은 castle이면 hero img 즉시 갱신
+              const savedCastle = responseData.castle;
+              if (savedCastle && window._currentDetailCastleId &&
+                  (window._currentDetailCastleId === savedCastle._id || window._currentDetailCastleId === savedCastle.name)) {
+                  const heroImg = document.getElementById('odp-hero-img');
+                  if (heroImg) {
+                      const newPhoto = savedCastle.is_military_flag
+                          ? (savedCastle.general_photo || savedCastle.photo)
+                          : savedCastle.photo;
+                      const DEFAULT_HERO_IMG = 'https://i.pinimg.com/736x/1e/16/48/1e1648e22df86513371bdd6f6190c461.jpg';
+                      heroImg.src = toRawImageUrl(newPhoto || DEFAULT_HERO_IMG);
+                  }
               }
               // 🚩 [수정] 군대 마커 업데이트 시 서버에서 다시 확인하여 destroyed_year 등 유실 방지
               if (data.is_military_flag) {
@@ -30191,6 +30362,91 @@ kingSelect.addEventListener('change', () => {
 // =====================================================================
 // 🖼️ castleForm 이미지 업로드 함수 (GitHub)
 // =====================================================================
+// =====================================================================
+// 🔍 이미지 라이트박스
+// =====================================================================
+function openLightbox(src) {
+    if (!src || src === window.location.href) return;
+    const lb  = document.getElementById('img-lightbox');
+    const img = document.getElementById('img-lightbox-img');
+    if (!lb || !img) return;
+    img.src = src;
+    lb.classList.add('open');
+    document.addEventListener('keydown', _lightboxKeyHandler);
+}
+function closeLightbox() {
+    const lb = document.getElementById('img-lightbox');
+    if (lb) lb.classList.remove('open');
+    document.removeEventListener('keydown', _lightboxKeyHandler);
+}
+function _lightboxKeyHandler(e) { if (e.key === 'Escape') closeLightbox(); }
+
+// =====================================================================
+// 🖼️ 장수 사진 업로드 (파일 선택 + 붙여넣기)
+// =====================================================================
+async function uploadGeneralPhoto(fileArg) {
+    const fileInput = document.getElementById('generalPhotoFile');
+    const file = fileArg || (fileInput && fileInput.files[0]);
+    const msgEl = document.getElementById('generalPhotoUploadMsg');
+    const urlInput = document.getElementById('generalPhoto');
+    if (!file) return alert('파일을 선택하거나 붙여넣으세요.');
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#7fcf9f'; msgEl.textContent = '업로드 중…'; }
+    try {
+        const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+        const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+        const res = await fetch('/api/admin/upload-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}` },
+            body: JSON.stringify({ filename: file.name || 'general_photo.jpg', contentBase64: base64, mimeType: file.type || 'image/jpeg' })
+        });
+        if (!res.ok) { const err = await res.json(); throw new Error(err.message || '업로드 실패'); }
+        const { url } = await res.json();
+        if (urlInput) urlInput.value = url;
+        if (msgEl) { msgEl.style.color = '#7fcf9f'; msgEl.textContent = '✅ 업로드 완료!'; }
+        _previewGeneralPhoto(url);
+        if (fileInput) fileInput.value = '';
+    } catch (e) {
+        if (msgEl) { msgEl.style.color = '#cf8080'; msgEl.textContent = '❌ ' + e.message; }
+    }
+}
+
+function _previewGeneralPhoto(url) {
+    url = url || document.getElementById('generalPhoto')?.value?.trim();
+    const thumb    = document.getElementById('generalPhotoThumb');
+    const thumbImg = document.getElementById('generalPhotoThumbImg');
+    if (!url || !thumb || !thumbImg) return;
+    thumbImg.src = url;
+    thumb.style.display = '';
+}
+
+// 붙여넣기 영역에 paste 이벤트 연결 (DOM 준비 후)
+document.addEventListener('DOMContentLoaded', function() {
+    const pasteArea = document.getElementById('generalPhotoPasteArea');
+    if (pasteArea) {
+        pasteArea.addEventListener('paste', function(e) {
+            const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+            if (!items) return;
+            for (const item of items) {
+                if (item.type.startsWith('image/')) {
+                    e.preventDefault();
+                    const file = item.getAsFile();
+                    if (file) {
+                        const msgEl = document.getElementById('generalPhotoUploadMsg');
+                        if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#7fcf9f'; msgEl.textContent = '이미지 감지됨 — 업로드 중…'; }
+                        uploadGeneralPhoto(file);
+                    }
+                    break;
+                }
+            }
+        });
+    }
+});
+
 async function uploadCastlePhoto(mode) {
     // mode: undefined → castlePhotoFile / 'natural' → naturalPhotoFile
     const fileInput = document.getElementById(mode === 'natural' ? 'naturalPhotoFile' : 'castlePhotoFile');
@@ -30910,6 +31166,12 @@ async function castleFormDeleteVoice() {
             <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
         </svg>
     </button>
+</div>
+
+<!-- ── 이미지 라이트박스 ── -->
+<div id="img-lightbox" onclick="if(event.target===this)closeLightbox()">
+    <button id="img-lightbox-close" onclick="closeLightbox()">✕</button>
+    <img id="img-lightbox-img" src="" alt="">
 </div>
 
 </body>
