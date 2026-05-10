@@ -2592,6 +2592,13 @@ body.force-mobile .marker-type-selector button {
         flex-direction: column;
         align-items: center;
     }
+    /* 이펙트 전용 전장 마커 — 성 아이콘 없이 불꽃·연기만 */
+    .battle-effect-only-marker {
+        overflow: visible !important;
+        background: transparent !important;
+        border: none !important;
+        /* 다른 마커 뒤에 오도록 z-index 낮춤 (Leaflet은 CSS z-index 대신 zIndexOffset 사용) */
+    }
     
     /* 지역명 라벨 마커 스타일 */
     .label-text-marker {
@@ -7603,6 +7610,7 @@ body.force-mobile .marker-type-selector button {
             <option value="hunting">사냥터 🏹</option>
             <option value="construction">건설 ⚒️</option>
             <option value="heritage">유적 🏺</option>
+            <option value="battle">전장 이펙트 ⚔️</option>
           </select>
         </div>
       </div>
@@ -10850,6 +10858,7 @@ function getKingByYear(countryName, year, month) {
             'kiln': { symbol: '🔥', className: 'feature-kiln' }, // 가마/도요지
             'farmland': { symbol: '🌾', className: 'feature-farmland' }, // 농경지
             'heritage': { symbol: '🏺', className: 'feature-heritage', imageUrl: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%80%E1%85%A9%E1%84%85%E1%85%A7%E1%84%8E%E1%85%A5%E1%86%BC%E1%84%8C%E1%85%A1.png?raw=true', imageSize: 15, anchorBottom: true }, // 유적
+            'battle': { symbol: '⚔️', className: 'feature-battle' }, // 전장 이펙트
             'other': { symbol: '❖', className: 'feature-other' }
         };
         return icons[type] || icons['other'];
@@ -13266,7 +13275,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         }
 
         // 🚩 시간 범위 계산 — 고분/묘 등 시간 기반 타입은 built_year/destroyed_year 사용, 산·강 등 지형은 항상 표시
-        const _naturalTimeTypes = ['tomb', 'construction', 'hunting', 'temple', 'palace', 'mine', 'port', 'kiln', 'farmland'];
+        const _naturalTimeTypes = ['tomb', 'construction', 'hunting', 'temple', 'palace', 'mine', 'port', 'kiln', 'farmland', 'battle'];
         const _featureTypeForTime = castle.natural_feature_type || 'other';
         const _isRelicType = _naturalTimeTypes.includes(_featureTypeForTime); // 유적 계열 여부
         // 🚩 [수정] built_year/destroyed_year + start_year/end_year 두 필드명 모두 지원 (구형 데이터 호환)
@@ -13302,7 +13311,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
              // 🚩 1. 자연 지물 마커 (NEW)
             if (effectiveIsNatural) { 
                  // 🏛️ 유적 계열(고분·건설·사냥터 등)은 relic 레이어, 나머지는 natural 레이어로 분리
-                 if (_isRelicType) {
+                 if (_isRelicType || (castle.natural_feature_type === 'battle')) {
                      if (!layerVisibility.relic) return;
                  } else {
                      if (!layerVisibility.natural) return;
@@ -13313,6 +13322,32 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                  if (!isWithinDuration) {
                      return;
                  }
+
+                // 🚩 [전장 이펙트] natural_feature_type === 'battle' → 불꽃·연기만, 성 아이콘 없음
+                if ((castle.natural_feature_type || '') === 'battle') {
+                    const _efSize = 60;
+                    const battleEffectHtml = `
+                    <div style="position:relative; width:${_efSize}px; height:${_efSize}px; pointer-events:none;">
+                      <div class="battle-fire-wrap" style="position:absolute; top:0; left:0; width:${_efSize}px; height:${_efSize}px; pointer-events:none; z-index:0;">
+                        <div class="battle-smoke-particle bs1"></div>
+                        <div class="battle-smoke-particle bs2"></div>
+                        <div class="battle-smoke-particle bs3"></div>
+                        <div class="battle-smoke-particle bs4"></div>
+                        <div class="battle-smoke-particle bs5"></div>
+                        <div class="battle-base-fire" style="bottom:0; left:30%; transform:translateX(-50%);"></div>
+                        <div class="battle-base-fire bf2" style="bottom:0; left:calc(30% + 8px); transform:none;"></div>
+                      </div>
+                    </div>`;
+                    const battleEffectIcon = L.divIcon({
+                        className: 'battle-effect-only-marker',
+                        html: battleEffectHtml,
+                        iconSize:   [_efSize, _efSize],
+                        iconAnchor: [_efSize / 2, _efSize],
+                        popupAnchor: [0, -_efSize]
+                    });
+                    // zIndexOffset 음수 → 다른 마커 뒤에 렌더링 (기존 성 마커 배경처럼)
+                    marker = L.marker([castle.lat, castle.lng], { icon: battleEffectIcon, zIndexOffset: -2000 });
+                } else
 
                 // 🚩 [추가] 커스텀 아이콘이 있으면 사용
                 if (castle.custom_icon) {
