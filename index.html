@@ -6174,6 +6174,8 @@ body.force-mobile .marker-type-selector button {
           <label><input type="checkbox" id="menu-layer-iron"> 🪨 철광 산지</label>
           <label><input type="checkbox" id="menu-layer-crops"> 🌾 농작물</label>
           <label><input type="checkbox" id="menu-layer-horse"> &#x1F40E; 말 산지</label>
+          <label><input type="checkbox" id="menu-layer-salt"> 🧂 소금 산지</label>
+          <label><input type="checkbox" id="menu-layer-silk"> 🧵 비단 산지</label>
           </div>
       </div>
       
@@ -6463,6 +6465,8 @@ body.force-mobile .marker-type-selector button {
                 <button id="btn-iron" type="button" class="layer-toggle-btn" onclick="toggleIron(this)" style="padding:2px 4px;font-size:10px;">🪨철광산지</button>
                 <button id="btn-crops" type="button" class="layer-toggle-btn" onclick="toggleCrops(this)" style="padding:2px 4px;font-size:10px;">🌾농작물</button>
                 <button id="btn-horse" type="button" class="layer-toggle-btn" onclick="toggleHorse(this)" style="padding:2px 4px;font-size:10px;">&#x1F40E;말산지</button>
+                <button id="btn-salt" type="button" class="layer-toggle-btn" onclick="toggleSalt(this)" style="padding:2px 4px;font-size:10px;">🧂소금산지</button>
+                <button id="btn-silk" type="button" class="layer-toggle-btn" onclick="toggleSilk(this)" style="padding:2px 4px;font-size:10px;">🧵비단산지</button>
 
             </div>
             
@@ -24135,6 +24139,33 @@ kingSelect.addEventListener('change', () => {
             });
         })();
 
+        // 🚩 [추가] 🧂 소금 산지 체크박스 토글 연결
+        (function() {
+            var cb = document.getElementById('menu-layer-salt');
+            if (!cb) return;
+            cb.addEventListener('change', function() {
+                var btn = document.getElementById('btn-salt');
+                var isCurrentlyOn = btn && btn.classList.contains('active');
+                if (cb.checked !== isCurrentlyOn && typeof window.toggleSalt === 'function') {
+                    window.toggleSalt(btn);
+                }
+            });
+        })();
+
+        // 🚩 [추가] 🧵 비단 산지 체크박스 토글 연결
+        (function() {
+            var cb = document.getElementById('menu-layer-silk');
+            if (!cb) return;
+            cb.addEventListener('change', function() {
+                var btn = document.getElementById('btn-silk');
+                var isCurrentlyOn = btn && btn.classList.contains('active');
+                if (cb.checked !== isCurrentlyOn && typeof window.toggleSilk === 'function') {
+                    window.toggleSilk(btn);
+                }
+            });
+        })();
+
+
         // 🚩 [추가] UI 컨테이너에서 클릭/드래그 전파 차단 (지도와의 이벤트 충돌 방지)
         (function disableUIEventPropagation() {
             const uiIds = [
@@ -31729,10 +31760,215 @@ async function castleFormDeleteVoice() {
   };
 })();
 
+// ================================================================
+// [SALT] 소금 산지 레이어
+// ================================================================
+(function() {
+  var _data   = [];
+  var _layer  = null;
+  var _on     = false;
+  var _loaded = false;
+  var _busy   = false;
+
+  function getMap() { return window.map || null; }
+
+  var TYPE_EMOJI = { sea: '🧂', lake: '🧊', well: '🪣', land: '🏜️' };
+
+  function tonToSize(t) {
+    var MIN = 60000, MAX = 1200000, S_MIN = 10, S_MAX = 30;
+    var r = Math.max(0, Math.min(1, (t - MIN) / (MAX - MIN)));
+    return Math.round(S_MIN + r * (S_MAX - S_MIN));
+  }
+
+  function buildLayer() {
+    var m = getMap();
+    if (!m) return;
+    if (_layer) { try { m.removeLayer(_layer); } catch(e){} }
+    _layer = L.layerGroup();
+
+    _data.forEach(function(d) {
+      var coords = d.location && d.location.coordinates;
+      if (!coords) return;
+      var lat = coords[1], lng = coords[0];
+      if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return;
+
+      var st    = d.salt_type || 'sea';
+      var emoji = TYPE_EMOJI[st] || TYPE_EMOJI['sea'];
+      var size  = tonToSize(d.annual_ton || 100000);
+
+      var icon = L.divIcon({
+        html: '<div style="font-size:' + size + 'px;line-height:1;'
+            + 'filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));'
+            + 'transform:translate(-50%,-50%)">' + emoji + '</div>',
+        className: '',
+        iconSize:   [1, 1],
+        iconAnchor: [0, 0],
+      });
+
+      var typeLabel = { sea:'\ud574\uc5fc', lake:'\ud638\uc218\uc5fc', well:'\uc815\uc5fc', land:'\uc554\uc5fc' }[st] || st;
+      var popup = '<b>' + d.name + '</b><br>'
+        + '\uc885\ub958: ' + typeLabel + (d.major ? ' \u2605\uc8fc\uc694' : '') + '<br>'
+        + '\uc5f0\uac04 \uc0dd\uc0b0(\uc0c1\ub300): ' + (d.annual_ton || 0).toLocaleString() + 't<br>'
+        + (d.description ? '<i style="font-size:11px">' + d.description + '</i>' : '');
+
+      L.marker([lat, lng], { icon: icon }).bindPopup(popup).addTo(_layer);
+    });
+  }
+
+  window.toggleSalt = async function(btn) {
+    var m = getMap();
+    console.log('[SALT] toggleSalt called, map=', !!m, '_loaded=', _loaded, '_on=', _on);
+    if (!m) { console.error('[SALT] map 없음'); return; }
+
+    if (!_loaded && !_busy) {
+      _busy = true;
+      if (btn) btn.textContent = '\u23F3';
+      try {
+        var res = await fetch('/api/resources?type=salt', {
+          headers: { 'Authorization': 'Bearer ' + (typeof getToken === 'function' ? getToken() : '') }
+        });
+        console.log('[SALT] fetch status=', res.status);
+        _data   = await res.json();
+        console.log('[SALT] data length=', _data.length, '첫번째=', _data[0] && _data[0].name);
+        _loaded = true;
+        buildLayer();
+        console.log('[SALT] buildLayer done, _layer=', !!_layer);
+      } catch(e) {
+        console.error('[SALT] 오류:', e);
+        if (btn) btn.textContent = 'salt err';
+        _busy = false; return;
+      }
+      _busy = false;
+    }
+
+    _on = !_on;
+    console.log('[SALT] _on ->', _on, '_layer=', !!_layer);
+    if (_on) {
+      if (_layer) _layer.addTo(m);
+      if (btn) { btn.classList.add('active'); btn.textContent = 'salt ON'; }
+      var cb = document.getElementById('menu-layer-salt');
+      if (cb) cb.checked = true;
+    } else {
+      if (_layer) try { m.removeLayer(_layer); } catch(e){}
+      if (btn) { btn.classList.remove('active'); btn.textContent = 'salt OFF'; }
+      var cb = document.getElementById('menu-layer-salt');
+      if (cb) cb.checked = false;
+    }
+  };
+})();
+
+// [SILK] 비단 산지 레이어
+// ================================================================
+(function() {
+  var _data   = [];
+  var _layer  = null;
+  var _on     = false;
+  var _loaded = false;
+  var _busy   = false;
+
+  function getMap() { return window.map || null; }
+
+  var SILK_IMG_URL = 'https://raw.githubusercontent.com/projeffmanager-design/img/main/1778571134547_silk.png';
+
+  function boltToSize(b) {
+    var MIN = 80000, MAX = 1200000, S_MIN = 10, S_MAX = 30;
+    var r = Math.max(0, Math.min(1, (b - MIN) / (MAX - MIN)));
+    return Math.round(S_MIN + r * (S_MAX - S_MIN));
+  }
+
+  function buildLayer() {
+    var m = getMap();
+    if (!m) return;
+    if (_layer) { try { m.removeLayer(_layer); } catch(e){} }
+    _layer = L.layerGroup();
+
+    _data.forEach(function(d) {
+      var coords = d.location && d.location.coordinates;
+      if (!coords) return;
+      var lat = coords[1], lng = coords[0];
+      if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return;
+
+      var st   = d.silk_type || 'sericulture';
+      var size = boltToSize(d.annual_bolt || 100000);
+      var icon;
+
+      if (st === 'sericulture') {
+        // 양잠 — 🐛 이모지
+        icon = L.divIcon({
+          html: '<div style="font-size:' + size + 'px;line-height:1;'
+              + 'filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));'
+              + 'transform:translate(-50%,-50%)">🐛</div>',
+          className: '', iconSize: [1, 1], iconAnchor: [0, 0],
+        });
+      } else if (st === 'weaving') {
+        // 직조 — 비단 이미지
+        icon = L.divIcon({
+          html: '<img src="' + SILK_IMG_URL + '" style="width:' + size + 'px;height:' + size + 'px;'
+              + 'object-fit:contain;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));'
+              + 'transform:translate(-50%,-50%);display:block;">',
+          className: '', iconSize: [1, 1], iconAnchor: [0, 0],
+        });
+      } else {
+        // 교역거점 — 🏺 이모지
+        icon = L.divIcon({
+          html: '<div style="font-size:' + size + 'px;line-height:1;'
+              + 'filter:drop-shadow(0 1px 2px rgba(0,0,0,0.7));'
+              + 'transform:translate(-50%,-50%)">🏺</div>',
+          className: '', iconSize: [1, 1], iconAnchor: [0, 0],
+        });
+      }
+
+      var typeLabel = { sericulture:'양잠', weaving:'직조', trade:'교역거점' }[st] || st;
+      var popup = '<b>' + d.name + '</b><br>'
+        + '종류: ' + typeLabel + (d.major ? ' ★주요' : '') + '<br>'
+        + '연간 생산(상대): ' + (d.annual_bolt || 0).toLocaleString() + '필<br>'
+        + (d.description ? '<i style="font-size:11px">' + d.description + '</i>' : '');
+
+      L.marker([lat, lng], { icon: icon }).bindPopup(popup).addTo(_layer);
+    });
+  }
+
+  window.toggleSilk = async function(btn) {
+    var m = getMap();
+    if (!m) { console.error('[SILK] map 없음'); return; }
+
+    if (!_loaded && !_busy) {
+      _busy = true;
+      if (btn) btn.textContent = '⏳';
+      try {
+        var res = await fetch('/api/resources?type=silk', {
+          headers: { 'Authorization': 'Bearer ' + (typeof getToken === 'function' ? getToken() : '') }
+        });
+        _data   = await res.json();
+        _loaded = true;
+        buildLayer();
+      } catch(e) {
+        console.error('[SILK] 오류:', e);
+        if (btn) btn.textContent = 'silk err';
+        _busy = false; return;
+      }
+      _busy = false;
+    }
+
+    _on = !_on;
+    if (_on) {
+      if (_layer) _layer.addTo(m);
+      if (btn) { btn.classList.add('active'); btn.textContent = '🧵비단 ON'; }
+      var cb = document.getElementById('menu-layer-silk');
+      if (cb) cb.checked = true;
+    } else {
+      if (_layer) try { m.removeLayer(_layer); } catch(e){}
+      if (btn) { btn.classList.remove('active'); btn.textContent = '🧵비단산지'; }
+      var cb = document.getElementById('menu-layer-silk');
+      if (cb) cb.checked = false;
+    }
+  };
+})();
+
+
 </script>
 
-<!-- ✅ 좌측 하단 미니 BGM 바 -->
-<div id="bgm-mini-bar" style="
+<!-- ✅ 좌측 하단 미니 BGM 바 --><div id="bgm-mini-bar" style="
     position: fixed;
     bottom: 80px;
     left: 16px;
