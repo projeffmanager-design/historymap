@@ -279,7 +279,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.7.0',           // [v3.7.0] 사이클 재생속도·팝업억제·타일부트스트랩·BGM동적로드·검색드롭다운수정
+        APP_VERSION: '3.7.2',           // [v3.7.2] countries DB 복원 후 localStorage 캐시 강제 무효화
         DATA_SCHEMA_VERSION: '2.1.1'    // tile_30_120: Tsushima data[]→features[] 이동 — 캐시 강제 갱신
     };
     // 세션 캐시에서 schema version 을 참조할 수 있도록 전역 노출
@@ -1459,7 +1459,7 @@ body.force-mobile .marker-type-selector button {
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&family=Yeon+Sung&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
+  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
   <script>
   // === [playback] 재생 중 모든 Leaflet 팝업 억제 훅 ===
   // window.isPlaying = true 동안 openPopup() 호출을 무음 차단
@@ -6169,6 +6169,11 @@ body.force-mobile .marker-type-selector button {
           <label><input type="checkbox" id="menu-layer-ranking" checked> 사관 랭킹</label>
           <label><input type="checkbox" id="menu-layer-activity-feed" checked> 활동 소식</label>
           <label><input type="checkbox" id="menu-layer-caption" checked> 🎬 역사 자막</label>
+          <label><input type="checkbox" id="menu-layer-pop-heat"> 👥 호구수</label>
+          <label><input type="checkbox" id="menu-layer-gold"> 🧈 금 산지</label>
+          <label><input type="checkbox" id="menu-layer-iron"> 🪨 철광 산지</label>
+          <label><input type="checkbox" id="menu-layer-crops"> 🌾 농작물</label>
+          <label><input type="checkbox" id="menu-layer-horse"> &#x1F40E; 말 산지</label>
           </div>
       </div>
       
@@ -6453,6 +6458,12 @@ body.force-mobile .marker-type-selector button {
                 <button type="button" class="layer-toggle-btn" data-layer="rivers" style="padding: 2px 4px; font-size: 10px;">강</button>
                 <button type="button" class="layer-toggle-btn" data-layer="timeline" style="padding: 2px 4px; font-size: 10px;">연대표</button>
                 <button type="button" class="layer-toggle-btn" data-layer="eventSidebar" style="padding: 2px 4px; font-size: 10px;">사건목록</button>
+                <button id="btn-pop-heat" type="button" class="layer-toggle-btn" onclick="togglePopHeat(this)" style="padding: 2px 4px; font-size: 10px;">👥 호구수</button>
+                <button id="btn-gold" type="button" class="layer-toggle-btn" onclick="toggleGold(this)" style="padding:2px 4px;font-size:10px;">🧈금산지</button>
+                <button id="btn-iron" type="button" class="layer-toggle-btn" onclick="toggleIron(this)" style="padding:2px 4px;font-size:10px;">🪨철광산지</button>
+                <button id="btn-crops" type="button" class="layer-toggle-btn" onclick="toggleCrops(this)" style="padding:2px 4px;font-size:10px;">🌾농작물</button>
+                <button id="btn-horse" type="button" class="layer-toggle-btn" onclick="toggleHorse(this)" style="padding:2px 4px;font-size:10px;">&#x1F40E;말산지</button>
+
             </div>
             
             <!-- 🚩 [추가] PC용 편집 버튼 (모바일에서 숨김) -->
@@ -6714,7 +6725,7 @@ body.force-mobile .marker-type-selector button {
                       <option value="natural_sea">자연지물 - 바다</option>
                       <option value="natural_tomb">자연지물 - 고분/묘 🪦</option>
                       <option value="natural_temple">자연지물 - 사원/신전 🏛</option>
-                      <option value="natural_palace">자연지물 - 궁전 ♚</option>
+                      <option value="natural_palace">자연지물 - 궁전 🕌</option>
                       <option value="natural_mine">자연지물 - 광산 ⛏️</option>
                       <option value="natural_port">자연지물 - 항구 ⚓</option>
                       <option value="natural_kiln">자연지물 - 가마/도요지 🔥</option>
@@ -7598,7 +7609,7 @@ body.force-mobile .marker-type-selector button {
             <option value="mudflat">뻘/늪</option>
             <option value="tomb">고분/묘 🪦</option>
             <option value="temple">사원/신전 🏛</option>
-            <option value="palace">궁전 ♚</option>
+            <option value="palace">궁전 🏯</option>
             <option value="mine">광산 ⛏️</option>
             <option value="port">항구 ⚓</option>
             <option value="kiln">가마/도요지 🔥</option>
@@ -8761,6 +8772,8 @@ body.force-mobile .marker-type-selector button {
         activityFeed: true,  // 🚩 [추가] 사관활동 소식 피드
         captionPanel: true,  // 🚩 [추가] 역사 서사 자막 패널 (기본 ON)
         eventSidebar: false, // 🚩 [과제2] 사건목록 사이드바 토글
+        drawingPanel: false,  // 🚩 [과제2] 그리기 패널 토글
+        heatmap: false,      // 🚩 [과제2] 히트맵 레이어 토글 (기본 OFF)
         // 🔄 [호환성] 기존 'label'은 placeLabel로 매핑
         get label() { return this.placeLabel; },
         set label(value) { this.placeLabel = value; }
@@ -9090,7 +9103,8 @@ body.force-mobile .marker-type-selector button {
         wheelPxPerZoomLevel: 240,    // 기본 60 → 4배로 늘려 스크롤 줌 감도 대폭 낮춤
         wheelDebounceTime: 150       // 기본 40ms → 150ms 로 스크롤 줌 딜레이 추가
     });
-    
+    window.map = map; // 🚩 [추가] 외부 모듈(히트맵 등)에서 map 접근 가능하도록 전역 노출
+
     // 🚩 [추가] 줌 컨트롤을 왼쪽 하단에 추가
     L.control.zoom({
         position: 'bottomleft'
@@ -10852,7 +10866,7 @@ function getKingByYear(countryName, year, month) {
             'construction': { symbol: '⚒️', className: 'feature-construction' },
             'tomb': { symbol: '🪦', className: 'feature-tomb', imageUrl: 'https://raw.githubusercontent.com/projeffmanager-design/img/main/%E1%84%8E%E1%85%AE%E1%86%BC%E1%84%8C%E1%85%AE%E1%84%80%E1%85%A9%E1%84%80%E1%85%AE%E1%84%85%E1%85%A7%E1%84%87%E1%85%B5.png' }, // 고분/묘
             'temple': { symbol: '🏛', className: 'feature-temple', imageUrl: 'https://cdn-icons-png.flaticon.com/512/6267/6267693.png', imageSize: 15 }, // 사원/신전
-            'palace': { symbol: '♚', className: 'feature-palace' }, // 궁전
+            'palace': { symbol: '🏯', className: 'feature-palace' }, // 궁전
             'mine': { symbol: '⛏️', className: 'feature-mine' }, // 광산
             'port': { symbol: '⚓', className: 'feature-port' }, // 항구
             'kiln': { symbol: '🔥', className: 'feature-kiln' }, // 가마/도요지
@@ -12232,7 +12246,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 
                 // 민족 필터링
                 if (selectedEthnicity !== 'all') {
-                    if (!countryInfo.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity)) {
+                    if (!countryInfo?.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity)) {
                         return;
                     }
                 }
@@ -13497,13 +13511,13 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     });
                     marker = L.marker([markerLat, markerLng], { icon: flagIcon });
                     
-                    const flagHtml = countryInfo.flag ? `<img src="${countryInfo.flag}" class="country-flag-img" style="width: 20px; height: 13px; border: 1px solid #ccc; vertical-align: middle; margin-right: 5px;">` : '';
+                    const flagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" class="country-flag-img" style="width: 20px; height: 13px; border: 1px solid #ccc; vertical-align: middle; margin-right: 5px;">` : '';
                     const descriptionHtml = castle.desc ? `<br>설명: ${stripImgTags(castle.desc)}` : '';
                     const metaInfo = [];
                     if (castle.createdBy) metaInfo.push(`사관: ${castle.createdBy}`);
                     const editorInfoHtml = metaInfo.length ? `<br><small>${metaInfo.join('<br>')}</small>` : '';
                     
-                    popupHtml = `${flagHtml}<b>${countryName}</b>${countryInfo.ethnicity ? `<br>민족: ${countryInfo.ethnicity}` : ''}<br>${castle.general_name ? `장수: ${castle.general_name}<br>` : ''}${castle.troop_count ? `병력: ${Number(castle.troop_count).toLocaleString()}<br>` : ''}${castle.general_photo ? `<br><img src="${castle.general_photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}${descriptionHtml}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
+                    popupHtml = `${flagHtml}<b>${countryName}</b>${countryInfo?.ethnicity ? `<br>민족: ${countryInfo.ethnicity}` : ''}<br>${castle.general_name ? `장수: ${castle.general_name}<br>` : ''}${castle.troop_count ? `병력: ${Number(castle.troop_count).toLocaleString()}<br>` : ''}${castle.general_photo ? `<br><img src="${castle.general_photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}${descriptionHtml}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
                     
                     marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
                     
@@ -13560,7 +13574,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
                 const general = castle.general_name || '장수 미상';
                 const troops = castle.troop_count ? `${Number(castle.troop_count).toLocaleString()}` : '병력 미상';
-                const flagColor = countryInfo.color || "white";  
+                const flagColor = (countryInfo && countryInfo.color) || "white";  
                 const generalPhotoUrl = castle.general_photo || ''; 
 
                 // 🚩 [수정] 장수 사진 유무에 따라 아이콘 내용을 다르게 구성합니다.
@@ -13596,14 +13610,14 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 
                 marker = L.marker([markerLat, markerLng], { icon: flagIcon }); 
                 
-                const flagHtml = countryInfo.flag ? `<img src="${countryInfo.flag}" class="country-flag-img" style="width: 20px; height: 13px; border: 1px solid #ccc; vertical-align: middle; margin-right: 5px;">` : '';
+                const flagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" class="country-flag-img" style="width: 20px; height: 13px; border: 1px solid #ccc; vertical-align: middle; margin-right: 5px;">` : '';
 
                 const descriptionHtml = castle.desc ? `<br>설명: ${stripImgTags(castle.desc)}` : '';
                 const metaInfo = [];
                 if (castle.createdBy) metaInfo.push(`사관: ${castle.createdBy}`);
                 const editorInfoHtml = metaInfo.length ? `<br><small>${metaInfo.join('<br>')}</small>` : '';
 
-                popupHtml = `${flagHtml}<b>${countryName}</b>${countryInfo.ethnicity ? `<br>민족: ${countryInfo.ethnicity}` : ''}<br>장수: ${general}<br>병력: ${troops}<br>${generalPhotoUrl ? `<br><img src="${generalPhotoUrl}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}${descriptionHtml}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
+                popupHtml = `${flagHtml}<b>${countryName}</b>${countryInfo?.ethnicity ? `<br>민족: ${countryInfo.ethnicity}` : ''}<br>장수: ${general}<br>병력: ${troops}<br>${generalPhotoUrl ? `<br><img src="${generalPhotoUrl}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}${descriptionHtml}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
                 
                 marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
                 
@@ -14311,6 +14325,8 @@ function invalidateCountryLookupCache() {
                                     _countryLookupMap = null;
                                     if (updateMap._loggedMissingIds) updateMap._loggedMissingIds.clear();
                                     requestUpdateMap();
+                                    // 🔑 [추가] 국가 필터 드롭다운도 갱신
+                                    if (typeof window._fillCountryFilterSelect === 'function') window._fillCountryFilterSelect();
                                 }
                             }
                         } catch(e) { /* 백그라운드 실패는 무시 */ }
@@ -17498,7 +17514,7 @@ const loadingMessages = [
               }
 
               if (selectedEthnicity !== 'all') {
-                  if (!countryInfo.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity)) return;
+                  if (!countryInfo?.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity)) return;
               }
 
               // 국가 필터: 선택된 국가가 아니면 스킵
@@ -24040,6 +24056,85 @@ kingSelect.addEventListener('change', () => {
             console.log('✅ 레이어 UI 동기화 완료 (캐시 사용)');
         }
 
+        // 🚩 [추가] 인구밀도 히트맵 자동 초기화 (layerVisibility.heatmap === true 인 경우)
+        if (layerVisibility && layerVisibility.heatmap) {
+            setTimeout(function() {
+                var btn = document.getElementById('btn-pop-heat');
+                if (typeof window.togglePopHeat === 'function') {
+                    console.log('[인구히트맵] 자동 초기화 시작');
+                    window.togglePopHeat(btn);
+                }
+            }, 1500); // 지도 및 타일 로딩 완료 후 실행
+        }
+
+        // 🚩 [추가] 🌡️ 인구 밀도 체크박스 토글 연결
+        (function() {
+            var cbPopHeat = document.getElementById('menu-layer-pop-heat');
+            if (!cbPopHeat) return;
+            cbPopHeat.addEventListener('change', function() {
+                var btn = document.getElementById('btn-pop-heat');
+                var isCurrentlyOn = btn && btn.classList.contains('active');
+                var wantOn = cbPopHeat.checked;
+                if (wantOn !== isCurrentlyOn) {
+                    if (typeof window.togglePopHeat === 'function') {
+                        window.togglePopHeat(btn);
+                    }
+                }
+            });
+        })();
+
+        // 🚩 [추가] 🟡 금 산지 체크박스 토글 연결
+        (function() {
+            var cb = document.getElementById('menu-layer-gold');
+            if (!cb) return;
+            cb.addEventListener('change', function() {
+                var btn = document.getElementById('btn-gold');
+                var isCurrentlyOn = btn && btn.classList.contains('active');
+                if (cb.checked !== isCurrentlyOn && typeof window.toggleGold === 'function') {
+                    window.toggleGold(btn);
+                }
+            });
+        })();
+
+        // 🚩 [추가] 🔴 철광 산지 체크박스 토글 연결
+        (function() {
+            var cb = document.getElementById('menu-layer-iron');
+            if (!cb) return;
+            cb.addEventListener('change', function() {
+                var btn = document.getElementById('btn-iron');
+                var isCurrentlyOn = btn && btn.classList.contains('active');
+                if (cb.checked !== isCurrentlyOn && typeof window.toggleIron === 'function') {
+                    window.toggleIron(btn);
+                }
+            });
+        })();
+
+        // 🚩 [추가] 🌾 농작물 체크박스 토글 연결
+        (function() {
+            var cb = document.getElementById('menu-layer-crops');
+            if (!cb) return;
+            cb.addEventListener('change', function() {
+                var btn = document.getElementById('btn-crops');
+                var isCurrentlyOn = btn && btn.classList.contains('active');
+                if (cb.checked !== isCurrentlyOn && typeof window.toggleCrops === 'function') {
+                    window.toggleCrops(btn);
+                }
+            });
+        })();
+
+        // 🚩 [추가] 🐴 말 산지 체크박스 토글 연결
+        (function() {
+            var cb = document.getElementById('menu-layer-horse');
+            if (!cb) return;
+            cb.addEventListener('change', function() {
+                var btn = document.getElementById('btn-horse');
+                var isCurrentlyOn = btn && btn.classList.contains('active');
+                if (cb.checked !== isCurrentlyOn && typeof window.toggleHorse === 'function') {
+                    window.toggleHorse(btn);
+                }
+            });
+        })();
+
         // 🚩 [추가] UI 컨테이너에서 클릭/드래그 전파 차단 (지도와의 이벤트 충돌 방지)
         (function disableUIEventPropagation() {
             const uiIds = [
@@ -25069,20 +25164,24 @@ kingSelect.addEventListener('change', () => {
         
         // 🍔 메뉴 내 국가 필터 연결
         const menuCountrySelect = document.getElementById('menu-country-select');
+        // 🔑 [전역] countries 갱신 시 필터도 다시 채우는 함수
+        window._fillCountryFilterSelect = function() {
+            if (!menuCountrySelect || countries.length === 0) return;
+            // 기존 옵션(전체 제외) 제거
+            while (menuCountrySelect.options.length > 1) menuCountrySelect.remove(1);
+            console.log('🍔 국가 필터 채우기:', countries.length);
+            const sorted = [...countries].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'));
+            sorted.forEach(country => {
+                const option = document.createElement('option');
+                option.value = country._id;
+                option.textContent = country.name;
+                menuCountrySelect.appendChild(option);
+            });
+        };
         if (menuCountrySelect) {
-            // 국가 옵션 채우기 - countries 로드 후 실행되도록 보장
-            setTimeout(() => {
-                if (countries && countries.length > 0) {
-                    console.log('🍔 국가 필터 채우기:', countries.length);
-                    const sorted = [...countries].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
-                    sorted.forEach(country => {
-                        const option = document.createElement('option');
-                        option.value = country._id;
-                        option.textContent = country.name;
-                        menuCountrySelect.appendChild(option);
-                    });
-                }
-            }, 1000);
+            // 국가 옵션 채우기 - 3초 후 재시도 (백그라운드 재검증 완료 보장)
+            setTimeout(() => window._fillCountryFilterSelect(), 1000);
+            setTimeout(() => window._fillCountryFilterSelect(), 3000);
             
             menuCountrySelect.addEventListener('change', () => {
                 selectedCountryId = menuCountrySelect.value;
@@ -31150,6 +31249,486 @@ async function castleFormDeleteVoice() {
     getList: function(){ return trackNames.slice(); }
   };
 })();
+
+(function() {
+  var _layer = null;
+  var _on = false, _busy = false;
+  var _data = [];
+  var _currentYear = 1000;
+
+  function getToken() {
+    return localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+  }
+  function getMap() {
+    if (typeof map !== 'undefined' && map) return map;
+    if (window.map) return window.map;
+    var el = document.getElementById('map');
+    return el && el._leaflet_map ? el._leaflet_map : null;
+  }
+
+  // 연도에 맞는 인구값 추출
+  function getPopForYear(doc, year) {
+    var eraStart = doc.era_start != null ? doc.era_start : -9999;
+    var eraEnd   = doc.era_end   != null ? doc.era_end   :  9999;
+    if (year < eraStart - 50) return 0;
+    if (year > eraEnd   + 50) return 0;
+    if (!doc.pop_by_year || Object.keys(doc.pop_by_year).length === 0) {
+      return doc.est_population || 0;
+    }
+    var years = Object.keys(doc.pop_by_year).map(Number).sort(function(a, b) { return a - b; });
+    var best = null;
+    for (var i = 0; i < years.length; i++) {
+      if (years[i] <= year) best = years[i];
+      else break;
+    }
+    return best !== null ? (doc.pop_by_year[best] || 0) : 0;
+  }
+
+  // 호구수 포맷 (인구 ÷ 5 = 호구 추정)
+  function popToHousehold(pop) {
+    var h = Math.round(pop / 5);
+    if (h >= 10000000) return (h / 10000000).toFixed(1) + '천만호';
+    if (h >= 1000000)  return (h / 1000000).toFixed(1)  + '백만호';
+    if (h >= 10000)    return (h / 10000).toFixed(0)     + '만호';
+    if (h >= 1000)     return (h / 1000).toFixed(1)      + '천호';
+    return h.toLocaleString() + '호';
+  }
+
+  // 호구수 버블 + 숫자 레이어 생성
+  function buildLayer(year) {
+    var m = getMap();
+    if (!m) return;
+    if (_layer) { try { m.removeLayer(_layer); } catch(e){} _layer = null; }
+
+    var active = _data.filter(function(d) { return getPopForYear(d, year) > 0; });
+    if (!active.length) return;
+
+    var FIXED_MAX = Math.max.apply(null,
+      _data.map(function(d) {
+        return Math.max.apply(null, Object.values(d.pop_by_year || {'0': 0}).map(Number));
+      })
+    );
+
+    _layer = L.layerGroup();
+    active.forEach(function(d) {
+      // GeoJSON: coordinates = [lng, lat]
+      var coords = d.location && d.location.coordinates;
+      var lat = coords ? coords[1] : d.lat;
+      var lng = coords ? coords[0] : d.lng;
+      if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return;
+
+      var pop    = getPopForYear(d, year);
+      var ratio  = pop / FIXED_MAX;
+      var radius = Math.max(4, ratio * 55);
+
+      // 색상: 인구 밀도에 따라
+      var color = ratio > 0.15 ? '#ef4444'
+                : ratio > 0.08 ? '#f97316'
+                : ratio > 0.04 ? '#eab308'
+                :                '#3b82f6';
+
+      // 반투명 버블
+      L.circleMarker([lat, lng], {
+        radius:      radius,
+        fillColor:   color,
+        fillOpacity: 0.25,
+        color:       color,
+        weight:      1,
+        opacity:     0.5,
+      }).addTo(_layer);
+
+      // 중앙 호구수 텍스트 아이콘
+      var txt   = popToHousehold(pop);
+      var fsize = Math.max(8, Math.min(13, Math.round(ratio * 60 + 7)));
+      var icon  = L.divIcon({
+        html: '<div style="color:' + color + ';font-size:' + fsize + 'px;font-weight:700;'
+            + 'text-shadow:0 1px 3px rgba(0,0,0,0.9);white-space:nowrap;'
+            + 'transform:translate(-50%,-50%);line-height:1">' + txt + '</div>',
+        className: '',
+        iconSize:   [1, 1],
+        iconAnchor: [0, 0],
+        popupAnchor:[0, -radius],
+      });
+      L.marker([lat, lng], { icon: icon, interactive: false }).addTo(_layer);
+    });
+
+    if (_on) _layer.addTo(m);
+  }
+
+  // 슬라이더 연동
+  function hookSlider() {
+    var slider = document.getElementById('combinedSlider');
+    if (!slider) { setTimeout(hookSlider, 500); return; }
+    slider.addEventListener('input', function() {
+      if (!_on || !_data.length) return;
+      var ym = typeof getCurrentYearMonth === 'function' ? getCurrentYearMonth() : null;
+      var year = ym ? ym.year : null;
+      if (year !== null && year !== _currentYear) {
+        _currentYear = year;
+        buildLayer(_currentYear);
+      }
+    });
+  }
+  hookSlider();
+
+  window.togglePopHeat = async function(btn) {
+    var m = getMap();
+    if (!m) { return; }
+
+    if (!_data.length) {
+      if (_busy) return;
+      _busy = true;
+      if (btn) btn.textContent = '⏳';
+      try {
+        var res = await fetch('/api/resources?type=population', {
+          headers: { 'Authorization': 'Bearer ' + getToken() }
+        });
+        _data = await res.json();
+        var ym = typeof getCurrentYearMonth === 'function' ? getCurrentYearMonth() : null;
+        _currentYear = ym ? ym.year : 1000;
+        buildLayer(_currentYear);
+      } catch(e) {
+        if (btn) btn.textContent = '호구수';
+        _busy = false; return;
+      }
+      _busy = false;
+    }
+
+    _on = !_on;
+    if (_on) {
+      _layer && _layer.addTo(m);
+      if (btn) { btn.classList.add('active'); btn.textContent = '호구수 ●'; }
+    } else {
+      _layer && m.removeLayer(_layer);
+      if (btn) { btn.classList.remove('active'); btn.textContent = '호구수'; }
+    }
+  };
+
+})();
+
+(function() {
+  var _goldLayer = null, _ironLayer = null;
+  var _goldOn = false, _ironOn = false;
+  var _goldData = [], _ironData = [];
+  var _loaded = false, _busy = false;
+
+  function getToken() {
+    return localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+  }
+  function getMap() {
+    if (typeof map !== 'undefined' && map) return map;
+    if (window.map) return window.map;
+    var el = document.getElementById('map');
+    return el && el._leaflet_map ? el._leaflet_map : null;
+  }
+
+  function makePopup(d, type) {
+    var icon  = type === 'gold' ? '🧈' : '🪨';
+    var label = type === 'gold' ? '금 산지' : '철광 산지';
+    return '<div style="min-width:160px;font-size:12px">'
+      + '<div style="font-weight:700;font-size:13px;margin-bottom:6px">'
+      + icon + ' ' + (d.name || '') + '</div>'
+      + '<div style="color:#888;font-size:10px;margin-bottom:4px">' + label + ' — ' + (d.major ? '대형 ★' : '일반') + '</div>'
+      + (d.hist  ? '<div style="color:#555;margin-bottom:3px">📜 ' + d.hist  + '</div>' : '')
+      + (d.strat ? '<div style="color:#0066cc;font-size:10px">⚔️ ' + d.strat + '</div>' : '')
+      + '</div>';
+  }
+
+  var GOLD_ICON_URL = 'https://raw.githubusercontent.com/projeffmanager-design/img/main/1778560872801_image.png';
+
+  function makeGoldIcon(major) {
+    var size = major ? 17 : 12;
+    return L.icon({
+      iconUrl:    GOLD_ICON_URL,
+      iconSize:   [size, size],
+      iconAnchor: [size / 2, size / 2],
+      popupAnchor:[0, -size / 2],
+    });
+  }
+
+  function makeEmojiIcon(emoji, major) {
+    var size = major ? 13 : 10;
+    return L.divIcon({
+      html: '<span style="font-size:' + size + 'px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.55))">' + emoji + '</span>',
+      className: '',
+      iconSize:   [size, size],
+      iconAnchor: [size / 2, size / 2],
+      popupAnchor:[0, -size / 2],
+    });
+  }
+
+  function buildLayers() {
+    _goldLayer = L.layerGroup();
+    _goldData.forEach(function(d) {
+      L.marker([d.lat, d.lng], { icon: makeGoldIcon(d.major) })
+        .bindPopup(makePopup(d, 'gold')).addTo(_goldLayer);
+    });
+
+    _ironLayer = L.layerGroup();
+    _ironData.forEach(function(d) {
+      L.marker([d.lat, d.lng], { icon: makeEmojiIcon('🪨', d.major) })
+        .bindPopup(makePopup(d, 'iron')).addTo(_ironLayer);
+    });
+  }
+
+  async function loadData() {
+    if (_loaded) return true;
+    if (_busy)   return false;
+    _busy = true;
+    try {
+      var r1 = await fetch('/api/resources?type=gold',  { headers: {'Authorization': 'Bearer ' + getToken()} });
+      var r2 = await fetch('/api/resources?type=iron',  { headers: {'Authorization': 'Bearer ' + getToken()} });
+      _goldData = await r1.json();
+      _ironData = await r2.json();
+      buildLayers();
+      _loaded = true;
+      console.log('[자원] 금:' + _goldData.length + '개 / 철:' + _ironData.length + '개');
+    } catch(e) {
+      console.error('[자원] 로드 오류:', e);
+      _busy = false; return false;
+    }
+    _busy = false; return true;
+  }
+
+  window.toggleGold = async function(btn) {
+    var m = getMap();
+    if (!m || !await loadData()) return;
+    _goldOn = !_goldOn;
+    if (_goldOn) {
+      _goldLayer.addTo(m);
+      if (btn) { btn.classList.add('active'); btn.textContent = '🧈금산지 ●'; }
+      var cb = document.getElementById('menu-layer-gold');
+      if (cb) cb.checked = true;
+    } else {
+      m.removeLayer(_goldLayer);
+      if (btn) { btn.classList.remove('active'); btn.textContent = '🧈금산지'; }
+      var cb = document.getElementById('menu-layer-gold');
+      if (cb) cb.checked = false;
+    }
+  };
+
+  window.toggleIron = async function(btn) {
+    var m = getMap();
+    if (!m || !await loadData()) return;
+    _ironOn = !_ironOn;
+    if (_ironOn) {
+      _ironLayer.addTo(m);
+      if (btn) { btn.classList.add('active'); btn.textContent = '🪨철광산지 ●'; }
+      var cb = document.getElementById('menu-layer-iron');
+      if (cb) cb.checked = true;
+    } else {
+      m.removeLayer(_ironLayer);
+      if (btn) { btn.classList.remove('active'); btn.textContent = '🪨철광산지'; }
+      var cb = document.getElementById('menu-layer-iron');
+      if (cb) cb.checked = false;
+    }
+  };
+})();
+
+// ════════════════════════════════════════════════════════
+// 🌾 농작물 레이어
+// ════════════════════════════════════════════════════════
+(function() {
+  var _data    = [];
+  var _layer   = null;
+  var _on      = false;
+  var _loaded  = false;
+  var _busy    = false;
+
+  // 작물 종류별 이모티콘
+  var CROP_EMOJI = {
+    rice:     '🌾',
+    wheat:    '🌿',
+    millet:   '🌽',
+    barley:   '🍺',
+    sorghum:  '🎋',
+    hemp:     '🪢',
+    mulberry: '🍃',
+    mixed:    '🌱',
+  };
+
+  // annual_yield_ton 기준 아이콘 크기 (8~26px)
+  var Y_MIN = 5880, Y_MAX = 213360;
+  function yieldToSize(y) {
+    var ratio = Math.max(0, Math.min(1, (y - Y_MIN) / (Y_MAX - Y_MIN)));
+    return Math.round(8 + ratio * 18); // 8px ~ 26px
+  }
+
+  function makeCropIcon(d) {
+    var emoji = CROP_EMOJI[d.crop_type] || '🌱';
+    var size  = yieldToSize(d.annual_yield_ton || 0);
+    return L.divIcon({
+      html: '<span title="' + (d.name_ko||d.name) + '" style="font-size:' + size + 'px;line-height:1;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))">' + emoji + '</span>',
+      className: '',
+      iconSize:   [size, size],
+      iconAnchor: [size / 2, size / 2],
+      popupAnchor:[0, -size / 2],
+    });
+  }
+
+  function makePopup(d) {
+    var emoji = CROP_EMOJI[d.crop_type] || '🌱';
+    var yieldFmt = d.annual_yield_ton ? d.annual_yield_ton.toLocaleString() + ' 톤' : '-';
+    var areaFmt  = d.area_km2         ? d.area_km2.toLocaleString()         + ' km²' : '-';
+    return '<div style="min-width:170px;font-size:12px">'
+      + '<div style="font-weight:700;font-size:13px;margin-bottom:5px">' + emoji + ' ' + (d.name_ko || '') + ' <span style="color:#888;font-size:11px">(' + (d.name||'') + ')</span></div>'
+      + '<div style="color:#aaa;font-size:10px;margin-bottom:5px">' + (d.region||'') + ' — ' + (d.crop_type_ko||d.crop_type) + '</div>'
+      + '<table style="font-size:11px;border-collapse:collapse;width:100%">'
+      + '<tr><td style="color:#888;padding:1px 4px 1px 0">생산량</td><td style="font-weight:600;color:#4ade80">' + yieldFmt + '</td></tr>'
+      + '<tr><td style="color:#888;padding:1px 4px 1px 0">경작 면적</td><td>' + areaFmt + '</td></tr>'
+      + '<tr><td style="color:#888;padding:1px 4px 1px 0">생산성</td><td>' + (d.productivity||'-') + ' / 10</td></tr>'
+      + '</table>'
+      + (d.era_note ? '<div style="color:#6b9fc0;font-size:10px;margin-top:5px;border-top:1px solid #2a3a4a;padding-top:4px">📜 ' + d.era_note + '</div>' : '')
+      + '</div>';
+  }
+
+  function buildLayer() {
+    _layer = L.layerGroup();
+    _data.forEach(function(d) {
+      L.marker([d.lat, d.lng], { icon: makeCropIcon(d) })
+        .bindPopup(makePopup(d))
+        .addTo(_layer);
+    });
+  }
+
+  function getToken() {
+    return localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+  }
+
+  async function loadData() {
+    if (_loaded) return true;
+    if (_busy)   return false;
+    _busy = true;
+    try {
+      var r = await fetch('/api/crops', { headers: { 'Authorization': 'Bearer ' + getToken() } });
+      _data = await r.json();
+      buildLayer();
+      _loaded = true;
+      console.log('[농작물] ' + _data.length + '개 로드');
+    } catch(e) {
+      console.error('[농작물] 로드 오류:', e);
+      _busy = false;
+      return false;
+    }
+    _busy = false;
+    return true;
+  }
+
+  function getMap() { return window.map || null; }
+
+  window.toggleCrops = async function(btn) {
+    var m = getMap();
+    if (!m || !await loadData()) return;
+    _on = !_on;
+    if (_on) {
+      _layer.addTo(m);
+      if (btn) { btn.classList.add('active'); btn.textContent = '🌾농작물 ●'; }
+      var cb = document.getElementById('menu-layer-crops');
+      if (cb) cb.checked = true;
+    } else {
+      m.removeLayer(_layer);
+      if (btn) { btn.classList.remove('active'); btn.textContent = '🌾농작물'; }
+      var cb = document.getElementById('menu-layer-crops');
+      if (cb) cb.checked = false;
+    }
+  };
+})();
+
+// ════════════════════════════════════════════════════════
+// 🐎 말 산지 레이어
+// ════════════════════════════════════════════════════════
+(function() {
+  var _data   = [];
+  var _layer  = null;
+  var _on     = false;
+  var _loaded = false;
+  var _busy   = false;
+
+  // annual_horses 기준 아이콘 크기 (9px ~ 28px)
+  var H_MIN = 3000, H_MAX = 200000;
+  function horsesToSize(h) {
+    var ratio = Math.max(0, Math.min(1, (h - H_MIN) / (H_MAX - H_MIN)));
+    return Math.round(11 + ratio * 23);
+  }
+
+  function makeHorseIcon(d) {
+    var size = horsesToSize(d.annual_horses || H_MIN);
+    return L.divIcon({
+      html: '<span style="font-size:' + size + 'px;line-height:1;display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))">&#x1F40E;</span>',
+      className: '',
+      iconSize:   [size, size],
+      iconAnchor: [size / 2, size / 2],
+      popupAnchor:[0, -size / 2],
+    });
+  }
+
+  function makePopup(d) {
+    var stars = '★'.repeat(d.quality || 0) + '☆'.repeat(10 - (d.quality || 0));
+    return '<div style="min-width:190px;font-size:12px">'
+      + '<div style="font-weight:700;font-size:13px;margin-bottom:4px">� ' + (d.name_ko || d.name || '') + '</div>'
+      + (d.name && d.name !== d.name_ko ? '<div style="color:#aaa;font-size:10px;margin-bottom:5px">' + d.name + ' — ' + (d.region||'') + '</div>' : '<div style="color:#aaa;font-size:10px;margin-bottom:5px">' + (d.region||'') + '</div>')
+      + '<table style="font-size:11px;border-collapse:collapse;width:100%">'
+      + '<tr><td style="color:#888;padding:1px 4px 1px 0">품질</td><td style="color:#f59e0b;font-size:10px">' + stars + ' (' + (d.quality||'-') + '/10)</td></tr>'
+      + '<tr><td style="color:#888;padding:1px 4px 1px 0">연간 공급</td><td style="font-weight:600;color:#4ade80">~' + ((d.annual_horses||0)).toLocaleString() + ' 두</td></tr>'
+      + '<tr><td style="color:#888;padding:1px 4px 1px 0">품종</td><td>' + (d.breed||'-') + '</td></tr>'
+      + '</table>'
+      + (d.hist  ? '<div style="color:#6b9fc0;font-size:10px;margin-top:5px;border-top:1px solid #2a3a4a;padding-top:4px">📜 ' + d.hist  + '</div>' : '')
+      + (d.strat ? '<div style="color:#f87171;font-size:10px;margin-top:3px">⚔️ ' + d.strat + '</div>' : '')
+      + '</div>';
+  }
+
+  function buildLayer() {
+    _layer = L.layerGroup();
+    _data.forEach(function(d) {
+      L.marker([d.lat, d.lng], { icon: makeHorseIcon(d) })
+        .bindPopup(makePopup(d))
+        .addTo(_layer);
+    });
+  }
+
+  function getToken() {
+    return localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+  }
+
+  async function loadData() {
+    if (_loaded) return true;
+    if (_busy)   return false;
+    _busy = true;
+    try {
+      var r = await fetch('/api/resources?type=horse', { headers: { 'Authorization': 'Bearer ' + getToken() } });
+      _data = await r.json();
+      buildLayer();
+      _loaded = true;
+      console.log('[말산지] ' + _data.length + '개 로드');
+    } catch(e) {
+      console.error('[말산지] 로드 오류:', e);
+      _busy = false;
+      return false;
+    }
+    _busy = false;
+    return true;
+  }
+
+  function getMap() { return window.map || null; }
+
+  window.toggleHorse = async function(btn) {
+    var m = getMap();
+    if (!m || !await loadData()) return;
+    _on = !_on;
+    if (_on) {
+      _layer.addTo(m);
+      if (btn) { btn.classList.add('active'); btn.textContent = '🐎말산지 ●'; }
+      var cb = document.getElementById('menu-layer-horse');
+      if (cb) cb.checked = true;
+    } else {
+      m.removeLayer(_layer);
+      if (btn) { btn.classList.remove('active'); btn.textContent = '🐎말산지'; }
+      var cb = document.getElementById('menu-layer-horse');
+      if (cb) cb.checked = false;
+    }
+  };
+})();
+
 </script>
 
 <!-- ✅ 좌측 하단 미니 BGM 바 -->

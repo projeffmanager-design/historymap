@@ -1609,7 +1609,32 @@ app.delete('/api/general/:id', verifyAdmin, async (req, res) => {
         // ----------------------------------------------------
         // 🌍 COUNTRIES API 엔드포인트 (생략 - 기본 기능으로 가정)
         // ----------------------------------------------------
-app.get('/api/countries', async (req, res) => {
+// ═══ /api/resources — 인구·금·철광 데이터 ═══
+app.get('/api/resources', async (req, res) => {
+  try {
+    const { type } = req.query;
+    const db = collections.countries.s.db; // 기존 DB 연결 재사용
+    const filter = type ? { resource_type: { $in: type.split(',').map(t => t.trim()) } } : {};
+    const data = await db.collection('resources').find(filter).toArray();
+    res.json(data);
+  } catch (err) {
+    console.error('/api/resources 오류:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══ /api/crops — 농업 데이터 ═══
+app.get('/api/crops', async (req, res) => {
+  try {
+    const db = collections.countries.s.db;
+    const data = await db.collection('crops').find({}).toArray();
+    res.json(data);
+  } catch (err) {
+    console.error('/api/crops 오류:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+        app.get('/api/countries', async (req, res) => {
     try {
         const countries = await collections.countries.find({}).toArray();
         res.json(countries);
