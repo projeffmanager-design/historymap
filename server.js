@@ -1609,11 +1609,11 @@ app.delete('/api/general/:id', verifyAdmin, async (req, res) => {
         // ----------------------------------------------------
         // 🌍 COUNTRIES API 엔드포인트 (생략 - 기본 기능으로 가정)
         // ----------------------------------------------------
-// ═══ /api/resources — 인구·금·철광 데이터 ═══
+// ═══ /api/resources — 산지·서식지 데이터 CRUD ═══
 app.get('/api/resources', async (req, res) => {
   try {
     const { type } = req.query;
-    const db = collections.countries.s.db; // 기존 DB 연결 재사용
+    const db = collections.countries.s.db;
     const filter = type ? { resource_type: { $in: type.split(',').map(t => t.trim()) } } : {};
     const data = await db.collection('resources').find(filter).toArray();
     res.json(data);
@@ -1623,7 +1623,61 @@ app.get('/api/resources', async (req, res) => {
   }
 });
 
-// ═══ /api/crops — 농업 데이터 ═══
+// 신규 추가
+app.post('/api/resources', verifyAdmin, async (req, res) => {
+  try {
+    const db = collections.countries.s.db;
+    const doc = req.body;
+    if (!doc.resource_type) return res.status(400).json({ error: 'resource_type 필수' });
+    if (doc.lat != null && doc.lng != null) {
+      doc.location = { type: 'Point', coordinates: [parseFloat(doc.lng), parseFloat(doc.lat)] };
+    }
+    doc.lat = parseFloat(doc.lat); doc.lng = parseFloat(doc.lng);
+    const result = await db.collection('resources').insertOne(doc);
+    res.json({ ok: true, insertedId: result.insertedId });
+  } catch (err) {
+    console.error('POST /api/resources 오류:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 수정
+app.put('/api/resources/:id', verifyAdmin, async (req, res) => {
+  try {
+    const db = collections.countries.s.db;
+    const { ObjectId } = require('mongodb');
+    const doc = { ...req.body };
+    delete doc._id;
+    if (doc.lat != null && doc.lng != null) {
+      doc.location = { type: 'Point', coordinates: [parseFloat(doc.lng), parseFloat(doc.lat)] };
+    }
+    if (doc.lat) doc.lat = parseFloat(doc.lat);
+    if (doc.lng) doc.lng = parseFloat(doc.lng);
+    await db.collection('resources').updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: doc }
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('PUT /api/resources/:id 오류:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 삭제
+app.delete('/api/resources/:id', verifyAdmin, async (req, res) => {
+  try {
+    const db = collections.countries.s.db;
+    const { ObjectId } = require('mongodb');
+    await db.collection('resources').deleteOne({ _id: new ObjectId(req.params.id) });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/resources/:id 오류:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══ /api/crops — 농업 데이터 CRUD ═══
 app.get('/api/crops', async (req, res) => {
   try {
     const db = collections.countries.s.db;
@@ -1631,6 +1685,54 @@ app.get('/api/crops', async (req, res) => {
     res.json(data);
   } catch (err) {
     console.error('/api/crops 오류:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/crops', verifyAdmin, async (req, res) => {
+  try {
+    const db = collections.countries.s.db;
+    const doc = req.body;
+    if (doc.lat != null && doc.lng != null) {
+      doc.location = { type: 'Point', coordinates: [parseFloat(doc.lng), parseFloat(doc.lat)] };
+    }
+    if (doc.lat) doc.lat = parseFloat(doc.lat);
+    if (doc.lng) doc.lng = parseFloat(doc.lng);
+    const result = await db.collection('crops').insertOne(doc);
+    res.json({ ok: true, insertedId: result.insertedId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/crops/:id', verifyAdmin, async (req, res) => {
+  try {
+    const db = collections.countries.s.db;
+    const { ObjectId } = require('mongodb');
+    const doc = { ...req.body };
+    delete doc._id;
+    if (doc.lat != null && doc.lng != null) {
+      doc.location = { type: 'Point', coordinates: [parseFloat(doc.lng), parseFloat(doc.lat)] };
+    }
+    if (doc.lat) doc.lat = parseFloat(doc.lat);
+    if (doc.lng) doc.lng = parseFloat(doc.lng);
+    await db.collection('crops').updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: doc }
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/crops/:id', verifyAdmin, async (req, res) => {
+  try {
+    const db = collections.countries.s.db;
+    const { ObjectId } = require('mongodb');
+    await db.collection('crops').deleteOne({ _id: new ObjectId(req.params.id) });
+    res.json({ ok: true });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

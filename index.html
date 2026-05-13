@@ -4790,8 +4790,11 @@ body.force-mobile .marker-type-selector button {
         border-radius: 6px;
         box-shadow: 0 4px 18px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,255,255,0.04);
         z-index: 10000 !important;
-        transition: transform 0.1s ease-out; /* [playback] 팝업 위치 이동 시 부드럽게 */
+        transition: transform 0.1s ease-out;
     }
+    /* 산지/서식지 팝업 편집 버튼 — 편집 모드일 때만 표시 */
+    .resource-edit-btn { display: none !important; }
+    body.edit-mode .resource-edit-btn { display: inline-block !important; }
     /* [playback] 재생 중 자주 갱신되는 영역 — opacity 전환으로 깜빡임 완화 */
     #timeLabelDisplay,
     .leaflet-popup-content,
@@ -6170,7 +6173,7 @@ body.force-mobile .marker-type-selector button {
           <label><input type="checkbox" id="menu-layer-gold"> 🧈 금 산지</label>
           <label><input type="checkbox" id="menu-layer-iron"> 🪨 철광 산지</label>
           <label><input type="checkbox" id="menu-layer-crops"> 🌾 농작물</label>
-          <label><input type="checkbox" id="menu-layer-horse"> &#x1F40E; 말 산지</label>
+          <label><input type="checkbox" id="menu-layer-horse"> &#x1F40E; 동물 서식지</label>
           <label><input type="checkbox" id="menu-layer-salt"> 🧂 소금 산지</label>
           <label><input type="checkbox" id="menu-layer-silk"> 🧵 비단 산지</label>
           </div>
@@ -6461,7 +6464,7 @@ body.force-mobile .marker-type-selector button {
                 <button id="btn-gold" type="button" class="layer-toggle-btn" onclick="toggleGold(this)" style="padding:2px 4px;font-size:10px;">🧈금산지</button>
                 <button id="btn-iron" type="button" class="layer-toggle-btn" onclick="toggleIron(this)" style="padding:2px 4px;font-size:10px;">🪨철광산지</button>
                 <button id="btn-crops" type="button" class="layer-toggle-btn" onclick="toggleCrops(this)" style="padding:2px 4px;font-size:10px;">🌾농작물</button>
-                <button id="btn-horse" type="button" class="layer-toggle-btn" onclick="toggleHorse(this)" style="padding:2px 4px;font-size:10px;">&#x1F40E;말산지</button>
+                <button id="btn-horse" type="button" class="layer-toggle-btn" onclick="toggleHorse(this)" style="padding:2px 4px;font-size:10px;">&#x1F40E;동물서식지</button>
                 <button id="btn-salt" type="button" class="layer-toggle-btn" onclick="toggleSalt(this)" style="padding:2px 4px;font-size:10px;">🧂소금산지</button>
                 <button id="btn-silk" type="button" class="layer-toggle-btn" onclick="toggleSilk(this)" style="padding:2px 4px;font-size:10px;">🧵비단산지</button>
 
@@ -6476,6 +6479,7 @@ body.force-mobile .marker-type-selector button {
                     <button id="kingEditBtnDropdown" class="dropdown-item">왕 편집</button>
                     <button id="eventEditBtnDropdown" class="dropdown-item">이벤트 편집</button>
                     <button id="trashBtnDropdown" class="dropdown-item" style="color: #f39c12;">🗑️ 휴지통</button>
+                    <button id="resourceEditBtnDropdown" class="dropdown-item" style="color: #4ecdc4;">📦 산지/서식지 편집</button>
                     <hr style="border: 0; border-top: 1px solid #5d7185; margin: 4px 0;">
                     <button id="exitEditBtnDropdown" class="dropdown-item danger">편집모드 종료</button>
                 </div>
@@ -26719,6 +26723,8 @@ kingSelect.addEventListener('change', () => {
             if (typeof currentYear !== 'undefined') {
                 updateHistoryPanel(currentYear);
             }
+            // 편집 모드 body 클래스 — 팝업 편집 버튼 표시 제어
+            document.body.classList.toggle('edit-mode', !!editMode);
         }
         window.setEditModeState = setEditModeState; // 전역 접근 허용
 
@@ -31714,12 +31720,14 @@ async function castleFormDeleteVoice() {
   function makePopup(d, type) {
     var icon  = type === 'gold' ? '🧈' : '🪨';
     var label = type === 'gold' ? '금 산지' : '철광 산지';
-    return '<div style="min-width:160px;font-size:12px">'
+    return '<div style="min-width:180px;font-size:12px">'
       + '<div style="font-weight:700;font-size:13px;margin-bottom:6px">'
       + icon + ' ' + (d.name || '') + '</div>'
       + '<div style="color:#888;font-size:10px;margin-bottom:4px">' + label + ' — ' + (d.major ? '대형 ★' : '일반') + '</div>'
-      + (d.hist  ? '<div style="color:#555;margin-bottom:3px">📜 ' + d.hist  + '</div>' : '')
-      + (d.strat ? '<div style="color:#0066cc;font-size:10px">⚔️ ' + d.strat + '</div>' : '')
+      + (d.description ? '<div style="color:#6b9fc0;font-size:10px;margin-top:4px;border-top:1px solid #2a3a4a;padding-top:4px">📜 ' + d.description + '</div>' : '')
+      + (d.hist  ? '<div style="color:#6b9fc0;font-size:10px;margin-top:3px">📜 ' + d.hist  + '</div>' : '')
+      + (d.strat ? '<div style="color:#f87171;font-size:10px;margin-top:3px">⚔️ ' + d.strat + '</div>' : '')
+      + '<div style="margin-top:7px;text-align:right"><button class="resource-edit-btn" onclick="rcOpenMarkerEdit(\'' + d._id + '\')" style="padding:2px 9px;background:#1a4a7a;border:none;border-radius:4px;color:#90c0f0;font-size:11px;cursor:pointer;">&#x270F;&#xFE0F; \ud3b8\uc9d1</button></div>'
       + '</div>';
   }
 
@@ -31868,6 +31876,7 @@ async function castleFormDeleteVoice() {
       + '<tr><td style="color:#888;padding:1px 4px 1px 0">생산성</td><td>' + (d.productivity||'-') + ' / 10</td></tr>'
       + '</table>'
       + (d.era_note ? '<div style="color:#6b9fc0;font-size:10px;margin-top:5px;border-top:1px solid #2a3a4a;padding-top:4px">📜 ' + d.era_note + '</div>' : '')
+      + '<div style="margin-top:7px;text-align:right"><button class="resource-edit-btn" onclick="rcOpenCropEdit(\'' + d._id + '\')" style="padding:2px 9px;background:#1a4a7a;border:none;border-radius:4px;color:#90c0f0;font-size:11px;cursor:pointer;">&#x270F;&#xFE0F; \ud3b8\uc9d1</button></div>'
       + '</div>';
   }
 
@@ -31940,10 +31949,15 @@ async function castleFormDeleteVoice() {
     return Math.round(11 + ratio * 23);
   }
 
-  function makeHorseIcon(d) {
-    var size = horsesToSize(d.annual_horses || H_MIN);
+  // 동물별 이모지
+  var ANIMAL_EMOJI = { horse:'🐎', buffalo:'🐃', monkey:'🐒', camel:'🐪' };
+  var ANIMAL_LABEL = { horse:'말', buffalo:'물소', monkey:'원숭이', camel:'낙타' };
+
+  function makeAnimalIcon(d) {
+    var size = horsesToSize(d.annual_horses || d.annual_count || H_MIN);
+    var emoji = ANIMAL_EMOJI[d.resource_type] || '🐎';
     return L.divIcon({
-      html: '<span style="font-size:' + size + 'px;line-height:1;display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))">&#x1F40E;</span>',
+      html: '<span style="font-size:' + size + 'px;line-height:1;display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))">' + emoji + '</span>',
       className: '',
       iconSize:   [size, size],
       iconAnchor: [size / 2, size / 2],
@@ -31952,24 +31966,34 @@ async function castleFormDeleteVoice() {
   }
 
   function makePopup(d) {
-    var stars = '★'.repeat(d.quality || 0) + '☆'.repeat(10 - (d.quality || 0));
-    return '<div style="min-width:190px;font-size:12px">'
-      + '<div style="font-weight:700;font-size:13px;margin-bottom:4px">� ' + (d.name_ko || d.name || '') + '</div>'
-      + (d.name && d.name !== d.name_ko ? '<div style="color:#aaa;font-size:10px;margin-bottom:5px">' + d.name + ' — ' + (d.region||'') + '</div>' : '<div style="color:#aaa;font-size:10px;margin-bottom:5px">' + (d.region||'') + '</div>')
-      + '<table style="font-size:11px;border-collapse:collapse;width:100%">'
-      + '<tr><td style="color:#888;padding:1px 4px 1px 0">품질</td><td style="color:#f59e0b;font-size:10px">' + stars + ' (' + (d.quality||'-') + '/10)</td></tr>'
-      + '<tr><td style="color:#888;padding:1px 4px 1px 0">연간 공급</td><td style="font-weight:600;color:#4ade80">~' + ((d.annual_horses||0)).toLocaleString() + ' 두</td></tr>'
-      + '<tr><td style="color:#888;padding:1px 4px 1px 0">품종</td><td>' + (d.breed||'-') + '</td></tr>'
-      + '</table>'
-      + (d.hist  ? '<div style="color:#6b9fc0;font-size:10px;margin-top:5px;border-top:1px solid #2a3a4a;padding-top:4px">📜 ' + d.hist  + '</div>' : '')
-      + (d.strat ? '<div style="color:#f87171;font-size:10px;margin-top:3px">⚔️ ' + d.strat + '</div>' : '')
-      + '</div>';
+    var label = ANIMAL_LABEL[d.resource_type] || '동물';
+    var emoji = ANIMAL_EMOJI[d.resource_type] || '🐾';
+    var popup = '<div style="min-width:190px;font-size:12px">'
+      + '<div style="font-weight:700;font-size:13px;margin-bottom:4px">' + emoji + ' ' + (d.name_ko || d.name || '') + '</div>'
+      + '<div style="color:#aaa;font-size:10px;margin-bottom:5px">' + (d.name !== d.name_ko ? d.name + ' — ' : '') + (d.region||'') + ' · ' + label + '</div>'
+      + '<table style="font-size:11px;border-collapse:collapse;width:100%">';
+    if (d.resource_type === 'horse') {
+      var stars = '★'.repeat(d.quality || 0) + '☆'.repeat(10 - (d.quality || 0));
+      popup += '<tr><td style="color:#888;padding:1px 4px 1px 0">품질</td><td style="color:#f59e0b;font-size:10px">' + stars + ' (' + (d.quality||'-') + '/10)</td></tr>'
+        + '<tr><td style="color:#888;padding:1px 4px 1px 0">연간 공급</td><td style="font-weight:600;color:#4ade80">~' + ((d.annual_horses||0)).toLocaleString() + ' 두</td></tr>'
+        + '<tr><td style="color:#888;padding:1px 4px 1px 0">품종</td><td>' + (d.breed||'-') + '</td></tr>'
+        + (d.hist  ? '</table><div style="color:#6b9fc0;font-size:10px;margin-top:5px;border-top:1px solid #2a3a4a;padding-top:4px">📜 ' + d.hist + '</div>' : '</table>')
+        + (d.strat ? '<div style="color:#f87171;font-size:10px;margin-top:3px">⚔️ ' + d.strat + '</div>' : '');
+    } else {
+      if (d.annual_count > 0) {
+        popup += '<tr><td style="color:#888;padding:1px 4px 1px 0">추정 개체수</td><td style="font-weight:600;color:#4ade80">~' + (d.annual_count||0).toLocaleString() + '</td></tr>';
+      }
+      popup += '</table>' + (d.description ? '<div style="color:#6b9fc0;font-size:10px;margin-top:5px;border-top:1px solid #2a3a4a;padding-top:4px">📜 ' + d.description + '</div>' : '');
+    }
+    popup += '<div style="margin-top:7px;text-align:right"><button class="resource-edit-btn" onclick="rcOpenMarkerEdit(\'' + d._id + '\')" style="padding:2px 9px;background:#1a4a7a;border:none;border-radius:4px;color:#90c0f0;font-size:11px;cursor:pointer;">✏️ 편집</button></div>';
+    popup += '</div>';
+    return popup;
   }
 
   function buildLayer() {
     _layer = L.layerGroup();
     _data.forEach(function(d) {
-      L.marker([d.lat, d.lng], { icon: makeHorseIcon(d) })
+      L.marker([d.lat, d.lng], { icon: makeAnimalIcon(d) })
         .bindPopup(makePopup(d))
         .addTo(_layer);
     });
@@ -31984,13 +32008,13 @@ async function castleFormDeleteVoice() {
     if (_busy)   return false;
     _busy = true;
     try {
-      var r = await fetch('/api/resources?type=horse', { headers: { 'Authorization': 'Bearer ' + getToken() } });
+      var r = await fetch('/api/resources?type=horse,buffalo,monkey,camel', { headers: { 'Authorization': 'Bearer ' + getToken() } });
       _data = await r.json();
       buildLayer();
       _loaded = true;
-      console.log('[말산지] ' + _data.length + '개 로드');
+      console.log('[동물서식지] ' + _data.length + '개 로드');
     } catch(e) {
-      console.error('[말산지] 로드 오류:', e);
+      console.error('[동물서식지] 로드 오류:', e);
       _busy = false;
       return false;
     }
@@ -32006,12 +32030,12 @@ async function castleFormDeleteVoice() {
     _on = !_on;
     if (_on) {
       _layer.addTo(m);
-      if (btn) { btn.classList.add('active'); btn.textContent = '🐎말산지 ●'; }
+      if (btn) { btn.classList.add('active'); btn.textContent = '🐎동물서식지 ●'; }
       var cb = document.getElementById('menu-layer-horse');
       if (cb) cb.checked = true;
     } else {
       m.removeLayer(_layer);
-      if (btn) { btn.classList.remove('active'); btn.textContent = '🐎말산지'; }
+      if (btn) { btn.classList.remove('active'); btn.textContent = '🐎동물서식지'; }
       var cb = document.getElementById('menu-layer-horse');
       if (cb) cb.checked = false;
     }
@@ -32064,10 +32088,14 @@ async function castleFormDeleteVoice() {
       });
 
       var typeLabel = { sea:'\ud574\uc5fc', lake:'\ud638\uc218\uc5fc', well:'\uc815\uc5fc', land:'\uc554\uc5fc' }[st] || st;
-      var popup = '<b>' + d.name + '</b><br>'
+      var popup = '<div style="min-width:180px;font-size:12px">'
+        + '<b style="font-size:13px">' + d.name + '</b><br>'
+        + '<span style="color:#aaa;font-size:10px">' + (d.region||'') + '</span><br>'
         + '\uc885\ub958: ' + typeLabel + (d.major ? ' \u2605\uc8fc\uc694' : '') + '<br>'
         + '\uc5f0\uac04 \uc0dd\uc0b0(\uc0c1\ub300): ' + (d.annual_ton || 0).toLocaleString() + 't<br>'
-        + (d.description ? '<i style="font-size:11px">' + d.description + '</i>' : '');
+        + (d.description ? '<div style="color:#6b9fc0;font-size:10px;margin-top:4px;border-top:1px solid #2a3a4a;padding-top:4px">📜 ' + d.description + '</div>' : '')
+        + '<div style="margin-top:7px;text-align:right"><button class="resource-edit-btn" onclick="rcOpenMarkerEdit(\'' + d._id + '\')" style="padding:2px 9px;background:#1a4a7a;border:none;border-radius:4px;color:#90c0f0;font-size:11px;cursor:pointer;">&#x270F;&#xFE0F; \ud3b8\uc9d1</button></div>'
+        + '</div>';
 
       L.marker([lat, lng], { icon: icon }).bindPopup(popup).addTo(_layer);
     });
@@ -32177,10 +32205,14 @@ async function castleFormDeleteVoice() {
       }
 
       var typeLabel = { sericulture:'양잠', weaving:'직조', trade:'교역거점' }[st] || st;
-      var popup = '<b>' + d.name + '</b><br>'
+      var popup = '<div style="min-width:180px;font-size:12px">'
+        + '<b style="font-size:13px">' + d.name + '</b><br>'
+        + '<span style="color:#aaa;font-size:10px">' + (d.region||'') + '</span><br>'
         + '종류: ' + typeLabel + (d.major ? ' ★주요' : '') + '<br>'
         + '연간 생산(상대): ' + (d.annual_bolt || 0).toLocaleString() + '필<br>'
-        + (d.description ? '<i style="font-size:11px">' + d.description + '</i>' : '');
+        + (d.description ? '<div style="color:#6b9fc0;font-size:10px;margin-top:4px;border-top:1px solid #2a3a4a;padding-top:4px">📜 ' + d.description + '</div>' : '')
+        + '<div style="margin-top:7px;text-align:right"><button class="resource-edit-btn" onclick="rcOpenMarkerEdit(\'' + d._id + '\')" style="padding:2px 9px;background:#1a4a7a;border:none;border-radius:4px;color:#90c0f0;font-size:11px;cursor:pointer;">&#x270F;&#xFE0F; \ud3b8\uc9d1</button></div>'
+        + '</div>';
 
       L.marker([lat, lng], { icon: icon }).bindPopup(popup).addTo(_layer);
     });
@@ -32298,6 +32330,469 @@ async function castleFormDeleteVoice() {
     <button id="img-lightbox-close" onclick="closeLightbox()">✕</button>
     <img id="img-lightbox-img" src="" alt="">
 </div>
+
+<!-- ══════════════════════════════════════════════
+     📦 산지/서식지 CRUD 모달 (admin/superuser only)
+════════════════════════════════════════════════ -->
+<div id="resource-crud-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(2px);" onclick="if(event.target===this)closeResourceCrud()"></div>
+<div id="resource-crud-panel" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10000;width:min(98vw,900px);max-height:88vh;background:#1a2634;border:1px solid #2e4560;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,0.7);display:none;flex-direction:column;overflow:hidden;">
+  <!-- 헤더 -->
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid #2e4560;background:#16202c;flex-shrink:0;">
+    <span style="font-size:15px;font-weight:700;color:#e0e8f0;">📦 산지 / 서식지 데이터 편집</span>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <select id="rc-type-filter" style="padding:4px 8px;background:#223040;border:1px solid #3a5570;border-radius:5px;color:#c0d0e0;font-size:12px;">
+        <option value="">전체</option>
+        <option value="horse">🐎 말</option>
+        <option value="buffalo">🐃 물소</option>
+        <option value="monkey">🐒 원숭이</option>
+        <option value="camel">🐪 낙타</option>
+        <option value="silk">🧵 비단</option>
+        <option value="salt">🧂 소금</option>
+        <option value="gold">🧈 금</option>
+        <option value="iron">🪨 철광</option>
+        <option value="population">👥 인구</option>
+      </select>
+      <input id="rc-search" placeholder="검색..." style="padding:4px 8px;background:#223040;border:1px solid #3a5570;border-radius:5px;color:#c0d0e0;font-size:12px;width:130px;" oninput="rcRenderList()">
+      <button onclick="rcOpenForm(null)" style="padding:4px 12px;background:#1a7a4a;border:none;border-radius:5px;color:#fff;font-size:12px;cursor:pointer;font-weight:600;">+ 새 항목</button>
+      <button onclick="closeResourceCrud()" style="padding:4px 10px;background:#2e3a4a;border:none;border-radius:5px;color:#90a8c0;font-size:13px;cursor:pointer;">✕</button>
+    </div>
+  </div>
+
+  <!-- 목록 + 폼 영역 -->
+  <div style="display:flex;flex:1;overflow:hidden;min-height:0;">
+    <!-- 목록 -->
+    <div id="rc-list-area" style="flex:1;overflow-y:auto;padding:8px;">
+      <table id="rc-table" style="width:100%;border-collapse:collapse;font-size:12px;color:#c0d0e0;">
+        <thead>
+          <tr style="background:#16202c;position:sticky;top:0;">
+            <th style="padding:6px 8px;text-align:left;color:#7a9ab8;font-weight:600;border-bottom:1px solid #2e4560;width:90px;">타입</th>
+            <th style="padding:6px 8px;text-align:left;color:#7a9ab8;font-weight:600;border-bottom:1px solid #2e4560;">이름(ko)</th>
+            <th style="padding:6px 8px;text-align:left;color:#7a9ab8;font-weight:600;border-bottom:1px solid #2e4560;">지역</th>
+            <th style="padding:6px 8px;text-align:left;color:#7a9ab8;font-weight:600;border-bottom:1px solid #2e4560;width:200px;">설명 (일부)</th>
+            <th style="padding:6px 8px;text-align:center;color:#7a9ab8;font-weight:600;border-bottom:1px solid #2e4560;width:80px;">좌표</th>
+            <th style="padding:6px 8px;text-align:center;color:#7a9ab8;font-weight:600;border-bottom:1px solid #2e4560;width:80px;">작업</th>
+          </tr>
+        </thead>
+        <tbody id="rc-tbody"></tbody>
+      </table>
+      <div id="rc-empty" style="display:none;text-align:center;color:#5a7a9a;padding:40px;font-size:13px;">항목 없음</div>
+    </div>
+
+    <!-- 편집 폼 (우측 슬라이드) -->
+    <div id="rc-form-panel" style="width:0;overflow:hidden;transition:width 0.25s;flex-shrink:0;background:#16202c;border-left:1px solid #2e4560;">
+      <div style="width:300px;padding:14px;box-sizing:border-box;">
+        <div style="font-size:13px;font-weight:700;color:#e0e8f0;margin-bottom:12px;" id="rc-form-title">새 항목</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <label style="color:#7a9ab8;font-size:11px;">resource_type *
+            <select id="rc-f-type" style="display:block;width:100%;margin-top:3px;padding:5px 8px;background:#1a2634;border:1px solid #3a5570;border-radius:4px;color:#c0d0e0;font-size:12px;">
+              <option value="horse">horse (말)</option>
+              <option value="buffalo">buffalo (물소)</option>
+              <option value="monkey">monkey (원숭이)</option>
+              <option value="camel">camel (낙타)</option>
+              <option value="silk">silk (비단)</option>
+              <option value="salt">salt (소금)</option>
+              <option value="gold">gold (금)</option>
+              <option value="iron">iron (철광)</option>
+              <option value="population">population (인구)</option>
+            </select>
+          </label>
+          <label style="color:#7a9ab8;font-size:11px;">이름 (name_ko)
+            <input id="rc-f-name-ko" style="display:block;width:100%;margin-top:3px;padding:5px 8px;background:#1a2634;border:1px solid #3a5570;border-radius:4px;color:#c0d0e0;font-size:12px;box-sizing:border-box;">
+          </label>
+          <label style="color:#7a9ab8;font-size:11px;">이름 (name, 영문)
+            <input id="rc-f-name" style="display:block;width:100%;margin-top:3px;padding:5px 8px;background:#1a2634;border:1px solid #3a5570;border-radius:4px;color:#c0d0e0;font-size:12px;box-sizing:border-box;">
+          </label>
+          <label style="color:#7a9ab8;font-size:11px;">지역 (region)
+            <input id="rc-f-region" style="display:block;width:100%;margin-top:3px;padding:5px 8px;background:#1a2634;border:1px solid #3a5570;border-radius:4px;color:#c0d0e0;font-size:12px;box-sizing:border-box;">
+          </label>
+          <div style="display:flex;gap:6px;">
+            <label style="color:#7a9ab8;font-size:11px;flex:1;">위도 (lat)
+              <input id="rc-f-lat" type="number" step="0.01" style="display:block;width:100%;margin-top:3px;padding:5px 6px;background:#1a2634;border:1px solid #3a5570;border-radius:4px;color:#c0d0e0;font-size:12px;box-sizing:border-box;">
+            </label>
+            <label style="color:#7a9ab8;font-size:11px;flex:1;">경도 (lng)
+              <input id="rc-f-lng" type="number" step="0.01" style="display:block;width:100%;margin-top:3px;padding:5px 6px;background:#1a2634;border:1px solid #3a5570;border-radius:4px;color:#c0d0e0;font-size:12px;box-sizing:border-box;">
+            </label>
+          </div>
+          <label style="color:#7a9ab8;font-size:11px;">
+            <input type="checkbox" id="rc-f-major" style="margin-right:5px;">주요 거점 (major)
+          </label>
+          <label style="color:#7a9ab8;font-size:11px;">설명 (description)
+            <textarea id="rc-f-desc" rows="5" style="display:block;width:100%;margin-top:3px;padding:5px 8px;background:#1a2634;border:1px solid #3a5570;border-radius:4px;color:#c0d0e0;font-size:12px;box-sizing:border-box;resize:vertical;line-height:1.5;"></textarea>
+          </label>
+          <label style="color:#7a9ab8;font-size:11px;">추가 필드 (JSON, 선택)
+            <textarea id="rc-f-extra" rows="3" placeholder='예: {"silk_type":"weaving"}' style="display:block;width:100%;margin-top:3px;padding:5px 8px;background:#1a2634;border:1px solid #3a5570;border-radius:4px;color:#5a9a7a;font-size:11px;font-family:monospace;box-sizing:border-box;resize:vertical;"></textarea>
+          </label>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button onclick="rcSave()" style="flex:1;padding:7px;background:#1a7a4a;border:none;border-radius:5px;color:#fff;font-size:12px;font-weight:700;cursor:pointer;">💾 저장</button>
+          <button onclick="rcCloseForm()" style="padding:7px 12px;background:#2e3a4a;border:none;border-radius:5px;color:#90a8c0;font-size:12px;cursor:pointer;">취소</button>
+        </div>
+        <div id="rc-form-msg" style="margin-top:8px;font-size:11px;min-height:16px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 하단 상태바 -->
+  <div style="padding:6px 14px;border-top:1px solid #2e4560;background:#16202c;font-size:11px;color:#5a7a9a;flex-shrink:0;" id="rc-status">로딩 중...</div>
+</div>
+
+<script>
+// ══════════════════════════════════════════
+//  📦 Resource CRUD IIFE
+// ══════════════════════════════════════════
+(function() {
+  let _allItems  = [];   // 전체 데이터 캐시
+  let _editingId = null; // 현재 편집 중인 _id (null = 신규)
+
+  function authHeader() {
+    const t = localStorage.getItem('token') || sessionStorage.getItem('token');
+    return t ? { 'Authorization': 'Bearer ' + t } : {};
+  }
+
+  function isAdmin() {
+    const u = window.currentUser;
+    return u && (u.role === 'admin' || u.role === 'superuser');
+  }
+
+  // 모달 열기
+  window.openResourceCrud = async function() {
+    // 편집 모드 진입 시 이미 권한 확인됨
+    const panel = document.getElementById('resource-crud-panel');
+    const overlay = document.getElementById('resource-crud-overlay');
+    panel.style.display = 'flex';
+    overlay.style.display = 'block';
+    await rcLoadAll();
+  };
+
+  // 모달 닫기
+  window.closeResourceCrud = function() {
+    document.getElementById('resource-crud-panel').style.display = 'none';
+    document.getElementById('resource-crud-overlay').style.display = 'none';
+    rcCloseForm();
+  };
+
+  // 전체 로드
+  async function rcLoadAll() {
+    const typeFilter = document.getElementById('rc-type-filter').value;
+    const url = '/api/resources' + (typeFilter ? '?type=' + typeFilter : '');
+    try {
+      const res = await fetch(url);
+      _allItems = await res.json();
+      rcRenderList();
+    } catch(e) {
+      document.getElementById('rc-status').textContent = '로드 오류: ' + e.message;
+    }
+  }
+
+  // 목록 렌더링
+  window.rcRenderList = function() {
+    const q = (document.getElementById('rc-search').value || '').toLowerCase();
+    const items = _allItems.filter(it => {
+      if (!q) return true;
+      return (it.name_ko||'').toLowerCase().includes(q) ||
+             (it.name||'').toLowerCase().includes(q) ||
+             (it.region||'').toLowerCase().includes(q) ||
+             (it.description||'').toLowerCase().includes(q);
+    });
+    const tbody = document.getElementById('rc-tbody');
+    tbody.innerHTML = '';
+    document.getElementById('rc-empty').style.display = items.length ? 'none' : 'block';
+    document.getElementById('rc-status').textContent = `전체 ${_allItems.length}개 / 표시 ${items.length}개`;
+
+    const TYPE_ICON = {horse:'🐎',buffalo:'🐃',monkey:'🐒',camel:'🐪',silk:'🧵',salt:'🧂',gold:'🧈',iron:'🪨',population:'👥'};
+    items.forEach(it => {
+      const tr = document.createElement('tr');
+      tr.style.cssText = 'border-bottom:1px solid #1e2e3e;cursor:pointer;transition:background 0.15s;';
+      tr.onmouseover = () => tr.style.background = '#1e2e40';
+      tr.onmouseout  = () => tr.style.background = '';
+      const icon = TYPE_ICON[it.resource_type] || '📌';
+      const desc = (it.description || '').slice(0, 50) + ((it.description||'').length > 50 ? '…' : '');
+      const lat  = it.lat != null ? it.lat.toFixed(2) : '-';
+      const lng  = it.lng != null ? it.lng.toFixed(2) : '-';
+      tr.innerHTML = `
+        <td style="padding:6px 8px;white-space:nowrap;">${icon} <span style="font-size:10px;opacity:.7;">${it.resource_type}</span></td>
+        <td style="padding:6px 8px;font-weight:600;color:#e0e8f0;">${it.name_ko || it.name || '-'}</td>
+        <td style="padding:6px 8px;color:#8aacca;">${it.region || '-'}</td>
+        <td style="padding:6px 8px;color:#6a8aaa;font-size:11px;">${desc || '-'}</td>
+        <td style="padding:6px 8px;text-align:center;font-size:10px;color:#5a7a9a;">${lat}<br>${lng}</td>
+        <td style="padding:6px 8px;text-align:center;">
+          <button onclick="rcOpenForm('${it._id}')" style="padding:2px 7px;background:#1a4a7a;border:none;border-radius:3px;color:#90c0f0;font-size:11px;cursor:pointer;margin-right:3px;">편집</button>
+          <button onclick="rcDelete('${it._id}','${(it.name_ko||it.name||'').replace(/'/g,'')}')" style="padding:2px 7px;background:#5a2020;border:none;border-radius:3px;color:#f08080;font-size:11px;cursor:pointer;">삭제</button>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+  };
+
+  // 폼 열기
+  window.rcOpenForm = function(id) {
+    _editingId = id;
+    const formPanel = document.getElementById('rc-form-panel');
+    formPanel.style.width = '300px';
+    formPanel.style.overflow = 'visible';
+
+    if (id === null) {
+      // 신규
+      document.getElementById('rc-form-title').textContent = '새 항목 추가';
+      document.getElementById('rc-f-type').value = 'horse';
+      document.getElementById('rc-f-name-ko').value = '';
+      document.getElementById('rc-f-name').value = '';
+      document.getElementById('rc-f-region').value = '';
+      document.getElementById('rc-f-lat').value = '';
+      document.getElementById('rc-f-lng').value = '';
+      document.getElementById('rc-f-major').checked = false;
+      document.getElementById('rc-f-desc').value = '';
+      document.getElementById('rc-f-extra').value = '';
+      document.getElementById('rc-form-msg').textContent = '';
+    } else {
+      // 기존 항목
+      const it = _allItems.find(x => String(x._id) === String(id));
+      if (!it) return;
+      document.getElementById('rc-form-title').textContent = '편집: ' + (it.name_ko || it.name || '');
+      document.getElementById('rc-f-type').value = it.resource_type || 'horse';
+      document.getElementById('rc-f-name-ko').value = it.name_ko || '';
+      document.getElementById('rc-f-name').value = it.name || '';
+      document.getElementById('rc-f-region').value = it.region || '';
+      document.getElementById('rc-f-lat').value = it.lat != null ? it.lat : '';
+      document.getElementById('rc-f-lng').value = it.lng != null ? it.lng : '';
+      document.getElementById('rc-f-major').checked = !!it.major;
+      document.getElementById('rc-f-desc').value = it.description || '';
+      // 추가 필드: _id, resource_type 등 기본 외 나머지
+      const skip = new Set(['_id','resource_type','name_ko','name','region','lat','lng','major','description','location']);
+      const extra = {};
+      Object.keys(it).forEach(k => { if (!skip.has(k)) extra[k] = it[k]; });
+      document.getElementById('rc-f-extra').value = Object.keys(extra).length ? JSON.stringify(extra, null, 2) : '';
+      document.getElementById('rc-form-msg').textContent = '';
+    }
+  };
+
+  window.rcCloseForm = function() {
+    const formPanel = document.getElementById('rc-form-panel');
+    formPanel.style.width = '0';
+    formPanel.style.overflow = 'hidden';
+    _editingId = undefined;
+  };
+
+  // 저장
+  window.rcSave = async function() {
+    const msg = document.getElementById('rc-form-msg');
+    msg.style.color = '#90c0f0';
+    msg.textContent = '저장 중...';
+
+    let extra = {};
+    const extraRaw = document.getElementById('rc-f-extra').value.trim();
+    if (extraRaw) {
+      try { extra = JSON.parse(extraRaw); } catch(e) { msg.style.color='#f08080'; msg.textContent='추가 필드 JSON 오류: '+e.message; return; }
+    }
+
+    const doc = {
+      ...extra,
+      resource_type: document.getElementById('rc-f-type').value,
+      name_ko:  document.getElementById('rc-f-name-ko').value.trim(),
+      name:     document.getElementById('rc-f-name').value.trim(),
+      region:   document.getElementById('rc-f-region').value.trim(),
+      lat:      parseFloat(document.getElementById('rc-f-lat').value) || null,
+      lng:      parseFloat(document.getElementById('rc-f-lng').value) || null,
+      major:    document.getElementById('rc-f-major').checked,
+      description: document.getElementById('rc-f-desc').value.trim(),
+    };
+
+    try {
+      let res;
+      if (_editingId === null) {
+        res = await fetch('/api/resources', {
+          method: 'POST',
+          headers: { 'Content-Type':'application/json', ...authHeader() },
+          body: JSON.stringify(doc)
+        });
+      } else {
+        res = await fetch('/api/resources/' + _editingId, {
+          method: 'PUT',
+          headers: { 'Content-Type':'application/json', ...authHeader() },
+          body: JSON.stringify(doc)
+        });
+      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.message || res.status);
+      msg.style.color = '#4ecdc4';
+      msg.textContent = '✅ 저장 완료';
+      await rcLoadAll();
+      setTimeout(rcCloseForm, 800);
+    } catch(e) {
+      msg.style.color = '#f08080';
+      msg.textContent = '❌ ' + e.message;
+    }
+  };
+
+  // 삭제
+  window.rcDelete = async function(id, label) {
+    if (!confirm(`"${label}" 항목을 삭제하시겠습니까?`)) return;
+    try {
+      const res = await fetch('/api/resources/' + id, {
+        method: 'DELETE',
+        headers: authHeader()
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.message);
+      await rcLoadAll();
+    } catch(e) {
+      alert('삭제 오류: ' + e.message);
+    }
+  };
+
+  // 타입 필터 변경 시 재로드
+  document.getElementById('rc-type-filter').addEventListener('change', rcLoadAll);
+
+  // 마커 팝업에서 직접 편집 진입
+  window.rcOpenMarkerEdit = function(id) {
+    // 편집 모드 진입 시 이미 권한 확인됨
+    const panel   = document.getElementById('resource-crud-panel');
+    const overlay = document.getElementById('resource-crud-overlay');
+    panel.style.display   = 'flex';
+    overlay.style.display = 'block';
+    // 데이터가 없으면 먼저 로드 후 폼 열기
+    const tryOpen = async () => {
+      if (!_allItems.length) await rcLoadAll();
+      rcOpenForm(id);
+      // 해당 항목의 타입으로 필터 맞추기
+      const it = _allItems.find(x => String(x._id) === String(id));
+      if (it) document.getElementById('rc-type-filter').value = it.resource_type;
+      rcRenderList();
+    };
+    tryOpen();
+  };
+
+  // 편집 드롭다운 버튼 연결
+  document.addEventListener('DOMContentLoaded', function() {
+    const btn = document.getElementById('resourceEditBtnDropdown');
+    if (btn) btn.addEventListener('click', function() {
+      // 드롭다운 닫기
+      const menu = document.getElementById('edit-dropdown-menu');
+      if (menu) menu.style.display = 'none';
+      openResourceCrud();
+    });
+  });
+})();
+
+// ══════════════════════════════════════════
+//  🌾 농작물 CRUD (crops 컬렉션 전용)
+// ══════════════════════════════════════════
+(function() {
+  let _crops = [];  // 캐시
+
+  function authHeader() {
+    const t = localStorage.getItem('token') || sessionStorage.getItem('token');
+    return t ? { 'Authorization': 'Bearer ' + t } : {};
+  }
+  function isAdmin() {
+    const u = window.currentUser;
+    return u && (u.role === 'admin' || u.role === 'superuser');
+  }
+
+  // 패널 열고 해당 항목 바로 편집
+  window.rcOpenCropEdit = async function(id) {
+    // 편집 모드 진입 시 이미 권한 확인됨
+
+    // 캐시 로드
+    if (!_crops.length) {
+      const res = await fetch('/api/crops');
+      _crops = await res.json();
+    }
+    const it = _crops.find(x => String(x._id) === String(id));
+    if (!it) return alert('항목을 찾을 수 없습니다.');
+
+    // 패널 표시
+    const overlay = document.getElementById('resource-crud-overlay');
+    const panel   = document.getElementById('resource-crud-panel');
+    overlay.style.display = 'block';
+    panel.style.display   = 'flex';
+
+    // 타입 필터를 crops 전용으로 설정
+    document.getElementById('rc-type-filter').value = '';
+
+    // 폼 헤더 변경
+    document.getElementById('rc-form-title').textContent = '[농작물] 편집: ' + (it.name_ko || it.name || '');
+
+    // 폼 필드 채우기
+    document.getElementById('rc-f-type').value     = 'crops_internal'; // 더미값 (저장 시 crop_type 사용)
+    document.getElementById('rc-f-name-ko').value  = it.name_ko  || '';
+    document.getElementById('rc-f-name').value     = it.name     || '';
+    document.getElementById('rc-f-region').value   = it.region   || '';
+    document.getElementById('rc-f-lat').value      = it.lat != null ? it.lat : '';
+    document.getElementById('rc-f-lng').value      = it.lng != null ? it.lng : '';
+    document.getElementById('rc-f-major').checked  = !!it.major;
+    document.getElementById('rc-f-desc').value     = it.era_note || it.description || '';
+    // 추가 필드
+    const skip = new Set(['_id','name_ko','name','region','lat','lng','major','description','era_note','location']);
+    const extra = {};
+    Object.keys(it).forEach(k => { if (!skip.has(k)) extra[k] = it[k]; });
+    document.getElementById('rc-f-extra').value = Object.keys(extra).length ? JSON.stringify(extra, null, 2) : '';
+    document.getElementById('rc-form-msg').textContent = '';
+
+    // 폼 패널 열기
+    const formPanel = document.getElementById('rc-form-panel');
+    formPanel.style.width = '300px';
+    formPanel.style.overflow = 'visible';
+
+    // 저장 버튼을 crops 전용으로 교체
+    window._cropEditingId = id;
+
+    // 목록은 비워두고 상태바에 안내
+    document.getElementById('rc-tbody').innerHTML = '';
+    document.getElementById('rc-status').textContent = '농작물 항목 편집 중 — 저장 버튼을 누르세요';
+  };
+
+  // rcSave를 래핑: _cropEditingId 가 있으면 /api/crops 로 PUT
+  const _origSave = window.rcSave;
+  window.rcSave = async function() {
+    if (!window._cropEditingId) return _origSave();
+
+    const msg = document.getElementById('rc-form-msg');
+    msg.style.color = '#90c0f0';
+    msg.textContent = '저장 중...';
+
+    let extra = {};
+    const extraRaw = document.getElementById('rc-f-extra').value.trim();
+    if (extraRaw) {
+      try { extra = JSON.parse(extraRaw); } catch(e) { msg.style.color='#f08080'; msg.textContent='JSON 오류: '+e.message; return; }
+    }
+
+    const doc = {
+      ...extra,
+      name_ko:     document.getElementById('rc-f-name-ko').value.trim(),
+      name:        document.getElementById('rc-f-name').value.trim(),
+      region:      document.getElementById('rc-f-region').value.trim(),
+      lat:         parseFloat(document.getElementById('rc-f-lat').value) || null,
+      lng:         parseFloat(document.getElementById('rc-f-lng').value) || null,
+      major:       document.getElementById('rc-f-major').checked,
+      era_note:    document.getElementById('rc-f-desc').value.trim(),
+    };
+
+    try {
+      const res = await fetch('/api/crops/' + window._cropEditingId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify(doc)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.message || res.status);
+      msg.style.color = '#4ecdc4';
+      msg.textContent = '✅ 저장 완료';
+      _crops = []; // 캐시 초기화
+      window._cropEditingId = null;
+      setTimeout(() => {
+        const formPanel = document.getElementById('rc-form-panel');
+        formPanel.style.width = '0';
+        formPanel.style.overflow = 'hidden';
+        document.getElementById('resource-crud-panel').style.display = 'none';
+        document.getElementById('resource-crud-overlay').style.display = 'none';
+      }, 800);
+    } catch(e) {
+      msg.style.color = '#f08080';
+      msg.textContent = '❌ ' + e.message;
+    }
+  };
+})();
+</script>
 
 </body>
 </html>
