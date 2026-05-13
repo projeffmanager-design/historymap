@@ -4007,7 +4007,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // 🚩 [추가] PUT: 사용자 비밀번호 변경 (로그인한 사용자 본인)
         app.put('/api/auth/change-password', verifyToken, async (req, res) => {
             try {
-                const { userId } = req.user; // verifyToken에서 추가된 사용자 ID
+                const { userId } = req.user;
                 const { currentPassword, newPassword } = req.body;
 
                 if (!currentPassword || !newPassword) {
@@ -4019,16 +4019,13 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
                 }
 
-                // 현재 비밀번호 확인
                 const isMatch = await bcrypt.compare(currentPassword, user.password);
                 if (!isMatch) {
                     return res.status(401).json({ message: "현재 비밀번호가 일치하지 않습니다." });
                 }
 
-                // 새 비밀번호 해시
                 const hashedNewPassword = await bcrypt.hash(newPassword, 10);
 
-                // 데이터베이스 업데이트
                 const result = await collections.users.updateOne(
                     { _id: toObjectId(userId) },
                     { $set: { password: hashedNewPassword } }
@@ -4044,10 +4041,121 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // ─── 비밀번호 찾기 ───────────────────────────────────────────
+        // POST /api/auth/forgot-password  : 아이디+이메일 확인 → 재설정 토큰 발급
+        app.post('/api/auth/forgot-password', async (req, res) => {
+            try {
+                const { username, email } = req.body;
+                if (!username || !email) {
+                    return res.status(400).json({ message: '아이디와 이메일을 모두 입력해주세요.' });
+                }
+
+                // 아이디 존재 여부 먼저 확인
+                const userByName = await collections.users.findOne({ username: username.trim() });
+                if (!userByName) {
+                    return res.status(404).json({ ok: false, field: 'username', message: `'${username.trim()}' 아이디를 찾을 수 없습니다.` });
+                }
+
+                // 이메일 일치 여부 확인
+                const storedEmail = (userByName.email || '').trim().toLowerCase();
+                const inputEmail = email.trim().toLowerCase();
+                if (!storedEmail) {
+                    return res.status(400).json({ ok: false, field: 'email', message: '해당 계정에 등록된 이메일이 없습니다. 관리자에게 문의하세요.' });
+                }
+                if (storedEmail !== inputEmail) {
+                    return res.status(400).json({ ok: false, field: 'email', message: '이메일이 등록된 정보와 일치하지 않습니다.' });
+                }
+
+                const user = userByName;
+
+                // 재설정 토큰 (1시간 유효)
+                const crypto = require('crypto');
+                const resetToken = crypto.randomBytes(32).toString('hex');
+                const resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1hr
+
+                await collections.users.updateOne(
+                    { _id: user._id },
+                    { $set: { resetToken, resetExpires } }
+                );
+
+                const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+                const resetUrl = `${baseUrl}/reset-password.html?token=${resetToken}`;
+
+                // 이메일 발송 (SMTP 설정 있을 때만)
+                const smtpUser = process.env.SMTP_USER;
+                const smtpPass = process.env.SMTP_PASS;
+                if (smtpUser && smtpPass) {
+                    const nodemailer = require('nodemailer');
+                    const transporter = nodemailer.createTransport({
+                        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+                        port: parseInt(process.env.SMTP_PORT || '587'),
+                        secure: false,
+                        auth: { user: smtpUser, pass: smtpPass }
+                    });
+                    await transporter.sendMail({
+                        from: `"고려만리지도" <${smtpUser}>`,
+                        to: user.email,
+                        subject: '[고려만리지도] 비밀번호 재설정 안내',
+                        html: `
+                          <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
+                            <h2 style="color:#8b2020;">고려만리지도 비밀번호 재설정</h2>
+                            <p>안녕하세요, <b>${user.username}</b>님.</p>
+                            <p>아래 버튼을 클릭하여 1시간 내로 비밀번호를 재설정하세요.</p>
+                            <a href="${resetUrl}" style="display:inline-block;padding:10px 24px;background:#8b2020;color:#fff;border-radius:6px;text-decoration:none;font-weight:bold;">비밀번호 재설정</a>
+                            <p style="color:#888;font-size:12px;margin-top:16px;">이 요청을 하지 않으셨다면 무시하셔도 됩니다.</p>
+                          </div>`
+                    });
+                    console.log(`[비밀번호 재설정] 이메일 발송: ${user.email}`);
+                    res.json({ ok: true, emailSent: true, message: `${user.email} 로 재설정 링크를 발송했습니다. 받은편지함을 확인해주세요. (스팸함도 확인)` });
+                } else {
+                    // SMTP 미설정: 링크를 응답으로 직접 반환
+                    console.log(`[비밀번호 재설정 링크] ${user.username} → ${resetUrl}`);
+                    res.json({ ok: true, emailSent: false, resetUrl, message: '이메일 서버 미설정 상태입니다. 아래 링크로 직접 접속하세요.' });
+                }
+            } catch (err) {
+                console.error('[forgot-password]', err);
+                res.status(500).json({ message: '서버 오류가 발생했습니다.' });
+            }
+        });
+
+        // POST /api/auth/reset-password  : 토큰 검증 → 새 비밀번호 저장
+        app.post('/api/auth/reset-password', async (req, res) => {
+            try {
+                const { token, newPassword } = req.body;
+                if (!token || !newPassword) {
+                    return res.status(400).json({ message: '토큰과 새 비밀번호를 입력해주세요.' });
+                }
+                if (newPassword.length < 6) {
+                    return res.status(400).json({ message: '비밀번호는 6자 이상이어야 합니다.' });
+                }
+
+                const user = await collections.users.findOne({
+                    resetToken: token,
+                    resetExpires: { $gt: new Date() }
+                });
+
+                if (!user) {
+                    return res.status(400).json({ message: '유효하지 않거나 만료된 링크입니다. 다시 요청해주세요.' });
+                }
+
+                const hashed = await bcrypt.hash(newPassword, 10);
+                await collections.users.updateOne(
+                    { _id: user._id },
+                    { $set: { password: hashed }, $unset: { resetToken: '', resetExpires: '' } }
+                );
+
+                console.log(`[비밀번호 재설정 완료] ${user.username}`);
+                res.json({ ok: true, message: '비밀번호가 성공적으로 변경되었습니다. 로그인 페이지로 이동합니다.' });
+            } catch (err) {
+                console.error('[reset-password]', err);
+                res.status(500).json({ message: '서버 오류가 발생했습니다.' });
+            }
+        });
+
         // GET: 모든 사용자 목록 (관리자 전용)
         app.get('/api/users', verifyAdminOnly, async (req, res) => {
             try {
-                const users = await collections.users.find({}, { projection: { password: 0 } }).toArray(); // 비밀번호 제외
+                const users = await collections.users.find({}, { projection: { password: 0 } }).toArray();
                 
                 // 🚩 [추가] 각 사용자의 로그인 횟수 및 점수 집계
                 const usersWithStats = await Promise.all(users.map(async (user) => {
