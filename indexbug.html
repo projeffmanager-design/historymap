@@ -30976,20 +30976,6 @@ async function castleFormUploadVoice() {
         if (!res.ok) { const e = await res.json(); throw new Error(e.message || '업로드 실패'); }
         msgEl.textContent = '✅ 등록 완료!';
         if (fileInput) fileInput.value = '';
-        // 🔧 [버그 수정] 음성 등록 후 "음성 없음" 캐시 무효화
-        // 1) _loadVoice 내부 noVoiceSet 캐시 제거 (상세 뷰에서 다시 API 조회하도록)
-        const _cid = String(castleId);
-        if (typeof _loadVoice !== 'undefined' && _loadVoice._noVoiceSet) {
-            _loadVoice._noVoiceSet.delete(_cid);
-            try {
-                const _saved = JSON.parse(localStorage.getItem('_voiceNoSet') || '[]');
-                const _filtered = _saved.filter(id => id !== _cid);
-                localStorage.setItem('_voiceNoSet', JSON.stringify(_filtered));
-            } catch(_) {}
-        }
-        // 2) VP 패치 스크립트의 _cache도 무효화 (팝업 버튼용 캐시)
-        // _cache는 IIFE 내부라 직접 접근 불가 — window._vpClearCache 헬퍼로 처리
-        if (typeof window._vpClearCache === 'function') window._vpClearCache(_cid);
         await loadCastleVoiceSection(castleId);
     } catch (e) {
         msgEl.style.color = '#cf8080';
@@ -31006,9 +30992,6 @@ async function castleFormDeleteVoice() {
         headers: { 'Authorization': `Bearer ${tok}` }
     });
     if (res.ok) {
-        // 🔧 [버그 수정] 음성 삭제 후 캐시도 무효화 (다음 열 때 다시 API 확인)
-        if (typeof window._vpClearCache === 'function') window._vpClearCache(String(editingCastleKey));
-        // _loadVoice noVoiceSet에서는 제거하지 않음 (삭제했으니 없는 게 맞음)
         await loadCastleVoiceSection(editingCastleKey);
     } else {
         alert('삭제 실패');
@@ -31332,14 +31315,6 @@ async function castleFormDeleteVoice() {
     console.info('[VP] MutationObserver 등록');
     return true;
   }
-
-  // ── _cache 외부 무효화 헬퍼 (음성 등록/삭제 후 캐시 리셋용) ─────────
-  window._vpClearCache = function(id) {
-    if (id != null) {
-      var key = String(id);
-      delete _cache[key];
-    }
-  };
 
   // ── 초기화 폴링 ───────────────────────────────────────────────────────
   var _obsDone = false, _tries = 0;
