@@ -10198,7 +10198,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}` },
                     body: JSON.stringify({ castle_id: castleId, text })
                 });
-                if (!res.ok) { const err = await res.json(); alert(err.message || '등록 실패'); return; }
+                if (!res.ok) { const err = await res.json().catch(() => ({ message: res.statusText || '서버 오류' })); alert(err.message || '등록 실패'); return; }
                 const data = await res.json();
                 if (odpCommentInput) odpCommentInput.value = '';
                 if (odpCharCount) odpCharCount.textContent = '0 / 500';
@@ -29543,7 +29543,7 @@ kingSelect.addEventListener('change', () => {
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({ castle_id: _mcCurrentCastleId, text, parent_id: parentId })
             });
-            if (!res.ok) { const err = await res.json(); alert(err.message || '답글 등록 실패'); return; }
+            if (!res.ok) { const err = await res.json().catch(() => ({ message: res.statusText || '서버 오류' })); alert(err.message || '답글 등록 실패'); return; }
             const newReply = await res.json();
             // 답글 목록에 즉시 추가
             const repliesDiv = document.getElementById(`mc-replies-${parentId}`);
@@ -29578,7 +29578,7 @@ kingSelect.addEventListener('change', () => {
                 body: JSON.stringify({ castle_id: _mcCurrentCastleId, text })
             });
             if (!res.ok) {
-                const err = await res.json();
+                const err = await res.json().catch(() => ({ message: res.statusText || '서버 오류' }));
                 alert(err.message || '의견 등록 실패');
                 return;
             }
@@ -30836,7 +30836,7 @@ async function uploadGeneralPhoto(fileArg) {
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}` },
             body: JSON.stringify({ filename: file.name || 'general_photo.jpg', contentBase64: base64, mimeType: file.type || 'image/jpeg' })
         });
-        if (!res.ok) { const err = await res.json(); throw new Error(err.message || '업로드 실패'); }
+        if (!res.ok) { const err = await res.json().catch(() => ({ message: res.statusText || '서버 오류 (용량 초과 등)' })); throw new Error(err.message || '업로드 실패'); }
         const { url } = await res.json();
         if (urlInput) urlInput.value = url;
         if (msgEl) { msgEl.style.color = '#7fcf9f'; msgEl.textContent = '✅ 업로드 완료!'; }
@@ -30901,7 +30901,7 @@ async function uploadCastlePhoto(mode) {
             body: JSON.stringify({ filename: file.name, contentBase64: base64, mimeType: file.type })
         });
         if (!res.ok) {
-            const err = await res.json();
+            const err = await res.json().catch(() => ({ message: res.statusText || '서버 오류 (용량 초과 등)' }));
             throw new Error(err.message || '업로드 실패');
         }
         const { url } = await res.json();
@@ -30937,7 +30937,7 @@ async function uploadCastlePhotoFromUrl() {
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}` },
             body: JSON.stringify({ sourceUrl, filename: `image.${ext}` })
         });
-        if (!res.ok) { const e = await res.json(); throw new Error(e.message || '업로드 실패'); }
+        if (!res.ok) { const e = await res.json().catch(() => ({ message: res.statusText || '서버 오류 (용량 초과 등)' })); throw new Error(e.message || '업로드 실패'); }
         const { url } = await res.json();
         urlInput.value = url;
         if (msgEl) { msgEl.style.color = '#7fcf9f'; msgEl.textContent = '✅ GitHub에 저장 완료!'; }
@@ -30975,7 +30975,7 @@ async function uploadEventPhoto() {
         });
         
         if (!res.ok) {
-            const err = await res.json();
+            const err = await res.json().catch(() => ({ message: res.statusText || '서버 오류 (용량 초과 등)' }));
             throw new Error(err.message || '업로드 실패');
         }
         
@@ -31073,7 +31073,7 @@ async function castleFormUploadVoice() {
                 speaker: '사관'
             })
         });
-        if (!res.ok) { const e = await res.json(); throw new Error(e.message || '업로드 실패'); }
+        if (!res.ok) { const e = await res.json().catch(() => ({ message: res.statusText || '서버 오류 (용량 초과 등)' })); throw new Error(e.message || '업로드 실패'); }
         msgEl.textContent = '✅ 등록 완료!';
         if (fileInput) fileInput.value = '';
         // 🔧 [버그 수정] 음성 등록 후 "음성 없음" 캐시 무효화
