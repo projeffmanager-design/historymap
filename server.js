@@ -884,8 +884,25 @@ async function setupRoutesAndCollections() {
 
         // 🔔 [v3.9] GET: castle 데이터 마지막 수정 시각 — 클라이언트 캐시 무효화용
         // 극초경량(JSON 1줄)이므로 캐시 체크용으로 매 페이지 로드 시 호출해도 무방
-        app.get('/api/castle/version', (req, res) => {
-            res.json({ lastModified: _castleLastModified });
+        app.get('/api/castle/version', async (req, res) => {
+            try {
+                // 최근 수정된 항목 (updatedAt 기준)
+                const latestUpdated = await collections.castle.findOne(
+                    { updatedAt: { $exists: true } },
+                    { sort: { updatedAt: -1 }, projection: { updatedAt: 1 } }
+                );
+                
+                let lastModified = _castleLastModified;
+                if (latestUpdated && latestUpdated.updatedAt) {
+                    lastModified = new Date(latestUpdated.updatedAt).getTime();
+                }
+
+                res.json({ lastModified });
+            } catch (err) {
+                console.error('[/api/castle/version] 에러:', err);
+                // DB 에러 시 기존 메모리 변수 반환
+                res.json({ lastModified: _castleLastModified });
+            }
         });
 
         // GET: 모든 성 정보 반환
