@@ -1368,6 +1368,54 @@ async function setupRoutesAndCollections() {
                 res.status(500).json({ message: "Castle 정보 영구 삭제 실패", error: error.message });
             }
         });
+// ✅ GET /api/natural-features/:id — 단건 조회
+app.get('/api/natural-features/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'Invalid ID' });
+        const feature = await collections.naturalFeatures.findOne({ _id: new ObjectId(id) });
+        if (!feature) return res.status(404).json({ error: 'Not found' });
+        res.json(feature);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ✅ PUT /api/natural-features/:id — 수정
+app.put('/api/natural-features/:id', verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'Invalid ID' });
+        const update = { ...req.body, updatedAt: new Date() };
+        delete update._id;
+        const result = await collections.naturalFeatures.findOneAndUpdate(
+            { _id: new ObjectId(id) },
+            { $set: update },
+            { returnDocument: 'after' }
+        );
+        if (!result) return res.status(404).json({ error: 'Not found' });
+        naturalFeaturesCache = null;       // 캐시 무효화
+        naturalFeaturesCacheTime = null;
+        res.json({ success: true, data: result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ✅ DELETE /api/natural-features/:id — 삭제
+app.delete('/api/natural-features/:id', verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'Invalid ID' });
+        const result = await collections.naturalFeatures.deleteOne({ _id: new ObjectId(id) });
+        if (result.deletedCount === 0) return res.status(404).json({ error: 'Not found' });
+        naturalFeaturesCache = null;       // 캐시 무효화
+        naturalFeaturesCacheTime = null;
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
         // ── 음성 API (realhistory.voice) ─────────────────────────────────────────
 
