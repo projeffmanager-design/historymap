@@ -1,7 +1,7 @@
 // PUT: 왕 정보 업데이트 (기존 로직 유지, ObjectId 사용)
 app.put('/api/kings/:id', verifyAdmin, async (req, res) => {
 // ...
-기존 PUT 로직 유지 (kings 배열 내의 _id를 찾아 업데이트)
+//기존 PUT 로직 유지 (kings 배열 내의 _id를 찾아 업데이트)
 // 이 로직은 ObjectId를 참조하므로 큰 변경 없이 사용할 수 있습니다.
 try {
         const { id } = req.params; // 수정할 왕 레코드의 _id (문자열)
