@@ -922,6 +922,32 @@ async function setupRoutesAndCollections() {
                 if (!label_type && _castleCache && (Date.now() - _castleCacheTime) < CASTLE_CACHE_TTL) {
                     try {
                         const { ObjectId: ObjId } = require('mongodb');
+                // ✅ [추가] updatedAt 기반 수정된 항목 동기화 (이름 변경 등)
+                const updatedDocs = await collections.castle.find({
+                    $and: [
+                        { $or: [{ deleted: { $exists: false } }, { deleted: false }] },
+                        { updatedAt: { $gt: new Date(_castleCacheTime) } }
+                    ]
+                }).toArray();
+
+                if (updatedDocs.length > 0) {
+                    console.log(`⚡ [증분 업데이트] ${updatedDocs.length}개 수정 항목 반영`);
+                    for (const doc of updatedDocs) {
+                        const idStr = String(doc._id);
+                        const idx = _castleCache.findIndex(c => String(c._id) === idStr);
+                        const asStr = { ...doc, _id: idStr };
+                        if (idx >= 0) _castleCache[idx] = asStr;
+                        else _castleCache.push(asStr);
+                    }
+                    _castleCacheTime = Date.now();
+                    _castleLastModified = Date.now();
+                }
+
+                // ✅ [추가] X-Force-Refresh: 1이면 위 증분 업데이트 후 결과 반환 (캐시 신뢰 안 함)
+                if (forceRefresh) {
+                    console.log(`🔄 [X-Force-Refresh] 캐시 우회 — MongoDB 최신 데이터 반환`);
+                    // 증분 업데이트 완료된 _castleCache 그대로 반환 (이미 최신화됨)
+                }
 
                         // 1) DB에서 삭제된 항목의 ID 목록 조회 → 캐시에서 제외
                         const deletedDocs = await collections.castle.find(
