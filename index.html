@@ -6141,7 +6141,7 @@ body.force-mobile .marker-type-selector button {
       <h3>⏱️ 시간 제어</h3>
       <div class="menu-section">
           <div style="display: flex; align-items: center; gap: 6px; background: rgba(30, 42, 56, 0.4); padding: 8px; border-radius: 6px; border: 1px solid rgba(93,113,133,0.2);">
-              <input type="number" id="menu-year-input" min="-4000" max="2030" value="400" style="flex: 1.5; padding: 6px; font-size: 13px; text-align: center; height: 32px; background: rgba(50, 62, 76, 0.5); border: 1px solid #5d7185; border-radius: 4px; color: #ecf0f1; outline: none;" title="연도">
+              <input type="number" id="menu-year-input" min="-5000" max="3000" value="391" style="flex: 1.5; padding: 6px; font-size: 13px; text-align: center; height: 32px; background: rgba(50, 62, 76, 0.5); border: 1px solid #5d7185; border-radius: 4px; color: #ecf0f1; outline: none;" title="연도">
               <span style="color:#a0b8d0; font-size:12px; font-weight:bold;">년</span>
               <input type="number" id="menu-month-input" min="1" max="12" value="1" style="flex: 1; padding: 6px; font-size: 13px; text-align: center; height: 32px; border: 1px solid #5d7185; border-radius: 4px; background: rgba(50, 62, 76, 0.5); color: #ecf0f1; outline: none;" title="월">
               <span style="color:#a0b8d0; font-size:12px; font-weight:bold;">월</span>
@@ -6431,7 +6431,7 @@ body.force-mobile .marker-type-selector button {
                 <span id="yearLabel-pc" style="display: inline-block; text-align: right; min-width: 100px;"></span>년 <span id="monthLabel-pc" style="display: inline-block; text-align: right; min-width: 20px;"></span>월  <span id="ganjiLabel-pc" style="display: inline-block;"></span>
             </span>
             
-            <input type="number" id="yearInput" min="-4000" max="2030" step="1" value="400" style="width:60px !important; padding: 4px; font-family: 'Courier New', monospace;" title="음수는 B.C. (예: -400 = B.C. 401)">
+            <input type="number" id="yearInput" min="-5000" max="3000" step="1" value="391" style="width:60px !important; padding: 4px; font-family: 'Courier New', monospace;" title="음수는 B.C. (예: -400 = B.C. 401)">
             <input type="number" id="monthInput" min="1" max="12" step="1" value="1" style="width:40px !important; padding: 4px; font-family: 'Courier New', monospace;">
             <!-- 월 단위 이동 버튼 -->
             <div style="display: flex; align-items: center; gap: 1px; margin-left: 2px;">
@@ -6591,7 +6591,7 @@ body.force-mobile .marker-type-selector button {
     <!-- 시간 제어 필 -->
     <div class="filter-pill">
         <span class="filter-pill-label">연도</span>
-        <input id="pillYearInput" type="number" min="-4000" max="2030" step="1" value="400"
+        <input id="pillYearInput" type="number" min="-5000" max="3000" step="1" value="391"
                style="width:60px;" title="음수는 B.C. (예: -400 = B.C. 401)" placeholder="연도">
         <div class="filter-pill-divider"></div>
         <input id="pillMonthInput" type="number" min="1" max="12" step="1" value="1"
@@ -30221,6 +30221,8 @@ kingSelect.addEventListener('change', () => {
 
     async function fetchLogs() {
         try {
+            if (document.visibilityState === 'hidden') return;
+
             const resp = await fetch('/api/activity-logs?limit=50');
             if (!resp.ok) return;
             const logs = await resp.json();
@@ -30257,9 +30259,12 @@ kingSelect.addEventListener('change', () => {
         }
     }
 
-    document.addEventListener('DOMContentLoaded', function() {
-        fetchLogs();
-        setInterval(fetchLogs, POLL_INTERVAL);
+document.addEventListener('DOMContentLoaded', function() {
+fetchLogs();
+setInterval(fetchLogs, (typeof POLL_INTERVAL !== 'undefined') ? POLL_INTERVAL * 3 : 180000);
+document.addEventListener('visibilitychange', function() {
+if (document.visibilityState === 'visible') fetchLogs();
+});
 
         // 활동 피드 클릭 이벤트 위임 (항목 전체 클릭 or 지명 링크 클릭 → 마커 이동)
         const feedScroll = document.getElementById('activity-feed-scroll');

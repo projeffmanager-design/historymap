@@ -2676,7 +2676,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const elapsed = Date.now() - startTime;
                 const totalSize = tiles.reduce((sum, t) => sum + (t.compressed_size || 0), 0);
                 console.log(`🗺️ Territory Tiles complete: ${tiles.length} tiles, ${(totalSize/1024).toFixed(2)}KB (${elapsed}ms)`);
-                
+                res.set('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=600');
                 res.json(tiles);
             } catch (error) {
                 console.error("Territory Tiles error:", error);
@@ -2706,6 +2706,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     const cacheAge = Date.now() - territoriesCacheTime;
                     if (cacheAge < CACHE_TTL) {
                         console.log(`🚀 Territories 캐시 사용 (${(cacheAge/1000).toFixed(0)}초 전 데이터, ${territoriesCache.length}개)`);
+                        res.set('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=3600');
                         return res.json(territoriesCache);
                     }
                 }
@@ -3175,7 +3176,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     naturalFeaturesCache = features;
                     naturalFeaturesCacheTime = Date.now();
                 }
-
+                res.set('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=3600');
                 res.json(features);
             } catch (error) {
                 console.error("자연 지형지물 조회 중 오류:", error);
@@ -5935,6 +5936,7 @@ app.get('/api/activity-logs', async (req, res) => {
             .sort({ createdAt: -1 })
             .limit(limit)
             .toArray();
+        res.set('Cache-Control', 'public, s-maxage=1800, stale-while-revalidate=300');
         res.json(logs);
     } catch (error) {
         res.status(500).json({ message: '액티비티 로그 조회 실패', error: error.message });
