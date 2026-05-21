@@ -528,6 +528,20 @@ async function setupRoutesAndCollections() {
 
                 fs.writeFileSync(CASTLE_STATIC_FILE, JSON.stringify(arr));
                 _castleLastModified = Date.now();
+                // ✅ [버그수정] _castleCache도 동기화 (파일만 고치고 캐시는 그대로인 버그 수정)
+                if (_castleCache) {
+                    if (op === 'upsert') {
+                        const cIdx = _castleCache.findIndex(c => String(c._id) === idStr);
+                        const docWithStrId = { ...doc, _id: idStr };
+                        if (cIdx >= 0) {
+                            _castleCache[cIdx] = docWithStrId;  // 수정
+                        } else {
+                            _castleCache.push(docWithStrId);     // 신규
+                        }
+                    } else if (op === 'delete') {
+                        _castleCache = _castleCache.filter(c => String(c._id) !== idStr);
+                    }
+                }
                 console.log(`✏️ [즉시 패치] castles.json ${op} — ID: ${idStr}`);
             } catch (e) {
                 console.warn('⚠️ castles.json 즉시 패치 실패 (무시, 배치로 보완):', e.message);
@@ -939,7 +953,25 @@ async function setupRoutesAndCollections() {
 
                         // 3) 캐시에서 삭제된 항목 제외 + 신규 항목 병합
                         const filteredCache = _castleCache.filter(c => !deletedIds.has(String(c._id)));
-                        const merged = [...filteredCache, ...newDocs];
+                        // ✅ [버그수정] updatedAt 기반 수정된 항목 감지 (기존엔 신규/삭제만 체크, 수정은 놓침)
+                        const updatedDocs = await collections.castle.find({
+                            $and: [
+                                { $or: [{ deleted: { $exists: false } }, { deleted: false }] },
+                                { updatedAt: { $gt: new Date(_castleCacheTime) } }
+                            ]
+                        }).toArray();
+
+                        let baseCache = filteredCache;
+                        if (updatedDocs.length > 0) {
+                            const updMap = new Map(updatedDocs.map(d => [String(d._id), d]));
+                            baseCache = filteredCache.map(c => updMap.get(String(c._id)) || c);
+                            const updatedIds = new Set(updatedDocs.map(d => String(d._id)));
+                            newDocs = newDocs.filter(d => !updatedIds.has(String(d._id)));
+                            _castleCache = baseCache; // 메모리 캐시도 즉시 갱신
+                            console.log(`⚡ Castle 캐시 수정 감지: ${updatedDocs.length}개 updatedAt 기반 갱신`);
+                        }
+                        const merged = [...baseCache, ...newDocs];
+
                         if (deletedIds.size > 0 || newDocs.length > 0) {
                             console.log(`⚡ Castle 캐시 동기화: 원본 ${_castleCache.length}개 → 삭제 -${deletedIds.size}개, 신규 +${newDocs.length}개 = ${merged.length}개`);
                         }
