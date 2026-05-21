@@ -511,23 +511,13 @@ async function setupRoutesAndCollections() {
                     } else {
                         arr.push(normalized);  // 신규
                     }
-                    // 메모리 캐시도 동기화
-                    if (_castleCache) {
-                        const ci = _castleCache.findIndex(c => String(c._id) === idStr);
-                        if (ci >= 0) _castleCache[ci] = normalized;
-                        else _castleCache.push(normalized);
-                        _castleCacheTime = Date.now();
-                    }
                 } else if (op === 'delete') {
                     arr = arr.filter(c => String(c._id) !== idStr);
-                    if (_castleCache) {
-                        _castleCache = _castleCache.filter(c => String(c._id) !== idStr);
-                        _castleCacheTime = Date.now();
-                    }
                 }
 
                 fs.writeFileSync(CASTLE_STATIC_FILE, JSON.stringify(arr));
                 _castleLastModified = Date.now();
+                
                 // ✅ [버그수정] _castleCache도 동기화 (파일만 고치고 캐시는 그대로인 버그 수정)
                 if (_castleCache) {
                     if (op === 'upsert') {
@@ -541,7 +531,9 @@ async function setupRoutesAndCollections() {
                     } else if (op === 'delete') {
                         _castleCache = _castleCache.filter(c => String(c._id) !== idStr);
                     }
+                    _castleCacheTime = Date.now();
                 }
+                
                 console.log(`✏️ [즉시 패치] castles.json ${op} — ID: ${idStr}`);
             } catch (e) {
                 console.warn('⚠️ castles.json 즉시 패치 실패 (무시, 배치로 보완):', e.message);
@@ -950,6 +942,38 @@ async function setupRoutesAndCollections() {
                             ]
                         };
                         const newDocs = await collections.castle.find(newQuery).toArray();
+                        // ✅ [버그수정] updatedAt 기반 수정된 항목 감지
+                        // 기존 코드: _id 비교로 신규 추가만 감지 → 이름 변경 등 수정은 누락
+                        // 수정 후: _castleCacheTime 이후 updatedAt이 변경된 항목도 캐시에 반영
+                        if (_castleCache && _castleCacheTime) {
+                            try {
+                                const updatedDocs = await collections.castle.find({
+                                    $and: [
+                                        { $or: [{ deleted: { $exists: false } }, { deleted: false }] },
+                                        { updatedAt: { $gt: new Date(_castleCacheTime) } }
+                                    ]
+                                }).toArray();
+
+                                if (updatedDocs.length > 0) {
+                                    console.log(`⚡ [증분 업데이트] updatedAt 기반 수정 감지: ${updatedDocs.length}개`);
+                                    for (const doc of updatedDocs) {
+                                        const idStr = String(doc._id);
+                                        const asStr = { ...doc, _id: idStr };
+                                        const idx = _castleCache.findIndex(c => String(c._id) === idStr);
+                                        if (idx >= 0) {
+                                            _castleCache[idx] = asStr;  // 수정된 항목 교체
+                                        } else {
+                                            _castleCache.push(asStr);   // 신규 항목 추가 (fallback)
+                                        }
+                                    }
+                                    _castleCacheTime = Date.now();
+                                    _castleLastModified = Date.now();
+                                }
+                            } catch (e) {
+                                console.warn('⚠️ [증분 업데이트] updatedAt 체크 실패 (무시):', e.message);
+                            }
+                        }
+
 
                         // 3) 캐시에서 삭제된 항목 제외 + 신규 항목 병합
                         const filteredCache = _castleCache.filter(c => !deletedIds.has(String(c._id)));
@@ -1300,12 +1324,37 @@ async function setupRoutesAndCollections() {
                 patchCastleInStaticFile('delete', { _id: id });
 
                 logCRUD('SOFT_DELETE', 'Castle', id);
+                                    // DELETE: 성 삭제
+                    app.delete('/api/castle/:id', verifyToken, async (req, res) => {
+                        try {
+                            const { id } = req.params;
+                            const _id = toObjectId(id);
+                            if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+
+                            await collections.castle.updateOne(
+                                { _id },
+                                { $set: { deleted: true, updatedAt: new Date() } }
+                            );
+
+                            // ✅ [추가] castles.json 즉시 패치 + _castleLastModified 갱신
+                            patchCastleInStaticFile('delete', { _id: id });
+
+                            logCRUD('DELETE', 'Castle', id);
+                            res.json({ message: "Castle 삭제 성공" });
+                        } catch (error) {
+                            logCRUD('ERROR', 'Castle', 'DELETE', error.message);
+                            res.status(500).json({ message: "Castle 삭제 실패", error: error.message });
+                        }
+                    });
+
                 res.json({ message: "Castle 정보 휴지통으로 이동됨" });
+                
             } catch (error) {
                 logCRUD('ERROR', 'Castle', 'SOFT_DELETE', error.message);
                 res.status(500).json({ message: "Castle 정보 휴지통 이동 실패", error: error.message });
             }
         });
+
 
         // PUT: 휴지통에서 성 복원
         app.put('/api/castle/:id/restore', verifyAdmin, async (req, res) => {
