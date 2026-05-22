@@ -10,7 +10,7 @@ const cors = require('cors');
 const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
-const { connectToDatabase, collections } = require('./db'); // 🚩 [추가] DB 연결 모듈
+const { connectToDatabase, reconnectDatabase, collections } = require('./db'); // 🚩 [추가] DB 연결 모듈
 const { put: blobPut, del: blobDel } = require('@vercel/blob'); // 🎙️ [추가] Vercel Blob SDK
 
 const app = express();
@@ -241,7 +241,7 @@ async function logActivity(type, actor, actorPosition, targetName, extra = {}, u
             await cols.activityLogs.deleteMany({ _id: { $in: oldest.map(d => d._id) } });
         }
         // checkin/checkout 각각 최대 8개 보존 (나머지는 삭제)
-        for (const t of ['checkin', 'checkout']) {
+        for (const t of ['checkin', 'checkout', 'guest_enter']) {
             const tCount = await cols.activityLogs.countDocuments({ type: t });
             if (tCount > 8) {
                 const overT = await cols.activityLogs
@@ -469,95 +469,22 @@ async function setupRoutesAndCollections() {
             return Date.now();
         })();
 
-        // 🚀 [v3.6] 정적 파일에서 즉시 캐시 주입 (밀리초) — MongoDB 쿼리 없이 서버 시작
-        (function preloadCastleFromFile() {
-            if (fs.existsSync(CASTLE_STATIC_FILE)) {
-                try {
-                    const raw = fs.readFileSync(CASTLE_STATIC_FILE, 'utf8');
-                    _castleCache = JSON.parse(raw);
-                    _castleCacheTime = Date.now();
-                    console.log(`⚡ [캐시 사전주입] castle 정적 파일 로드: ${_castleCache.length}개 (${(raw.length/1024/1024).toFixed(1)}MB)`);
-                } catch (e) {
-                    console.warn('⚠️ castle 정적 파일 파싱 실패 (MongoDB fallback 사용):', e.message);
-                }
-            } else {
-                console.log('ℹ️ public/castles.json 없음 → 첫 요청 시 MongoDB 쿼리 (약 270초)');
-                console.log('   빠른 시작을 위해: node scripts/export_castles_to_json.js');
-            }
-        })();
-        
-        function invalidateCastleCache() {
-            _castleCache = null;
-            _castleCacheTime = 0;
-        }
-
-        // ✏️ [v3.8] castles.json 즉시 패치 — 단일 항목 추가/수정/삭제를 파일에 바로 반영
-        // 전체 재빌드(270초) 없이 해당 항목만 수술적으로 수정 → DB와 파일 동기화 유지
-        function patchCastleInStaticFile(op, doc) {
-            // op: 'upsert' | 'delete'
-            // doc: { _id (string), ...fields }  — upsert 시 전체 문서, delete 시 _id만 필요
+        // 🚀 [v4.0] 서버 시작 시 MongoDB에서 비동기 프리로드 — castles.json 파일 의존 완전 제거
+        // 🚀 [v4.0] 1단계: castles.json으로 즉시 동기 로드 (콜드 스타트 캐시 보장)
+        if (fs.existsSync(CASTLE_STATIC_FILE)) {
             try {
-                if (!fs.existsSync(CASTLE_STATIC_FILE)) return; // 파일 없으면 skip
                 const raw = fs.readFileSync(CASTLE_STATIC_FILE, 'utf8');
-                let arr = JSON.parse(raw);
-                const idStr = doc._id?.toString ? doc._id.toString() : String(doc._id);
-
-                if (op === 'upsert') {
-                    const idx = arr.findIndex(c => String(c._id) === idStr);
-                    // _id를 string으로 통일
-                    const normalized = { ...doc, _id: idStr };
-                    if (idx >= 0) {
-                        arr[idx] = normalized; // 수정
-                    } else {
-                        arr.push(normalized);  // 신규
-                    }
-                    // 메모리 캐시도 동기화
-                    if (_castleCache) {
-                        const ci = _castleCache.findIndex(c => String(c._id) === idStr);
-                        if (ci >= 0) _castleCache[ci] = normalized;
-                        else _castleCache.push(normalized);
-                        _castleCacheTime = Date.now();
-                    }
-                } else if (op === 'delete') {
-                    arr = arr.filter(c => String(c._id) !== idStr);
-                    if (_castleCache) {
-                        _castleCache = _castleCache.filter(c => String(c._id) !== idStr);
-                        _castleCacheTime = Date.now();
-                    }
-                }
-
-                    fs.writeFileSync(CASTLE_STATIC_FILE, JSON.stringify(arr));
-                    _castleLastModified = Date.now();
-                    // ✅ _castleCache 메모리도 동기화
-                    if (_castleCache) {
-                        if (op === 'upsert') {
-                            const cIdx = _castleCache.findIndex(c => String(c._id) === idStr);
-                            const docWithStrId = { ...doc, _id: idStr };
-                            if (cIdx >= 0) _castleCache[cIdx] = docWithStrId;
-                            else _castleCache.push(docWithStrId);
-                        } else if (op === 'delete') {
-                            _castleCache = _castleCache.filter(c => String(c._id) !== idStr);
-                        }
-                        _castleCacheTime = Date.now();
-                    }
-                    console.log(`✏️ [즉시 패치] castles.json ${op} — ID: ${idStr}`);
-
+                _castleCache = JSON.parse(raw);
+                _castleCacheTime = Date.now();
+                _castleLastModified = fs.statSync(CASTLE_STATIC_FILE).mtimeMs;
+                console.log(`⚡ [콜드 스타트] castles.json 즉시 로드: ${_castleCache.length}개`);
             } catch (e) {
-                console.warn('⚠️ castles.json 즉시 패치 실패 (무시, 배치로 보완):', e.message);
+                console.warn('⚠️ castles.json 즉시 로드 실패:', e.message);
             }
         }
 
-        // 📦 [배치/수동] castles.json 재빌드 — 매일 새벽 3시 자동 실행 + admin API로 수동 트리거 가능
-        // 데이터 변경 직후 호출 안 함 (Atlas M0에서 270초 소요 → 배치로 일괄 처리)
-        let _castleRebuildInProgress = false;
-        async function rebuildCastleStaticFile(reason) {
-            if (_castleRebuildInProgress) {
-                console.log(`⏳ [재빌드 스킵] 이미 진행 중 (사유: ${reason})`);
-                return;
-            }
-            _castleRebuildInProgress = true;
-            console.log(`🔄 [재빌드 시작] castles.json 갱신 중... (사유: ${reason})`);
-            const startTime = Date.now();
+        // 🚀 [v4.0] 2단계: MongoDB에서 비동기 프리로드 — 완료되면 캐시 갱신 (파일보다 최신 데이터)
+        async function preloadCastleFromDB() {
             try {
                 const query = { $or: [{ deleted: { $exists: false } }, { deleted: false }] };
                 const cursor = collections.castle.find(query);
@@ -565,25 +492,107 @@ async function setupRoutesAndCollections() {
                 for await (const doc of cursor) {
                     castles.push({ ...doc, _id: doc._id?.toString ? doc._id.toString() : doc._id });
                 }
-                const json = JSON.stringify(castles);
-                fs.writeFileSync(CASTLE_STATIC_FILE, json);
-                // update metadata for incremental rebuilds
-                try {
-                    const metaPath = path.join(__dirname, 'public', 'castles.meta.json');
-                    fs.writeFileSync(metaPath, JSON.stringify({ lastRebuild: new Date().toISOString() }));
-                } catch (e) {
-                    console.warn('⚠️ castles.meta.json 쓰기 실패:', e.message);
+                _castleCache = castles;
+                _castleCacheTime = Date.now(); // ✅ 캐시 만료 기준: 로드 완료 시각
+                const maxUpdatedAt = castles.reduce((max, c) => {
+                    const t = c.updatedAt ? new Date(c.updatedAt).getTime() : 0;
+                    return t > max ? t : max;
+                }, 0);
+                _castleLastModified = maxUpdatedAt || Date.now();
+                console.log(`⚡ [DB 갱신 완료] castle 캐시 업그레이드: ${castles.length}개`);
+            } catch (e) {
+                console.warn('⚠️ castle DB 프리로드 실패 (castles.json 캐시 유지):', e.message);
+            }
+        }
+        // 비동기로 실행 — 서버 시작을 블로킹하지 않음
+        preloadCastleFromDB().catch(() => {});
+        
+        function invalidateCastleCache() {
+            _castleCache = null;
+            _castleCacheTime = 0;
+        }
+
+        // ✏️ [v4.0] castle 즉시 패치 — _castleCache 메모리만 업데이트 (castles.json 파일 의존 제거)
+        function patchCastleInStaticFile(op, doc) {
+            // op: 'upsert' | 'delete'
+            try {
+                const idStr = doc._id?.toString ? doc._id.toString() : String(doc._id);
+                if (op === 'upsert') {
+                    const normalized = { ...doc, _id: idStr };
+                    if (_castleCache) {
+                        const ci = _castleCache.findIndex(c => String(c._id) === idStr);
+                        if (ci >= 0) _castleCache[ci] = normalized;
+                        else _castleCache.push(normalized);
+                        _castleCacheTime = Date.now();
+                    }
+                } else if (op === 'delete') {
+                    if (_castleCache) {
+                        _castleCache = _castleCache.filter(c => String(c._id) !== idStr);
+                        _castleCacheTime = Date.now();
+                    }
                 }
-                // 메모리 캐시도 동시 갱신
+                _castleLastModified = Date.now();
+                console.log(`✏️ [메모리 패치] castle ${op} — ID: ${idStr}`);
+            } catch (e) {
+                console.warn('⚠️ castle 메모리 패치 실패 (무시):', e.message);
+            }
+        }
+
+        // 📦 [v4.1] castle 캐시 재빌드 — MongoDB 조회 → _castleCache 갱신 + castles.json 동기 업데이트
+        let _castleRebuildInProgress = false;
+        async function rebuildCastleStaticFile(reason) {
+            if (_castleRebuildInProgress) {
+                console.log(`⏳ [재빌드 스킵] 이미 진행 중 (사유: ${reason})`);
+                return;
+            }
+            _castleRebuildInProgress = true;
+            console.log(`🔄 [재빌드 시작] castle 캐시 + castles.json 갱신 중... (사유: ${reason})`);
+            const startTime = Date.now();
+
+            // 실제 DB 조회 + 캐시 저장 로직 (재시도 가능하도록 분리)
+            async function _doRebuild() {
+                const query = { $or: [{ deleted: { $exists: false } }, { deleted: false }] };
+                const cursor = collections.castle.find(query).maxTimeMS(270000); // 최대 4.5분
+                const castles = [];
+                for await (const doc of cursor) {
+                    castles.push({ ...doc, _id: doc._id?.toString ? doc._id.toString() : doc._id });
+                }
+                return castles;
+            }
+
+            try {
+                let castles;
+                try {
+                    castles = await _doRebuild();
+                } catch (e) {
+                    // 타임아웃/연결 끊김 → 재연결 후 1회 재시도
+                    if (e.name === 'MongoNetworkTimeoutError' || e.name === 'MongoNetworkError' || /timed out/i.test(e.message)) {
+                        console.warn(`⚠️ [재빌드] DB 타임아웃 — 재연결 후 재시도 중...`);
+                        await reconnectDatabase();
+                        castles = await _doRebuild();
+                    } else {
+                        throw e;
+                    }
+                }
+
+                // 1) 메모리 캐시 갱신
                 _castleCache = castles;
                 _castleCacheTime = Date.now();
                 _castleLastModified = Date.now();
+                // 2) castles.json 파일도 갱신 — 다음 서버 재시작 시 즉시 로드용
+                try {
+                    fs.writeFileSync(CASTLE_STATIC_FILE, JSON.stringify(castles));
+                    console.log(`💾 castles.json 갱신 완료 (${(JSON.stringify(castles).length/1024/1024).toFixed(1)}MB)`);
+                } catch (fe) {
+                    console.warn('⚠️ castles.json 쓰기 실패 (메모리 캐시는 정상):', fe.message);
+                }
                 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                console.log(`✅ [재빌드 완료] castles.json 갱신: ${castles.length}개, ${(json.length/1024/1024).toFixed(1)}MB (${elapsed}초)`);
+                console.log(`✅ [재빌드 완료] castle 캐시 갱신: ${castles.length}개 (${elapsed}초)`);
+                return castles;
             } catch (e) {
-                console.error('❌ [재빌드 실패] castles.json 갱신 오류:', e.message);
-                // 실패 시 메모리 캐시만 무효화 → 다음 GET 요청이 재쿼리
+                console.error('❌ [재빌드 실패] castle 캐시 갱신 오류:', e.message);
                 invalidateCastleCache();
+                throw e;
             } finally {
                 _castleRebuildInProgress = false;
             }
@@ -872,23 +881,6 @@ async function setupRoutesAndCollections() {
                 setTimeout(async () => {
                     await rebuildCastleStaticFile('야간 배치 (새벽 3시)');
                     await rebuildTerritoryTiles('야간 배치 (새벽 3시)'); // dirty면 증분, 아니면 skip (타일 push 내장)
-                    // 🚀 Vercel 자동 배포 — castles.json 변경사항 push
-                    try {
-                        const { execSync } = require('child_process');
-                        const repoDir = __dirname;
-                        const today = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
-                        execSync('git add public/castles.json', { cwd: repoDir });
-                        const diffStat = execSync('git diff --cached --stat', { cwd: repoDir }).toString().trim();
-                        if (diffStat) {
-                            execSync(`git commit -m "chore: 야간 배치 castles.json 갱신 (${today})"`, { cwd: repoDir });
-                            execSync('git push', { cwd: repoDir });
-                            console.log(`✅ [Vercel 배포] castles.json push 완료`);
-                        } else {
-                            console.log(`⏭️  [Vercel 배포 스킵] castles.json 변경 없음`);
-                        }
-                    } catch (e) {
-                        console.error('❌ [Vercel 배포 실패] git push 오류:', e.message);
-                    }
                     scheduleNext();
                 }, delay);
             }
@@ -919,14 +911,18 @@ async function setupRoutesAndCollections() {
         });
 
         // GET: 모든 성 정보 반환
-        app.get('/api/castle', async (req, res) => { // (collections.castle로 변경)
-            try {                // 🚩 [추가] label_type 쿼리 파라미터로 필터링 지원
+        app.get('/api/castle', async (req, res) => {
+            try {
                 const { label_type } = req.query;
                 
                 // 🚀 [v3.5] label_type 없는 전체 조회 시 서버 캐시 사용
                 // 🚀 [v3.7] 캐시가 있어도 DB에서 신규 추가 / 삭제된 항목을 동기화해 병합
                 // → Vercel serverless에서 castles.json push 없이도 신규 승인·삭제 마커 즉시 반영
-                if (!label_type && _castleCache && (Date.now() - _castleCacheTime) < CASTLE_CACHE_TTL) {
+                // Cache-Control: no-store 요청(DB 동기화 직후 등)은 캐시 무시하고 전체 재조회
+                const forceRefresh = req.headers['cache-control'] === 'no-store'
+                    || req.headers['x-force-refresh'] === '1'
+                    || req.query.refresh === '1';
+                if (!label_type && !forceRefresh && _castleCache && (Date.now() - _castleCacheTime) < CASTLE_CACHE_TTL) {
                     try {
                         const { ObjectId: ObjId } = require('mongodb');
 
@@ -942,13 +938,15 @@ async function setupRoutesAndCollections() {
                             const id = String(c._id);
                             return id > max ? id : max;
                         }, '0');
-                        const newQuery = {
-                            $and: [
-                                { $or: [{ deleted: { $exists: false } }, { deleted: false }] },
-                                { _id: { $gt: new ObjId(maxCachedId) } }
-                            ]
-                        };
-                        const newDocs = await collections.castle.find(newQuery).toArray();
+                        // maxCachedId가 유효한 ObjectId 형식인지 확인
+                        const newDocs = ObjId.isValid(maxCachedId) && maxCachedId !== '0'
+                            ? await collections.castle.find({
+                                $and: [
+                                    { $or: [{ deleted: { $exists: false } }, { deleted: false }] },
+                                    { _id: { $gt: new ObjId(maxCachedId) } }
+                                ]
+                            }).toArray()
+                            : [];
                         // ✅ updatedAt 기반 수정된 항목 감지 (이름 변경 등)
                         try {
                             const updatedDocs = await collections.castle.find({
@@ -1014,19 +1012,12 @@ async function setupRoutesAndCollections() {
                 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
                 console.log(`📖 Castle 조회 완료: ${castles.length}개 (${elapsed}초, 필터: ${label_type || '전체'})`);
                 
-                // 🚀 [v3.5] 전체 조회 결과를 서버 캐시에 저장
+                // 🚀 [v4.0] 전체 조회 결과를 서버 메모리 캐시에 저장 (파일 쓰기 제거)
                 if (!label_type) {
                     _castleCache = castles;
                     _castleCacheTime = Date.now();
+                    _castleLastModified = Date.now();
                     console.log(`💾 Castle 서버 캐시 저장: ${castles.length}개`);
-                    // 🚀 [v3.6] 정적 파일로도 저장 → 다음 서버 시작 시 즉시 로드
-                    try {
-                        const json = JSON.stringify(castles.map(c => ({ ...c, _id: c._id?.toString ? c._id.toString() : c._id })));
-                        fs.writeFileSync(CASTLE_STATIC_FILE, json);
-                        console.log(`💾 castles.json 저장 완료 (${(json.length/1024/1024).toFixed(1)}MB) → 다음 시작부터 즉시 로드`);
-                    } catch (e) {
-                        console.warn('⚠️ castles.json 저장 실패 (무시):', e.message);
-                    }
                 }
                 
                 res.json(castles);
@@ -1254,30 +1245,26 @@ async function setupRoutesAndCollections() {
         });
 
         // �🚩 [신규 추가] GET: 개별 성 정보 조회
-        app.get('/api/castle/:id', async (req, res) => {
-            try {
-                const { id } = req.params;
-                // name 또는 _id로 검색
-                let castle;
-                const objectId = toObjectId(id);
-                
-                if (objectId) {
-                    castle = await collections.castle.findOne({ _id: objectId });
-                } else {
-                    castle = await collections.castle.findOne({ name: id });
-                }
-                
-                if (!castle) {
-                    return res.status(404).json({ message: "성을 찾을 수 없습니다." });
-                }
-                
-                res.json(castle);
-            } catch (error) {
-                console.error("Castle 조회 중 오류:", error);
-                res.status(500).json({ message: "Castle 조회 실패", error: error.message });
-            }
-        });
-        
+app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
+    try {
+        // ✅ cold start 시 MongoDB에서 직접 로드
+        if (!_castleCache) {
+            console.log('🔄 [cold start] MongoDB에서 castles 전체 로드...');
+            const allDocs = await collections.castle.find({
+                $or: [{ deleted: { $exists: false } }, { deleted: false }]
+            }).toArray();
+            _castleCache = allDocs.map(d => ({ ...d, _id: String(d._id) }));
+            _castleCacheTime = Date.now();
+            _castleLastModified = Date.now();
+            console.log(`✅ [cold start] ${_castleCache.length}개 로드 완료`);
+        }
+        res.json(_castleCache);
+    } catch (error) {
+        console.error("Castle 조회 중 오류:", error);
+        res.status(500).json({ message: "Castle 조회 실패", error: error.message });
+    }
+});
+
         // DELETE: 성 정보 휴지통으로 이동 (소프트 삭제)
         app.delete('/api/castle/:id', verifyAdmin, async (req, res) => {
             try {
@@ -3688,6 +3675,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const user = await collections.users.findOne({ _id: new ObjectId(uid) });
                 if (!user) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
 
+                // 🚩 게스트(서긍)는 공적점수 부여 제외
+                if (user.isGuest) {
+                    return res.json({ attended: false, message: '게스트 계정은 출석 점수를 받을 수 없습니다.' });
+                }
+
                 // KST(UTC+9) 기준 오늘 날짜
                 const nowKST = new Date(Date.now() + 9 * 60 * 60 * 1000);
                 const today = nowKST.toISOString().split('T')[0];
@@ -3740,7 +3732,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         app.post('/api/auth/guest-login', async (req, res) => {
             try {
                 // 'guest' 사용자 찾기
-                const guestName = '송나라 사신 서긍';
+                const guestName = '서긍';
                 let guestUser = await collections.users.findOne({ username: guestName });
 
                 if (!guestUser) {
@@ -3748,12 +3740,10 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     const hashedPassword = await bcrypt.hash(Math.random().toString(36), 10); // 랜덤 비밀번호
                     const result = await collections.users.insertOne({
                         username: guestName,
-                        email: 'seogeung@historymap.com', // 더미 이메일
+                        email: 'seogeung@koreamanri.com', // 더미 이메일
                         password: hashedPassword,
                         role: 'user', // 일반 사용자 권한
-                        position: '참봉', // 기본 직급
-                        reviewScore: 0, // 검토 점수
-                        approvalScore: 0, // 승인 점수
+                        position: '송나라 사신', // 기본 직급
                         createdAt: new Date(),
                         lastLogin: new Date(),
                         isGuest: true // 게스트 식별 플래그
@@ -3767,68 +3757,38 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     );
                 }
 
-                // 토큰 발급 (24시간 유효)
-                // 게스트 토큰에는 직급 정보를 포함하지 않음 (클라이언트에서 직급 표시 금지)
+                // 토큰 발급 (24일 유효)
                 const token = jwt.sign(
                     { userId: guestUser._id, username: guestUser.username, role: guestUser.role, isGuest: true },
                     jwtSecret,
                     { expiresIn: '24d' }
                 );
 
-                res.json({ message: "게스트 로그인 성공", token });
-            } catch (error) {
-                res.status(500).json({ message: "서버 오류가 발생했습니다.", error: error.message });
-            }
-        });
-
-        // 🚩 [추가] POST: 게스트 로그인 (비밀번호 없이 입장)
-        app.post('/api/auth/guest-login', async (req, res) => {
-            console.log('📢 게스트 로그인 요청 받음'); // 디버깅용 로그
-            try {
-                // 'guest' 사용자 찾기
-                const guestName = '송나라 사신 서긍';
-                let guestUser = await collections.users.findOne({ username: guestName });
-
-                if (!guestUser) {
-                    console.log('✨ 게스트 계정 새로 생성 중...');
-                    // 게스트 계정이 없으면 자동 생성
-                    const hashedPassword = await bcrypt.hash(Math.random().toString(36), 10); // 랜덤 비밀번호
-                    const result = await collections.users.insertOne({
-                        username: guestName,
-                        email: 'seogeung@historymap.com', // 더미 이메일
-                        password: hashedPassword,
-                        role: 'user', // 일반 사용자 권한
-                        position: '참봉', // 기본 직급
-                        reviewScore: 0, // 검토 점수
-                        approvalScore: 0, // 승인 점수
-                        createdAt: new Date(),
-                        lastLogin: new Date(),
-                        isGuest: true // 게스트 식별 플래그
+                // 🚩 [입청] 게스트 로그인 활동소식 즉시 기록 (30초 내 중복 방지)
+                try {
+                    const thirtySecAgo = new Date(Date.now() - 30 * 1000);
+                    const recentEnter = await collections.activityLogs.findOne({
+                        type: 'guest_enter',
+                        actor: guestName,
+                        createdAt: { $gte: thirtySecAgo }
                     });
-                    guestUser = await collections.users.findOne({ _id: result.insertedId });
-                } else {
-                    console.log('✅ 기존 게스트 계정으로 로그인 처리');
-                    // 게스트 계정이 있으면 마지막 로그인 시간만 업데이트
-                    await collections.users.updateOne(
-                        { _id: guestUser._id },
-                        { $set: { lastLogin: new Date() } }
-                    );
+                    if (!recentEnter) {
+                        await logActivity('guest_enter', guestName, '송나라 사신', null, {});
+                        console.log(`🧳 [게스트 입청] ${guestName} 활동소식 기록 완료`);
+                    } else {
+                        console.log(`🧳 [게스트 입청] ${guestName} 30초 내 중복 — 스킵`);
+                    }
+                } catch (e) {
+                    console.warn('⚠️ [게스트 입청] 활동 로그 실패:', e.message);
                 }
 
-                // 토큰 발급 (24시간 유효)
-                // 게스트 토큰에는 직급 정보를 포함하지 않음 (클라이언트에서 직급 표시 금지)
-                const token = jwt.sign(
-                    { userId: guestUser._id, username: guestUser.username, role: guestUser.role, isGuest: true },
-                    jwtSecret,
-                    { expiresIn: '24d' }
-                );
-
                 res.json({ message: "게스트 로그인 성공", token });
             } catch (error) {
-                console.error('❌ 게스트 로그인 오류:', error);
                 res.status(500).json({ message: "서버 오류가 발생했습니다.", error: error.message });
             }
         });
+
+
 
         // 🚩 GET: 관리자 대시보드 통합 통계
         app.get('/api/admin/dashboard', verifyAdminOnly, async (req, res) => {
@@ -4538,7 +4498,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             try {
                 // 🚩 [추가] 게스트(서긍)는 사관 기록 제출 불가
                 if (req.user.isGuest) {
-                    return res.status(403).json({ message: '송나라 사신 서긍은 사관 기록을 제출할 수 없습니다.' });
+                    return res.status(403).json({ message: '송나라 사신은 사관 기록을 제출할 수 없습니다.' });
                 }
 
                 const { name, lat, lng, description, category, evidence, year, source, content,
@@ -4639,7 +4599,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             try {
                 // 🚩 [추가] 게스트(서긍)는 추천 불가
                 if (req.user.isGuest) {
-                    return res.status(403).json({ message: '송나라 사신 서긍은 추천할 수 없습니다.' });
+                    return res.status(403).json({ message: '송나라 사신은 추천할 수 없습니다.' });
                 }
 
                 const { id } = req.params;
@@ -4826,9 +4786,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const castleResult = await collections.castle.insertOne(newCastle);
                 logCRUD('CREATE', 'Castle (from contribution)', newCastle.name, `(ID: ${castleResult.insertedId}, ContribID: ${contribution._id})`);
                 console.log(`✅ [승인→Castle] '${newCastle.name}' castle에 자동 삽입 완료 (is_natural: ${isNatural})`);
-                // 🔄 [자동화] 기여 승인 castle 생성 → castles.json 재빌드
-                invalidateCastleCache(); // 메모리 캐시 무효화 (파일은 새벽 3시 배치로 갱신)
                             const insertedCastle = await collections.castle.findOne({ _id: castleResult.insertedId });
+                // 🔄 [자동화] 기여 승인 castle 생성 → 메모리 캐시 즉시 패치
+                if (insertedCastle) patchCastleInStaticFile('upsert', insertedCastle);
                             const message = '검토가 완료되었습니다.';
                             // 🚩 [수정] logActivity를 return 전에 await 호출
                             await logActivity('approve', req.user.username, req.user.position || '', contribution.name || '사관 기록', {
@@ -4952,7 +4912,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 console.log('🏆 [랭킹 조회] 시작');
                 
                 // 랭킹에서 숨길 계정 (관리용 계정 등 비회원)
-                const RANKING_HIDDEN_USERS = ['송나라 사신 서긍'];
+                const RANKING_HIDDEN_USERS = ['서긍'];
 
                 // 🚩 [수정] users 컬렉션 기반으로 랭킹 계산 (승인만 한 사용자도 포함)
                 const rankings = await collections.users.aggregate([
@@ -5185,10 +5145,17 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             if (_castleRebuildInProgress) {
                 return res.status(409).json({ message: '이미 재빌드가 진행 중입니다. 잠시 후 다시 시도하세요.' });
             }
-            res.json({ message: '🔄 castles.json 재빌드 시작 (약 270초 소요). 서버 로그를 확인하세요.' });
-            rebuildCastleStaticFile('admin 수동 트리거').catch(e =>
-                console.error('❌ [수동 재빌드 실패]', e.message)
-            );
+            try {
+                // 완료될 때까지 기다린 후 응답 — 클라이언트가 즉시 /api/castle 호출해도 최신 캐시 반환
+                const castles = await rebuildCastleStaticFile('admin 수동 트리거');
+                res.json({
+                    message: `✅ castle 캐시 재빌드 완료`,
+                    count: castles ? castles.length : _castleCache?.length ?? 0
+                });
+            } catch (e) {
+                console.error('❌ [수동 재빌드 실패]', e.message);
+                res.status(500).json({ message: `재빌드 실패: ${e.message}` });
+            }
         });
 
         app.post('/api/admin/rebuild-tiles', verifyAdmin, async (req, res) => {
@@ -5854,8 +5821,8 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
                 insertedCastle = await collections.castle.findOne({ _id: insertResult.insertedId });
                 logCRUD('CREATE', 'Castle (from approve)', newCastle.name, `(ID: ${insertResult.insertedId}, ContribID: ${contribution._id})`);
                 console.log(`✅ [Castle 생성] 승인된 기여 "${contribution.name}"를 Castle로 변환 완료 (ID: ${insertResult.insertedId}, is_natural: ${isNatural})`);
-                // 🔄 [자동화] 최종승인 castle 생성 → castles.json 재빌드
-                invalidateCastleCache(); // 메모리 캐시 무효화 (파일은 새벽 3시 배치로 갱신)
+                // 🔄 [자동화] 최종승인 castle 생성 → 메모리 캐시 즉시 패치
+                if (insertedCastle) patchCastleInStaticFile('upsert', insertedCastle);
                 
                 // 기여자에게도 추가 보상 (승인 완료 시)
                 if (contribution.userId) {
@@ -6166,24 +6133,8 @@ if (require.main === module) {
         app.listen(port, () => {
             console.log(`Server listening on http://localhost:${port}`);
 
-            // 🚀 [캐시 워밍업] castles.json이 없을 때만 MongoDB 자가 호출 fallback
-            if (!fs.existsSync(path.join(__dirname, 'public', 'castles.json'))) {
-                setTimeout(() => {
-                    const http = require('http');
-                    console.log('🔥 [워밍업] castle 정적 파일 없음 → MongoDB 자가 호출로 캐시 사전 로딩...');
-                    const req = http.get(`http://localhost:${port}/api/castle`, (res) => {
-                        let size = 0;
-                        res.on('data', chunk => { size += chunk.length; });
-                        res.on('end', () => {
-                            console.log(`✅ [워밍업] castle 캐시 주입 완료 (${(size/1024).toFixed(0)}KB) — 이후 요청은 즉시 응답`);
-                        });
-                    });
-                    req.on('error', (e) => console.warn('⚠️ [워밍업] castle 자가 호출 실패 (무시):', e.message));
-                    req.setTimeout(300000); // 최대 5분 대기
-                }, 100); // listen 직후 즉시 시작
-            } else {
-                console.log('✅ [워밍업 불필요] castles.json 사전 로드 완료 — MongoDB 자가 호출 생략');
-            }
+            // 🚀 [v4.0] preloadCastleFromDB()가 이미 서버 시작 시 비동기 프리로드를 수행하므로 워밍업 자가 호출 불필요
+            console.log('🔥 [워밍업] castle DB 프리로드가 백그라운드에서 실행 중...');
         });
     }).catch(err => {
         console.error("MongoDB 연결 또는 서버 시작 중 치명적인 오류 발생:", err);

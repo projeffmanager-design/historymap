@@ -15312,6 +15312,18 @@ const loadingMessages = [
       // ===== 🚀 [1단계] 레이어 설정 우선 로드 (0-5%) =====
           showLoadingStatus('지도 제작 도구를 준비하는 중입니다...');
           const layerSettings = await loadLayerSettings();
+          // 🚩 [게스트] guest-mode 클래스만 추가, activityFeed는 강제 ON (서긍 입청 소식 표시)
+          try {
+              const _guestTok = localStorage.getItem('token') || sessionStorage.getItem('token');
+              if (_guestTok) {
+                  const _guestPay = JSON.parse(atob(_guestTok.split('.')[1]));
+                  if (_guestPay && _guestPay.isGuest) {
+                      layerVisibility.activityFeed = true;
+                      document.body.classList.add('guest-mode');
+                      console.log('🧳 [게스트] 활동소식 패널 강제 ON');
+                  }
+              }
+          } catch(_e) {}
           console.log('📋 활성화된 레이어:', Object.entries(layerVisibility).filter(([k, v]) => v).map(([k]) => k));
           
           // ===== 🚀 [2단계] 필수 데이터만 병렬 로딩 (5-60%) =====
@@ -23623,6 +23635,10 @@ kingSelect.addEventListener('change', () => {
                     sessionStorage.setItem('token', guestData.token);
                     token = guestData.token;
                     console.log('✅ 게스트 자동 로그인 성공');
+                    // 🚩 [게스트] 로그인 완료 후 사관 모집창 즉시 표시 (초기화 완료 후 실행)
+                    setTimeout(() => {
+                        if (typeof showWelcomePopup === 'function') showWelcomePopup(true);
+                    }, 800);
                 } else {
                     console.warn('⚠️ 게스트 로그인 실패, 계속 진행');
                 }
@@ -23673,6 +23689,7 @@ kingSelect.addEventListener('change', () => {
             const totalVotes = userData.totalVotes || 0;
             const reviewScore = userData.reviewScore || 0;
             const approvalScore = userData.approvalScore || 0;
+            const guest = userData.isGuest || false;
             
             const score = (totalCount * 3) + (approvedCount * 10) + totalVotes + reviewScore + approvalScore;
             
@@ -23710,6 +23727,7 @@ kingSelect.addEventListener('change', () => {
             if (score >= 120) return '정8품 주서(注書)';
             if (score >= 60)  return '종8품 검열(檢閱)';
             if (score >= 30)  return '정9품 정자(正字)';
+            if (guest) return '송나라 사신';
             return '종9품 수분권지(修分權知)';
         }
         
@@ -25624,8 +25642,8 @@ kingSelect.addEventListener('change', () => {
                         const freshCastles = await castlesRes.json();
                         // 🔄 [SessionCache] 서버 최신 데이터로 세션 캐시 교체
                         _initCastlesSession(freshCastles);
-                        await saveCastlesCache(castles);
-                        console.log(`✅ [강제 새로고침] castles ${castles.length}개 로드 완료`);
+                        await saveCastlesCache(freshCastles);  // ✅ freshCastles 저장 (구 castles 변수 아님)
+                        console.log(`✅ [강제 새로고침] castles ${freshCastles.length}개 로드 완료`);
                     }
                     
                     showLoadingStatus('이벤트 데이터를 불러오는 중...', 65);
@@ -26734,6 +26752,10 @@ kingSelect.addEventListener('change', () => {
                 // 🚩 [추가] 게스트는 사관 기록 제출 버튼 숨김
                 const historicalRecordBtn = document.getElementById('historicalRecordButton');
                 if (historicalRecordBtn) historicalRecordBtn.style.display = 'none';
+                // 🚩 [추가] 게스트는 사관 활동소식 패널 숨김 (사관 모집창만 표시)
+                document.body.classList.add('guest-mode');
+                const activityFeedCb = document.getElementById('menu-layer-activity-feed');
+                if (activityFeedCb && activityFeedCb.closest('label')) activityFeedCb.closest('label').style.display = 'none';
                 // 🚩 [추가] 게스트 햄버거 메뉴: 사관기록제출, 계정관리, 로그아웃 숨김
                 const menuHistoricalRecord = document.getElementById('menu-historical-record');
                 if (menuHistoricalRecord) menuHistoricalRecord.style.display = 'none';
@@ -26758,6 +26780,8 @@ kingSelect.addEventListener('change', () => {
                 }
             } else {
                 if (accountLinkEl) accountLinkEl.style.display = 'inline-block';
+                // 🚩 게스트 모드 클래스 제거 (활동소식 패널 복원)
+                document.body.classList.remove('guest-mode');
                 // 🚩 [추가] 일반 유저는 기여 기능 표시
                 const userContributionsBtn = document.querySelector('button[data-layer="userContributions"]');
                 if (userContributionsBtn) userContributionsBtn.style.display = 'inline-block';
@@ -28484,7 +28508,7 @@ kingSelect.addEventListener('change', () => {
         }
     
         // 팝업 표시
-        function showWelcomePopup() {
+        function showWelcomePopup(forceShow) {
             // 게스트 모드(서긍)인 경우에만 표시
             const token = localStorage.getItem('token') || sessionStorage.getItem('token');
             if (!token) return; // 비로그인은 표시 안 함
@@ -28493,7 +28517,7 @@ kingSelect.addEventListener('change', () => {
 
             const popup = document.getElementById('welcomePopupModal');
             const checkbox = document.getElementById('dontShowTodayCheckbox');
-            if (popup && shouldShowPopup()) {
+            if (popup && (forceShow || shouldShowPopup())) {
                 // 초기 체크박스 상태 설정 (이미 저장된 경우 체크 표시)
                 const stored = localStorage.getItem(POPUP_STORAGE_KEY) || getCookie(POPUP_STORAGE_KEY);
                 const today = new Date().toISOString().split('T')[0];
@@ -29706,6 +29730,8 @@ kingSelect.addEventListener('change', () => {
 
 <style>
 /* ── 사관 활동 소식 피드 ─────────────────────────────────────── */
+/* 게스트 모드: 활동소식 패널 숨김 */
+body.guest-mode #activity-feed-panel { display: none !important; }
 #activity-feed-panel {
     position: fixed;
     bottom: 90px;
@@ -29994,6 +30020,7 @@ kingSelect.addEventListener('change', () => {
         rankup:           { icon: '⭐' },
         checkin:          { icon: '🏛️' },
         checkout:         { icon: '🌙' },
+        guest_enter:      { icon: '🧳' },
         chat:             { icon: '💬' },
         notice:           { icon: '📢' },
         territory_create: { icon: '🗺️' },
@@ -30063,6 +30090,8 @@ kingSelect.addEventListener('change', () => {
             }
             case 'checkout':
                 return `${pos}${actor} 사관님께서 <span class="af-special">퇴청</span>하셨습니다.`;
+            case 'guest_enter':
+                return `${pos}${actor}이 <span class="af-special">활동을 시작합니다.</span> 🧳`;
             case 'territory_create': {
                 const cnt = extra.count || 1;
                 if (target) {

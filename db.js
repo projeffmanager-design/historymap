@@ -8,11 +8,13 @@ if (!mongoUri) {
 }
 
 const clientOptions = {
-    serverSelectionTimeoutMS: 10000,
-    connectTimeoutMS: 10000,
-    socketTimeoutMS: 45000,
+    serverSelectionTimeoutMS: 30000,   // 서버 선택 대기 30초
+    connectTimeoutMS: 30000,           // 연결 대기 30초
+    socketTimeoutMS: 300000,           // 소켓 유지 5분 (대용량 castle 전체 조회 대응)
     heartbeatFrequencyMS: 10000,
-    retryWrites: true
+    retryWrites: true,
+    maxPoolSize: 10,
+    minPoolSize: 2
 };
 const client = new MongoClient(mongoUri, clientOptions);
 let db;
@@ -87,4 +89,13 @@ async function connectToDatabase() {
     }
 }
 
-module.exports = { connectToDatabase, collections };
+// 연결이 끊어졌을 때 강제 재연결 (타임아웃 후 재빌드 재시도용)
+async function reconnectDatabase() {
+    try {
+        db = null; // 기존 연결 상태 초기화
+        await client.close(true).catch(() => {}); // 기존 소켓 강제 종료
+    } catch (e) { /* 무시 */ }
+    return connectToDatabase();
+}
+
+module.exports = { connectToDatabase, reconnectDatabase, collections };
