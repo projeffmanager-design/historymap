@@ -571,6 +571,20 @@
                 </div>
             </div>
 
+            <!-- 🚩 [추가] 사이트 설정: 초기 연도 -->
+            <div id="site-settings-section" style="margin: 12px 0 18px 0; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 14px 18px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+                <span style="font-size: 13px; color: #8fa8c0; font-weight: 600; letter-spacing: 0.5px;">⚙️ 사이트 설정</span>
+                <label style="color: #ecf0f1; font-size: 13px; display:flex; align-items:center; gap: 8px;">
+                    🗓️ 페이지 초기 연도
+                    <input type="number" id="initialYearInput" min="-4000" max="2030" step="1"
+                        style="width: 80px; background: #1e2a38; color: #fff; border: 1px solid #4a6080; border-radius: 4px; padding: 4px 8px; font-size: 13px;"
+                        placeholder="예: 391">
+                    <span style="font-size: 11px; color: #6a8aaa;">(음수 = B.C.)</span>
+                </label>
+                <button id="saveInitialYearBtn" style="background: #3a7bd5; color: #fff; border: none; border-radius: 5px; padding: 6px 16px; font-size: 13px; cursor: pointer; font-weight: 600;">저장</button>
+                <span id="initialYearStatus" style="font-size: 12px; color: #7ec8a4; display:none;">✅ 저장되었습니다.</span>
+            </div>
+
             <!-- 차트 행 1: 사료 추이 + 일일 접속자 -->
             <div class="dash-charts-grid">
                 <div class="chart-card tall">
@@ -1112,6 +1126,14 @@
             } catch (e) {
                 console.warn('대시보드 로딩 오류:', e);
             }
+            // 초기 연도 설정 로드
+            try {
+                const sRes = await fetch(`${API_BASE_URL}/admin/site-settings`, { headers: { Authorization: `Bearer ${token}` } });
+                if (sRes.ok) {
+                    const cfg = await sRes.json();
+                    document.getElementById('initialYearInput').value = cfg.initialYear ?? 391;
+                }
+            } catch(e) {}
         }
 
         function renderDashboard(dash, logins, pvStats) {
@@ -1685,6 +1707,27 @@
         fetchUsers();
         loadDashboard();
         fetchAndRenderPageViewsStats(7); // 구 호환용 (빈 함수)
+
+        // 🚩 [추가] 초기 연도 저장 버튼
+        document.getElementById('saveInitialYearBtn')?.addEventListener('click', async () => {
+            const yearVal = parseInt(document.getElementById('initialYearInput').value);
+            if (isNaN(yearVal)) { alert('유효한 연도를 입력해주세요.'); return; }
+            try {
+                const res = await fetch(`${API_BASE_URL}/admin/site-settings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ initialYear: yearVal })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    const st = document.getElementById('initialYearStatus');
+                    st.style.display = 'inline';
+                    setTimeout(() => { st.style.display = 'none'; }, 3000);
+                } else {
+                    alert('저장 실패: ' + (data.message || ''));
+                }
+            } catch(e) { alert('오류: ' + e.message); }
+        });
 
         // 🚩 [추가] 레이어 설정 관리 함수들
         const layerLabels = {

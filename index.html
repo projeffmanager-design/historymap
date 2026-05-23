@@ -6537,7 +6537,7 @@ body.force-mobile .marker-type-selector button {
 
                     <div id="timeline-slider-wrap">
                         <!-- 슬라이더 -->
-                        <input type="range" id="combinedSlider" min="-48000" max="24359" step="1" value="4800" style="width: 100%; background: transparent; cursor: pointer;">
+                        <input type="range" id="combinedSlider" min="-48000" max="24359" step="1" value="4680" style="width: 100%; background: transparent; cursor: pointer;">
 
                         <!-- 눈금 + 중국사 마커 바 -->
                         <div id="slider-ticks-bar" style="position: relative; width: 100%; height: 20px; pointer-events: none; margin-top: 0;"></div>
@@ -10665,7 +10665,7 @@ function getKingByYear(countryName, year, month) {
     function updateKingLabel(year, month) {
       // console.log(`🔍 [왕 패널] updateKingLabel 호출: ${year}년 ${month}월, kings 개수: ${Object.keys(kings).length}`);
       let html = "";
-      countries.forEach(country => { // 🚩 [수정] 불필요한 괄호 제거
+      countries.slice().sort((a, b) => (a.start || 0) - (b.start || 0)).forEach(country => { // 🚩 [수정] 국가 설립연도 순 정렬
         const king = getKingByYear(country.name, year, month); // <-- THIS LINE WAS MISSING OR MISPLACED
        if (king) { // <-- Now the 'if' statement works because 'king' is defined
             // 🚩 [디버그] 왕 데이터 확인
@@ -17891,11 +17891,21 @@ const loadingMessages = [
       populateKingCountrySelect(); // 🚩 [수정] 함수 이름 변경에 따른 호출 수정
       populateCitySelectForEdit(); // 🚩 [추가] 도시/성 선택 드롭다운 채우기
       createSliderTicks();
-      const initialTotalMonths = parseInt(combinedSlider.value);
-      const { year: initialYear, month: initialMonth } = totalMonthsToYearMonth(initialTotalMonths);
-      updateTime(initialYear, initialMonth); // updateTime으로 초기화
-      
-      console.log(`✅ UI 초기화 완료!`);
+
+      // 🚩 [추가] 서버 사이트 설정에서 초기 연도 로드
+      fetch('/api/site-settings').then(r => r.ok ? r.json() : null).then(cfg => {
+          if (cfg && cfg.initialYear) {
+              const _initYear = parseInt(cfg.initialYear);
+              const _initTm = _initYear >= 1 ? (_initYear - 1) * 12 : _initYear * 12;
+              combinedSlider.value = _initTm;
+              console.log(`🗓️ [사이트 설정] 초기 연도: ${_initYear}년 (totalMonths: ${_initTm})`);
+          }
+      }).catch(() => {}).finally(() => {
+          const initialTotalMonths = parseInt(combinedSlider.value);
+          const { year: initialYear, month: initialMonth } = totalMonthsToYearMonth(initialTotalMonths);
+          updateTime(initialYear, initialMonth);
+          console.log(`✅ UI 초기화 완료!`);
+      });
 
       // 🚩 [수정] select 채우기 제거 → 검색 초기화만 수행 (렌더링 지연 없음)
     function populateCitySelectForEdit() {
@@ -30007,6 +30017,12 @@ body.guest-mode #activity-feed-panel { display: none !important; }
 <script>
 (function() {
     'use strict';
+
+    // 🚩 [추가] IIFE 스코프 내 JWT 파싱 헬퍼 (전역 parseJwt 미선언 대비)
+    function parseJwt(t) {
+        return typeof window.parseJwt === 'function' ? window.parseJwt(t) :
+            (function(tk){ try { return JSON.parse(decodeURIComponent(atob(tk.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')).split('').map(c=>'%'+('00'+c.charCodeAt(0).toString(16)).slice(-2)).join(''))); } catch(e){ return null; } })(t);
+    }
 
     const POLL_INTERVAL = 10000; // 채팅 포함이므로 10초 폴링
 

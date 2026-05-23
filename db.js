@@ -56,6 +56,7 @@ async function connectToDatabase() {
             collections.activityLogs = db.collection("activity_logs"); // 🚩 [추가] 액티비티 로그 컬렉션
             collections.sourceRecords = db.collection("source_records"); // 🚩 [추가] 사료 원전 기록 컬렉션
             collections.voice = db.collection("voice"); // 🚩 [추가] 마커 음성 컬렉션
+            collections.siteSettings = db.collection("site_settings"); // 🚩 [추가] 사이트 전역 설정 컬렉션
 
             // 🚩 [추가] 지리 공간 인덱스 생성
             try {

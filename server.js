@@ -5462,6 +5462,46 @@ app.post('/api/admin/switch-user/:userId', verifyAdmin, async (req, res) => {
     }
 });
 
+// 🚩 [추가] 사이트 설정 (초기 연도 등)
+// GET /api/site-settings — 공개 (누구나 초기 연도를 읽을 수 있어야 함)
+app.get('/api/site-settings', async (req, res) => {
+    try {
+        const settings = await collections.siteSettings?.findOne({ key: 'global' });
+        res.json({ initialYear: settings?.initialYear ?? 391 });
+    } catch (error) {
+        res.status(500).json({ message: "설정 조회 실패", error: error.message });
+    }
+});
+
+// GET /api/admin/site-settings
+app.get('/api/admin/site-settings', verifyAdmin, async (req, res) => {
+    try {
+        const settings = await collections.siteSettings?.findOne({ key: 'global' });
+        res.json({ initialYear: settings?.initialYear ?? 391 });
+    } catch (error) {
+        res.status(500).json({ message: "설정 조회 실패", error: error.message });
+    }
+});
+
+// POST /api/admin/site-settings
+app.post('/api/admin/site-settings', verifyAdmin, async (req, res) => {
+    try {
+        const { initialYear } = req.body;
+        if (initialYear === undefined || isNaN(parseInt(initialYear))) {
+            return res.status(400).json({ message: "initialYear가 유효하지 않습니다." });
+        }
+        const year = parseInt(initialYear);
+        await collections.siteSettings?.updateOne(
+            { key: 'global' },
+            { $set: { key: 'global', initialYear: year, updatedAt: new Date() } },
+            { upsert: true }
+        );
+        res.json({ message: "설정이 저장되었습니다.", initialYear: year });
+    } catch (error) {
+        res.status(500).json({ message: "설정 저장 실패", error: error.message });
+    }
+});
+
 // 🚩 [추가] 레이어 기본 설정 관리
 // 기본 레이어 설정
 const defaultLayerSettings = {
