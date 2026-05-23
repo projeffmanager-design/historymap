@@ -701,7 +701,9 @@ async function setupRoutesAndCollections() {
                 const raw = JSON.parse(fs.readFileSync(path.join(TILES_DIR, filename), 'utf8'));
                 return { lat: raw.tile_lat, lng: raw.tile_lng, bounds: raw.bounds, filename, feature_count: raw.feature_count };
             });
-            fs.writeFileSync(path.join(TILES_DIR, 'index.json'), JSON.stringify(indexData, null, 2));
+            // updated_at: 클라이언트 IndexedDB 캐시 무효화용 타임스탬프
+            const output = { updated_at: Date.now(), tiles: indexData };
+            fs.writeFileSync(path.join(TILES_DIR, 'index.json'), JSON.stringify(output, null, 2));
             return indexData.length;
         }
 
@@ -776,7 +778,11 @@ async function setupRoutesAndCollections() {
                     };
                 }
 
-                const cursor = collections.territories.find(territoriesToQuery);
+                const cursor = collections.territories.find(
+                    Object.keys(territoriesToQuery).length > 0
+                        ? { $and: [territoriesToQuery, { hidden: { $ne: true } }] }
+                        : { hidden: { $ne: true } }
+                );
                 const tileMap = new Map(); // key → { tile_lat, tile_lng, bounds, features[] }
 
                 for await (const territory of cursor) {
@@ -2720,10 +2726,10 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // 🗺️ [공개 API] Territories 조회 - 인증 불필요 (공개 데이터)
         app.get('/api/territories', async (req, res) => {
             try {
-                const { minLat, maxLat, minLng, maxLng, lightweight, nocache } = req.query;
+                const { minLat, maxLat, minLng, maxLng, lightweight, nocache, include_hidden } = req.query;
                 
                 // 🚀 캐시 사용 (bounds 없고, lightweight 아니고, nocache 아닌 경우)
-                const useCache = !minLat && !lightweight && nocache !== 'true';
+                const useCache = !minLat && !lightweight && nocache !== 'true' && include_hidden !== 'true';
                 
                 if (useCache && territoriesCache && territoriesCacheTime) {
                     const cacheAge = Date.now() - territoriesCacheTime;
@@ -2735,6 +2741,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 
                 let query = {};
                 
+                // 숨김 처리된 영토 제외 (include_hidden=true 파라미터 없는 경우)
+                if (include_hidden !== 'true') {
+                    query.hidden = { $ne: true };
+                }
+
                 // 🚩 bounds 파라미터가 있으면 지리적 범위로 필터링
                 if (minLat && maxLat && minLng && maxLng) {
                     const bounds = {
@@ -2810,7 +2821,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (lightweight === 'true') {
                     const territories = await collections.territories.find(query).project({
                         _id: 1, name: 1, name_ko: 1, name_en: 1, name_type: 1,
-                        bbox: 1, start: 1, start_year: 1, end: 1, end_year: 1, level: 1, type: 1
+                        bbox: 1, start: 1, start_year: 1, end: 1, end_year: 1, level: 1, type: 1,
+                        hidden: 1, osm_id: 1, code: 1
                     }).toArray();
                     const elapsed = Date.now() - startTime;
                     console.log(`🗺️ Territories(lightweight) 완료: ${territories.length}개 (${elapsed}ms)`);
@@ -3040,7 +3052,18 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const updatedTerritory = req.body;
                 if (updatedTerritory._id) delete updatedTerritory._id;
 
-                const result = await collections.territories.updateOne({ _id: _id }, { $set: updatedTerritory });
+                // null 값은 $unset, 나머지는 $set으로 분리
+                const setFields = {}, unsetFields = {};
+                for (const [k, v] of Object.entries(updatedTerritory)) {
+                    if (v === null) unsetFields[k] = '';
+                    else setFields[k] = v;
+                }
+                const updateOp = {};
+                if (Object.keys(setFields).length)   updateOp.$set   = setFields;
+                if (Object.keys(unsetFields).length) updateOp.$unset = unsetFields;
+                if (!Object.keys(updateOp).length) return res.json({ message: "변경 사항 없음" });
+
+                const result = await collections.territories.updateOne({ _id: _id }, updateOp);
                 if (result.matchedCount === 0) return res.status(404).json({ message: "영토 정보를 찾을 수 없습니다." });
                 
                 // 🚀 캐시 무효화 + 즉시 증분 타일 재빌드 (백그라운드)
@@ -3056,6 +3079,30 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             } catch (error) {
                 console.error("Territory 정보 업데이트 중 오류:", error);
                 res.status(500).json({ message: "Territory 정보 업데이트 실패", error: error.message });
+            }
+        });
+
+        // PATCH: 영토 숨김/숨김해제 토글 (관리자 전용)
+        app.patch('/api/territories/:id/hidden', verifyAdmin, async (req, res) => {
+            try {
+                const { id } = req.params;
+                const _id = toObjectId(id);
+                if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+                const { hidden } = req.body; // true or false
+                const val = hidden === true || hidden === 'true';
+                await collections.territories.updateOne({ _id }, { $set: { hidden: val } });
+                // 캐시 무효화 + 타일 재빌드 (숨김 변경은 렌더링에 영향)
+                territoriesCache = null;
+                territoriesCacheTime = null;
+                _dirtyTerritoryIds.add(id);
+                _territoryDirty = true;
+                rebuildTerritoryTilesIncremental(`영토 숨김 ${val}`, new Set([id])).catch(e =>
+                    console.error('❌ [타일 재빌드 실패]', e.message));
+                console.log(`👁️ Territory ${id} hidden=${val}`);
+                res.json({ message: `영토 숨김 ${val ? '처리' : '해제'} 완료`, hidden: val });
+            } catch (error) {
+                console.error("Territory 숨김 처리 중 오류:", error);
+                res.status(500).json({ message: "숨김 처리 실패", error: error.message });
             }
         });
 

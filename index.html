@@ -6495,6 +6495,7 @@ body.force-mobile .marker-type-selector button {
             <button class="map-tile-btn" data-tile="다크모드">다크</button>
             <button class="map-tile-btn" data-tile="라이트모드">라이트</button>
             <button class="map-tile-btn" data-tile="일반모드">일반</button>
+            <button class="map-tile-btn" id="map-refresh-btn" title="데이터 새로고침">↻</button>
         </div>
 
         <!-- 🚩 [추가] 현재 연도 표시 (왼쪽 상단) -->
@@ -16197,7 +16198,27 @@ const loadingMessages = [
           }
           if (!resp.ok) throw new Error(`타일 인덱스 로드 실패: ${resp.status}`);
 
-          _tileIndexCache    = await resp.json();
+          const indexJson = await resp.json();
+          // index.json 형식: { updated_at, tiles: [...] } 또는 구버전 배열
+          const tileList   = Array.isArray(indexJson) ? indexJson : (indexJson.tiles || []);
+          const updatedAt  = Array.isArray(indexJson) ? null : (indexJson.updated_at || null);
+
+          // updated_at이 IndexedDB 캐시 저장 시점보다 최신이면 캐시 무효화
+          if (updatedAt) {
+              try {
+                  const db = await openTerritoryDB();
+                  const tx = db.transaction([TERRITORY_STORE_NAME], 'readonly');
+                  const store = tx.objectStore(TERRITORY_STORE_NAME);
+                  const cached = await new Promise(r => { const q = store.get('all_territories'); q.onsuccess = () => r(q.result); q.onerror = () => r(null); });
+                  if (cached && cached.timestamp < updatedAt) {
+                      console.log(`🔄 타일 업데이트 감지 (서버: ${new Date(updatedAt).toLocaleString()}) → IndexedDB 캐시 무효화`);
+                      const tx2 = db.transaction([TERRITORY_STORE_NAME], 'readwrite');
+                      tx2.objectStore(TERRITORY_STORE_NAME).delete('all_territories');
+                  }
+              } catch(e) { /* 무시 */ }
+          }
+
+          _tileIndexCache    = tileList;
           _tilesBasePathCache = basePath;
           console.log(`📊 타일 인덱스: ${_tileIndexCache.length}개 타일 (경로: ${basePath})`);
 
@@ -25549,19 +25570,13 @@ kingSelect.addEventListener('change', () => {
             });
         }
         
-        // 🚩 [추가] 햄버거 메뉴 - 데이터 새로고침 버튼 (DB 강제 동기화)
-        const menuForceRefreshBtn = document.getElementById('menu-force-refresh');
-        if (menuForceRefreshBtn) {
-            menuForceRefreshBtn.addEventListener('click', async () => {
-                toggleHamburgerMenu();
-                
+        // 🚩 [추가] 데이터 강제 새로고침 공유 함수
+        async function doForceRefresh(triggerBtn) {
                 const confirmRefresh = confirm('모든 캐시를 삭제하고 서버에서 최신 데이터를 다시 불러옵니다.\n계속하시겠습니까?');
                 if (!confirmRefresh) return;
                 
                 try {
-                    // 🔄 로딩 상태 표시
-                    menuForceRefreshBtn.disabled = true;
-                    menuForceRefreshBtn.textContent = '🔄 동기화 중...';
+                    if (triggerBtn) { triggerBtn.disabled = true; }
                     showLoadingStatus('서버와 데이터를 동기화하는 중입니다...', 10);
                     
                     // 1️⃣ localStorage 캐시 전부 삭제
@@ -25761,19 +25776,11 @@ kingSelect.addEventListener('change', () => {
                     }
                     
                     showLoadingStatus('동기화 완료!', 100);
-                    
                     console.log('✅ [강제 새로고침] 모든 데이터 동기화 완료!');
+                    setTimeout(() => { hideLoadingStatus(); }, 1000);
                     
-                    // 로딩 패널 숨기기
-                    setTimeout(() => {
-                        hideLoadingStatus();
-                    }, 1000);
-                    
-                    // 성공 알림
                     if (typeof showToast === 'function') {
                         showToast('✅ 서버 데이터 동기화 완료!', 'success');
-                    } else {
-                        alert('✅ 서버 데이터 동기화 완료!');
                     }
                     
                 } catch (error) {
@@ -25782,9 +25789,33 @@ kingSelect.addEventListener('change', () => {
                     alert('데이터 새로고침 중 오류가 발생했습니다.\n페이지를 새로고침합니다.');
                     window.location.reload(true);
                 } finally {
-                    menuForceRefreshBtn.disabled = false;
-                    menuForceRefreshBtn.textContent = '🔄 데이터 새로고침';
+                    if (triggerBtn) { triggerBtn.disabled = false; }
                 }
+        }
+
+        // 🚩 [추가] 햄버거 메뉴 - 데이터 새로고침 버튼 (DB 강제 동기화)
+        const menuForceRefreshBtn = document.getElementById('menu-force-refresh');
+        if (menuForceRefreshBtn) {
+            menuForceRefreshBtn.addEventListener('click', () => {
+                toggleHamburgerMenu();
+                menuForceRefreshBtn.textContent = '🔄 동기화 중...';
+                doForceRefresh(menuForceRefreshBtn).finally(() => {
+                    menuForceRefreshBtn.textContent = '🔄 데이터 새로고침';
+                });
+            });
+        }
+
+        // 🚩 [추가] 지도 타일 토글 옆 새로고침 버튼
+        const mapRefreshBtn = document.getElementById('map-refresh-btn');
+        if (mapRefreshBtn) {
+            mapRefreshBtn.addEventListener('click', () => {
+                const origText = mapRefreshBtn.textContent;
+                mapRefreshBtn.textContent = '…';
+                mapRefreshBtn.disabled = true;
+                doForceRefresh(mapRefreshBtn).finally(() => {
+                    mapRefreshBtn.textContent = origText;
+                    mapRefreshBtn.disabled = false;
+                });
             });
         }
         
@@ -26913,8 +26944,8 @@ kingSelect.addEventListener('change', () => {
             });
         };
 
-        // 🚩 [추가] 컴팩트 토글 그룹 이벤트 연결
-        document.querySelectorAll('.map-tile-btn').forEach(btn => {
+        // 🚩 [추가] 컴팩트 토글 그룹 이벤트 연결 (data-tile 없는 버튼은 제외)
+        document.querySelectorAll('.map-tile-btn[data-tile]').forEach(btn => {
             btn.addEventListener('click', () => switchTileLayer(btn.dataset.tile, btn));
         });
 

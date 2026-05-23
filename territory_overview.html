@@ -231,6 +231,20 @@
     font-weight: 600; cursor: pointer; text-align: center;
   }
   #btn-delete-territory:hover { background: #7f1d1d; color: #fff; }
+  #btn-hide-territory {
+    display: block; width: 100%; margin-top: 5px;
+    padding: 6px; background: #1a2a1a; color: #86efac;
+    border: 1px solid #166534; border-radius: 5px; font-size: 12px;
+    font-weight: 600; cursor: pointer; text-align: center;
+  }
+  #btn-hide-territory:hover { background: #14532d; color: #fff; }
+  #btn-hide-territory.hidden-state {
+    background: #2a1a1a; color: #fca5a5;
+    border-color: #7f1d1d;
+  }
+  #btn-hide-territory.hidden-state:hover { background: #450a0a; }
+  .territory-item.hidden-item { opacity: 0.4; }
+  .territory-item.hidden-item .t-name::after { content: ' 🙈'; font-size: 9px; }
 
   #geom-edit-bar {
     display: none;
@@ -875,12 +889,14 @@ async function saveGeometryEdit() {
 async function loadData() {
   try {
     const [metaRes, tileIdxRes] = await Promise.all([
-      fetch(`${API_BASE}/territories?lightweight=true`),
+      fetch(`${API_BASE}/territories?lightweight=true&include_hidden=true`),
       fetch(`${TILES_BASE}/index.json`)
     ]);
     if (!metaRes.ok) throw new Error(`territories API: HTTP ${metaRes.status}`);
     allTerritories = await metaRes.json();
-    tileIndex = tileIdxRes.ok ? await tileIdxRes.json() : [];
+    const tileIdxJson = tileIdxRes.ok ? await tileIdxRes.json() : [];
+    // index.json 형식: { updated_at, tiles: [...] } 또는 구버전 배열
+    tileIndex = Array.isArray(tileIdxJson) ? tileIdxJson : (tileIdxJson.tiles || []);
 
     document.getElementById('loading-overlay').style.display = 'none';
     updateStats();
@@ -946,6 +962,7 @@ function renderBboxLayer() {
 
   filtered.forEach(t => {
     if (!t.bbox) return;
+    if (t.hidden) return; // 숨긴 영토는 지도에 표시 안 함
     const color = getColor(t);
     const b = t.bbox;
 
@@ -977,7 +994,7 @@ function renderBboxLayer() {
 async function renderGeometry(t) {
   geomLayerGroup.clearLayers();
   if (!t) return;
-  if (_geometryEditMode && _geomEditId === t._id && editableGeomLayer) return;
+  if (t.hidden) return; // 숨긴 영토는 폴리곤 표시 안 함  if (_geometryEditMode && _geomEditId === t._id && editableGeomLayer) return;
 
   const color = getColor(t);
   const geoFC = await loadGeometryForTerritory(t);
@@ -994,10 +1011,12 @@ function updateStats() {
   const filtered = getFiltered();
   const withBbox  = filtered.filter(hasBbox).length;
   const noBbox    = filtered.length - withBbox;
+  const hiddenCnt = allTerritories.filter(t => t.hidden).length;
   document.getElementById('stats').innerHTML =
     `<span class="stat-badge badge-total">전체 ${allTerritories.length}개</span>` +
     `<span class="stat-badge badge-ok">bbox ${withBbox}개</span>` +
-    (noBbox ? `<span class="stat-badge badge-nogeom">⚠️ bbox 없음 ${noBbox}개</span>` : '');
+    (noBbox ? `<span class="stat-badge badge-nogeom">⚠️ bbox 없음 ${noBbox}개</span>` : '') +
+    (hiddenCnt ? `<span class="stat-badge" style="background:#1e2d1e;color:#86efac">🙈 숨김 ${hiddenCnt}개</span>` : '');
   document.getElementById('count-label').textContent =
     filtered.length < allTerritories.length ? `필터: ${filtered.length}개` : '';
 }
@@ -1026,7 +1045,7 @@ function renderList() {
   list.innerHTML = '';
   filtered.forEach(t => {
     const div = document.createElement('div');
-    div.className = 'territory-item' + (t._id === selectedId ? ' selected' : '');
+    div.className = 'territory-item' + (t._id === selectedId ? ' selected' : '') + (t.hidden ? ' hidden-item' : '');
     div.dataset.id = t._id;
     const color = getColor(t);
     div.innerHTML = `
@@ -1109,6 +1128,7 @@ function showDetail(t, loading = false) {
     </div>
     <button id="btn-geom-edit" onclick="openGeometryEdit('${t._id}')">🧭 경계 편집</button>
     <button id="btn-edit-territory" onclick="openEditModal('${t._id}')">✏️ 편집</button>
+    <button id="btn-hide-territory" class="${t.hidden ? 'hidden-state' : ''}" onclick="toggleHide('${t._id}')">${t.hidden ? '👁️ 숨김 해제' : '🙈 index 지도에서 숨기기'}</button>
     <button id="btn-delete-territory" onclick="openConfirmModal('${t._id}')">🗑️ 삭제</button>
   `;
 }
@@ -1117,6 +1137,51 @@ function showDetail(t, loading = false) {
 document.getElementById('filter-type').addEventListener('change', () => { updateStats(); renderList(); renderBboxLayer(); });
 document.getElementById('filter-geom').addEventListener('change', () => { updateStats(); renderList(); renderBboxLayer(); });
 document.getElementById('search-box').addEventListener('input',   () => { updateStats(); renderList(); renderBboxLayer(); });
+
+// ── 숨기기 토글 ──
+async function toggleHide(id) {
+  const sid = String(id);
+  const t = allTerritories.find(x => String(x._id) === sid);
+  if (!t) return;
+  const newHidden = !t.hidden;
+
+  // 토큰 없으면 로그인 모달 → 로그인 후 재시도
+  const token = getToken();
+  if (!token || token === 'null' || token === 'undefined') {
+    openLoginModal(() => toggleHide(id));
+    return;
+  }
+
+  // 버튼 즉시 비활성화 (중복 클릭 방지)
+  const btn = document.getElementById('btn-hide-territory');
+  if (btn) { btn.disabled = true; btn.textContent = '처리 중...'; }
+
+  try {
+    const res = await fetch(`${API_BASE}/territories/${sid}/hidden`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ hidden: newHidden })
+    });
+    if (res.status === 401) {
+      // 토큰 만료 → 로그인 후 재시도
+      if (btn) { btn.disabled = false; }
+      openLoginModal(() => toggleHide(id));
+      return;
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // 로컬 데이터 갱신
+    t.hidden = newHidden;
+    if (newHidden && selectedId === sid) geomLayerGroup.clearLayers();
+  } catch (e) {
+    alert('숨김 처리 실패: ' + e.message);
+    if (btn) { btn.disabled = false; }
+    return;
+  }
+
+  // detail panel 새로고침 (버튼 텍스트 갱신)
+  showDetail(t, false);
+  updateStats(); renderList(); renderBboxLayer();
+}
 
 document.getElementById('btn-fit').addEventListener('click', () => {
   const pts = getFiltered().filter(t => t.bbox).map(t => [[t.bbox.minLat,t.bbox.minLng],[t.bbox.maxLat,t.bbox.maxLng]]).flat();
@@ -1145,8 +1210,8 @@ function openEditModal(id) {
   _editId = id;
   document.getElementById('edit-name-en').value    = t.name_en  || t.name || '';
   document.getElementById('edit-name-ko').value    = t.name_ko  || '';
-  document.getElementById('edit-start-year').value = t.start_year ?? '';
-  document.getElementById('edit-end-year').value   = t.end_year   ?? '';
+  document.getElementById('edit-start-year').value = t.start_year ?? t.start ?? '';
+  document.getElementById('edit-end-year').value   = t.end_year   ?? t.end   ?? '';
   document.getElementById('edit-type').value       = t.type  || 'territory';
   document.getElementById('edit-level').value      = t.level || 'city';
   document.getElementById('edit-msg').textContent  = '';
@@ -1230,16 +1295,25 @@ async function saveEdit() {
     return;
   }
 
+  const startYearVal = document.getElementById('edit-start-year').value.trim();
+  const endYearVal   = document.getElementById('edit-end-year').value.trim();
+  const startYear    = startYearVal !== '' ? parseInt(startYearVal) : null;
+  const endYear      = endYearVal   !== '' ? parseInt(endYearVal)   : null;
+
+  if (startYearVal !== '' && isNaN(startYear)) { setEditMsg('❌ 시작 연도를 올바르게 입력하세요', 'err'); return; }
+  if (endYearVal   !== '' && isNaN(endYear))   { setEditMsg('❌ 종료 연도를 올바르게 입력하세요', 'err'); return; }
+  if (startYear !== null && endYear !== null && startYear > endYear) { setEditMsg('❌ 시작 연도 > 종료 연도', 'err'); return; }
+
   const payload = {
     name_en:    document.getElementById('edit-name-en').value.trim(),
     name_ko:    document.getElementById('edit-name-ko').value.trim(),
-    start_year: parseInt(document.getElementById('edit-start-year').value),
-    end_year:   parseInt(document.getElementById('edit-end-year').value),
+    start_year: startYear,
+    end_year:   endYear,
+    start:      startYear,  // start/end도 동기화
+    end:        endYear,
     type:       document.getElementById('edit-type').value,
     level:      document.getElementById('edit-level').value,
   };
-  if (isNaN(payload.start_year) || isNaN(payload.end_year)) { setEditMsg('❌ 연도를 올바르게 입력하세요', 'err'); return; }
-  if (payload.start_year > payload.end_year) { setEditMsg('❌ 시작 연도 > 종료 연도', 'err'); return; }
 
   setEditMsg('저장 중...', '');
   try {
@@ -1405,6 +1479,8 @@ function relTime(date) {
 loadDeployStatus();
 setInterval(loadDeployStatus, 60000);
 updatePendingRebuildUI();
+// 구버전 localStorage 잔존 데이터 정리
+localStorage.removeItem('territory_hidden_ids');
 loadData();
 </script>
 </body>
