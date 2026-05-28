@@ -959,23 +959,34 @@ function renderBboxLayer() {
   bboxLayerGroup.clearLayers();
   labelGroup.clearLayers();
   const filtered = getFiltered();
+  const zoom = map.getZoom();
+  const bounds = map.getBounds().pad(0.3); // viewport + 30% 여유
+
+  const fragment_bbox = [];
+  const fragment_lbl  = [];
 
   filtered.forEach(t => {
     if (!t.bbox) return;
-    if (t.hidden) return; // 숨긴 영토는 지도에 표시 안 함
-    const color = getColor(t);
+    if (t.hidden) return;
     const b = t.bbox;
+
+    // viewport 밖은 스킵 (큰 성능 향상)
+    if (b.maxLat < bounds.getSouth() || b.minLat > bounds.getNorth() ||
+        b.maxLng < bounds.getWest()  || b.minLng > bounds.getEast()) return;
+
+    const color = getColor(t);
+    const isSelected = t._id === selectedId;
 
     const rect = L.rectangle(
       [[b.minLat, b.minLng],[b.maxLat, b.maxLng]],
-      { color, weight: 1, fillOpacity: t._id === selectedId ? 0.25 : 0.08,
-        fillColor: color, dashArray: t._id === selectedId ? null : '3,3' }
+      { color, weight: 1, fillOpacity: isSelected ? 0.25 : 0.08,
+        fillColor: color, dashArray: isSelected ? null : '3,3' }
     );
     rect.on('click', () => selectTerritory(t._id));
     rect.bindTooltip(getLabel(t), { permanent: false, direction: 'top', className: 'dark-tip' });
-    bboxLayerGroup.addLayer(rect);
+    fragment_bbox.push(rect);
 
-    if (showLabels) {
+    if (showLabels && zoom >= 3) {
       const centerLat = (b.minLat + b.maxLat) / 2;
       const centerLng = (b.minLng + b.maxLng) / 2;
       const lbl = L.marker([centerLat, centerLng], {
@@ -985,9 +996,13 @@ function renderBboxLayer() {
         }),
         interactive: false
       });
-      labelGroup.addLayer(lbl);
+      fragment_lbl.push(lbl);
     }
   });
+
+  // 한 번에 배치 추가 (개별 addLayer보다 훨씬 빠름)
+  fragment_bbox.forEach(l => bboxLayerGroup.addLayer(l));
+  fragment_lbl.forEach(l => labelGroup.addLayer(l));
 }
 
 // ── geometry 레이어 (선택된 영토만) ──
@@ -1039,11 +1054,14 @@ function getFiltered() {
 }
 
 // ── 사이드바 목록 ──
+const LIST_PAGE_SIZE = 300;
 function renderList() {
   const list = document.getElementById('territory-list');
   const filtered = getFiltered();
-  list.innerHTML = '';
-  filtered.forEach(t => {
+  const visible  = filtered.slice(0, LIST_PAGE_SIZE);
+  const fragment = document.createDocumentFragment();
+
+  visible.forEach(t => {
     const div = document.createElement('div');
     div.className = 'territory-item' + (t._id === selectedId ? ' selected' : '') + (t.hidden ? ' hidden-item' : '');
     div.dataset.id = t._id;
@@ -1055,8 +1073,18 @@ function renderList() {
       ${!hasBbox(t) ? '<div class="t-warn">⚠️</div>' : ''}
     `;
     div.addEventListener('click', () => selectTerritory(t._id));
-    list.appendChild(div);
+    fragment.appendChild(div);
   });
+
+  if (filtered.length > LIST_PAGE_SIZE) {
+    const more = document.createElement('div');
+    more.style.cssText = 'padding:6px 12px;color:#888;font-size:11px;text-align:center;';
+    more.textContent = `… 외 ${filtered.length - LIST_PAGE_SIZE}개 (검색으로 좁혀보세요)`;
+    fragment.appendChild(more);
+  }
+
+  list.innerHTML = '';
+  list.appendChild(fragment);
 }
 
 // ── 선택 ──
@@ -1133,10 +1161,19 @@ function showDetail(t, loading = false) {
   `;
 }
 
+// ── debounce 유틸 ──
+function debounce(fn, ms) {
+  let timer;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
+}
+const _debouncedRenderAll = debounce(() => { updateStats(); renderList(); renderBboxLayer(); }, 250);
+const _debouncedBbox      = debounce(() => { updateStats(); renderList(); renderBboxLayer(); }, 80);
+const _debouncedMapMove   = debounce(() => renderBboxLayer(), 200);
+
 // ── 이벤트 바인딩 ──
-document.getElementById('filter-type').addEventListener('change', () => { updateStats(); renderList(); renderBboxLayer(); });
-document.getElementById('filter-geom').addEventListener('change', () => { updateStats(); renderList(); renderBboxLayer(); });
-document.getElementById('search-box').addEventListener('input',   () => { updateStats(); renderList(); renderBboxLayer(); });
+document.getElementById('filter-type').addEventListener('change', _debouncedBbox);
+document.getElementById('filter-geom').addEventListener('change', _debouncedBbox);
+document.getElementById('search-box').addEventListener('input',   _debouncedRenderAll);
 
 // ── 숨기기 토글 ──
 async function toggleHide(id) {
@@ -1481,6 +1518,9 @@ setInterval(loadDeployStatus, 60000);
 updatePendingRebuildUI();
 // 구버전 localStorage 잔존 데이터 정리
 localStorage.removeItem('territory_hidden_ids');
+// 지도 이동/줌 시 viewport 기반 bbox 레이어 재렌더
+map.on('moveend', _debouncedMapMove);
+map.on('zoomend', _debouncedMapMove);
 loadData();
 </script>
 </body>

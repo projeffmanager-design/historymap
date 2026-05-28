@@ -14,6 +14,12 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=East+Sea+Dokdo&family=Nanum+Myeongjo:wght@700&family=Yeon+Sung&display=swap" rel="stylesheet">
+
+    <!-- MapLibre 사전 로드 (3D 첫 진입 속도 개선) -->
+    <link rel="preconnect" href="https://unpkg.com" crossorigin>
+    <link rel="preconnect" href="https://s3.amazonaws.com" crossorigin>
+    <link rel="preload" as="style"  href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="anonymous">
+    <link rel="preload" as="script" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"  crossorigin="anonymous">
     
 <style>
     /* 🚩 그리기 폼 스타일 - 드래그 이동 가능 */
@@ -2533,12 +2539,12 @@ body.force-mobile .marker-type-selector button {
 
     /* ── 전장 마커 불꽃·연기 애니메이션 ── */
     @keyframes battle-spark {
-        0%, 100% { transform: scale(1);   filter: brightness(1)   blur(1px); }
-        50%       { transform: scale(1.4); filter: brightness(1.6) blur(2px); }
+        0%, 100% { transform: scale(1)    translateY(0);   opacity: 0.85; }
+        50%       { transform: scale(1.12) translateY(-2px); opacity: 1;   }
     }
     @keyframes battle-smoke {
         0%   { transform: translate(0, 0)         scale(0.4) rotate(0deg);   opacity: 0; }
-        10%  { opacity: 0.75; }
+        10%  { opacity: 0.88; }
         100% { transform: translate(18px, -38px)  scale(3)   rotate(80deg);  opacity: 0; }
     }
     .battle-fire-wrap {
@@ -2555,11 +2561,11 @@ body.force-mobile .marker-type-selector button {
         opacity: 0;
         animation: battle-smoke 3.5s ease-out infinite;
     }
-    .battle-smoke-particle.bs1 { width:28px; height:28px; margin-left:-14px; background:radial-gradient(circle,#c2c2c2 0%,#111 80%,transparent 100%); filter:blur(8px);  animation-delay:0s;    }
-    .battle-smoke-particle.bs2 { width:38px; height:38px; margin-left:-8px;  background:radial-gradient(circle,#444  0%,#222 60%,transparent 100%); filter:blur(12px); animation-delay:0.6s;  }
-    .battle-smoke-particle.bs3 { width:22px; height:22px; margin-left:-18px; background:radial-gradient(circle,#2a2a2a 0%,#111 60%,transparent 100%); filter:blur(7px);  animation-delay:1.2s;  }
-    .battle-smoke-particle.bs4 { width:44px; height:44px; margin-left:-5px;  background:radial-gradient(circle,#000000  0%,#333 100%,transparent 100%); filter:blur(10px); animation-delay:1.9s;  }
-    .battle-smoke-particle.bs5 { width:32px; height:32px; margin-left:-20px; background:radial-gradient(circle,#2a2a2a 0%,#111 60%,transparent 100%); filter:blur(9px);  animation-delay:2.7s;  }
+    .battle-smoke-particle.bs1 { width:28px; height:28px; margin-left:-14px; background:radial-gradient(circle,#c8c8c8 0%,#2a2a2a 75%,transparent 100%); filter:blur(8px);  animation-delay:0s;    }
+    .battle-smoke-particle.bs2 { width:38px; height:38px; margin-left:-8px;  background:radial-gradient(circle,#666  0%,#1a1a1a 60%,transparent 100%); filter:blur(12px); animation-delay:0.6s;  }
+    .battle-smoke-particle.bs3 { width:22px; height:22px; margin-left:-18px; background:radial-gradient(circle,#444 0%,#111 55%,transparent 100%); filter:blur(7px);  animation-delay:1.2s;  }
+    .battle-smoke-particle.bs4 { width:44px; height:44px; margin-left:-5px;  background:radial-gradient(circle,#1a1a1a 0%,#444 80%,transparent 100%); filter:blur(10px); animation-delay:1.9s;  }
+    .battle-smoke-particle.bs5 { width:32px; height:32px; margin-left:-20px; background:radial-gradient(circle,#555 0%,#222 55%,transparent 100%); filter:blur(9px);  animation-delay:2.7s;  }
     .battle-base-fire {
         position: absolute;
         bottom: 0;
@@ -2569,8 +2575,7 @@ body.force-mobile .marker-type-selector button {
         height: 10px;
         background: linear-gradient(to top, #fff, #ffae00, #ff4500);
         border-radius: 50% 50% 20% 20%;
-        filter: blur(2px);
-        animation: battle-spark 0.15s infinite;
+        animation: battle-spark 0.55s ease-in-out infinite;
         box-shadow: 0 0 10px #ff6600, 0 0 20px rgba(255,80,0,0.5);
         z-index: 1;
     }
@@ -2589,6 +2594,12 @@ body.force-mobile .marker-type-selector button {
         flex-direction: column;
         align-items: center;
     }
+    /* MapLibre 3D 마커 — 전장 연기/불 overflow 허용 */
+    .maplibregl-marker { overflow: visible !important; }
+    .ml3d-battle-wrap { overflow: visible !important; }
+    /* battle 마커 안 filter:blur가 잘리지 않도록 — will-change:transform이 만드는 stacking context 해제 */
+    .ml3d-battle-wrap .battle-smoke-particle { will-change: transform, opacity; }
+    .ml3d-battle-wrap .battle-fire-wrap { overflow: visible !important; }
     /* 이펙트 전용 전장 마커 — 성 아이콘 없이 불꽃·연기만 */
     .battle-effect-only-marker {
         overflow: visible !important;
@@ -4915,6 +4926,69 @@ body.force-mobile .marker-type-selector button {
     .compact-popup .leaflet-popup-content-wrapper {
         padding: 2px 6px !important;
     }
+    /* 3D 지도 MapLibre 팝업 스타일 */
+    .ml3d-popup .maplibregl-popup-content {
+        background: rgba(12,10,22,0.93) !important;
+        border: 1px solid rgba(255,200,80,0.3) !important;
+        border-radius: 8px !important;
+        color: #e8d9b8 !important;
+        padding: 10px 14px !important;
+        font-size: 12px !important;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.7) !important;
+        backdrop-filter: blur(10px);
+    }
+    .ml3d-popup .maplibregl-popup-tip { border-top-color: rgba(12,10,22,0.93) !important; }
+    .ml3d-popup .maplibregl-popup-close-button { color: #aaa !important; font-size:16px !important; }
+
+    /* ══════════════════════════════════════════════
+       body.mode-3d : 3D 모드 진입 시 2D UI 전체 올리기
+       mlOverlay z-index=2500 위에 모든 UI를 표시
+    ══════════════════════════════════════════════ */
+    body.mode-3d #top-bar-container {
+        position: fixed !important;
+        top: 0 !important; left: 0 !important; right: 0 !important;
+        width: 100% !important;
+        z-index: 2610 !important;
+    }
+    body.mode-3d #map-tile-toggle-group {
+        position: fixed !important;
+        z-index: 2610 !important;
+        /* top은 JS가 topbar 높이 측정 후 --topbar-h 변수로 설정 */
+        top: var(--topbar-h, 44px) !important;
+        right: 0 !important;
+    }
+    body.mode-3d #timeline-play-controls {
+        position: fixed !important;
+        z-index: 2610 !important;
+        top: var(--topbar-h, 44px) !important;
+    }
+    body.mode-3d #map3d-ctrl           { z-index: 2610 !important; }
+    body.mode-3d #bgm-mini-bar         { z-index: 2620 !important; }
+    body.mode-3d #rightPanel           { z-index: 2630 !important; }
+    body.mode-3d #topbar-ancient-maps-dropdown-container { z-index: 2650 !important; }
+    body.mode-3d #topbar-ancient-maps-dropdown-menu      { z-index: 2650 !important; }
+    /* 3D 모드에서 MapLibre 내장 컨트롤 숨김 — 커스텀 버튼 사용 */
+    body.mode-3d #mlOverlay .maplibregl-ctrl-bottom-left {
+        display: none !important;
+    }
+    body.mode-3d #mlOverlay .maplibregl-ctrl-top-right {
+        display: none !important;
+    }
+    body.mode-3d #hamburger-menu-panel { z-index: 2620 !important; }
+    body.mode-3d #hamburger-menu-overlay { z-index: 2615 !important; }
+    body.mode-3d #timeline-control     { z-index: 2600 !important; }
+    body.mode-3d #timeline-container   { z-index: 2600 !important; }
+    body.mode-3d #current-year-display { z-index: 2600 !important; }
+    body.mode-3d #rankingDisplay       { z-index: 2600 !important; }
+    body.mode-3d #bottom-vignette      { z-index: 2600 !important; }
+    body.mode-3d #event-sidebar        { z-index: 2600 !important; }
+    body.mode-3d #object-detail-panel  { z-index: 2620 !important; }
+    body.mode-3d #country-detail-panel { z-index: 2620 !important; }
+    body.mode-3d #map-king-panel       { z-index: 2600 !important; }
+    body.mode-3d #map-history-panel    { z-index: 2600 !important; }
+    body.mode-3d #history-caption-panel{ z-index: 2600 !important; }
+    body.mode-3d #activity-feed-panel  { z-index: 2600 !important; }
+    body.mode-3d #mobile-tile-layer-control { z-index: 2600 !important; }
     .compact-popup .leaflet-popup-content {
         margin: 6px 10px !important;
         font-size: 12px !important;
@@ -6077,7 +6151,7 @@ body.force-mobile .marker-type-selector button {
           
           <!-- 🚩 [추가] 고지도 드롭다운 컨테이너 -->
           <div id="topbar-ancient-maps-dropdown-container" style="position: relative;">
-              <div id="topbar-ancient-maps-dropdown-menu" style="display: none; position: absolute; top: 100%; right: 0; background: #1a1a1a; backdrop-filter: blur(15px); border: 1px solid rgba(180,160,100,0.18); border-top: none; border-radius: 0 0 6px 6px; padding: 4px 0; z-index: 1102; min-width: 170px; margin-top: 0; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
+              <div id="topbar-ancient-maps-dropdown-menu" style="display: none; position: fixed; background: #1a1a1a; backdrop-filter: blur(15px); border: 1px solid rgba(180,160,100,0.18); border-top: none; border-radius: 0 0 6px 6px; padding: 4px 0; z-index: 9999; min-width: 170px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);">
                   <!-- JavaScript로 동적 생성 -->
               </div>
           </div>
@@ -6495,6 +6569,7 @@ body.force-mobile .marker-type-selector button {
             <button class="map-tile-btn" data-tile="다크모드">다크</button>
             <button class="map-tile-btn" data-tile="라이트모드">라이트</button>
             <button class="map-tile-btn" data-tile="일반모드">일반</button>
+            <button class="map-tile-btn" id="btn-3d-mode" title="3D 지형 지도">3D</button>
             <button class="map-tile-btn" id="map-refresh-btn" title="데이터 새로고침">↻</button>
         </div>
 
@@ -9237,52 +9312,8 @@ body.force-mobile .marker-type-selector button {
     //    (switchTileLayer에서 위성→위성 전환 시와 동일한 처리)
     (function() { const _m = document.getElementById('map'); if (_m) _m.style.filter = 'none'; })();
 
-    // 🚩 [안전 폴백] 타일 전환 이벤트 위임 — DOMContentLoaded 오류로 등록 실패할 경우 대비
-    // baseMaps / currentTileLayer / map 은 이 스크립트 레벨에서 직접 접근 가능
-    document.addEventListener('click', function _tileToggleDelegation(e) {
-        const btn = e.target.closest('.map-tile-btn[data-tile]');
-        if (!btn) return;
-        const newLayerKey = btn.dataset.tile;
-        if (!baseMaps[newLayerKey]) return;
-        // 레이어 교체
-        if (currentTileLayer !== baseMaps[newLayerKey]) {
-            map.removeLayer(currentTileLayer);
-            currentTileLayer = baseMaps[newLayerKey];
-            map.addLayer(currentTileLayer);
-            // 위성 모드 필터 처리
-            const mapEl = document.getElementById('map');
-            if (mapEl) mapEl.style.filter = newLayerKey === '위성모드' ? 'none' : '';
-            // 다크 모드 body 클래스
-            document.body.classList.toggle('dark-map', newLayerKey === '다크모드');
-        }
-        // active 상태 업데이트
-        document.querySelectorAll('.map-tile-btn').forEach(function(b) {
-            b.classList.toggle('active', b.dataset.tile === newLayerKey);
-        });
-    }, true); // capture 단계 → 다른 요소가 이벤트를 막더라도 동작
-
-    // 🚩 [안전 폴백] 재생 버튼 위치 조정 — DOMContentLoaded 실패 시에도 보이도록
-    // CSS 기본값 right:0 → 타일 토글에 가려지는 문제를 방지
-    (function _ensurePlayCtrlPosition() {
-        function _doPosition() {
-            const playCtrl  = document.getElementById('timeline-play-controls');
-            const tileToggle = document.getElementById('map-tile-toggle-group');
-            if (!playCtrl || !tileToggle) return;
-            const w = tileToggle.offsetWidth;
-            if (w > 0) {
-                playCtrl.style.right = w + 'px';
-            } else {
-                // 렌더 전이면 rAF로 재시도
-                requestAnimationFrame(_doPosition);
-            }
-        }
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', _doPosition);
-        } else {
-            requestAnimationFrame(_doPosition);
-        }
-        window.addEventListener('resize', _doPosition);
-    })();
+    // 🚩 [안전 폴백] 타일 전환 이벤트 위임 — switchTileLayer가 등록된 후 이미 처리하므로 비활성화
+    // (아래 switchTileLayer에서 document.querySelectorAll('.map-tile-btn[data-tile]')으로 등록함)
 
     // 🚩 [추가] 지도 우측 상단에 축척 컨트롤 (타일 토글 바로 하단)
     L.control.scale({ imperial: false, position: 'topright' }).addTo(map); // 미터법(metric)만 표시
@@ -9380,13 +9411,20 @@ body.force-mobile .marker-type-selector button {
     function initCommentBadges() {
         // initial fetch and then decorate existing markers
         fetchCommentCounts().then(() => {
-            setTimeout(() => {
+            const tryAttach = () => {
+                const markers2d = allCastleMarkers || [];
+                if (markers2d.length === 0) return false;
                 try {
-                    (allCastleMarkers || []).forEach(m => {
+                    markers2d.forEach(m => {
                         if (m && m._castleData) placeBadgeOnMarker(m, m._castleData._id);
                     });
                 } catch (e) { /* ignore */ }
-            }, 200);
+                return true;
+            };
+            if (!tryAttach()) {
+                // 마커가 생길 때까지 이벤트로 대기 (폴링 제거)
+                window.addEventListener('first-markers-rendered', tryAttach, { once: true });
+            }
         });
 
         // whenever markers are added to the layer group, ensure badges are placed
@@ -9829,8 +9867,8 @@ body.force-mobile .marker-type-selector button {
 // 🚩 수정: 새로 추가된 군대 관련 입력 필드 맵핑
 const generalNameInput = document.getElementById('generalName');
 const troopCountInput = document.getElementById('troopCount');
-const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에서 추가한 필드
 const troopTypeInput = document.getElementById('troopType'); // 병종 선택
+const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에서 추가한 필드
 
 
     const pathDataSection = document.getElementById('pathDataSection'); 
@@ -11184,7 +11222,43 @@ function getKingByYear(countryName, year, month) {
         
         const uniqueCountries = Object.keys(countryCount);
         
-        if (uniqueCountries.length === 0) return null;
+        if (uniqueCountries.length === 0) {
+            // 1차: territory 자체의 country_id로 fallback
+            let fallbackCid = territory.country || territory.properties?.country_id || null;
+            if (fallbackCid && typeof fallbackCid === 'object') fallbackCid = fallbackCid.$oid || String(fallbackCid);
+            if (fallbackCid) {
+                // 이름 문자열인 경우 countries 배열에서 ObjectId로 변환
+                const fallbackStr = String(fallbackCid);
+                if (!/^[0-9a-f]{24}$/i.test(fallbackStr)) {
+                    const matched = countries.find(c =>
+                        c.name === fallbackStr || c.name_kor === fallbackStr ||
+                        c.name_eng === fallbackStr || c.name_chi === fallbackStr
+                    );
+                    if (matched && matched._id) {
+                        const resolvedId = typeof matched._id === 'object' ? (matched._id.$oid || String(matched._id)) : String(matched._id);
+                        return { countryId: resolvedId, isExclusive: true, countriesInZone: [resolvedId] };
+                    }
+                }
+                return { countryId: fallbackStr, isExclusive: true, countriesInZone: [fallbackStr] };
+            }
+            
+            // 2차: centroid에서 가장 가까운 castle의 country 사용 (최대 8도 이내)
+            // — province/city territory는 country_id=null이지만 근처 castle로 국가 추론 가능
+            if (centroid) {
+                const MAX_DIST = 8; // 도 단위, 약 900km
+                let minDist = Infinity, closestCid = null;
+                for (const item of castleList) {
+                    const iLat = usePrecomputed ? item.lat : (item.lat ?? null);
+                    const iLng = usePrecomputed ? item.lng : (item.lng ?? null);
+                    const iCid = usePrecomputed ? item.countryId : null;
+                    if (iLat == null || iLng == null || !iCid) continue;
+                    const d = Math.abs(iLat - centroid.lat) + Math.abs(iLng - centroid.lng); // 맨해튼 거리 (빠름)
+                    if (d < minDist && d < MAX_DIST) { minDist = d; closestCid = iCid; }
+                }
+                if (closestCid) return { countryId: closestCid, isExclusive: false, countriesInZone: [closestCid] };
+            }
+            return null;
+        }
         
         if (uniqueCountries.length === 1) {
             return { countryId: uniqueCountries[0], isExclusive: true, countriesInZone: uniqueCountries };
@@ -11475,8 +11549,8 @@ function getKingByYear(countryName, year, month) {
             const featureIcon = L.divIcon({
                 className: `natural-feature-marker ${iconClass}`,
                 html: iconInfo?.imageUrl
-                    ? `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:0;"><img src="${iconInfo.imageUrl}" style="width:${_iw}px;height:${_iw}px;object-fit:contain;display:block;" onerror="this.style.display='none'"><div class="feature-name">${castleName}</div></div>`
-                    : `<div style="line-height:1; display:block;">${iconSymbol}</div><div class="feature-name">${castleName}</div>`,
+                    ? `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:0;"><div class="feature-name">${castleName}</div><img src="${iconInfo.imageUrl}" style="width:${_iw}px;height:${_iw}px;object-fit:contain;display:block;" onerror="this.style.display='none'"></div>`
+                    : `<div class="feature-name">${castleName}</div><div style="line-height:1; display:block;">${iconSymbol}</div>`,
                 iconSize: [_iconBoxW, _iconBoxH],
                 iconAnchor: iconInfo?.anchorBottom ? [7.5, 15] : [_iconBoxW / 2, _iconBoxH / 2],
                 popupAnchor: [0, -_iconBoxH / 2]
@@ -12079,11 +12153,29 @@ let pendingUpdateMapRAF = null; // 🚀 [v2.0.9] requestAnimationFrame ID
 let _requestUpdateMapTimer = null;
 function requestUpdateMap(force = false) {
     clearTimeout(_requestUpdateMapTimer);
-    const delay = isMobileOnLoad ? 300 : 120; // 모바일 300ms, 데스크톱 120ms
+    const delay = isMobileOnLoad ? 600 : 800; // idle 콜백 4개를 한 번에 흡수
     _requestUpdateMapTimer = setTimeout(() => {
         const { year, month } = getCurrentYearMonth();
         updateMap(year, month, false, force);
     }, delay);
+}
+
+// 🚀 영토 폴리곤은 안 건드리고 마커·강·자연지물만 갱신 (drawings/contributions/naturalFeatures 전용)
+let _overlayUpdateTimer = null;
+function requestOverlayUpdate() {
+    clearTimeout(_overlayUpdateTimer);
+    _overlayUpdateTimer = setTimeout(() => {
+        // 3D 모드: refreshLayers만 (영토 source 제외하고 마커/강 재생성)
+        if (window._is3dMode && typeof window._3dRefreshLayers === 'function') {
+            window._3dRefreshLayers();
+        }
+        // 2D 모드: 강·자연지물·마커만 다시 그리기 (updateMap보다 훨씬 가벼움)
+        if (!window._is3dMode) {
+            const { year, month } = getCurrentYearMonth();
+            // 영토 fingerprint가 바뀌지 않았으면 castles/markers만 갱신
+            updateMap(year, month, false, false);
+        }
+    }, 600);
 }
 
 function updateMap(year, month, cacheOnly = false, force = false) {
@@ -12190,8 +12282,17 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         if (layerVisibility.territoryPolygon) {
             const startTime = performance.now();
             let renderedCount = 0;
-            const view = map.getBounds();
-            const viewBox = { minLat: view.getSouth(), maxLat: view.getNorth(), minLng: view.getWest(), maxLng: view.getEast() };
+
+            // 🌐 [3D 모드] viewBox를 전 세계 범위로 설정 → outOfView skip 완전 차단
+            let viewBox;
+            const _ml = window.mlMap3d;
+            if (_ml && window._is3dMode) {
+                // 3D 모드: 전 세계 범위 사용 (어떤 줌/위치에서도 모든 영토 로드)
+                viewBox = { minLat: -90, maxLat: 90, minLng: -180, maxLng: 180 };
+            } else {
+                const view = map.getBounds();
+                viewBox = { minLat: view.getSouth(), maxLat: view.getNorth(), minLng: view.getWest(), maxLng: view.getEast() };
+            }
             
             // 🚀 [v3.6] 줌 레벨 기반 좌표 간소화 허용 오차
             const currentZoom = map.getZoom();
@@ -12236,25 +12337,30 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const allTerritoryFeatures = new Map(); // 레벨 무관 전체 수집
             
             territories.forEach(territory => {
-                const localKey = `${territory.name}_${territory.type}`;
+                // _id 기준 중복 체크 — 같은 이름이 여러 시대 버전으로 존재할 때 모두 처리
+                const localKey = String(territory._id || `${territory.name}_${territory.type}`);
                 
                 if (renderedTerritories.has(localKey)) {
                     skipReasons.duplicate++;
                     return;
                 }
                 renderedTerritories.add(localKey);
-                
+
+                // 시간 범위 체크: start/end 필드가 있으면 현재 연도에 해당하는 것만 렌더
+                if (territory.start != null || territory.end != null) {
+                    const tStart = territory.start != null ? Number(territory.start) : -Infinity;
+                    const tEnd   = territory.end   != null ? Number(territory.end)   : Infinity;
+                    if (year < tStart || year > tEnd) {
+                        skipReasons.timeRange++;
+                        return;
+                    }
+                }
+
                 const tBounds = getTerritoryBounds(territory);
                 if (tBounds && (tBounds.maxLat < viewBox.minLat || tBounds.minLat > viewBox.maxLat || tBounds.maxLng < viewBox.minLng || tBounds.minLng > viewBox.maxLng)) {
-                    if (/Jilin|Changchun|Baicheng|길림|창춘|바이청/.test(territory.name || '')) {
-                        if (window.DEBUG_TERRITORY) console.log('[OUTOFVIEW]', territory.name, JSON.stringify(tBounds), '뷰:', JSON.stringify(viewBox));
-                    }
                     skipReasons.outOfView++;
                     return;
                 }
-
-                // 🎯 시간 범위 체크 제거 — territory는 그 안에 활성 마커가 있으면 표시
-                // (마커가 없으면 calculateDominantCountry가 null 반환 → noCountry skip)
 
                 // 🚀 [v3.6] 캐시된 국가 계산 사용
                 const dominantResult = getCachedDominantCountry(territory, year, month);
@@ -12300,13 +12406,22 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 let countryInfo = getCountryInfoById(dominantCountryId);
                 if (!countryInfo) {
                     skipReasons.countryNotFound++;
-                    // 🔍 [DEBUG] 서남아/유럽 지역 country not found 로그
-                    const tBoundsDbg = getTerritoryBounds(territory);
-                    if (tBoundsDbg) {
-                        const midLat = (tBoundsDbg.minLat + tBoundsDbg.maxLat) / 2;
-                        const midLng = (tBoundsDbg.minLng + tBoundsDbg.maxLng) / 2;
-                        if ((midLat >= 20 && midLat <= 70) && (midLng >= -20 && midLng <= 90)) {
-                            console.warn(`[COUNTRY_NOT_FOUND] territory="${territory.name}" dominantCountryId="${dominantCountryId}" (서남아/유럽)`);
+                    // 🌐 [3D 모드] countryInfo 없어도 중립 구역으로 표시 (빈 영역 방지)
+                    if (window._is3dMode) {
+                        const geometry = getSimplifiedGeometry(territory, simplifyTol);
+                        if (geometry) {
+                            const neutralKey = '__unowned__';
+                            if (!allTerritoryFeatures.has(neutralKey)) {
+                                allTerritoryFeatures.set(neutralKey, {
+                                    features: [],
+                                    countryInfo: { name: '', color: '#999999' },
+                                    style: { fillColor: '#bbbbbb', fillOpacity: 0.18, color: '#aaaaaa', weight: 0.5 }
+                                });
+                            }
+                            allTerritoryFeatures.get(neutralKey).features.push({
+                                type: 'Feature', geometry,
+                                properties: { name: territory.name, country_id: null, level: territory.level || 'city', isExclusive: false, countriesInZone: [] }
+                            });
                         }
                     }
                     return;
@@ -12372,6 +12487,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 
                 renderedCount++;
             });
+
+            // 🔍 [진단] territory 렌더링 결과 로그
+            console.log(`[TERR] total=${territories.length} rendered=${renderedCount} skip=${JSON.stringify(skipReasons)} allFeatureKeys=${allTerritoryFeatures.size} activeCastles=${(window._activeCastlesForTerritory||[]).length}`);
             
             //  [v3.6 핵심] 2차 패스: 국가별 FeatureCollection 렌더링
             // 🚀 [v3.6 메모리 최적화] 국가별 전용 SVG renderer 대신 공유 renderer 사용
@@ -12538,6 +12656,146 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             // 레벨 구분 없이 전체 렌더링
             renderFeatureMap(allTerritoryFeatures);
 
+            // ── 3D 지도용 영토 데이터 노출 (level별 분리 저장) ──
+            // =========================================================================
+            // 🎯 3D 영토 폴리곤 데이터 구성 — 2D renderBucket 로직과 완전 동일
+            // LEVEL_ORDER 정렬 → centroid absorption → level별 opacity 적용
+            // =========================================================================
+
+            // ── 3D용 영토 데이터: 2D renderBucket 로직과 동일하게 구성 ──
+            // 2D와 동일: LEVEL_ORDER 정렬 → centroid absorption → level별 opacity 적용
+            const _3dTerr = { country: [], province: [], city: [] };
+
+            // 2D와 동일한 level 순서/opacity
+            const LEVEL_ORDER_3D  = { country: 0, province: 1, city: 2 };
+            const LEVEL_OPACITY_3D = { country: 0.14, province: 0.18, city: 0.22 };
+
+            // Step 0: 국가별 bucket → allItems 수집 (2D renderBucket 방식 그대로)
+            const _3d_allItems = [];
+            allTerritoryFeatures.forEach((bucket, cid) => {
+                if (!bucket || !bucket.features || !bucket.style) return;
+                const cidStr    = String(cid);
+                const isNeutral = cidStr === '__unowned__';
+                const fillColor   = isNeutral ? '#bbbbbb' : (bucket.style.fillColor || bucket.style.color || '#888888');
+                const lineColor   = isNeutral ? '#aaaaaa' : (bucket.style.color || fillColor);
+                const lineOpacity = isNeutral ? 0.30 : (bucket.style.opacity ?? 0.35);
+                const weight      = bucket.style.weight || 0.5;
+                for (const f of bucket.features) {
+                    const geom = f.geometry;
+                    let area = 0;
+                    if (geom) {
+                        let polys = [];
+                        if (geom.type === 'Polygon') polys = [geom.coordinates[0] || []];
+                        else if (geom.type === 'MultiPolygon') polys = geom.coordinates.map(p => p[0] || []);
+                        for (const ring of polys) {
+                            if (ring.length < 2) continue;
+                            let mnLng=Infinity, mxLng=-Infinity, mnLat=Infinity, mxLat=-Infinity;
+                            for (const c of ring) {
+                                if(c[0]<mnLng)mnLng=c[0]; if(c[0]>mxLng)mxLng=c[0];
+                                if(c[1]<mnLat)mnLat=c[1]; if(c[1]>mxLat)mxLat=c[1];
+                            }
+                            area += (mxLng-mnLng)*(mxLat-mnLat);
+                        }
+                    }
+                    const lv = isNeutral ? 'city' : (f.properties?.level || 'city');
+                    _3d_allItems.push({ f, area, cidStr, isNeutral, fillColor, lineColor, lineOpacity, weight, level: lv });
+                }
+            });
+
+            // Step 1: 정렬 (country→province→city, 같은 레벨이면 면적 내림차순) — 2D와 동일
+            _3d_allItems.sort((a, b) => {
+                const la = LEVEL_ORDER_3D[a.level] ?? 2, lb = LEVEL_ORDER_3D[b.level] ?? 2;
+                if (la !== lb) return la - lb;
+                return b.area - a.area;
+            });
+
+            // Step 2: centroid absorption — 2D renderBucket과 동일 로직
+            const _3d_countryRings  = new Map(); // cidStr → rings[] (country 레벨)
+            const _3d_provinceRings = new Map(); // cidStr → rings[] (country + province 레벨)
+
+            const _3d_getCentroid = (g) => {
+                let coords;
+                if (g.type === 'Polygon') coords = g.coordinates[0];
+                else if (g.type === 'MultiPolygon') coords = (g.coordinates[0] || [[]])[0];
+                if (!coords || coords.length < 3) return null;
+                const len = Math.min(coords.length, 60);
+                let sLng = 0, sLat = 0;
+                for (let i = 0; i < len; i++) { sLng += coords[i][0]; sLat += coords[i][1]; }
+                return [sLat/len, sLng/len];
+            };
+            const _3d_pushRings = (map, key, g) => {
+                if (!map.has(key)) map.set(key, []);
+                const rings = map.get(key);
+                if (g.type === 'Polygon') rings.push(g.coordinates[0].map(c => [c[1], c[0]]));
+                else if (g.type === 'MultiPolygon') {
+                    for (const poly of g.coordinates) { if (poly[0]) rings.push(poly[0].map(c => [c[1], c[0]])); }
+                }
+            };
+
+            // Step 3: absorption 체크 후 _3dTerr에 수집
+            for (const item of _3d_allItems) {
+                const { f, cidStr, isNeutral, fillColor, lineColor, lineOpacity, weight, level } = item;
+                const geom = f.geometry;
+
+                if (isNeutral) {
+                    _3dTerr.city.push({
+                        type: 'Feature', geometry: geom,
+                        properties: {
+                            name: f.properties?.name || '',
+                            country_id: cidStr,
+                            level: 'city',
+                            fillColor: '#bbbbbb', fillOpacity: 0.18,
+                            lineColor: '#aaaaaa', lineOpacity: 0.30,
+                            weight: 0.5, is_exclusive: false
+                        }
+                    });
+                    continue;
+                }
+
+                if (!geom) continue;
+
+                // 2D와 동일: country → ring 등록, province → country ring으로 absorbed 체크
+                //              city → country+province ring으로 absorbed 체크
+                if (level === 'country') {
+                    _3d_pushRings(_3d_countryRings,  cidStr, geom);
+                    _3d_pushRings(_3d_provinceRings, cidStr, geom);
+                } else if (level === 'province') {
+                    const centroid = _3d_getCentroid(geom);
+                    if (centroid) {
+                        const cRings = _3d_countryRings.get(cidStr) || [];
+                        if (cRings.some(ring => isPointInPolygon(centroid, ring))) continue; // absorbed
+                    }
+                    _3d_pushRings(_3d_provinceRings, cidStr, geom);
+                } else {
+                    const centroid = _3d_getCentroid(geom);
+                    if (centroid) {
+                        const pRings = _3d_provinceRings.get(cidStr) || [];
+                        if (pRings.some(ring => isPointInPolygon(centroid, ring))) continue; // absorbed
+                    }
+                }
+
+                // 2D와 동일한 level별 opacity
+                const bucketKey = level === 'country' ? 'country' : level === 'province' ? 'province' : 'city';
+                const fillOpacity = LEVEL_OPACITY_3D[level] ?? 0.55;
+                _3dTerr[bucketKey].push({
+                    type: 'Feature', geometry: geom,
+                    properties: {
+                        name:        f.properties?.name || '',
+                        country_id:  cidStr,
+                        level:       level,
+                        fillColor:   fillColor,
+                        fillOpacity: fillOpacity,
+                        lineColor:   lineColor,
+                        lineOpacity: lineOpacity,
+                        weight:      weight,
+                        is_exclusive: f.properties?.isExclusive ?? true
+                    }
+                });
+            }
+
+            window._3dTerritoryData = _3dTerr;
+            console.log(`[3D] 렌더 완료: country=${_3dTerr.country.length} province=${_3dTerr.province.length} city=${_3dTerr.city.length}`);
+
             // 🔧 [elegant fix] Leaflet 1.7.1 L.canvas는 pane 옵션을 무시하고 항상 overlayPane에 추가함
             // → Canvas element를 territoryPane으로 직접 이동하여 mix-blend-mode: multiply 적용
             requestAnimationFrame(() => {
@@ -12628,7 +12886,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         L.DomEvent.stopPropagation(e);
                         const isPrivileged = currentUser?.role === 'superuser' || currentUser?.role === 'admin';
                         if (editMode && isPrivileged) {
-                            openDrawingForm(drawing);
+                            openDrawingForm(drawing.geojson || drawing, drawing);
                             return;
                         }
                         layer.openPopup(e.latlng);
@@ -13149,7 +13407,62 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         }
 
         castleLayerGroup.clearLayers(); // 마커 레이어는 기존처럼 클리어 후 다시 추가
-        markers.length = 0; // 🚀 [모바일 메모리 최적화] = [] 대신 length=0 — 기존 배열 재사용으로 GC 부하 감소
+        markers.length = 0;
+        window._3dCastleData = []; // 3D용 castle 원본 데이터 수집 배열
+
+        // ── 3D용 마커 데이터: LOD/viewport 필터 없이 전체 시간 유효 마커 수집 ──
+        if (Array.isArray(castles)) {
+            const _3dTotalMonths = yearMonthToTotalMonths(year, month);
+            castles.forEach(castle => {
+                if (!castle) return;
+                if (typeof castle.lat !== 'number' || typeof castle.lng !== 'number') return;
+                // 자연지물(산·강 등 항상 표시) — built/destroyed 범위 체크
+                if (castle.is_natural_feature) {
+                    const _naturalTimeTypes = ['tomb','construction','hunting','temple','palace','mine','port','kiln','farmland','battle'];
+                    const _ftype = castle.natural_feature_type || 'other';
+                    const _isRelic = _naturalTimeTypes.includes(_ftype);
+                    const _builtY = castle.built_year ?? castle.start_year ?? null;
+                    const _destY  = castle.destroyed_year ?? castle.end_year ?? null;
+                    if (_isRelic || _builtY != null || _destY != null) {
+                        if (!((_builtY ?? -Infinity) <= year && (_destY ?? Infinity) >= year)) return;
+                    }
+                    const cid = castle.country_id || castle.countryId;
+                    const ci  = getCountryInfoById(cid);
+                    window._3dCastleData.push({ castle, activeRec: null, countryInfo: ci });
+                    return;
+                }
+                // 지명 라벨
+                if (castle.is_label) {
+                    const _builtY = castle.built_year ?? null;
+                    const _destY  = castle.destroyed_year ?? null;
+                    if (_builtY != null || _destY != null) {
+                        if (!((_builtY ?? -Infinity) <= year && (_destY ?? Infinity) >= year)) return;
+                    }
+                    const cid = castle.country_id || castle.countryId;
+                    const ci  = getCountryInfoById(cid);
+                    window._3dCastleData.push({ castle, activeRec: null, countryInfo: ci });
+                    return;
+                }
+                // 군대 마커
+                if (castle.is_military_flag) {
+                    const _builtY = castle.built_year ?? null;
+                    const _destY  = castle.destroyed_year ?? null;
+                    if (_builtY != null || _destY != null) {
+                        if (!((_builtY ?? -Infinity) <= year && (_destY ?? Infinity) >= year)) return;
+                    }
+                    const cid = castle.country_id || castle.countryId;
+                    const ci  = getCountryInfoById(cid);
+                    window._3dCastleData.push({ castle, activeRec: null, countryInfo: ci });
+                    return;
+                }
+                // 일반 성/도시
+                const hi = getActiveHistoryInfo(castle.history, _3dTotalMonths);
+                if (!hi) return;
+                const cid = hi.record?.country_id || castle.country_id || castle.countryId;
+                const ci = getCountryInfoById(cid);
+                window._3dCastleData.push({ castle, activeRec: hi.record, countryInfo: ci });
+            });
+        }
 
         // � [메모리 최적화] 마커 렌더링 시 현재 padded bounds 기록 (moveend 재렌더링 판단용)
         window._lastMarkerRenderBounds = map.getBounds().pad(1.0);
@@ -13172,6 +13485,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             console.warn('⚠️ castles 배열이 비어있거나 배열이 아님');
             // castles가 없어도 로딩 차단하지 않음 — territories만 있어도 해제 가능
             window._castleMarkersRendered = true;
+            // 🔧 [버그 수정] castles 없어도 territory 데이터는 이미 _3dTerritoryData에 저장됨 → 3D 레이어 갱신
+            if (typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
             return;
         }
         
@@ -13393,11 +13708,13 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
         const { record: activeHistoryRecord, startYear: recordStartYear, startMonth: recordStartMonth, endYear: recordEndYear, endMonth: recordEndMonth } = activeHistoryInfo || {};
 
-    const castleName = activeHistoryRecord?.name || castle.name;
-    const countryId = activeHistoryRecord?.country_id || castle.country_id || castle.countryId;
+        const castleName = activeHistoryRecord?.name || castle.name;
+        const countryId = activeHistoryRecord?.country_id || castle.country_id || castle.countryId;
         const countryInfo = getCountryInfoById(countryId);
         const countryName = countryInfo ? countryInfo.name : '알 수 없음';
         const dotColor = countryInfo ? countryInfo.color : 'white';
+
+        // ── 3D용 마커 데이터 수집은 위의 별도 패스에서 완료됨 ──
 
         // 🚩 [추가] 민족 필터링 로직 (부분 일치) - 자연지물은 국가가 없으므로 민족 필터 제외
         if (selectedEthnicity !== 'all' && !effectiveIsNatural) {
@@ -13516,8 +13833,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     const featureIcon = L.divIcon({
                         className: `natural-feature-marker ${iconClass} sumi-ink-effect`,
                             html: iconInfo?.imageUrl
-                                ? `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:0;"><img src="${iconInfo.imageUrl}" style="width:${_iw3}px;height:${_iw3}px;object-fit:contain;display:block;" onerror="this.style.display='none'"><div class="feature-name">${castleName}</div></div>`
-                                : `<div style="line-height:1; display:block;">${iconSymbol}</div><div class="feature-name">${castleName}</div>`,
+                                ? `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:0;"><div class="feature-name">${castleName}</div><img src="${iconInfo.imageUrl}" style="width:${_iw3}px;height:${_iw3}px;object-fit:contain;display:block;" onerror="this.style.display='none'"></div>`
+                                : `<div class="feature-name">${castleName}</div><div style="line-height:1; display:block;">${iconSymbol}</div>`,
                             iconSize: [_iconBoxW3, _iconBoxH3],
                             iconAnchor: [_iconBoxW3 / 2, _iconBoxH3 / 2],
                             popupAnchor: [0, -_iconBoxH3 / 2]
@@ -14187,6 +14504,14 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         // console.log(`✅ 성/도시 렌더링 완료: 마커 ${markers.length}개 (뷰포트 기준)`);
         // 🎯 로딩 화면 해제 신호 — checkTerritoriesRendered가 이 플래그를 감지
         window._castleMarkersRendered = true;
+        // 댓글 배지 부착 신호 (initCommentBadges 폴링 대체)
+        if (!window._firstMarkersDispatched) {
+            window._firstMarkersDispatched = true;
+            window.dispatchEvent(new Event('first-markers-rendered'));
+        }
+
+        // ── 3D 지도가 열려 있으면 즉시 갱신 (_3dCastleData는 castle 루프에서 이미 채워짐) ──
+        if (typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
 
         // 🏷️ 마커 이름 라벨 겹침 방지 — DOM 렌더링 완료 후 실행
         requestAnimationFrame(() => _applyMarkerLabelDeclutter());
@@ -15403,6 +15728,9 @@ const loadingMessages = [
               
               console.log('🗺️ [즉시 렌더링] 캐시 데이터로 국가 색상이 입혀진 완전한 지도 렌더링 완료 (0.5초)');
               showLoadingStatus('과거의 기록을 복원했습니다...');
+              // 3D 모드 즉시 진입 신호 (idle 데이터 완료를 기다리지 않음)
+              window.dispatchEvent(new Event('cache-painted'));
+              window._cachePainted = true; // init3DMap이 늦게 등록될 경우 플래그로 감지
               
               // ℹ️ 참고: 이 시점은 castles 백그라운드 로드 전이므로 색칠 가능 수는 과소 집계됨 (정상)
           }
@@ -15740,7 +16068,7 @@ const loadingMessages = [
               saveDrawingsCache(drawings).then(() => {
                   console.log('💾 [idle] drawings IndexedDB 캐싱 완료');
               });
-              requestUpdateMap();
+              requestOverlayUpdate(); // 영토 재계산 없이 마커/강만 갱신
             }).catch(err => {
               console.error('❌ [idle] drawings 로드 실패:', err);
               if (drawings.length === 0) drawings = [];
@@ -15762,7 +16090,7 @@ const loadingMessages = [
                 saveContributionsCache(contributions).then(() => {
                     console.log('💾 [idle] contributions IndexedDB 캐싱 완료');
                 });
-                requestUpdateMap();
+                requestOverlayUpdate(); // 영토 재계산 없이 마커/강만 갱신
               }).catch(err => {
                 console.error('❌ [idle] contributions 로드 실패:', err);
                 contributions = [];
@@ -15786,7 +16114,7 @@ const loadingMessages = [
                 naturalFeatures = data || [];
                 markCacheFresh('naturalFeatures');
                 console.log(`✅ [idle] 자연 지형지물 ${naturalFeatures.length}개 로드 완료`);
-                requestUpdateMap(true);
+                requestOverlayUpdate(); // 강/자연지물만 갱신 — 영토 재렌더 없음
               }).catch(err => {
                 console.warn('⚠️ [idle] naturalFeatures 로드 실패:', err.message);
                 naturalFeatures = [];
@@ -16648,8 +16976,7 @@ const loadingMessages = [
                   if (btn.tagName === 'BUTTON') btn.textContent = `영토 ${territories.length}개`;
               });
               
-              const { year, month } = getCurrentYearMonth();
-              updateMap(year, month);
+              requestUpdateMap(); // 디바운스 800ms — 캐시 페인트 직후 중복 방지
           } catch (error) {
               console.error('❌ 영토 로드 실패:', error);
               clearInterval(progressInterval);
@@ -17861,6 +18188,10 @@ const loadingMessages = [
       const topbarAncientMapsDropdown = document.getElementById('topbar-ancient-maps-dropdown-menu');
       
       if (topbarAncientMapsBtn && topbarAncientMapsDropdown) {
+          // 드롭다운을 body 직하로 이동 — position:relative wrapper의 stacking context 탈출
+          if (topbarAncientMapsDropdown.parentNode !== document.body) {
+              document.body.appendChild(topbarAncientMapsDropdown);
+          }
           // 탑바 버튼 호버 효과
           topbarAncientMapsBtn.onmouseover = () => {
               topbarAncientMapsBtn.style.color = '#f0e8d0';
@@ -17935,7 +18266,17 @@ const loadingMessages = [
           topbarAncientMapsBtn.addEventListener('click', (e) => {
               e.stopPropagation();
               const isVisible = topbarAncientMapsDropdown.style.display === 'block';
-              topbarAncientMapsDropdown.style.display = isVisible ? 'none' : 'block';
+              if (isVisible) {
+                  topbarAncientMapsDropdown.style.display = 'none';
+              } else {
+                  // 버튼 위치 기준으로 fixed 좌표 계산
+                  const btnRect = topbarAncientMapsBtn.getBoundingClientRect();
+                  topbarAncientMapsDropdown.style.position = 'fixed';
+                  topbarAncientMapsDropdown.style.top = btnRect.bottom + 'px';
+                  topbarAncientMapsDropdown.style.right = (window.innerWidth - btnRect.right) + 'px';
+                  topbarAncientMapsDropdown.style.left = 'auto';
+                  topbarAncientMapsDropdown.style.display = 'block';
+              }
           });
           
           // 외부 클릭 시 탑바 드롭다운 닫기
@@ -19702,6 +20043,7 @@ const loadingMessages = [
       if (_generalPhoto) _generalPhoto.value = '';
       const _troopCount = document.getElementById('troopCount');
       if (_troopCount) _troopCount.value = '';
+      if (troopTypeInput) troopTypeInput.value = '';
 
       // 🚩 [추가] 커스텀 아이콘 필드 초기화
       document.getElementById('customIcon').value = '';
@@ -20132,8 +20474,8 @@ const loadingMessages = [
                 militaryCountryNameInput.value = castle.country_id ? getCountryInfoById(castle.country_id)?.name || '' : '';
                 generalNameInput.value = castle.general_name || '';
                 troopCountInput.value = castle.troop_count || '';
-                generalPhotoInput.value = castle.general_photo || '';
                 if (troopTypeInput) troopTypeInput.value = castle.troop_type || '';
+                generalPhotoInput.value = castle.general_photo || '';
                 document.getElementById('pathDataList').innerHTML = '';
                 if (Array.isArray(castle.path_data)) {
                     castle.path_data.forEach(point => addPathPoint(point));
@@ -20833,8 +21175,8 @@ const loadingMessages = [
         // 🚩 수정: generalNameInput, troopCountInput, generalPhotoInput 사용
         data.general_name = generalNameInput.value;
         data.troop_count = parseInt(troopCountInput.value) || 0;
-        data.general_photo = generalPhotoInput.value || null; // 맵핑 변수 사용
         data.troop_type = (troopTypeInput && troopTypeInput.value) || null; // 병종
+        data.general_photo = generalPhotoInput.value || null; // 맵핑 변수 사용
         
         // 🚩 경로 데이터 추가
         data.path_data = collectPathData();
@@ -24890,6 +25232,9 @@ kingSelect.addEventListener('change', () => {
             const goToTopbarResult = (lat, lng, label) => {
                 topbarSearchInput.value = label;
                 topbarSearchResults.style.display = 'none';
+                if (window._is3dMode && window.mlMap3d) {
+                    window.mlMap3d.flyTo({ center: [lng, lat], zoom: Math.max(window.mlMap3d.getZoom(), 6), duration: 1200 });
+                }
                 map.setView([lat, lng], Math.max(map.getZoom(), 6), { animate: true });
             };
 
@@ -24928,7 +25273,12 @@ kingSelect.addEventListener('change', () => {
                     if ((!flyLat || !flyLng) && Array.isArray(castle.path_data) && castle.path_data.length > 0) {
                         flyLat = castle.path_data[0][0]; flyLng = castle.path_data[0][1];
                     }
-                    if (flyLat && flyLng) map.flyTo([flyLat, flyLng], 10, { animate: true, duration: 1.2 });
+                    if (flyLat && flyLng) {
+                        if (window._is3dMode && window.mlMap3d) {
+                            window.mlMap3d.flyTo({ center: [flyLng, flyLat], zoom: Math.max(window.mlMap3d.getZoom(), 7), duration: 1200 });
+                        }
+                        map.flyTo([flyLat, flyLng], 10, { animate: true, duration: 1.2 });
+                    }
                 };
 
                 if (targetYear !== null) {
@@ -25019,6 +25369,9 @@ kingSelect.addEventListener('change', () => {
 
                 // 줌 레벨: 현재보다 작으면 13으로 확대, 이미 크면 유지
                 const targetZoom = Math.max(map.getZoom(), 13);
+                if (window._is3dMode && window.mlMap3d) {
+                    window.mlMap3d.flyTo({ center: [lng, lat], zoom: Math.max(window.mlMap3d.getZoom(), 8), duration: 1000 });
+                }
                 map.flyTo([lat, lng], targetZoom, { animate: true, duration: 1.0 });
 
                 // 핀 표시 + 팝업
@@ -25035,6 +25388,27 @@ kingSelect.addEventListener('change', () => {
                 if (!query) return;
 
                 const ql = query.toLowerCase();
+
+                // ── 0) 좌표 직접 입력 감지 (예: "37.5, 126.9" 또는 "37.5 126.9") ──
+                const coordMatch = query.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*$/);
+                if (coordMatch) {
+                    const cLat = parseFloat(coordMatch[1]);
+                    const cLng = parseFloat(coordMatch[2]);
+                    if (cLat >= -90 && cLat <= 90 && cLng >= -180 && cLng <= 180) {
+                        topbarSearchResults.style.display = 'none';
+                        topbarSearchInput.value = `${cLat.toFixed(4)}, ${cLng.toFixed(4)}`;
+                        if (window._is3dMode && window.mlMap3d) {
+                            window.mlMap3d.flyTo({ center: [cLng, cLat], zoom: Math.max(window.mlMap3d.getZoom(), 8), duration: 1000 });
+                        }
+                        map.flyTo([cLat, cLng], Math.max(map.getZoom(), 10), { animate: true, duration: 1.0 });
+                        // 핀 표시
+                        if (_tbMapPin) { map.removeLayer(_tbMapPin); _tbMapPin = null; }
+                        _tbMapPin = L.marker([cLat, cLng], { icon: _tbPinIcon, zIndexOffset: 9000 }).addTo(map);
+                        _tbMapPin.bindPopup(`<b>📍 ${cLat.toFixed(5)}, ${cLng.toFixed(5)}</b>`, { offset: [0, -34] }).openPopup();
+                        return;
+                    }
+                }
+
                 topbarSearchResults.innerHTML = '<div style="color:#7a9aaa;font-size:11px;padding:8px 12px;">검색 중…</div>';
                 topbarSearchResults.style.display = 'block';
 
@@ -25284,6 +25658,17 @@ kingSelect.addEventListener('change', () => {
 
             let _mbTimer = null;
             const doMobileSearch = async (query) => {
+                // 좌표 직접 입력 감지
+                const coordMatch = query.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*$/);
+                if (coordMatch) {
+                    const cLat = parseFloat(coordMatch[1]);
+                    const cLng = parseFloat(coordMatch[2]);
+                    if (cLat >= -90 && cLat <= 90 && cLng >= -180 && cLng <= 180) {
+                        document.getElementById('mobile-search-overlay')?.classList.remove('open');
+                        window._tbGoToMapResult(cLat, cLng, `${cLat.toFixed(4)}, ${cLng.toFixed(4)}`, '📍 좌표 이동');
+                        return;
+                    }
+                }
                 const ql = query.toLowerCase();
                 mobileSearchResults.innerHTML = '<div style="color:#7a9aaa;font-size:12px;padding:10px 14px;">검색 중…</div>';
                 mobileSearchResults.style.display = 'block';
@@ -25535,8 +25920,12 @@ kingSelect.addEventListener('change', () => {
         // 🍔 메뉴 내 국가 필터 연결
         const menuCountrySelect = document.getElementById('menu-country-select');
         // 🔑 [전역] countries 갱신 시 필터도 다시 채우는 함수
-        window._fillCountryFilterSelect = function() {
+        let _countryFilterHash = '';
+        window._fillCountryFilterSelect = function(force = false) {
             if (!menuCountrySelect || countries.length === 0) return;
+            const hash = `${countries.length}_${countries[0]?._id || ''}`;
+            if (!force && hash === _countryFilterHash) return; // 동일 데이터 스킵
+            _countryFilterHash = hash;
             // 기존 옵션(전체 제외) 제거
             while (menuCountrySelect.options.length > 1) menuCountrySelect.remove(1);
             console.log('🍔 국가 필터 채우기:', countries.length);
@@ -25549,9 +25938,9 @@ kingSelect.addEventListener('change', () => {
             });
         };
         if (menuCountrySelect) {
-            // 국가 옵션 채우기 - 3초 후 재시도 (백그라운드 재검증 완료 보장)
+            // 국가 옵션 채우기 - 1회만 실행 (3초 재시도는 countries가 바뀐 경우만)
             setTimeout(() => window._fillCountryFilterSelect(), 1000);
-            setTimeout(() => window._fillCountryFilterSelect(), 3000);
+            setTimeout(() => window._fillCountryFilterSelect(), 3000); // hash 가드로 이미 채워졌으면 스킵
             
             menuCountrySelect.addEventListener('change', () => {
                 selectedCountryId = menuCountrySelect.value;
@@ -25921,8 +26310,1372 @@ kingSelect.addEventListener('change', () => {
                 });
             });
         }
-        
-        // �️ [admin] 서버 DB 동기화 버튼 — castles.json / territories 재빌드
+
+        // 🚩 [추가] 3D 지도 버튼 — MapLibre 풀렌더링 (영토·성·마커 모두 포함, 틸트/회전 완전 지원)
+        (function init3DMap() {
+            const btn3d      = document.getElementById('btn-3d-mode');
+            const terrainBtn = document.getElementById('map3d-terrain-btn');
+            const orbitBtn   = document.getElementById('map3d-orbit-btn');
+            if (!btn3d) return;
+            let mlMap     = null;
+            let mlOverlay = null;   // 전체화면 div
+            let is3d      = false;
+            let _3dMarkers = [];    // maplibregl.Marker 인스턴스 목록 (refresh 시 제거)
+            let _3dRenderListener = null; // behind-globe culling 리스너
+            let terrainOn = true;
+            let orbitOn   = false;
+            let orbitTimer = null;
+
+            // ── MapLibre CDN 동적 로드 (1회) ──
+            function loadMapLibre(cb) {
+                if (window.maplibregl) { cb(); return; }
+                // 이미 로드 중이면 onload 큐에 추가
+                if (window._maplibreLoading) { window._maplibreOnloadQ = window._maplibreOnloadQ || []; window._maplibreOnloadQ.push(cb); return; }
+                window._maplibreLoading = true;
+                window._maplibreOnloadQ = [cb];
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.crossOrigin = 'anonymous';
+                link.href = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css';
+                document.head.appendChild(link);
+                const s = document.createElement('script');
+                s.crossOrigin = 'anonymous';
+                s.src = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js';
+                s.onload = () => { window._maplibreLoading = false; (window._maplibreOnloadQ || []).forEach(fn => fn()); window._maplibreOnloadQ = []; };
+                document.head.appendChild(s);
+            }
+            // 페이지 로드 후 idle 시 MapLibre 사전 로드 (3D 첫 진입 속도 개선)
+            if ('requestIdleCallback' in window) {
+                requestIdleCallback(() => loadMapLibre(() => {}), { timeout: 6000 });
+            } else {
+                setTimeout(() => loadMapLibre(() => {}), 4000);
+            }
+
+            // ── 현재 연도로 표시할 영토 필터링 → GeoJSON FeatureCollection ──
+            function buildTerritoryGeoJSON(year) {
+                const features = [];
+                // window 스코프에서 territories 직접 접근 (IIFE 클로저 문제 방지)
+                const src = (typeof territories !== 'undefined' && territories.length > 0)
+                    ? territories
+                    : [];
+                console.log(`[3D] territories total=${src.length}`);
+                src.forEach(t => {
+                    const sy = t.start != null ? t.start : -Infinity;
+                    const ey = t.end   != null ? t.end   :  Infinity;
+                    if (year < sy || year > ey) return;
+                    if (t.hidden) return;
+                    // geometry 추출: 여러 구조 지원
+                    let geom = null;
+                    if (t.geojson && t.geojson.geometry)          geom = t.geojson.geometry;
+                    else if (t.geojson && t.geojson.type)         geom = t.geojson;
+                    else if (t.geometry && t.geometry.type)       geom = t.geometry;
+                    else if (t.type && t.coordinates)             geom = { type: t.type, coordinates: t.coordinates };
+                    if (!geom) return;
+                    const country = getCountryInfoById ? getCountryInfoById(t.country_id) : null;
+                    const color   = (country && country.color) ? country.color : '#4488aa';
+                    features.push({
+                        type: 'Feature',
+                        geometry: geom,
+                        properties: {
+                            id: t._id,
+                            country_id: t.country_id,
+                            name: (country && country.name) || '',
+                            color: color,
+                        }
+                    });
+                });
+                return { type: 'FeatureCollection', features };
+            }
+
+            // ── 현재 연도로 표시할 성/도시 필터링 → GeoJSON FeatureCollection ──
+            function buildCastleGeoJSON(year) {
+                const features = [];
+                // castles 배열(메인 소스)을 우선, 비어있으면 castlesById Map 사용
+                const castlesArr = (typeof castles !== 'undefined' && castles.length > 0)
+                    ? castles
+                    : (window._sessionMapCache && window._sessionMapCache.castlesById.size > 0
+                        ? [...window._sessionMapCache.castlesById.values()]
+                        : []);
+                console.log(`[3D] castles total=${castlesArr.length}`);
+                castlesArr.forEach(c => {
+                    const lat = c.lat != null ? c.lat
+                        : (c.geo_location && c.geo_location.coordinates ? c.geo_location.coordinates[1] : null);
+                    const lng = c.lng != null ? c.lng
+                        : (c.geo_location && c.geo_location.coordinates ? c.geo_location.coordinates[0] : null);
+                    if (lat == null || lng == null) return;
+                    // 연도 필터 — built_year/end_year 없는 데이터는 항상 표시
+                    const builtY   = c.built_year  != null ? c.built_year  : -Infinity;
+                    const endY     = c.end_year != null ? c.end_year : (c.destroyed_year != null ? c.destroyed_year : Infinity);
+                    if (year < builtY || year > endY) return;
+                    features.push({
+                        type: 'Feature',
+                        geometry: { type: 'Point', coordinates: [lng, lat] },
+                        properties: {
+                            id: c._id,
+                            name: c.name || '',
+                            type: c.type || 'city',
+                        }
+                    });
+                });
+                return { type: 'FeatureCollection', features };
+            }
+
+            // ── MapLibre 레이어 데이터 갱신 ──
+            let _layerEventsSetup = false;
+            function setupLayerEvents() {
+                if (_layerEventsSetup) return;
+                _layerEventsSetup = true;
+                // 팝업: 영토 클릭
+                mlMap.on('click', 'territory-fill', (e) => {
+                    const p = e.features[0].properties;
+                    new maplibregl.Popup()
+                        .setLngLat(e.lngLat)
+                        .setHTML(`<div style="color:#ffd97a;font-weight:700;font-size:13px;">${p.name}</div>`)
+                        .addTo(mlMap);
+                });
+                // 팝업: 성 클릭
+                mlMap.on('click', 'castle-circle', (e) => {
+                    const p = e.features[0].properties;
+                    new maplibregl.Popup()
+                        .setLngLat(e.lngLat)
+                        .setHTML(`<div style="color:#ffd97a;font-weight:700;font-size:13px;">🏯 ${p.name}</div>`)
+                        .addTo(mlMap);
+                });
+                mlMap.on('mouseenter', 'territory-fill',  () => { mlMap.getCanvas().style.cursor = 'pointer'; });
+                mlMap.on('mouseleave', 'territory-fill',  () => { mlMap.getCanvas().style.cursor = ''; });
+                mlMap.on('mouseenter', 'castle-circle', () => { mlMap.getCanvas().style.cursor = 'pointer'; });
+                mlMap.on('mouseleave', 'castle-circle', () => { mlMap.getCanvas().style.cursor = ''; });
+            }
+
+            let _refreshLayersCacheKey = null;
+            let _refreshLayersTimer = null;
+
+            function refreshLayers() {
+                if (!mlMap) return;
+                // ── debounce: 400ms 안에 연속 호출은 마지막 1회만 실행 ──
+                clearTimeout(_refreshLayersTimer);
+                _refreshLayersTimer = setTimeout(() => {
+                    _refreshLayersThrottled();
+                }, 400);
+            }
+
+            function _refreshLayersThrottled() {
+                if (!mlMap) return;
+                // ── 레이어 결과 캐시: 데이터·연도·LOD가 바뀌지 않으면 마커 재생성 생략 ──
+                const { year, month } = (typeof getCurrentYearMonth === 'function') ? getCurrentYearMonth() : { year: 0, month: 1 };
+                const _td = window._3dTerritoryData;
+                const _lodMode = getLodMode(mlMap);
+                const newKey = `${year}_${month}_${(_td?.country?.length||0)}_${(_td?.province?.length||0)}_${(_td?.city?.length||0)}_${(window._3dCastleData||[]).length}_${mlMap.getZoom().toFixed(1)}_${mlMap.getPitch().toFixed(0)}_${_lodMode}`;
+                if (newKey === _refreshLayersCacheKey) {
+                    return; // 동일 상태 — 재렌더 불필요
+                }
+                _refreshLayersCacheKey = newKey;
+
+                // 데이터가 아직 없으면 2D updateMap을 먼저 트리거
+                const _tdEmpty = !_td || (_td.country?.length === 0 && _td.province?.length === 0 && _td.city?.length === 0);
+                if (_tdEmpty) {
+                    console.log('[3D] _3dTerritoryData 없음 → updateMap 트리거');
+                    if (typeof updateMap === 'function' && typeof getCurrentYearMonth === 'function') {
+                        updateMap(year, month);
+                        return; // updateMap 완료 후 _3dRefreshLayers()가 자동 호출됨
+                    }
+                }
+                try { _refreshLayersInner(); } catch(e) { console.error('[3D] refreshLayers ERROR:', e); }
+            }
+            // updateMap() 완료 후 자동 호출 — window에 노출
+            window._3dRefreshLayers = refreshLayers;
+
+            // ── 🩺 Dedup 진단 함수 ──
+            window.diagDedup = function() {
+                const dd = window._dedupDebug;
+                if (!dd) { console.warn('_dedupDebug 없음 — updateMap 재실행'); return; }
+                console.group('🩺 [3D Dedup 진단]');
+                const hideCases = dd.country.filter(c => c.decision === 'HIDE');
+                console.log(`country 총: ${dd.country.length} | SHOW: ${dd.country.length - hideCases.length} | HIDE: ${hideCases.length}`);
+                if (hideCases.length > 0) {
+                    console.group('❌ HIDE된 country');
+                    hideCases.forEach(c => console.log(`${c.name}[${c.cid}] 침입cid:`, c.innerRealCids, c.innerCount));
+                    console.groupEnd();
+                }
+                const suspect = hideCases.filter(c => c.innerRealCids.length === 1 && c.innerCount.city <= 3);
+                if (suspect.length > 0) {
+                    console.group(`⚠️ centroid 오판 의심 (${suspect.length}건)`);
+                    suspect.forEach(c => console.log(`${c.name}[${c.cid}] ← 침입자:${c.innerRealCids[0]}`));
+                    console.groupEnd();
+                }
+                const provHide = dd.province.filter(p => p.decision === 'HIDE');
+                console.log(`province 총: ${dd.province.length} | SHOW: ${dd.province.length - provHide.length} | HIDE: ${provHide.length}`);
+                console.groupEnd();
+                return { hideCases, suspect };
+            };
+            window.whyHide = function(nameOrCid) {
+                const dd = window._dedupDebug;
+                if (!dd) return console.warn('진단 데이터 없음');
+                const hit = dd.country.find(c => c.name === nameOrCid || c.cid === nameOrCid);
+                if (!hit) return console.warn('해당 country 없음');
+                console.group(`🔬 ${hit.name||hit.cid}`);
+                console.log('결정:', hit.decision, '| 자기cid:', hit.cid);
+                console.log('침입 cid:', hit.innerRealCids);
+                console.log('내부 카운트:', hit.innerCount);
+                console.groupEnd();
+                return hit;
+            };
+            window.findGaps = function() {
+                const td = window._3dTerritoryData;
+                if (!td) return console.warn('_3dTerritoryData 없음');
+                const cidToCount = {};
+                ['country','province','city'].forEach(lv => {
+                    td[lv].forEach(f => {
+                        const cid = f.properties.country_id;
+                        if (!cidToCount[cid]) cidToCount[cid] = { country:0, province:0, city:0 };
+                        cidToCount[cid][lv]++;
+                    });
+                });
+                console.group('🕳️ country 표시 없는 cid (구멍 후보)');
+                Object.entries(cidToCount)
+                    .filter(([cid, v]) => v.country === 0 && cid !== '__unowned__')
+                    .sort((a,b) => (b[1].city+b[1].province)-(a[1].city+a[1].province))
+                    .slice(0,20)
+                    .forEach(([cid, v]) => console.log(`cid=${cid}: prov=${v.province} city=${v.city}`));
+                console.groupEnd();
+                return cidToCount;
+            };
+
+            // ── 🩺 진단 함수: 브라우저 콘솔에서 window.diag3d() 호출 ──
+            window.diag3d = function() {
+                const td = window._3dTerritoryData;
+                const cd = window._3dCastleData;
+                const ac = window._activeCastlesForTerritory;
+                console.group('🩺 [3D 진단]');
+                console.log('territories 배열 크기:', typeof territories !== 'undefined' ? territories.length : 'N/A');
+                console.log('castles 배열 크기:', typeof castles !== 'undefined' ? castles.length : 'N/A');
+                console.log('_activeCastlesForTerritory:', ac ? ac.length : 'null/undefined');
+                console.log('_3dTerritoryData:', td ? `country=${td.country?.length} province=${td.province?.length} city=${td.city?.length}` : 'null/undefined');
+                console.log('_3dCastleData:', cd ? cd.length : 'null/undefined');
+                if (td) {
+                    const allFeatures = [...(td.country||[]), ...(td.province||[]), ...(td.city||[])];
+                    const neutral = allFeatures.filter(f => f.properties?.country_id === '__unowned__');
+                    const colored = allFeatures.filter(f => f.properties?.country_id !== '__unowned__');
+                    console.log(`  → 국가 색칠: ${colored.length}개, 중립: ${neutral.length}개`);
+                    if (colored.length > 0) {
+                        const s = colored[0].properties;
+                        console.log('  첫 번째 colored feature:', JSON.stringify({name:s.name, fillColor:s.fillColor, fillOpacity:s.fillOpacity, lineColor:s.lineColor, weight:s.weight, country_id:s.country_id}));
+                    }
+                    // bbox 출력 (어느 지역인지)
+                    const lats = [], lngs = [];
+                    colored.slice(0,10).forEach(f => {
+                        const g = f.geometry;
+                        const coords = g?.type==='Polygon' ? g.coordinates[0] : (g?.type==='MultiPolygon' ? g.coordinates[0][0] : []);
+                        if (coords?.length) { lats.push(coords[0][1]); lngs.push(coords[0][0]); }
+                    });
+                    if (lats.length) console.log(`  colored 위치 샘플: lat ${Math.min(...lats).toFixed(1)}~${Math.max(...lats).toFixed(1)}, lng ${Math.min(...lngs).toFixed(1)}~${Math.max(...lngs).toFixed(1)}`);
+                    // 첫 feature geometry 상세
+                    if (colored.length > 0) {
+                        const g0 = colored[0].geometry;
+                        const ring0 = g0?.type==='Polygon' ? g0.coordinates[0] : (g0?.type==='MultiPolygon' ? g0.coordinates[0][0] : []);
+                        console.log(`  첫 feature geometry type: ${g0?.type}, ring0 길이: ${ring0?.length}, 첫 좌표: ${JSON.stringify(ring0?.[0])}`);
+                        const allRingCoords = g0?.type==='Polygon' ? g0.coordinates.flat() : (g0?.type==='MultiPolygon' ? g0.coordinates.flat(2) : []);
+                        const allLng = allRingCoords.map(c=>c[0]), allLat = allRingCoords.map(c=>c[1]);
+                        console.log(`  첫 feature 전체 bbox: lng ${Math.min(...allLng).toFixed(2)}~${Math.max(...allLng).toFixed(2)}, lat ${Math.min(...allLat).toFixed(2)}~${Math.max(...allLat).toFixed(2)}`);
+                    }
+                }
+                const _m = window.mlMap3d;
+                if (_m) {
+                    ['country','province','city'].forEach(k => {
+                        const src = _m.getSource(`territories-${k}`);
+                        const fill = _m.getLayer(`territory-fill-${k}`);
+                        const feats = src ? src._data?.features?.length : 0;
+                        console.log(`MapLibre territories-${k}: 소스=${src?'존재':'없음'} 레이어=${fill?'존재':'없음'} features=${feats}`);
+                        if (fill) {
+                            const vis = _m.getLayoutProperty(`territory-fill-${k}`, 'visibility');
+                            console.log(`  territory-fill-${k} visibility:`, vis || 'visible(default)');
+                        }
+                    });
+                    // 현재 카메라 위치
+                    const center = _m.getCenter();
+                    const zoom = _m.getZoom();
+                    console.log(`MapLibre 카메라: center=(${center.lat.toFixed(1)},${center.lng.toFixed(1)}) zoom=${zoom.toFixed(1)}`);
+                    // 화면 중앙 실제 렌더 확인
+                    const canvas = _m.getCanvas();
+                    const cx = canvas.clientWidth / 2, cy = canvas.clientHeight / 2;
+                    console.log(`캔버스 크기: ${canvas.width}x${canvas.height} (clientW=${canvas.clientWidth} clientH=${canvas.clientHeight})`);
+                    const mapContainer = _m.getContainer();
+                    const cs = window.getComputedStyle(mapContainer);
+                    console.log(`맵 컨테이너: display=${cs.display} visibility=${cs.visibility} opacity=${cs.opacity} w=${mapContainer.offsetWidth} h=${mapContainer.offsetHeight}`);
+                    // 중앙 점 + 넓은 영역 모두 시도
+                    const rendered = _m.queryRenderedFeatures([cx, cy], { layers: ['territory-fill-country','territory-fill-province','territory-fill-city'] });
+                    console.log(`화면 중앙 렌더 feature 수: ${rendered.length}`, rendered.map(f=>f.properties?.name||'?'));
+                    const renderedAll = _m.queryRenderedFeatures([[cx-200,cy-200],[cx+200,cy+200]], { layers: ['territory-fill-country','territory-fill-province','territory-fill-city'] });
+                    console.log(`화면 400px 박스 렌더 feature 수: ${renderedAll.length}`, renderedAll.map(f=>f.properties?.name||'?').slice(0,5));
+                    // fill expression 디버그: 고정값으로 강제 변경 후 재쿼리
+                    try {
+                        ['country','province','city'].forEach(k => {
+                            const fid = `territory-fill-${k}`;
+                            if (_m.getLayer(fid)) {
+                                _m.setPaintProperty(fid, 'fill-color', '#ff4400');
+                                _m.setPaintProperty(fid, 'fill-opacity', 0.8);
+                            }
+                        });
+                        setTimeout(() => {
+                            const forcedAll = _m.queryRenderedFeatures([[0,0],[cx*2,cy*2]], { layers: ['territory-fill-country','territory-fill-province','territory-fill-city'] });
+                            console.log(`[강제색상후] fill 렌더 feature 수: ${forcedAll.length}`, forcedAll.map(f=>f.properties?.name||'?').slice(0,5));
+                            // 복원
+                            ['country','province','city'].forEach(k => {
+                                const fid = `territory-fill-${k}`;
+                                if (_m.getLayer(fid)) {
+                                    _m.setPaintProperty(fid, 'fill-color', ['get','fillColor']);
+                                    _m.setPaintProperty(fid, 'fill-opacity', ['get','fillOpacity']);
+                                }
+                            });
+                        }, 500);
+                    } catch(e) { console.error('setPaintProperty 오류:', e); }
+                    const allLayers = _m.getStyle()?.layers?.map(l=>l.id) || [];
+                    const terrIdx = allLayers.filter(id => id.startsWith('territory'));
+                    console.log('territory 레이어 순서:', terrIdx);
+                    console.log('전체 레이어 수:', allLayers.length, '마지막 5개:', allLayers.slice(-5));
+                }
+                // territories 샘플 + dominantResult 테스트
+                if (typeof territories !== 'undefined' && territories.length > 0 && typeof getCachedDominantCountry === 'function') {
+                    const {year, month} = getCurrentYearMonth();
+                    const sample5 = territories.slice(0, 5);
+                    console.log('territories 샘플 dominantResult:');
+                    sample5.forEach(t => {
+                        const r = getCachedDominantCountry(t, year, month);
+                        console.log(`  name="${t.name}" level="${t.level}" country="${t.country}" → dominant: ${r ? r.countryId : 'null'}`);
+                    });
+                }
+                console.groupEnd();
+            };
+            console.log('💡 콘솔에서 window.diag3d() 호출하면 3D 영토 진단 정보를 볼 수 있습니다.');
+
+            function _initStarCanvas(overlay, map) {
+                const existing = document.getElementById('star-overlay');
+                if (existing) existing.remove();
+
+                // ── MapLibre WebGL Custom Layer ──
+                const NUM_STARS = 600;
+                const T0 = performance.now();
+                if (map.getLayer('ml-star-layer')) map.removeLayer('ml-star-layer');
+
+                // 지도의 첫 번째 레이어 ID를 구해서 별을 그 아래에 삽입 (지도 뒤에 렌더링)
+                const _firstLayerId = (() => {
+                    const layers = map.getStyle()?.layers;
+                    return (layers && layers.length > 0) ? layers[0].id : undefined;
+                })();
+
+                map.addLayer({
+                    id: 'ml-star-layer',
+                    type: 'custom',
+                    renderingMode: '2d',
+
+                    onAdd(map, gl) {
+                        const vs = `
+                            precision mediump float;
+                            attribute vec2  a_pos;
+                            attribute float a_size;
+                            attribute float a_phase;
+                            uniform   float u_time;
+                            uniform   float u_pitch;
+                            void main() {
+                                // 별은 스크린 고정 오버레이 — pitch에 따라 수직 이동만
+                                float shift = (1.0 - u_pitch) * 2.8;
+                                gl_Position = vec4(a_pos.x, a_pos.y + shift, 0.0, 1.0);
+                                float tw = 0.65 + 0.35 * sin(u_time * (1.2 + a_phase * 0.4) + a_phase);
+                                gl_PointSize = a_size * tw * (0.4 + u_pitch * 0.6);
+                            }
+                        `;
+                        const fs = `
+                            precision mediump float;
+                            uniform float u_opacity;
+                            void main() {
+                                vec2  pc = gl_PointCoord - 0.5;
+                                float d  = length(pc) * 2.0;
+                                if (d > 1.0) discard;
+                                float core  = smoothstep(1.0, 0.0, d);
+                                float cross = max(
+                                    smoothstep(0.9, 0.0, abs(pc.x)*5.0) * smoothstep(0.4, 0.0, abs(pc.y)),
+                                    smoothstep(0.9, 0.0, abs(pc.y)*5.0) * smoothstep(0.4, 0.0, abs(pc.x))
+                                ) * 0.4;
+                                gl_FragColor = vec4(1.0, 0.96, 0.88, (core + cross) * u_opacity);
+                            }
+                        `;
+                        const mkShader = (type, src) => {
+                            const s = gl.createShader(type);
+                            gl.shaderSource(s, src); gl.compileShader(s); return s;
+                        };
+                        this._prog = gl.createProgram();
+                        gl.attachShader(this._prog, mkShader(gl.VERTEX_SHADER,   vs));
+                        gl.attachShader(this._prog, mkShader(gl.FRAGMENT_SHADER, fs));
+                        gl.linkProgram(this._prog);
+
+                        const rng = s => { const x = Math.sin(s) * 43758.5453; return x - Math.floor(x); };
+                        const buf = [];
+                        for (let i = 0; i < NUM_STARS; i++) {
+                            buf.push(
+                                rng(i * 3.1 + 0.1) * 2.0 - 1.0,   // x [-1, 1]
+                                rng(i * 7.3 + 0.5) * 0.7  + 0.3,  // y [0.3, 1.0] — 더 상단
+                                1.5 + rng(i * 5.7 + 1.2) * 2.8,   // size
+                                rng(i * 11.1 + 2.3) * 6.28         // phase
+                            );
+                        }
+                        this._vbo = gl.createBuffer();
+                        gl.bindBuffer(gl.ARRAY_BUFFER, this._vbo);
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(buf), gl.STATIC_DRAW);
+
+                        this._loc = {
+                            a_pos:     gl.getAttribLocation(this._prog,  'a_pos'),
+                            a_size:    gl.getAttribLocation(this._prog,  'a_size'),
+                            a_phase:   gl.getAttribLocation(this._prog,  'a_phase'),
+                            u_time:    gl.getUniformLocation(this._prog, 'u_time'),
+                            u_pitch:   gl.getUniformLocation(this._prog, 'u_pitch'),
+                            u_opacity: gl.getUniformLocation(this._prog, 'u_opacity'),
+                        };
+                    },
+
+                    render(gl) {
+                        const pitch = map.getPitch();
+                        if (pitch < 15) { map.triggerRepaint(); return; }
+                        const pn = Math.min(1.0, (pitch - 15) / 45);
+
+                        gl.useProgram(this._prog);
+                        gl.uniform1f(this._loc.u_time,    (performance.now() - T0) / 1000.0);
+                        gl.uniform1f(this._loc.u_pitch,   pn);
+                        gl.uniform1f(this._loc.u_opacity, pn * 0.9);
+
+                        gl.bindBuffer(gl.ARRAY_BUFFER, this._vbo);
+                        const stride = 16;
+                        const L = this._loc;
+                        gl.enableVertexAttribArray(L.a_pos);
+                        gl.vertexAttribPointer(L.a_pos,   2, gl.FLOAT, false, stride, 0);
+                        gl.enableVertexAttribArray(L.a_size);
+                        gl.vertexAttribPointer(L.a_size,  1, gl.FLOAT, false, stride, 8);
+                        gl.enableVertexAttribArray(L.a_phase);
+                        gl.vertexAttribPointer(L.a_phase, 1, gl.FLOAT, false, stride, 12);
+
+                        gl.enable(gl.BLEND);
+                        gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // additive: 별 광망
+                        gl.drawArrays(gl.POINTS, 0, NUM_STARS);
+
+                        gl.disableVertexAttribArray(L.a_pos);
+                        gl.disableVertexAttribArray(L.a_size);
+                        gl.disableVertexAttribArray(L.a_phase);
+                        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+                        map.triggerRepaint();
+                    },
+
+                    onRemove(map, gl) {
+                        if (this._prog) gl.deleteProgram(this._prog);
+                        if (this._vbo)  gl.deleteBuffer(this._vbo);
+                    }
+                }, _firstLayerId);  // 🚩 지도의 첫 번째 레이어 아래에 삽입 → 별이 지도 뒤에 표시됨
+            }
+
+            // ── LOD 헬퍼 함수들 ──
+            // pitch를 고려한 보정 줌: pitch 60°면 ~-0.87 보정
+            function getEffectiveZoom(m) {
+                const zoom  = m.getZoom();
+                const pitch = m.getPitch();
+                const pitchPenalty = Math.tan(pitch * Math.PI / 180) * 0.5;
+                return zoom - pitchPenalty;
+            }
+            // effective zoom → LOD 모드
+            function getLodMode(m) {
+                const ez = getEffectiveZoom(m);
+                if (ez < 3)  return 'country';  // 극거시: 국가명 라벨만
+                if (ez < 5)  return 'capital';  // 거시: 수도 + 자연지물
+                if (ez < 7)  return 'major';    // 중간: 주요 성/전장까지
+                return 'all';                   // 미시: 전부
+            }
+            // 마커 우선순위 (낮을수록 더 중요)
+            function getMarkerPriority(c) {
+                if (c.is_label && c.label_type === 'country')  return 0; // 국가명 라벨
+                if (c.is_capital)                              return 1; // 수도/왕성
+                if (c.place_type === 'capital')                return 1; // place_type 수도
+                if (c.is_natural_feature)                      return 2; // 자연지물 (산·강 등)
+                if (c.is_label)                                return 2; // 지명 라벨
+                if (c.is_military_flag)                        return 3; // 군대
+                if (c.place_type === 'battle')                 return 3; // 전장
+                if (c.population && c.population > 100000)    return 3; // 대도시
+                if (c.place_type === '주' || c.place_type === 'ju') return 4;
+                return 5; // 일반 성/현
+            }
+            // LOD 모드별 최대 priority
+            //   country: 0 (국가라벨만)
+            //   capital: 2 (수도 + 자연지물 + 지명라벨)
+            //   major:   4 (주요 성/전장/군대까지)
+            //   all:     99 (전부)
+            const LOD_MAX_PRIORITY = { country: 0, capital: 2, major: 4, all: 99 };
+
+            function _refreshLayersInner() {
+                const _m = window.mlMap3d;
+                if (!_m) { console.error('[3D] _m is null!'); return; }
+
+                // terrain이 활성화된 상태에서 fill 레이어 추가 시 드레이프 패스에서 제외되는 버그 방지
+                // → terrain 일시 해제 후 레이어 추가 후 복원
+                const currentTerrain = _m.getTerrain();
+                if (currentTerrain) _m.setTerrain(null);
+
+                // ── 영토: 데이터 수집 단계에서 이미 국가별 최상위 레벨만 저장됨 ──
+                // fillOpacity/lineOpacity는 feature properties에 저장되어 있으므로 ['get',...] 사용
+                const td = window._3dTerritoryData || { country: [], province: [], city: [] };
+                const _showTerritory = (typeof layerVisibility === 'undefined') || layerVisibility.territoryPolygon !== false;
+                // 2D와 동일한 level별 opacity — feature properties에 이미 저장됨, fallback만 여기서 정의
+                const LEVEL_FILL_OPACITY = { country: 0.14, province: 0.18, city: 0.22 };
+                ['country', 'province', 'city'].forEach(key => {
+                    const fillId    = `territory-fill-${key}`;
+                    const outlineId = `territory-outline-${key}`;
+                    const srcId     = `territories-${key}`;
+                    [outlineId, fillId].forEach(id => { if (_m.getLayer(id)) _m.removeLayer(id); });
+                    if (_m.getSource(srcId)) _m.removeSource(srcId);
+                    const features = td[key] || [];
+                    if (features.length === 0 || !_showTerritory) return;
+                    _m.addSource(srcId, { type: 'geojson', data: { type: 'FeatureCollection', features } });
+                    _m.addLayer({ id: fillId, type: 'fill', source: srcId,
+                        paint: {
+                            'fill-color':   ['coalesce', ['get', 'fillColor'], '#888888'],
+                            'fill-opacity': ['coalesce', ['to-number', ['get', 'fillOpacity'], null], LEVEL_FILL_OPACITY[key]]
+                        }
+                    });
+                    _m.addLayer({ id: outlineId, type: 'line', source: srcId,
+                        paint: {
+                            'line-color':   ['coalesce', ['get', 'lineColor'], '#888888'],
+                            'line-width':   ['coalesce', ['to-number', ['get', 'weight'], null], 0.5],
+                            'line-opacity': ['coalesce', ['to-number', ['get', 'lineOpacity'], null], 0.4]
+                        }
+                    });
+                });
+
+                // terrain 복원
+                if (currentTerrain) _m.setTerrain(currentTerrain);
+
+                // ── 강 레이어 (MapLibre GeoJSON line) — 영토 위에 렌더링 ──
+                ['3d-rivers-fill', '3d-rivers-line'].forEach(id => { if (_m.getLayer(id)) _m.removeLayer(id); });
+                if (_m.getSource('3d-rivers')) _m.removeSource('3d-rivers');
+                const _showRivers = (typeof layerVisibility === 'undefined') || layerVisibility.rivers !== false;
+                if (_showRivers) {
+                    const riverFeatures = [];
+                    // naturalFeatures 기반
+                    if (typeof naturalFeatures !== 'undefined') {
+                        naturalFeatures.forEach(f => {
+                            if (f.type !== 'river' || !f.geometry) return;
+                            riverFeatures.push({ type: 'Feature', geometry: f.geometry, properties: { name: f.name || '' } });
+                        });
+                    }
+                    // drawings(type:river) 기반
+                    if (typeof drawings !== 'undefined') {
+                        drawings.forEach(d => {
+                            if (d.type !== 'river' || !d.geojson?.geometry) return;
+                            riverFeatures.push({ type: 'Feature', geometry: d.geojson.geometry, properties: { name: d.name || '강' } });
+                        });
+                    }
+                    if (riverFeatures.length > 0) {
+                        _m.addSource('3d-rivers', { type: 'geojson', data: { type: 'FeatureCollection', features: riverFeatures } });
+                        // Polygon/MultiPolygon 강 도형 내부 채우기
+                        _m.addLayer({ id: '3d-rivers-fill', type: 'fill', source: '3d-rivers',
+                            filter: ['in', '$type', 'Polygon'],
+                            paint: { 'fill-color': '#1e003d', 'fill-opacity': 0.55 }
+                        });
+                        // 선/폴리곤 윤곽 공통 line 레이어
+                        _m.addLayer({ id: '3d-rivers-line', type: 'line', source: '3d-rivers',
+                            paint: { 'line-color': '#1e003d', 'line-width': 2.0, 'line-opacity': 0.9 },
+                            layout: { 'line-cap': 'round', 'line-join': 'round' }
+                        });
+                    }
+                }
+
+                // ── 기존 HTML 마커 제거 + render culling 리스너 해제 ──
+                _3dMarkers.forEach(mk => mk.remove());
+                _3dMarkers = [];
+                if (_3dRenderListener) { _m.off('render', _3dRenderListener); _3dRenderListener = null; }
+
+                // ── 성/도시 HTML 마커 — window._3dCastleData 사용 (2D updateMap이 이미 계산 완료) ──
+                const castleData3d = window._3dCastleData || [];
+
+                // ── pitch 보정 LOD (effective zoom 기반) ──
+                const _lodMode = getLodMode(_m);
+                const _maxPriority = LOD_MAX_PRIORITY[_lodMode];
+                const _ez = getEffectiveZoom(_m);
+                console.log(`[3D LOD] zoom=${_m.getZoom().toFixed(2)} pitch=${_m.getPitch().toFixed(0)}° → ez=${_ez.toFixed(2)} mode=${_lodMode} (max priority ${_maxPriority}) / total=${castleData3d.length}`);
+
+                // MapLibre 화면 bounds (viewport 필터용)
+                const _3dBounds = _m.getBounds();
+                const _inViewport = (lat, lng) => {
+                    const pad = 0.5; // 화면 밖 여유 (도 단위)
+                    return lat >= _3dBounds.getSouth() - pad && lat <= _3dBounds.getNorth() + pad &&
+                           lng >= _3dBounds.getWest()  - pad && lng <= _3dBounds.getEast()  + pad;
+                };
+
+                const PLACE_TYPE_CONFIG_3D = {
+                    ju:      { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E5%B7%9E.png?raw=true',             size: 22, hanja: '州' },
+                    gun:     { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E9%83%A1.png?raw=true',             size: 15, hanja: '郡' },
+                    hyeon:   { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E7%B8%A3.png?raw=true',             size: 15, hanja: '縣' },
+                    seong:   { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E5%9F%8E.png?raw=true', size: 20, hanja: '城' },
+                    jin:     { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E9%8E%AD.png?raw=true', size: 20, hanja: '鎭' },
+                    gateway: { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E1%84%80%E1%85%AA%E1%86%AB.png?raw=true', size: 20, hanja: '關' },
+                    battle:  { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E5%9F%8E.png?raw=true', size: 28, hanja: '戰' },
+                };
+                const nameStyle3d = `color:#d8cdb8;font-family:'Nanum Myeongjo',serif;font-weight:300;font-size:10px;white-space:nowrap;text-shadow:0 0 2px rgba(0,0,0,0.9),0 0 4px rgba(0,0,0,0.8);`;
+                const hanjaStyle3d = `font-weight:300;font-size:10px;line-height:1;white-space:nowrap;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;`;
+
+                // ── 뷰포트 안 우선, 밖 나중으로 정렬해서 chunked rAF 렌더 ──
+                const _inVP  = castleData3d.filter(({ castle: c }) => c.lat != null && c.lng != null && _inViewport(c.lat, c.lng));
+                const _outVP = castleData3d.filter(({ castle: c }) => c.lat != null && c.lng != null && !_inViewport(c.lat, c.lng));
+                const _sortedCastleData = [..._inVP, ..._outVP];
+
+                const _makeMarker = ({ castle: c, activeRec, countryInfo: ci }) => {
+
+                    // ── priority 기반 LOD 필터 (pitch 보정 effective zoom 반영) ──
+                    const _3dIsCapital = c.is_capital ||
+                        (Array.isArray(c.history) && c.history.some(h => h.is_capital)) ||
+                        !!(activeRec?.is_capital) ||
+                        (activeRec?.place_type === 'capital') ||
+                        (c.place_type === 'capital');
+                    // activeRec.is_capital이 있으면 priority 1로 상향
+                    const _cPriority = _3dIsCapital ? Math.min(getMarkerPriority(c), 1) : getMarkerPriority(c);
+                    if (_cPriority > _maxPriority) return; // LOD 컷오프
+
+                    // ── viewport 필터 (priority 1 이하(수도/국가라벨)는 항상 표시) ──
+                    if (_cPriority > 1 && !_inViewport(c.lat, c.lng)) return;
+
+                    // ── layerVisibility 연동 필터 ──
+                    const lv = (typeof layerVisibility !== 'undefined') ? layerVisibility : {};
+                    // 유적 계열 타입 (2D의 _relicTypes와 동일)
+                    const _3dRelicTypes = ['tomb', 'construction', 'hunting', 'temple', 'palace', 'mine', 'port', 'kiln', 'farmland', 'heritage'];
+                    if (c.is_military_flag) {
+                        if (lv.military === false) return;
+                    } else if (c.is_natural_feature) {
+                        const _nfType = c.natural_feature_type || 'other';
+                        if (_3dRelicTypes.includes(_nfType)) {
+                            // 유적 계열 → relic 토글
+                            if (lv.relic === false) return;
+                        } else {
+                            // 순수 자연지물(산·강·바다 등) → natural 토글
+                            if (lv.natural === false) return;
+                        }
+                    } else if (c.is_label) {
+                        const lt = c.label_type || 'place';
+                        if (lt === 'country'  && lv.adminLabel   === false) return;
+                        if (lt === 'admin'    && lv.adminLabel   === false) return;
+                        if (lt === 'ethnic'   && lv.ethnicLabel  === false) return;
+                        if (lt === 'place'    && lv.placeLabel   === false) return;
+                    } else {
+                        if (lv.city === false) return;
+                    }
+
+                    const dotColor3d   = ci?.color || '#aaaaaa';
+                    const castleName3d = activeRec?.name || c.name || '';
+                    const placeType3d  = activeRec?.place_type || c.place_type || 'normal';
+                    const isCapital3d  = !!(activeRec?.is_capital);
+
+                    // ── 우선순위 결정 (충돌 감지용) ──
+                    // 2=수도, 1=자연지물/지명, 0=일반
+                    let _priority = 0;
+                    if (isCapital3d || placeType3d === 'capital') _priority = 2;
+                    else if (c.is_natural_feature || c.is_label) _priority = 1;
+
+                    // ── 마커 HTML: txt/ico 분리 구조 ──
+                    let txtHtml = '', icoHtml = '', _isBattle3d = false;
+
+                    if (isCapital3d || placeType3d === 'capital') {
+                        const sealChar = ci?.sealText || (()=>{
+                            const n = ci?.name || '';
+                            const hj = (n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]);
+                            if (hj.length) return hj.slice(-1)[0];
+                            const hg = (n.match(/[가-힣]/g)||[]);
+                            return hg.length ? hg.slice(-1)[0] : '?';
+                        })();
+                        const sealColor = dotColor3d;
+                        const txtColor = (typeof getContrastColor === 'function') ? getContrastColor(sealColor) : '#ffffff';
+                        if (c.custom_icon) {
+                            txtHtml = `<div style="${nameStyle3d}margin-bottom:2px;">${castleName3d}</div>`;
+                            icoHtml = `<img src="${c.custom_icon}" style="width:${c.icon_width||32}px;height:${c.icon_height||32}px;object-fit:contain;" onerror="this.style.display='none'">`;
+                        } else {
+                            // capital-marker 구조 그대로 사용 (낙관 비율 유지)
+                            txtHtml = `__CAPITAL_MARKER__`;
+                            icoHtml = `__CAPITAL_MARKER_ICO__`;
+                            // markerHtml을 직접 override (아래에서 처리)
+                        }
+                    } else if (PLACE_TYPE_CONFIG_3D[placeType3d]) {
+                        const ptCfg = PLACE_TYPE_CONFIG_3D[placeType3d];
+
+                        // ── 전장(battle) 전용 — 2D와 동일한 CSS 클래스 구조 ──
+                        if (placeType3d === 'battle') {
+                            _isBattle3d = true;
+                            const sz = ptCfg.size;
+                            const _battleIconUrl = c.custom_icon ? toRawImageUrl(c.custom_icon) : ptCfg.icon;
+                            txtHtml = `<div style="${nameStyle3d}position:absolute;top:${sz+2}px;left:50%;transform:translateX(-50%);white-space:nowrap;z-index:2;">${castleName3d}</div>`;
+                            icoHtml = `<div style="position:relative;width:${sz}px;height:${sz}px;overflow:visible;">
+                                <div class="battle-fire-wrap" style="position:absolute;top:-10px;left:-4px;width:${sz}px;height:${sz}px;pointer-events:none;z-index:0;">
+                                    <div class="battle-smoke-particle bs1"></div>
+                                    <div class="battle-smoke-particle bs2"></div>
+                                    <div class="battle-smoke-particle bs3"></div>
+                                    <div class="battle-smoke-particle bs4"></div>
+                                    <div class="battle-smoke-particle bs5"></div>
+                                    <div class="battle-base-fire" style="bottom:0;left:30%;transform:translateX(-50%);"></div>
+                                    <div class="battle-base-fire bf2" style="bottom:0;left:calc(30% + 8px);transform:none;"></div>
+                                </div>
+                                <img src="${_battleIconUrl}" style="width:${sz}px;height:${sz}px;object-fit:contain;display:block;position:relative;z-index:2;" onerror="this.style.display='none'">
+                            </div>`;
+                        } else if (c.custom_icon) {
+                            txtHtml = `<div style="${nameStyle3d}margin-bottom:2px;">${castleName3d}</div>`;
+                            icoHtml = `<img src="${c.custom_icon}" style="width:${c.icon_width||ptCfg.size}px;height:${c.icon_height||ptCfg.size}px;object-fit:contain;" onerror="this.style.display='none'">`;
+                        } else {
+                            txtHtml = `<div style="display:flex;align-items:center;gap:1px;"><span style="${hanjaStyle3d}color:${dotColor3d};">${ptCfg.hanja}</span><span style="${nameStyle3d}">${castleName3d}</span></div>`;
+                            icoHtml = `<img src="${ptCfg.icon}" style="width:${ptCfg.size}px;height:${ptCfg.size}px;object-fit:contain;" onerror="this.style.display='none'">`;
+                        }
+                    } else if (c.is_label) {
+                        const _lt = c.label_type || 'place';
+                        let _lColor = c.label_color || '#d8cdb8';
+                        if (_lt === 'country' && ci?.color) _lColor = ci.color;
+                        const _lSize = c.label_size || 'medium';
+                        let _lFontSize, _lStroke;
+                        switch (_lSize) {
+                            case 'xsmall': _lFontSize = '8px';  _lStroke = '-0.5px -0.5px 0 rgba(0,0,0,0.9),0.5px 0.5px 0 rgba(0,0,0,0.9)'; break;
+                            case 'small':  _lFontSize = '14px'; _lStroke = '-0.5px -0.5px 0 rgba(0,0,0,0.9),0.5px 0.5px 0 rgba(0,0,0,0.9)'; break;
+                            case 'large':  _lFontSize = '22px'; _lStroke = '-1px -1px 0 #000,1px 1px 0 #000'; break;
+                            default:       _lFontSize = '18px'; _lStroke = '-1px -1px 0 #000,1px 1px 0 #000';
+                        }
+                        txtHtml = `<div style="font-size:${_lFontSize};font-weight:normal;color:${_lColor};text-shadow:${_lStroke};white-space:nowrap;text-align:center;">${castleName3d}</div>`;
+                        icoHtml = '';
+                    } else if (c.is_military_flag) {
+                        // ── 군대 마커 전용 렌더링 ──
+                        const _TROOP_ICONS = {
+                            '개마무사': 'https://raw.githubusercontent.com/projeffmanager-design/img/main/1779880397797_______________-__.png',
+                            '화랑대':   'https://raw.githubusercontent.com/projeffmanager-design/img/main/1779881554293________-__.png'
+                        };
+                        const _armyIconUrl = (c.troop_type && _TROOP_ICONS[c.troop_type]) || null;
+                        const _generalName = c.general_name || '';
+                        const _troops      = c.troop_count ? Number(c.troop_count).toLocaleString() : '';
+                        const _generalPhoto = c.general_photo || '';
+                        const _countryName = ci?.name || '';
+
+                        // 국가명 (소속국가 표시)
+                        const _nationLine = _countryName
+                            ? `<div style="color:${dotColor3d};font-size:9px;font-weight:bold;text-shadow:-1px -1px 0 #000,1px 1px 0 #000;white-space:nowrap;">${_countryName}</div>`
+                            : '';
+                        // 장수이름
+                        const _nameLine = _generalName
+                            ? `<div style="${nameStyle3d}font-size:11px;font-weight:bold;">${_generalName}</div>`
+                            : `<div style="${nameStyle3d}">${castleName3d}</div>`;
+                        // 병력수
+                        const _troopsLine = _troops
+                            ? `<div style="color:#f0d080;font-size:10px;text-shadow:-1px -1px 0 #000;white-space:nowrap;">⚔ ${_troops}명</div>`
+                            : '';
+                        txtHtml = _nationLine + _nameLine + _troopsLine;
+                        // 장수사진 → 군대아이콘 순
+                        if (_generalPhoto) {
+                            icoHtml = `<img src="${_generalPhoto}" style="width:36px;height:36px;object-fit:cover;border-radius:50%;border:1px solid ${dotColor3d};display:block;" onerror="this.style.display='none'">`;
+                            if (_armyIconUrl) icoHtml += `<img src="${_armyIconUrl}" style="width:40px;height:40px;object-fit:contain;margin-top:1px;" onerror="this.style.display='none'">`;
+                        } else if (_armyIconUrl) {
+                            icoHtml = `<img src="${_armyIconUrl}" style="width:56px;height:56px;object-fit:contain;" onerror="this.style.display='none'">`;
+                        } else {
+                            icoHtml = `<div style="font-size:28px;line-height:1;text-shadow:1px 1px 2px #000;">🚩</div>`;
+                        }
+                    } else if (c.is_natural_feature) {
+                        const _nfInfo = (typeof getNaturalFeatureIcon === 'function') ? getNaturalFeatureIcon(c.natural_feature_type || 'other') : null;
+                        const _nfIw = _nfInfo?.imageSize ?? 24;
+                        _isBattle3d = (c.natural_feature_type === 'battle');
+                        if (_isBattle3d) {
+                            // 2D와 동일한 CSS 클래스 구조 사용
+                            const _efSize = 60;
+                            txtHtml = `<div style="${nameStyle3d}margin-bottom:2px;">${castleName3d}</div>`;
+                            icoHtml = `<div style="position:relative;width:${_efSize}px;height:${_efSize}px;overflow:visible;">
+                                <div class="battle-fire-wrap" style="position:absolute;top:0;left:0;width:${_efSize}px;height:${_efSize}px;pointer-events:none;z-index:0;">
+                                    <div class="battle-smoke-particle bs1"></div>
+                                    <div class="battle-smoke-particle bs2"></div>
+                                    <div class="battle-smoke-particle bs3"></div>
+                                    <div class="battle-smoke-particle bs4"></div>
+                                    <div class="battle-smoke-particle bs5"></div>
+                                    <div class="battle-base-fire" style="bottom:0;left:30%;transform:translateX(-50%);"></div>
+                                    <div class="battle-base-fire bf2" style="bottom:0;left:calc(30% + 8px);transform:none;"></div>
+                                </div>
+                            </div>`;
+                        } else {
+                            icoHtml = _nfInfo?.imageUrl
+                                ? `<img src="${_nfInfo.imageUrl}" style="width:${_nfIw}px;height:${_nfIw}px;object-fit:contain;display:block;" onerror="this.style.display='none'">`
+                                : `<div style="font-size:20px;line-height:1;text-shadow:1px 1px 2px #000;">${_nfInfo?.symbol || '❖'}</div>`;
+                        }
+                    } else if (c.custom_icon) {
+                        txtHtml = `<div style="${nameStyle3d}margin-bottom:2px;">${castleName3d}</div>`;
+                        icoHtml = `<img src="${c.custom_icon}" style="width:${c.icon_width||20}px;height:${c.icon_height||20}px;object-fit:contain;" onerror="this.style.display='none'">`;
+                    } else {
+                        txtHtml = `<div style="${nameStyle3d}">${castleName3d}</div>`;
+                        icoHtml = `<div style="color:${dotColor3d};font-size:10px;line-height:1;text-shadow:-1px -1px 1px rgba(0,0,0,0.45),1px 1px 1px rgba(0,0,0,0.45);">▼</div>`;
+                    }
+
+                    // 텍스트 위, 아이콘 아래 (ml3d-txt / ml3d-ico 분리)
+                    let markerHtml;
+                    if (txtHtml === '__CAPITAL_MARKER__') {
+                        // 수도: capital-marker CSS 클래스 구조 그대로 사용 (낙관 비율 보존)
+                        const _sealColor2 = dotColor3d;
+                        const _txtColor2 = (typeof getContrastColor === 'function') ? getContrastColor(_sealColor2) : '#ffffff';
+                        const _sealChar2 = (isCapital3d || placeType3d === 'capital') ? (ci?.sealText || (()=>{
+                            const n = ci?.name || '';
+                            const hj = (n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]);
+                            if (hj.length) return hj.slice(-1)[0];
+                            const hg = (n.match(/[가-힣]/g)||[]);
+                            return hg.length ? hg.slice(-1)[0] : '?';
+                        })()) : '?';
+                        markerHtml = `<div class="capital-marker ml3d-txt" style="pointer-events:none;">
+                            <div class="capital-marker-bottom"><div class="capital-seal" style="background-color:${_sealColor2};border-color:${_sealColor2};filter:brightness(0.75);color:${_txtColor2};">${_sealChar2}</div><span class="city-name">${castleName3d}</span></div>
+                            <div class="ml3d-ico"><img class="capital-marker-img" src="https://github.com/projeffmanager-design/img/blob/main/%E7%8E%8B%E5%9F%8E.png?raw=true" style="width:38px;height:38px;object-fit:contain;" onerror="this.style.display='none'"></div>
+                        </div>`;
+                    } else {
+                        markerHtml = `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;pointer-events:none;${_isBattle3d ? 'overflow:visible;' : ''}">
+                            <div class="ml3d-txt" style="display:flex;flex-direction:column;align-items:center;">${txtHtml}</div>
+                            ${icoHtml ? `<div class="ml3d-ico" style="${_isBattle3d ? 'overflow:visible;' : ''}">${icoHtml}</div>` : ''}
+                        </div>`;
+                    }
+
+                    const el = document.createElement('div');
+                    el.style.cssText = 'cursor:pointer;' + (_isBattle3d ? 'overflow:visible;' : '');
+                    if (_isBattle3d) el.classList.add('ml3d-battle-wrap');
+                    el.dataset.ml3dPriority = String(_priority);
+                    el.innerHTML = markerHtml;
+
+                    let _popup3d = null;
+                    let _popupCloseTimer = null;
+
+                    const openPopup3d = () => {
+                        if (_popup3d) return;
+                        _popup3d = new maplibregl.Popup({ offset: 10, closeButton: false, maxWidth: '280px', className: 'ml3d-popup' })
+                            .setHTML(`<div style="font-size:13px;color:#e8d9b8;padding:4px 2px;cursor:pointer;"><b>${castleName3d}</b>${ci ? `<br><span style="color:#7eb8e8;font-size:11px;">${ci.name}</span>` : ''}</div>`)
+                            .setLngLat([c.lng, c.lat]).addTo(_m);
+                        _popup3d.on('close', () => { _popup3d = null; });
+                        // 팝업 클릭 시 상세 패널 열기
+                        setTimeout(() => {
+                            const pc = _popup3d && _popup3d.getElement && _popup3d.getElement();
+                            if (!pc) return;
+                            pc.addEventListener('click', () => {
+                                if (_popup3d) { _popup3d.remove(); _popup3d = null; }
+                                if (typeof openDetailPanel === 'function') {
+                                    openDetailPanel(c, activeRec, ci);
+                                    requestAnimationFrame(() => {
+                                        const dp = document.getElementById('object-detail-panel');
+                                        if (dp) dp.style.zIndex = '2620';
+                                    });
+                                    if (c.voice) {
+                                        if (window._castleAudio) window._castleAudio.pause();
+                                        window._castleAudio = new Audio(c.voice);
+                                        window._castleAudio.play().catch(() => {});
+                                    }
+                                }
+                            });
+                            pc.addEventListener('mouseenter', () => { clearTimeout(_popupCloseTimer); });
+                            pc.addEventListener('mouseleave', () => {
+                                _popupCloseTimer = setTimeout(() => { if (_popup3d) { _popup3d.remove(); _popup3d = null; } }, 300);
+                            });
+                        }, 50);
+                    };
+                    const closePopup3d = (delay = 300) => {
+                        clearTimeout(_popupCloseTimer);
+                        _popupCloseTimer = setTimeout(() => { if (_popup3d) { _popup3d.remove(); _popup3d = null; } }, delay);
+                    };
+
+                    el.addEventListener('mouseenter', () => { clearTimeout(_popupCloseTimer); openPopup3d(); });
+                    el.addEventListener('mouseleave', () => closePopup3d(300));
+                    el.addEventListener('click', () => {
+                        // 팝업 닫고 2D와 동일한 상세 패널 열기
+                        if (_popup3d) { _popup3d.remove(); _popup3d = null; }
+                        if (typeof openDetailPanel === 'function') {
+                            openDetailPanel(c, activeRec, ci);
+                            // 3D 오버레이 위에 패널이 표시되도록 z-index 보장
+                            requestAnimationFrame(() => {
+                                const dp = document.getElementById('object-detail-panel');
+                                if (dp) dp.style.zIndex = '2620';
+                            });
+                            // 음성 재생
+                            if (c.voice) {
+                                if (window._castleAudio) window._castleAudio.pause();
+                                window._castleAudio = new Audio(c.voice);
+                                window._castleAudio.play().catch(() => {});
+                            }
+                        }
+                    });
+                    const mk = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, 8] })
+                        .setLngLat([c.lng, c.lat]).addTo(_m);
+                    _3dMarkers.push(mk);
+                }; // end _makeMarker
+
+                // chunked rAF: 60개씩 나눠서 메인 스레드 블록 최소화
+                const _chunkSize = 60;
+                let _chunkIdx = 0;
+                const _renderNextChunk = () => {
+                    const end = Math.min(_chunkIdx + _chunkSize, _sortedCastleData.length);
+                    for (let i = _chunkIdx; i < end; i++) {
+                        _makeMarker(_sortedCastleData[i]);
+                    }
+                    _chunkIdx = end;
+                    if (_chunkIdx < _sortedCastleData.length) requestAnimationFrame(_renderNextChunk);
+                };
+                if (_sortedCastleData.length > 0) requestAnimationFrame(_renderNextChunk);
+
+                // ── 3D 국가명 라벨 렌더링 (2D renderMacroCountryNames와 동일 로직) ──
+                const _showCountryLabel = (typeof layerVisibility === 'undefined') || layerVisibility.countryLabel !== false;
+                if (_showCountryLabel && typeof _renderedCountryIds !== 'undefined' && _renderedCountryIds.size > 0) {
+                    const { year: _lYear, month: _lMonth } = (typeof getCurrentYearMonth === 'function') ? getCurrentYearMonth() : { year: 400, month: 1 };
+                    const _lTotalMonths = yearMonthToTotalMonths(_lYear, _lMonth);
+
+                    // 수도 인덱스
+                    const _capitalMap = new Map();
+                    if (typeof castles !== 'undefined') {
+                        castles.forEach(c => {
+                            if (!c.lat || !c.lng || !c.is_capital) return;
+                            const info = (typeof getActiveHistoryInfo === 'function') ? getActiveHistoryInfo(c.history, _lTotalMonths) : null;
+                            if (!info || !info.record.is_capital) return;
+                            const rcId = info.record.country_id
+                                ? (typeof info.record.country_id === 'object' ? (info.record.country_id.$oid || String(info.record.country_id)) : String(info.record.country_id))
+                                : null;
+                            if (rcId && _renderedCountryIds.has(rcId) && !_capitalMap.has(rcId)) _capitalMap.set(rcId, c);
+                        });
+                    }
+
+                    _renderedCountryIds.forEach(countryId => {
+                        const country = (typeof getCountryInfoById === 'function') ? getCountryInfoById(countryId) : null;
+                        if (!country) return;
+
+                        let labelLat, labelLng;
+                        const capital = _capitalMap.get(countryId);
+                        if (capital) { labelLat = capital.lat; labelLng = capital.lng; }
+                        if (!labelLat && typeof _renderedCountryCentroids !== 'undefined' && _renderedCountryCentroids.has(countryId)) {
+                            const cc = _renderedCountryCentroids.get(countryId);
+                            labelLat = cc.lat / cc.count; labelLng = cc.lng / cc.count;
+                        }
+                        if (!labelLat || !labelLng) return;
+
+                        const countryColor = country.color || '#ffffff';
+                        const flagHtml = country.flag
+                            ? `<img src="${(typeof toRawImageUrl === 'function') ? toRawImageUrl(country.flag) : country.flag}" style="width:18px;height:12px;margin-right:4px;vertical-align:middle;border:0.5px solid rgba(255,255,255,0.3);object-fit:cover;" onerror="this.style.display='none'">`
+                            : '';
+                        const ethnicHtml = (typeof layerVisibility !== 'undefined' && layerVisibility.ethnicLabel && country.ethnicity)
+                            ? `<div style="font-size:10px;color:${countryColor};opacity:0.8;text-align:center;text-shadow:-1px -1px 0 #000,1px 1px 0 #000;margin-top:1px;">${country.ethnicity}</div>`
+                            : '';
+                        const labelHtml = `<div style="display:flex;flex-direction:column;align-items:center;pointer-events:none;">
+                            <div style="display:inline-flex;align-items:center;font-size:14px;font-weight:bold;font-family:'Nanum Myeongjo','Apple SD Gothic Neo',serif;color:#000;text-shadow:-1px -1px 0 rgba(255,255,255,0.9),1px -1px 0 rgba(255,255,255,0.9),-1px 1px 0 rgba(255,255,255,0.9),1px 1px 0 rgba(255,255,255,0.9),0 0 6px rgba(255,255,255,0.7);white-space:nowrap;">${flagHtml}${country.name}</div>
+                            ${ethnicHtml}
+                        </div>`;
+                        const labelEl = document.createElement('div');
+                        labelEl.style.cssText = 'pointer-events:none;';
+                        labelEl.dataset.ml3dPriority = '3'; // 국가명 최우선
+                        labelEl.innerHTML = `<div class="ml3d-txt" style="display:flex;flex-direction:column;align-items:center;">${labelHtml}</div>`;
+                        const mk = new maplibregl.Marker({ element: labelEl, anchor: 'bottom', offset: [0, -70] })
+                            .setLngLat([labelLng, labelLat]).addTo(_m);
+                        _3dMarkers.push(mk);
+                    });
+                }
+
+                // ── behind-globe culling: 카메라 뒤쪽 마커 숨기기 ──
+                // map.project()가 반환하는 y좌표가 음수(=하늘/지구 뒤)면 숨김
+                const _cullCanvas = _m.getCanvas();
+                _3dRenderListener = () => {
+                    const cw = _cullCanvas.width  / (window.devicePixelRatio || 1);
+                    const ch = _cullCanvas.height / (window.devicePixelRatio || 1);
+                    const sidePad = 300;  // 좌우/아래: 화면 밖 여유
+                    const topCut  = -60;  // 위(하늘/지구 뒤): 거의 허용 안 함
+                    _3dMarkers.forEach(mk => {
+                        const pt = _m.project(mk.getLngLat());
+                        // 전장 효과 마커는 연기가 위로 올라오므로 컬링을 더 관대하게
+                        const isBattleFx = mk.getElement().classList.contains('ml3d-battle-wrap');
+                        const effectiveTopCut = isBattleFx ? topCut - 40 : topCut;
+                        const hidden = pt.y < effectiveTopCut
+                            || pt.x < -sidePad || pt.x > cw + sidePad
+                            || pt.y > ch + sidePad;
+                        mk.getElement().style.visibility = hidden ? 'hidden' : '';
+                    });
+                };
+                _m.on('render', _3dRenderListener);
+
+                setupLayerEvents();
+            }
+
+            // ── 3D 모드 진입 시 2D UI 요소들 z-index 올리기 (CSS body.mode-3d 클래스로 처리) ──
+
+            function _elevateUiFor3d() {
+                // top-bar가 relative → fixed로 바뀌므로 height만큼 spacer 삽입 (레이아웃 보존)
+                const topBar = document.getElementById('top-bar-container');
+                // offsetHeight를 mode-3d 클래스 추가 전에 측정 (fixed 전환 전)
+                const tbH = topBar ? (topBar.getBoundingClientRect().height || topBar.offsetHeight || 44) : 44;
+                if (topBar && !document.getElementById('_3d_topbar_placeholder')) {
+                    const ph = document.createElement('div');
+                    ph.id = '_3d_topbar_placeholder';
+                    ph.style.cssText = `height:${tbH}px;width:100%;flex-shrink:0;`;
+                    topBar.parentNode.insertBefore(ph, topBar);
+                }
+                // CSS 변수로 topbar 높이 설정 (tile toggle / play controls의 top 기준)
+                document.documentElement.style.setProperty('--topbar-h', tbH + 'px');
+                // body 클래스 추가 → CSS가 모든 z-index 처리
+                document.body.classList.add('mode-3d');
+
+                // 🚩 tile toggle + play controls를 body 최상위로 이동 (stacking context 탈출)
+                const _tgEl = document.getElementById('map-tile-toggle-group');
+                if (_tgEl && !_tgEl._3d_origParent) {
+                    _tgEl._3d_origParent = _tgEl.parentNode;
+                    _tgEl._3d_origNext   = _tgEl.nextSibling;
+                    document.body.appendChild(_tgEl);
+                    // cssText += 대신 개별 setProperty (removeProperty로 깔끔 복원 가능)
+                    _tgEl.style.setProperty('position', 'fixed', 'important');
+                    _tgEl.style.setProperty('top', tbH + 'px', 'important');
+                    _tgEl.style.setProperty('right', '0', 'important');
+                    _tgEl.style.setProperty('z-index', '2610', 'important');
+                }
+                const _pcEl = document.getElementById('timeline-play-controls');
+                if (_pcEl && !_pcEl._3d_origParent) {
+                    _pcEl._3d_origParent = _pcEl.parentNode;
+                    _pcEl._3d_origNext   = _pcEl.nextSibling;
+                    document.body.appendChild(_pcEl);
+                    _pcEl.style.setProperty('position', 'fixed', 'important');
+                    _pcEl.style.setProperty('top', tbH + 'px', 'important');
+                    _pcEl.style.setProperty('z-index', '2610', 'important');
+                }
+
+                // 🚩 [추가] #rightPanel을 body 맨 끝으로 이동 → mlOverlay(z-index:2500) 위에 쌓이도록
+                const rightPanel = document.getElementById('rightPanel');
+                if (rightPanel && !rightPanel._3d_originalParent) {
+                    rightPanel._3d_originalParent = rightPanel.parentNode;
+                    rightPanel._3d_originalNextSibling = rightPanel.nextSibling;
+                    document.body.appendChild(rightPanel);
+                }
+                // play-controls right 위치: tile toggle + 3D nav 컨트롤러 너비만큼
+                setTimeout(() => {
+                    const tileGrp = document.getElementById('map-tile-toggle-group');
+                    const playCtrl = document.getElementById('timeline-play-controls');
+                    const navCtrl  = document.getElementById('ml-nav-ctrl');
+                    if (tileGrp && playCtrl) {
+                        const navW = navCtrl ? (navCtrl.offsetWidth || 160) : 160;
+                        playCtrl.style.right = (tileGrp.offsetWidth || 180) + navW + 4 + 'px';
+                    }
+                }, 400);
+            }
+            function _restoreUiAfter3d() {
+                document.body.classList.remove('mode-3d');
+                // CSS 변수 해제
+                document.documentElement.style.removeProperty('--topbar-h');
+                // spacer 제거
+                const ph = document.getElementById('_3d_topbar_placeholder');
+                if (ph) ph.remove();
+
+                // 🚩 tile toggle + play controls 원위치 복원
+                ['map-tile-toggle-group', 'timeline-play-controls'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el && el._3d_origParent) {
+                        const p = el._3d_origParent, n = el._3d_origNext;
+                        if (n) p.insertBefore(el, n); else p.appendChild(el);
+                        el.style.removeProperty('position');
+                        el.style.removeProperty('top');
+                        el.style.removeProperty('right');
+                        el.style.removeProperty('z-index');
+                        delete el._3d_origParent;
+                        delete el._3d_origNext;
+                    }
+                });
+                // 2D 모드: play-controls는 항상 body fixed로 재정렬
+                setTimeout(() => { if (window._positionPlayCtrl) window._positionPlayCtrl(); }, 100);
+
+                // 🚩 [추가] #rightPanel 원래 위치 복원
+                const rightPanel = document.getElementById('rightPanel');
+                if (rightPanel && rightPanel._3d_originalParent) {
+                    const parent = rightPanel._3d_originalParent;
+                    const next = rightPanel._3d_originalNextSibling;
+                    if (next) parent.insertBefore(rightPanel, next);
+                    else parent.appendChild(rightPanel);
+                    delete rightPanel._3d_originalParent;
+                    delete rightPanel._3d_originalNextSibling;
+                    rightPanel.style.removeProperty('z-index');
+                    rightPanel.style.removeProperty('position');
+                }
+                // play-controls right 복원 (2D positionPlayCtrl 기준)
+                // 2D 모드로 복귀 시 positionPlayCtrl이 재정렬 처리
+                setTimeout(() => { if (window._positionPlayCtrl) window._positionPlayCtrl(); }, 150);
+            }
+
+            // ── 3D 모드 진입 ──
+            function enter3d() {
+                is3d = true;
+                btn3d.classList.add('active');
+                document.querySelectorAll('.map-tile-btn[data-tile]').forEach(b => b.classList.remove('active'));
+                _elevateUiFor3d();
+
+                loadMapLibre(() => {
+                    // 전체화면 오버레이 생성 (1회)
+                    if (!mlOverlay) {
+                        mlOverlay = document.createElement('div');
+                        mlOverlay.id = 'map3d-fullscreen';
+                        mlOverlay.style.cssText = 'position:fixed;inset:0;z-index:2500;background:#0a0a12;';
+                        document.body.appendChild(mlOverlay);
+
+                        // 닫기 버튼 없음 — 타일 토글의 3D 버튼으로 종료
+                    }
+                    mlOverlay.style.display = 'block';
+                    // 🚩 mlOverlay가 body에 추가된 후 #rightPanel을 다시 맨 끝으로 → 항상 위에 표시
+                    const _rp = document.getElementById('rightPanel');
+                    if (_rp) {
+                        document.body.appendChild(_rp);
+                        _rp.style.setProperty('z-index', '3000', 'important');
+                        _rp.style.setProperty('position', 'fixed', 'important');
+                    }
+
+                    if (!mlMap) {
+                        const c = map.getCenter();
+                        console.log('[3D] creating MapLibre map, center:', c.lng, c.lat, 'zoom:', map.getZoom());
+                        // 로딩 스피너 표시
+                        const _spinner = document.createElement('div');
+                        _spinner.id = 'ml3d-spinner';
+                        _spinner.style.cssText = 'position:absolute;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;background:#0a0a12;';
+                        _spinner.innerHTML = '<div style="width:48px;height:48px;border:4px solid rgba(240,208,128,0.2);border-top-color:#f0d080;border-radius:50%;animation:ml3d-spin 0.7s linear infinite;"></div>';
+                        if (!document.getElementById('ml3d-spin-style')) {
+                            const ss = document.createElement('style');
+                            ss.id = 'ml3d-spin-style';
+                            ss.textContent = '@keyframes ml3d-spin{to{transform:rotate(360deg)}}';
+                            document.head.appendChild(ss);
+                        }
+                        mlOverlay.appendChild(_spinner);
+                        mlMap = new maplibregl.Map({
+                            container: mlOverlay,
+                            style: {
+                                version: 8,
+                                glyphs: 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf',
+                                sources: {
+                                    sat: {
+                                        type: 'raster',
+                                        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+                                        tileSize: 512, maxzoom: 19,
+                                        attribution: '© Esri'
+                                    },
+                                    lbl: {
+                                        type: 'raster',
+                                        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],
+                                        tileSize: 512, maxzoom: 19
+                                    }
+                                },
+                                layers: [
+                                    { id: 'bg',  type: 'background', paint: { 'background-color': '#0a0a12' } },
+                                    { id: 'sat', type: 'raster', source: 'sat', paint: { 'raster-opacity': 1.0 } },
+                                    { id: 'lbl', type: 'raster', source: 'lbl', paint: { 'raster-opacity': 0.7  } },
+                                ]
+                            },
+                            center: [c.lng, c.lat],
+                            zoom: map.getZoom(),
+                            pitch: 55,
+                            bearing: 0,
+                            antialias: false,
+                            maxPitch: 85,
+                        });
+
+                        // 🚩 커스텀 네비게이션 버튼 — 타일 토글 그룹 왼쪽에 가로 나열
+                        const _navEl = document.createElement('div');
+                        _navEl.id = 'ml-nav-ctrl';
+                        _navEl.style.cssText = 'position:fixed;z-index:2610;display:flex;flex-direction:row;gap:2px;top:var(--topbar-h,44px);right:0;';
+                        _navEl.innerHTML = `
+                            <button onclick="window.mlMap3d&&window.mlMap3d.easeTo({pitch:Math.min((window.mlMap3d.getPitch()||0)+10,85)})" title="틸트 올리기" style="width:30px;height:30px;background:rgba(30,20,10,0.82);border:1px solid rgba(180,140,60,0.4);border-radius:4px;color:#f0d080;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">⬆</button>
+                            <button onclick="window.mlMap3d&&window.mlMap3d.easeTo({pitch:Math.max((window.mlMap3d.getPitch()||0)-10,0)})" title="틸트 내리기" style="width:30px;height:30px;background:rgba(30,20,10,0.82);border:1px solid rgba(180,140,60,0.4);border-radius:4px;color:#f0d080;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">⬇</button>
+                            <button onclick="window.mlMap3d&&window.mlMap3d.easeTo({bearing:(window.mlMap3d.getBearing()||0)-15})" title="왼쪽 회전" style="width:30px;height:30px;background:rgba(30,20,10,0.82);border:1px solid rgba(180,140,60,0.4);border-radius:4px;color:#f0d080;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">↺</button>
+                            <button onclick="window.mlMap3d&&window.mlMap3d.easeTo({bearing:(window.mlMap3d.getBearing()||0)+15})" title="오른쪽 회전" style="width:30px;height:30px;background:rgba(30,20,10,0.82);border:1px solid rgba(180,140,60,0.4);border-radius:4px;color:#f0d080;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">↻</button>
+                            <button onclick="window.mlMap3d&&window.mlMap3d.easeTo({bearing:0,pitch:0})" title="북쪽 정렬" style="width:30px;height:30px;background:rgba(30,20,10,0.82);border:1px solid rgba(180,140,60,0.4);border-radius:4px;color:#e74c3c;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:bold;line-height:1;">N</button>
+                        `;
+                        document.body.appendChild(_navEl);
+                        // 타일 토글 그룹 + 재생버튼 왼쪽에 붙이기
+                        requestAnimationFrame(() => {
+                            const tg = document.getElementById('map-tile-toggle-group');
+                            const playCtrl = document.getElementById('timeline-play-controls');
+                            const tgW = tg ? (tg.offsetWidth || 0) : 0;
+                            const pcW = playCtrl ? (playCtrl.offsetWidth || 0) : 0;
+                            _navEl.style.right = (tgW + pcW + 4) + 'px';
+                        });
+                        window._ml3dNavEl = _navEl;
+                        window.mlMap3d = mlMap;
+                        window._is3dMode = true;
+                        mlMap.on('error', (e) => console.error('[3D] MapLibre error:', e.error));
+
+                        mlMap.on('load', () => {
+                            console.log('[3D] map load fired!');
+                            // 로딩 스피너 제거
+                            const _sp = document.getElementById('ml3d-spinner');
+                            if (_sp) _sp.remove();
+                            try {
+                            mlMap.addSource('dem', {
+                                type: 'raster-dem',
+                                encoding: 'terrarium',
+                                tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+                                tileSize: 512, maxzoom: 14
+                            });
+                            mlMap.setTerrain({ source: 'dem', exaggeration: 1.8 });
+                            // 밤하늘 Sky 레이어
+                            try {
+                                mlMap.setSky({
+                                    'sky-color': '#0a0f1e',
+                                    'sky-horizon-blend': 0.02,
+                                    'horizon-color': '#1a1a2e',
+                                    'horizon-fog-blend': 0.05,
+                                    'fog-color': '#16213e',
+                                    'fog-ground-blend': 0.5,
+                                    'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 6, 0]
+                                });
+                                // 먼 거리 라벨/피처가 하늘에 부유하는 현상 제거
+                                try {
+                                    mlMap.setFog({
+                                        'range': [0.5, 10],
+                                        'color': '#0d1220',
+                                        'high-color': '#080c18',
+                                        'space-color': '#00000a',
+                                        'horizon-blend': 0.06,
+                                        'star-intensity': 0.0
+                                    });
+                                } catch(fe) { /* setFog 미지원 버전 무시 */ }
+                            } catch(e) { console.warn('[3D] Sky error:', e.message); }
+                            } catch(e) { console.warn('[3D] DEM/Terrain error (non-fatal):', e.message); }
+                            // 별 WebGL 레이어 추가
+                            _initStarCanvas(mlOverlay, mlMap);
+                            // zoom/move/pitch → LOD 갱신 (첫 진입 시 등록)
+                            const _lodHandler = () => {
+                                clearTimeout(window._3dZoomendTimer);
+                                window._3dZoomendTimer = setTimeout(() => {
+                                    if (window._is3dMode && typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
+                                }, 150);
+                            };
+                            window._3dZoomMoveHandler = _lodHandler;
+                            mlMap.on('zoomend',  _lodHandler);
+                            mlMap.on('moveend',  _lodHandler);
+                            mlMap.on('pitchend', _lodHandler);
+                            refreshLayers();
+                        });
+                    } else {
+                        const c = map.getCenter();
+                        mlMap.jumpTo({ center: [c.lng, c.lat], zoom: map.getZoom() });
+                        mlMap.resize();
+
+                        // 🚩 재진입 시 nav controls 재생성 (exit3d에서 제거됨)
+                        if (!document.getElementById('ml-nav-ctrl')) {
+                            const _navEl2 = document.createElement('div');
+                            _navEl2.id = 'ml-nav-ctrl';
+                            _navEl2.style.cssText = 'position:fixed;z-index:2610;display:flex;flex-direction:row;gap:2px;top:var(--topbar-h,44px);right:0;';
+                            _navEl2.innerHTML = `
+                                <button onclick="window.mlMap3d&&window.mlMap3d.easeTo({pitch:Math.min((window.mlMap3d.getPitch()||0)+10,85)})" title="틸트 올리기" style="width:30px;height:30px;background:rgba(30,20,10,0.82);border:1px solid rgba(180,140,60,0.4);border-radius:4px;color:#f0d080;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">⬆</button>
+                                <button onclick="window.mlMap3d&&window.mlMap3d.easeTo({pitch:Math.max((window.mlMap3d.getPitch()||0)-10,0)})" title="틸트 내리기" style="width:30px;height:30px;background:rgba(30,20,10,0.82);border:1px solid rgba(180,140,60,0.4);border-radius:4px;color:#f0d080;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">⬇</button>
+                                <button onclick="window.mlMap3d&&window.mlMap3d.easeTo({bearing:(window.mlMap3d.getBearing()||0)-15})" title="왼쪽 회전" style="width:30px;height:30px;background:rgba(30,20,10,0.82);border:1px solid rgba(180,140,60,0.4);border-radius:4px;color:#f0d080;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">↺</button>
+                                <button onclick="window.mlMap3d&&window.mlMap3d.easeTo({bearing:(window.mlMap3d.getBearing()||0)+15})" title="오른쪽 회전" style="width:30px;height:30px;background:rgba(30,20,10,0.82);border:1px solid rgba(180,140,60,0.4);border-radius:4px;color:#f0d080;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">↻</button>
+                                <button onclick="window.mlMap3d&&window.mlMap3d.easeTo({bearing:0,pitch:0})" title="북쪽 정렬" style="width:30px;height:30px;background:rgba(30,20,10,0.82);border:1px solid rgba(180,140,60,0.4);border-radius:4px;color:#e74c3c;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:bold;line-height:1;">N</button>
+                            `;
+                            document.body.appendChild(_navEl2);
+                            requestAnimationFrame(() => {
+                                const tg2 = document.getElementById('map-tile-toggle-group');
+                                const pc2 = document.getElementById('timeline-play-controls');
+                                const tgW2 = tg2 ? (tg2.offsetWidth || 0) : 0;
+                                const pcW2 = pc2 ? (pc2.offsetWidth || 0) : 0;
+                                _navEl2.style.right = (tgW2 + pcW2 + 4) + 'px';
+                                // play-controls 위치도 재계산
+                                if (pc2) pc2.style.right = (tgW2 + (_navEl2.offsetWidth || 160) + 4) + 'px';
+                            });
+                            window._ml3dNavEl = _navEl2;
+                        }
+
+                        // 🚩 타일 토글 그룹 강제 표시 (혹시 숨겨진 경우 복원)
+                        const _tg = document.getElementById('map-tile-toggle-group');
+                        if (_tg) { _tg.style.removeProperty('display'); _tg.style.removeProperty('visibility'); }
+
+                        // 🚩 zoomend/moveend/pitchend 리스너 누적 방지 — 기존 제거 후 재등록
+                        if (window._3dZoomMoveHandler) {
+                            mlMap.off('zoomend', window._3dZoomMoveHandler);
+                            mlMap.off('moveend', window._3dZoomMoveHandler);
+                            mlMap.off('pitchend', window._3dZoomMoveHandler);
+                        }
+                        let _lodLastMode = null;
+                        window._3dZoomMoveHandler = () => {
+                            clearTimeout(window._3dZoomendTimer);
+                            // LOD 모드가 바뀐 경우만 마커 재생성 (캐시 키가 이미 pitch 포함)
+                            window._3dZoomendTimer = setTimeout(() => {
+                                if (window._is3dMode && typeof window._3dRefreshLayers === 'function') {
+                                    window._3dRefreshLayers();
+                                }
+                            }, 150);
+                        };
+                        mlMap.on('zoomend',  window._3dZoomMoveHandler);
+                        mlMap.on('moveend',  window._3dZoomMoveHandler);
+                        mlMap.on('pitchend', window._3dZoomMoveHandler);
+                        refreshLayers();
+                    }
+                });
+            }
+
+            // ── 3D 모드 종료 ──
+            function exit3d() {
+                is3d = false;
+                window._is3dMode = false;
+                btn3d.classList.remove('active');
+
+                // ★ 1. mlOverlay 즉시 숨김 (가장 먼저 — 이게 안 꺼지면 UI 가림)
+                if (mlOverlay) mlOverlay.style.display = 'none';
+                // 커스텀 네비게이션 버튼 제거
+                if (window._ml3dNavEl) { window._ml3dNavEl.remove(); window._ml3dNavEl = null; }
+                // 3D 자원 마커 제거
+                (window._3dResourceMarkers || []).forEach(function(mk){ try { mk.remove(); } catch(e){} });
+                window._3dResourceMarkers = [];
+                // pitchend/zoomend/moveend 리스너 해제
+                if (window._3dZoomMoveHandler) {
+                    mlMap && mlMap.off('zoomend',  window._3dZoomMoveHandler);
+                    mlMap && mlMap.off('moveend',  window._3dZoomMoveHandler);
+                    mlMap && mlMap.off('pitchend', window._3dZoomMoveHandler);
+                    window._3dZoomMoveHandler = null;
+                }
+
+                // ★ 2. UI 복원 (body 클래스 제거 + 이동된 요소 원위치)
+                _restoreUiAfter3d();
+
+                // ★ 3. Leaflet에게 컨테이너 크기 재측정 강제 + 재렌더
+                setTimeout(() => {
+                    if (map && map.invalidateSize) {
+                        map.invalidateSize({ animate: false, pan: false });
+                    }
+                    const { year, month } = getCurrentYearMonth();
+                    if (typeof updateMap === 'function') updateMap(year, month, false, true);
+                    if (window._positionPlayCtrl) window._positionPlayCtrl();
+                }, 80);
+            }
+
+            // ── 버튼 이벤트 ──
+            btn3d.addEventListener('click', () => is3d ? exit3d() : enter3d());
+
+            // 다른 타일 버튼 클릭 시 3D 종료 (3D 모드일 때만)
+            document.querySelectorAll('.map-tile-btn[data-tile]').forEach(b => {
+                b.addEventListener('click', () => { if (is3d) exit3d(); });
+            });
+
+            // 슬라이더/연도 변경 → updateMap이 완료될 때 window._3dRefreshLayers()가 자동 호출됨
+            // (별도 이벤트 불필요)
+
+            // 페이지 로드 시 자동으로 3D 모드 진입
+            // cache-painted 이벤트가 먼저 오면 즉시 진입, 없으면 1.5초 후 폴백
+            const _auto3dEntry = () => { if (!is3d) enter3d(); };
+            if (window._cachePainted) {
+                // 이미 이벤트가 fire된 경우 — 바로 진입
+                requestAnimationFrame(_auto3dEntry);
+            } else {
+                window.addEventListener('cache-painted', _auto3dEntry, { once: true });
+                setTimeout(() => {
+                    window.removeEventListener('cache-painted', _auto3dEntry);
+                    if (!is3d) enter3d();
+                }, 1500);
+            }
+
+            // 지형 ON/OFF
+            if (terrainBtn) terrainBtn.addEventListener('click', () => {
+                if (!mlMap) return;
+                terrainOn = !terrainOn;
+                if (terrainOn) {
+                    mlMap.setTerrain({ source: 'dem', exaggeration: 1.8 });
+                    terrainBtn.textContent = '🏔️ 지형 ON';
+                    terrainBtn.style.background = 'rgba(180,120,20,0.4)';
+                } else {
+                    mlMap.setTerrain(null);
+                    terrainBtn.textContent = '🗺️ 지형 OFF';
+                    terrainBtn.style.background = 'rgba(15,15,25,0.8)';
+                }
+            });
+
+        })();
+
+
+        // � [admin] 서버 DB 동기화 버튼 — castles.json / territories 재빌드
         const menuRebuildDbBtn = document.getElementById('menu-rebuild-db');
         if (menuRebuildDbBtn) {
             menuRebuildDbBtn.addEventListener('click', async () => {
@@ -26376,20 +28129,49 @@ kingSelect.addEventListener('change', () => {
 
 
         // 🚩 [추가] 역사 기록의 국가 입력 필드에 대한 자동 완성 이벤트 리스너 (이벤트 위임)
+        // 드롭다운은 body 수준 fixed 엘리먼트로 표시 → overflow 클리핑 및 stacking context 문제 해결 (3D 모드 포함)
+        let _historyAcDropdown = null; // 전역 floating 드롭다운
+        let _historyAcActiveInput = null;
+
+        function _getOrCreateHistoryAcDropdown() {
+            if (!_historyAcDropdown) {
+                _historyAcDropdown = document.createElement('div');
+                _historyAcDropdown.id = 'history-ac-floating';
+                _historyAcDropdown.style.cssText = 'position:fixed;display:none;background:#3e4a56;border:1px solid #5d7185;z-index:100010;max-height:180px;overflow-y:auto;border-radius:0 0 4px 4px;min-width:160px;';
+                document.body.appendChild(_historyAcDropdown);
+            }
+            return _historyAcDropdown;
+        }
+
+        function _positionHistoryAcDropdown(inputEl) {
+            const dd = _getOrCreateHistoryAcDropdown();
+            const r = inputEl.getBoundingClientRect();
+            dd.style.top  = (r.bottom + window.scrollY) + 'px';
+            dd.style.left = r.left + 'px';
+            dd.style.width = r.width + 'px';
+            dd.style.display = 'block';
+        }
+
+        function _hideHistoryAcDropdown() {
+            if (_historyAcDropdown) _historyAcDropdown.style.display = 'none';
+            _historyAcActiveInput = null;
+        }
+
         document.getElementById('castleHistoryList').addEventListener('input', (e) => {
             if (e.target.classList.contains('history-country-name')) {
                 const input = e.target;
                 const hiddenInput = input.nextElementSibling; // hidden country-id
-                const resultsContainer = hiddenInput.nextElementSibling; // autocomplete-results div
                 const query = input.value.toLowerCase();
-                resultsContainer.innerHTML = '';
+                const dd = _getOrCreateHistoryAcDropdown();
+                dd.innerHTML = '';
 
-                // 입력 내용이 바뀌면 hidden id 초기화 (드롭다운에서 재선택 필요)
+                // 입력 내용이 바뀌면 hidden id 초기화
                 hiddenInput.value = '';
                 input.style.borderColor = '';
+                _historyAcActiveInput = input;
 
                 if (query.length === 0) {
-                    resultsContainer.style.display = 'none';
+                    _hideHistoryAcDropdown();
                     return;
                 }
 
@@ -26397,39 +28179,36 @@ kingSelect.addEventListener('change', () => {
 
                 filteredCountries.forEach(country => {
                     const item = document.createElement('div');
-                    item.className = 'autocomplete-item';
+                    item.style.cssText = 'padding:8px 10px;cursor:pointer;font-size:13px;color:#ecf0f1;border-bottom:1px solid rgba(93,113,133,0.3);';
                     item.textContent = country.name;
-                    // mousedown 사용: blur보다 먼저 발생하므로 드롭다운이 닫히기 전에 선택 처리됨
+                    item.addEventListener('mouseover', () => item.style.background = '#5d7185');
+                    item.addEventListener('mouseout',  () => item.style.background = '');
                     item.addEventListener('mousedown', (ev) => {
-                        ev.preventDefault(); // blur 방지
+                        ev.preventDefault();
                         input.value = country.name;
                         hiddenInput.value = country._id;
-                        input.style.borderColor = '#2ecc71'; // 선택 완료 시 초록색
-                        resultsContainer.style.display = 'none';
+                        input.style.borderColor = '#2ecc71';
+                        _hideHistoryAcDropdown();
 
-                        // 🚩 [수정] 국가 선택 시, 해당 국가의 시작/멸망 연도와 월을 자동으로 채웁니다.
+                        // 국가 선택 시 시작/종료 연도·월 자동 입력
                         const row = input.closest('.history-record-row');
-                        const startYearInput = row.querySelector('input.history-start-year');
+                        const startYearInput  = row.querySelector('input.history-start-year');
                         const startMonthInput = row.querySelector('input.history-start-month');
-                        const endYearInput = row.querySelector('input.history-end-year');
-                        const endMonthInput = row.querySelector('input.history-end-month');
-                        if (startYearInput && country.start) {
-                            startYearInput.value = country.start;
-                        }
-                        if (startMonthInput && country.start_month) {
-                            startMonthInput.value = country.start_month;
-                        }
-                        if (endYearInput && country.end) {
-                            endYearInput.value = country.end;
-                        }
-                        if (endMonthInput && country.end_month) {
-                            endMonthInput.value = country.end_month;
-                        }
+                        const endYearInput    = row.querySelector('input.history-end-year');
+                        const endMonthInput   = row.querySelector('input.history-end-month');
+                        if (startYearInput && country.start)       startYearInput.value  = country.start;
+                        if (startMonthInput && country.start_month) startMonthInput.value = country.start_month;
+                        if (endYearInput && country.end)           endYearInput.value    = country.end;
+                        if (endMonthInput && country.end_month)    endMonthInput.value   = country.end_month;
                     });
-                    resultsContainer.appendChild(item);
+                    dd.appendChild(item);
                 });
 
-                resultsContainer.style.display = filteredCountries.length > 0 ? 'block' : 'none';
+                if (filteredCountries.length > 0) {
+                    _positionHistoryAcDropdown(input);
+                } else {
+                    _hideHistoryAcDropdown();
+                }
             }
         });
 
@@ -26540,9 +28319,9 @@ kingSelect.addEventListener('change', () => {
 
         // 🚩 [핵심 수정] 사용자의 요청에 따라 모바일 스와이프(슬라이딩) 기능을 비활성화합니다.
         // 🚩 [추가] 모바일에서 검색창 포커스 시 controls-wrapper 항상 보이게
-        const searchInput = document.getElementById('searchInput');
-        if (searchInput) {
-            searchInput.addEventListener('focus', () => {
+        const legacySearchInput = document.getElementById('searchInput');
+        if (legacySearchInput) {
+            legacySearchInput.addEventListener('focus', () => {
                 controlsWrapper.classList.add('visible');
                 document.body.classList.add('controls-visible');
             });
@@ -26606,14 +28385,28 @@ kingSelect.addEventListener('change', () => {
             const playCtrl  = document.getElementById('timeline-play-controls');
             const tileToggle = document.getElementById('map-tile-toggle-group');
 
-            // 타일 토글 바로 왼쪽에 위치하도록 right 동적 설정
+            // #map에 overflow:hidden이 있으므로 body로 이동 후 fixed 위치로 잡기
             function positionPlayCtrl() {
                 if (!playCtrl || !tileToggle) return;
-                const toggleW = tileToggle.offsetWidth || 140;
-                playCtrl.style.right = toggleW + 'px';
+                // 3D 모드 중에는 _elevateUiFor3d가 직접 관리하므로 스킵
+                if (window._is3dMode) return;
+                // body 직속으로 이동 (아직 안 된 경우)
+                if (playCtrl.parentElement !== document.body) {
+                    document.body.appendChild(playCtrl);
+                }
+                // 타일토글의 실제 화면 위치 기준으로 정렬 — 타일 토글 좌측에 딱 붙임
+                const tgRect = tileToggle.getBoundingClientRect();
+                const topPx = tgRect.top > 0 ? tgRect.top : 44;
+                // right = viewport 너비 - tileToggle 왼쪽 끝 (정확한 flush 위치)
+                const rightPx = window.innerWidth - tgRect.left;
+                playCtrl.style.position = 'fixed';
+                playCtrl.style.top = topPx + 'px';
+                playCtrl.style.right = rightPx + 'px';
+                playCtrl.style.zIndex = '2610';
             }
             positionPlayCtrl();
             window.addEventListener('resize', positionPlayCtrl);
+            window._positionPlayCtrl = positionPlayCtrl;
         })();
 
         // 🚩 [수정] 레이어 토글 버튼 이벤트 리스너를 다시 추가합니다.
@@ -26634,12 +28427,17 @@ kingSelect.addEventListener('change', () => {
                 if (layerType === 'territoryPolygon' && layerVisibility.territoryPolygon) {
                     if (territories.length === 0) {
                         console.log('⏳ 영토 데이터 로딩 중... (백그라운드)');
-                        // 백그라운드 로딩이 완료되면 자동으로 렌더링됨
                     } else {
-                        // 이미 로드된 경우 즉시 렌더링
                         const { year, month } = getCurrentYearMonth();
                         updateMap(year, month);
                     }
+                    if (window._is3dMode && typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
+                    return;
+                }
+                if (layerType === 'territoryPolygon' && !layerVisibility.territoryPolygon) {
+                    const { year, month } = getCurrentYearMonth();
+                    updateMap(year, month);
+                    if (window._is3dMode && typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
                     return;
                 }
                 
@@ -26723,6 +28521,14 @@ kingSelect.addEventListener('change', () => {
                     }
                      const { year, month } = getCurrentYearMonth();
                      updateMap(year, month);
+                 }
+                 
+                 // ── 3D 모드 연동: 마커/영토 토글 즉시 반영 ──
+                 if (window._is3dMode && typeof window._3dRefreshLayers === 'function') {
+                     const _3dMarkerLayers = ['city','military','natural','placeLabel','countryLabel','adminLabel','ethnicLabel','territoryPolygon','rivers'];
+                     if (_3dMarkerLayers.includes(layerType)) {
+                         window._3dRefreshLayers();
+                     }
                  }
                  
                  // 🚩 [수정] 모바일 체크박스 상태 동기화
@@ -27017,7 +28823,10 @@ kingSelect.addEventListener('change', () => {
         const normalBtnPc = null;
 
         const switchTileLayer = (newLayerKey, clickedBtn) => {
-            if (currentTileLayer !== baseMaps[newLayerKey]) {
+            if (!baseMaps[newLayerKey]) return;
+            // 3D 모드 중에는 Leaflet 타일 전환 불필요 (MapLibre가 렌더링)
+            // exit3d는 init3DMap 내 리스너가 담당
+            if (!window._is3dMode && currentTileLayer !== baseMaps[newLayerKey]) {
                 map.removeLayer(currentTileLayer);
                 currentTileLayer = baseMaps[newLayerKey];
                 map.addLayer(currentTileLayer);
@@ -28768,7 +30577,17 @@ kingSelect.addEventListener('change', () => {
       // 🟢 [추가] ranking.html에서 검토 완료 메시지 받아서 실시간 업데이트
       window.addEventListener('message', async (event) => {
         console.log('📨 [메시지 수신] event.data:', event.data);
-        
+
+        // 🚩 [수정] nl-close: 사관청 소식 팝업 닫기 (IIFE 스코프 밖에서도 처리)
+        if (event.data && event.data.type === 'nl-close') {
+          const nlOverlay = document.getElementById('newsletter-popup-overlay');
+          const nlCloseBtn = document.getElementById('newsletter-popup-close');
+          if (nlOverlay) nlOverlay.style.display = 'none';
+          if (nlCloseBtn) nlCloseBtn.style.display = 'none';
+          document.body.style.overflow = '';
+          return;
+        }
+
         if (event.data.type === 'contributionReviewed') {
           const { contributionId, newStatus } = event.data;
           console.log(`📨 [메시지 수신] ${contributionId} → ${newStatus}`);
@@ -28962,6 +30781,7 @@ kingSelect.addEventListener('change', () => {
     let _distanceLineCoords = null; // { fromLat, fromLng, toLat, toLng, km, ri }
     let _distanceMoveHandler = null;
     let _distanceZoomHandler = null;
+    let _distance3dMarkers = []; // MapLibre 3D 모드용 출발/도착 마커
 
     function clearDistanceLine() {
         _distanceLayers.forEach(l => { try { map.removeLayer(l); } catch(e){} });
@@ -28975,6 +30795,15 @@ kingSelect.addEventListener('change', () => {
         if (_distanceMoveHandler) { map.off('move zoom', _distanceMoveHandler); _distanceMoveHandler = null; }
         if (_distanceZoomHandler) { map.off('zoomend moveend', _distanceZoomHandler); _distanceZoomHandler = null; }
         _distanceLineCoords = null;
+        // 3D 마커 제거
+        _distance3dMarkers.forEach(mk => { try { mk.remove(); } catch(e){} });
+        _distance3dMarkers = [];
+        // 3D 라인 레이어 제거
+        const _m = window.mlMap3d;
+        if (_m) {
+            ['_distance-line', '_distance-line-bg'].forEach(id => { if (_m.getLayer(id)) _m.removeLayer(id); });
+            if (_m.getSource('_distance-line')) _m.removeSource('_distance-line');
+        }
     }
 
     // 🚀 거리 카드 계산 헬퍼 — km와 km/h 기준으로 소요 시간 계산
@@ -29156,11 +30985,89 @@ kingSelect.addEventListener('change', () => {
 
         _distanceLineCoords = { fromLat, fromLng, toLat, toLng, km, ri,
             fromName: fromName || '', toName: toName || '' };
-        _renderDistanceSvg();
 
-        // 지도 이동/줌 시 SVG 좌표 갱신
-        _distanceMoveHandler = () => _renderDistanceSvg();
-        map.on('move zoom moveend zoomend', _distanceMoveHandler);
+        const _m = window.mlMap3d;
+        if (window._is3dMode && _m) {
+            // ── 3D 모드: SVG 오버레이 없이 MapLibre만 사용 ──
+
+            // 소요 시간 계산 (SVG와 동일 로직)
+            const horseDays3d = _calcTravelTime(km, 6, 8);
+            const footDays3d  = _calcTravelTime(km, 3.75, 9);
+            const _bwk = km * 0.10, _brk = km * 0.80;
+            const _bth = (_bwk * 2) / 3.75 + _brk / 6;
+            const boatDays3d = (() => {
+                const h = _bth, dH = 9;
+                if (h < 1) { const m = Math.round(h*60/10)*10; return m<=10?'30분 이내':`약 ${m}분`; }
+                if (h < dH) { const w=Math.floor(h),wm=Math.round((h-w)*60/10)*10; return wm===0?`약 ${w}시간`:wm===60?`약 ${w+1}시간`:`약 ${w}시간 ${wm}분`; }
+                const d=h/dH,wh=Math.floor(d),fr=d-wh;
+                return fr>=0.8?`약 ${wh+1}일`:fr>=0.4?`약 ${wh}일 반`:wh<=1?'약 1일':`약 ${wh}일`;
+            })();
+
+            // 출발 마커 (노란 점)
+            const fromEl = document.createElement('div');
+            fromEl.style.cssText = 'position:relative;width:12px;height:12px;border-radius:50%;background:rgba(255,220,80,0.95);border:2px solid rgba(0,0,0,0.7);box-shadow:0 0 8px rgba(255,220,80,0.8);pointer-events:none;';
+            const fromLabel = document.createElement('div');
+            fromLabel.style.cssText = 'position:absolute;bottom:16px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10px;color:#ffe87a;text-shadow:-1px -1px 0 #000,1px 1px 0 #000,0 0 4px #000;font-weight:bold;pointer-events:none;font-family:sans-serif;';
+            fromLabel.textContent = fromName || '출발';
+            fromEl.appendChild(fromLabel);
+            _distance3dMarkers.push(new maplibregl.Marker({ element: fromEl, anchor: 'center' }).setLngLat([fromLng, fromLat]).addTo(_m));
+
+            // 도착 마커 (파란 점)
+            const toEl = document.createElement('div');
+            toEl.style.cssText = 'position:relative;width:12px;height:12px;border-radius:50%;background:rgba(120,190,220,0.95);border:2px solid rgba(0,0,0,0.7);box-shadow:0 0 8px rgba(120,190,220,0.8);pointer-events:none;';
+            const toLabel = document.createElement('div');
+            toLabel.style.cssText = 'position:absolute;bottom:16px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10px;color:#7ab8e0;text-shadow:-1px -1px 0 #000,1px 1px 0 #000,0 0 4px #000;font-weight:bold;pointer-events:none;font-family:sans-serif;';
+            toLabel.textContent = toName || '도착';
+            toEl.appendChild(toLabel);
+            _distance3dMarkers.push(new maplibregl.Marker({ element: toEl, anchor: 'center' }).setLngLat([toLng, toLat]).addTo(_m));
+
+            // 중간 거리 카드 마커
+            const midLng3d = (fromLng + toLng) / 2;
+            const midLat3d = (fromLat + toLat) / 2;
+            const cardEl = document.createElement('div');
+            cardEl.style.cssText = 'pointer-events:none;transform:translateX(-50%) translateY(-50%);';
+            cardEl.innerHTML = `
+                <div style="background:rgba(8,14,22,0.93);border:1px solid rgba(255,255,255,0.2);border-radius:10px;
+                    padding:8px 14px;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.7);
+                    font-family:'Noto Serif KR',sans-serif;min-width:200px;">
+                  <div style="font-size:11.5px;font-weight:700;color:rgba(230,230,230,0.95);margin-bottom:2px;">
+                    ${fromName||'출발'} → ${toName||'도착'}
+                  </div>
+                  <div style="font-size:14px;font-weight:900;color:#ffe87a;margin-bottom:6px;letter-spacing:0.5px;">
+                    ${km} km · ${ri}리
+                  </div>
+                  <div style="height:1px;background:rgba(255,255,255,0.1);margin-bottom:5px;"></div>
+                  <div style="display:flex;justify-content:space-between;font-size:10.5px;margin-bottom:2px;">
+                    <span style="color:rgba(210,200,170,0.9);">🐴 기마대 <span style="font-size:9px;color:rgba(160,160,140,0.6);">6km/h</span></span>
+                    <span style="color:rgba(255,215,100,0.95);font-weight:700;">${horseDays3d}</span>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;font-size:10.5px;margin-bottom:2px;">
+                    <span style="color:rgba(200,210,195,0.85);">🪖 보병대 <span style="font-size:9px;color:rgba(160,160,140,0.6);">3.75km/h</span></span>
+                    <span style="color:rgba(170,220,170,0.95);font-weight:700;">${footDays3d}</span>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;font-size:10.5px;">
+                    <span style="color:#7ab8cc;">🚢 선박 <span style="font-size:9px;color:rgba(160,160,140,0.55);">복합추정</span></span>
+                    <span style="color:#a8d8ee;font-weight:700;">${boatDays3d}</span>
+                  </div>
+                </div>`;
+            _distance3dMarkers.push(new maplibregl.Marker({ element: cardEl, anchor: 'center' }).setLngLat([midLng3d, midLat3d]).addTo(_m));
+
+            // 거리선 GeoJSON (배경 + 흰 점선)
+            const lineGeoJSON = { type: 'Feature', geometry: { type: 'LineString', coordinates: [[fromLng, fromLat], [toLng, toLat]] } };
+            _m.addSource('_distance-line', { type: 'geojson', data: lineGeoJSON });
+            _m.addLayer({ id: '_distance-line-bg', type: 'line', source: '_distance-line',
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: { 'line-color': 'rgba(0,0,0,0.55)', 'line-width': 5 } });
+            _m.addLayer({ id: '_distance-line', type: 'line', source: '_distance-line',
+                layout: { 'line-cap': 'butt', 'line-join': 'round' },
+                paint: { 'line-color': 'rgba(255,255,255,0.85)', 'line-width': 2,
+                         'line-dasharray': [8, 5] } });
+        } else {
+            // ── 2D 모드: 기존 SVG 오버레이 ──
+            _renderDistanceSvg();
+            _distanceMoveHandler = () => _renderDistanceSvg();
+            map.on('move zoom moveend zoomend', _distanceMoveHandler);
+        }
     }
     // ────────────────────────────────────────────────────────────────
 
@@ -29208,9 +31115,22 @@ kingSelect.addEventListener('change', () => {
                 [lat, lng]
             );
             // 여백 80px, 최대 줌 10 (너무 가까운 두 지점도 확대되지 않도록)
-            map.fitBounds(bounds, { padding: [80, 80], maxZoom: 10, animate: true });
+            if (window._is3dMode && window.mlMap3d) {
+                const minLng = Math.min(_nearbyCenter.lng, lng) - 0.5;
+                const maxLng = Math.max(_nearbyCenter.lng, lng) + 0.5;
+                const minLat = Math.min(_nearbyCenter.lat, lat) - 0.3;
+                const maxLat = Math.max(_nearbyCenter.lat, lat) + 0.3;
+                window.mlMap3d.fitBounds([[minLng, minLat],[maxLng, maxLat]],
+                    { padding: 80, maxZoom: 10, animate: true, duration: 800 });
+            } else {
+                map.fitBounds(bounds, { padding: [80, 80], maxZoom: 10, animate: true });
+            }
         } else {
-            map.setView([lat, lng], Math.max(map.getZoom(), 7), { animate: true });
+            if (window._is3dMode && window.mlMap3d) {
+                window.mlMap3d.flyTo({ center: [lng, lat], zoom: Math.max(window.mlMap3d.getZoom(), 7), duration: 800 });
+            } else {
+                map.setView([lat, lng], Math.max(map.getZoom(), 7), { animate: true });
+            }
         }
     };
 
@@ -29218,11 +31138,37 @@ kingSelect.addEventListener('change', () => {
     let _radarLayers = [];
     let _radarTimers = [];
 
+    let _radar3dTimers = []; // 3D pulse animation timers
+
     function clearRadarLayers() {
         _radarTimers.forEach(t => clearInterval(t));
         _radarTimers = [];
         _radarLayers.forEach(l => { try { map.removeLayer(l); } catch(e){} });
         _radarLayers = [];
+        // 3D 레이더 정리
+        _radar3dTimers.forEach(t => clearInterval(t));
+        _radar3dTimers = [];
+        const _m = window.mlMap3d;
+        if (_m) {
+            ['_radar-fill-1','_radar-fill-2','_radar-fill-3',
+             '_radar-ring-1','_radar-ring-2','_radar-ring-3',
+             '_radar-center'].forEach(id => { if (_m.getLayer(id)) _m.removeLayer(id); });
+            ['_radar-src-1','_radar-src-2','_radar-src-3',
+             '_radar-center-src'].forEach(id => { if (_m.getSource(id)) _m.removeSource(id); });
+        }
+    }
+
+    // GeoJSON 원 생성 헬퍼 (중심 lat/lng, 반지름 km, 64각형 근사)
+    function _makeCircleGeoJSON(cLat, cLng, radiusKm, steps) {
+        steps = steps || 64;
+        const coords = [];
+        for (let i = 0; i <= steps; i++) {
+            const angle = (i / steps) * 2 * Math.PI;
+            const dLat = (radiusKm / 111.32) * Math.cos(angle);
+            const dLng = (radiusKm / (111.32 * Math.cos(cLat * Math.PI / 180))) * Math.sin(angle);
+            coords.push([cLng + dLng, cLat + dLat]);
+        }
+        return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] } };
     }
 
     function drawRadarCircles(lat, lng, radiusKm) {
@@ -29282,6 +31228,61 @@ kingSelect.addEventListener('change', () => {
             try { center.setRadius(r); } catch(e) {}
         }, 50);
         _radarTimers.push(cTimer);
+
+        // ── 3D 모드: MapLibre GeoJSON 원 + pulse ──
+        if (window._is3dMode && window.mlMap3d) {
+            const _m = window.mlMap3d;
+            const ringDefs = [
+                { idx: 1, frac: 1.0,  strokeColor: '#e0a030', fillColor: '#e0a030', baseFillOp: 0.04, baseStrokeOp: 0.7,  period: 2000, width: 2.0 },
+                { idx: 2, frac: 0.5,  strokeColor: '#7ab8cc', fillColor: '#7ab8cc', baseFillOp: 0.03, baseStrokeOp: 0.55, period: 2600, width: 1.5 },
+                { idx: 3, frac: 0.25, strokeColor: '#60c0a8', fillColor: '#60c0a8', baseFillOp: 0.02, baseStrokeOp: 0.40, period: 3200, width: 1.2 },
+            ];
+
+            ringDefs.forEach(({ idx, frac, strokeColor, fillColor, baseFillOp, baseStrokeOp, period, width }) => {
+                const srcId   = `_radar-src-${idx}`;
+                const ringId  = `_radar-ring-${idx}`;
+                const fillId  = `_radar-fill-${idx}`;
+                const geoData = _makeCircleGeoJSON(lat, lng, radiusKm * frac, 64);
+                _m.addSource(srcId, { type: 'geojson', data: geoData });
+                _m.addLayer({ id: fillId, type: 'fill', source: srcId,
+                    paint: { 'fill-color': fillColor, 'fill-opacity': baseFillOp } });
+                _m.addLayer({ id: ringId, type: 'line', source: srcId,
+                    layout: { 'line-cap': 'round', 'line-join': 'round' },
+                    paint: { 'line-color': strokeColor, 'line-width': width, 'line-opacity': baseStrokeOp,
+                             'line-dasharray': idx === 1 ? [8, 5] : idx === 2 ? [5, 4] : [3, 4] } });
+
+                // pulse animation
+                const start3d = performance.now();
+                const t3d = setInterval(() => {
+                    const tp = (performance.now() - start3d) / period;
+                    const wave = 0.5 + 0.5 * Math.sin(tp * Math.PI * 2);
+                    const so = 0.15 + (baseStrokeOp - 0.15) * wave;
+                    const fo = baseFillOp * 0.3 + baseFillOp * 0.7 * wave;
+                    try {
+                        _m.setPaintProperty(ringId, 'line-opacity', so);
+                        _m.setPaintProperty(fillId, 'fill-opacity', fo);
+                    } catch(e) {}
+                }, 60);
+                _radar3dTimers.push(t3d);
+            });
+
+            // 중심 글로우 원
+            const centerSrc = _makeCircleGeoJSON(lat, lng, radiusKm * 0.012, 32);
+            _m.addSource('_radar-center-src', { type: 'geojson', data: centerSrc });
+            _m.addLayer({ id: '_radar-center', type: 'fill', source: '_radar-center-src',
+                paint: { 'fill-color': '#ffe080', 'fill-opacity': 0.9 } });
+
+            // 중심 pulse
+            const cStart3d = performance.now();
+            const cT3d = setInterval(() => {
+                const tp = (performance.now() - cStart3d) / 900;
+                const scale = 0.008 + 0.006 * (0.5 + 0.5 * Math.sin(tp * Math.PI * 2));
+                try {
+                    _m.getSource('_radar-center-src').setData(_makeCircleGeoJSON(lat, lng, radiusKm * scale, 32));
+                } catch(e) {}
+            }, 60);
+            _radar3dTimers.push(cT3d);
+        }
     }
     // ────────────────────────────────────────────────────────────────
 
@@ -29389,9 +31390,23 @@ kingSelect.addEventListener('change', () => {
                 [_nearbyCenter.lat, _nearbyCenter.lng],
                 [lat, lng]
             );
-            map.fitBounds(bounds, { padding: [80, 80], maxZoom: 10, animate: true });
+            if (window._is3dMode && window.mlMap3d) {
+                // 3D 모드: MapLibre 카메라를 두 점을 포함하는 영역으로 이동
+                const minLng = Math.min(_nearbyCenter.lng, lng) - 0.5;
+                const maxLng = Math.max(_nearbyCenter.lng, lng) + 0.5;
+                const minLat = Math.min(_nearbyCenter.lat, lat) - 0.3;
+                const maxLat = Math.max(_nearbyCenter.lat, lat) + 0.3;
+                window.mlMap3d.fitBounds([[minLng, minLat],[maxLng, maxLat]],
+                    { padding: 80, maxZoom: 10, animate: true, duration: 800 });
+            } else {
+                map.fitBounds(bounds, { padding: [80, 80], maxZoom: 10, animate: true });
+            }
         } else {
-            map.setView([lat, lng], Math.max(map.getZoom(), 6), { animate: true });
+            if (window._is3dMode && window.mlMap3d) {
+                window.mlMap3d.flyTo({ center: [lng, lat], zoom: Math.max(window.mlMap3d.getZoom(), 6), duration: 800 });
+            } else {
+                map.setView([lat, lng], Math.max(map.getZoom(), 6), { animate: true });
+            }
         }
     };
     // ────────────────────────────────────────────────────────────────
@@ -31903,12 +33918,17 @@ async function castleFormDeleteVoice() {
       if (btn) { btn.classList.add('active'); btn.textContent = '🧈금산지 ●'; }
       var cb = document.getElementById('menu-layer-gold');
       if (cb) cb.checked = true;
+      // 3D 노출: 데이터 등록 후 갱신
+      window._resourceData = window._resourceData || {};
+      window._resourceData.gold = _goldData.map(function(d){ return Object.assign({}, d, {_resType:'gold', _emoji:'🧈'}); });
     } else {
       m.removeLayer(_goldLayer);
       if (btn) { btn.classList.remove('active'); btn.textContent = '🧈금산지'; }
       var cb = document.getElementById('menu-layer-gold');
       if (cb) cb.checked = false;
+      if (window._resourceData) delete window._resourceData.gold;
     }
+    if (window._refresh3dResources) window._refresh3dResources();
   };
 
   window.toggleIron = async function(btn) {
@@ -31920,12 +33940,16 @@ async function castleFormDeleteVoice() {
       if (btn) { btn.classList.add('active'); btn.textContent = '🪨철광산지 ●'; }
       var cb = document.getElementById('menu-layer-iron');
       if (cb) cb.checked = true;
+      window._resourceData = window._resourceData || {};
+      window._resourceData.iron = _ironData.map(function(d){ return Object.assign({}, d, {_resType:'iron', _emoji:'🪨'}); });
     } else {
       m.removeLayer(_ironLayer);
       if (btn) { btn.classList.remove('active'); btn.textContent = '🪨철광산지'; }
       var cb = document.getElementById('menu-layer-iron');
       if (cb) cb.checked = false;
+      if (window._resourceData) delete window._resourceData.iron;
     }
+    if (window._refresh3dResources) window._refresh3dResources();
   };
 })();
 
@@ -32030,12 +34054,16 @@ async function castleFormDeleteVoice() {
       if (btn) { btn.classList.add('active'); btn.textContent = '🌾농작물 ●'; }
       var cb = document.getElementById('menu-layer-crops');
       if (cb) cb.checked = true;
+      window._resourceData = window._resourceData || {};
+      window._resourceData.crops = _data.map(function(d){ return Object.assign({}, d, {_resType:'crops', _emoji: (({rice:'🌾',wheat:'🌿',millet:'🌽',barley:'🍺',sorghum:'🎋',hemp:'🪢',mulberry:'🍃'})[d.crop_type]||'🌱')}); });
     } else {
       m.removeLayer(_layer);
       if (btn) { btn.classList.remove('active'); btn.textContent = '🌾농작물'; }
       var cb = document.getElementById('menu-layer-crops');
       if (cb) cb.checked = false;
+      if (window._resourceData) delete window._resourceData.crops;
     }
+    if (window._refresh3dResources) window._refresh3dResources();
   };
 })();
 
@@ -32140,12 +34168,17 @@ async function castleFormDeleteVoice() {
       if (btn) { btn.classList.add('active'); btn.textContent = '🐎동물서식지 ●'; }
       var cb = document.getElementById('menu-layer-horse');
       if (cb) cb.checked = true;
+      window._resourceData = window._resourceData || {};
+      var ANIMAL_EMOJI2 = { horse:'🐎', buffalo:'🐃', monkey:'🐒', camel:'🐪' };
+      window._resourceData.horse = _data.map(function(d){ return Object.assign({}, d, {_resType:'horse', _emoji: ANIMAL_EMOJI2[d.resource_type]||'🐾'}); });
     } else {
       m.removeLayer(_layer);
       if (btn) { btn.classList.remove('active'); btn.textContent = '🐎동물서식지'; }
       var cb = document.getElementById('menu-layer-horse');
       if (cb) cb.checked = false;
+      if (window._resourceData) delete window._resourceData.horse;
     }
+    if (window._refresh3dResources) window._refresh3dResources();
   };
 })();
 
@@ -32241,12 +34274,16 @@ async function castleFormDeleteVoice() {
       if (btn) { btn.classList.add('active'); btn.textContent = '🧂 소금'; }
       var cb = document.getElementById('menu-layer-salt');
       if (cb) cb.checked = true;
+      window._resourceData = window._resourceData || {};
+      window._resourceData.salt = _data.map(function(d){ return Object.assign({}, d, {_resType:'salt', _emoji:'🧂'}); });
     } else {
       if (_layer) try { m.removeLayer(_layer); } catch(e){}
       if (btn) { btn.classList.remove('active'); btn.textContent = '🧂 소금'; }
       var cb = document.getElementById('menu-layer-salt');
       if (cb) cb.checked = false;
+      if (window._resourceData) delete window._resourceData.salt;
     }
+    if (window._refresh3dResources) window._refresh3dResources();
   };
 })();
 
@@ -32354,12 +34391,16 @@ async function castleFormDeleteVoice() {
       if (btn) { btn.classList.add('active'); btn.textContent = '🧵비단'; }
       var cb = document.getElementById('menu-layer-silk');
       if (cb) cb.checked = true;
+      window._resourceData = window._resourceData || {};
+      window._resourceData.silk = _data.map(function(d){ return Object.assign({}, d, {_resType:'silk', _emoji:'🧵'}); });
     } else {
       if (_layer) try { m.removeLayer(_layer); } catch(e){}
       if (btn) { btn.classList.remove('active'); btn.textContent = '🧵비단'; }
       var cb = document.getElementById('menu-layer-silk');
       if (cb) cb.checked = false;
+      if (window._resourceData) delete window._resourceData.silk;
     }
+    if (window._refresh3dResources) window._refresh3dResources();
   };
 })();
 
@@ -32965,6 +35006,10 @@ async function castleFormDeleteVoice() {
   box-shadow: 0 4px 20px rgba(0,0,0,0.5);
   animation: rlb-slide-down 0.2s ease;
 }
+/* 3D 모드에서 mlOverlay(2500) 위에 표시 */
+body.mode-3d #resource-layer-bar {
+  z-index: 2640 !important;
+}
 @keyframes rlb-slide-down {
   from { opacity:0; transform: translateX(-50%) translateY(-8px); }
   to   { opacity:1; transform: translateX(-50%) translateY(0); }
@@ -33045,6 +35090,45 @@ async function castleFormDeleteVoice() {
   var _barOpen = false;
 
   // 바 버튼 클릭 → 기존 toggle 함수 위임
+// ── 3D 자원 마커 렌더 (window._resourceData 기반) ──
+window._3dResourceMarkers = window._3dResourceMarkers || [];
+window._refresh3dResources = function _refresh3dResources() {
+  // 2D 모드면 아무것도 안 함 (Leaflet이 이미 처리)
+  if (!window._is3dMode) return;
+  var mlMap = window.mlMap3d;
+  if (!mlMap) return;
+
+  // 기존 3D 자원 마커 제거
+  (window._3dResourceMarkers || []).forEach(function(mk){ try { mk.remove(); } catch(e){} });
+  window._3dResourceMarkers = [];
+
+  var data = window._resourceData || {};
+  var allItems = [];
+  Object.keys(data).forEach(function(k){ allItems = allItems.concat(data[k] || []); });
+
+  allItems.forEach(function(d) {
+    if (d.lat == null || d.lng == null) return;
+    var emoji = d._emoji || '●';
+    var name  = d.name_ko || d.name || '';
+    var el = document.createElement('div');
+    el.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;pointer-events:auto;';
+    el.innerHTML = '<span style="font-size:14px;line-height:1;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))">' + emoji + '</span>'
+      + (name ? '<span style="font-size:9px;color:#e8d9b8;white-space:nowrap;text-shadow:0 0 3px rgba(0,0,0,0.9);">' + name + '</span>' : '');
+    // 팝업
+    el.addEventListener('click', function() {
+      new maplibregl.Popup({ offset:6, closeButton:false, maxWidth:'220px', className:'ml3d-popup' })
+        .setLngLat([d.lng, d.lat])
+        .setHTML('<div style="font-size:12px;color:#e8d9b8;padding:2px 0"><b>' + emoji + ' ' + name + '</b></div>')
+        .addTo(mlMap);
+    });
+    var mk = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+      .setLngLat([d.lng, d.lat])
+      .addTo(mlMap);
+    window._3dResourceMarkers.push(mk);
+  });
+  console.log('[3D 자원] ' + allItems.length + '개 마커 렌더링');
+}
+
 window.rlbToggle = function (btn) {
   var fnName = btn.dataset.toggle;
   var fn = window[fnName];
@@ -33083,6 +35167,10 @@ window.toggleResourceBar = function(btn, forceState) {
       bar.querySelectorAll('.rlb-btn').forEach(function (b) {
         b.style.setProperty('--rlb-accent', b.dataset.accent || '#888');
       });
+      // 3D 모드에서도 mlOverlay(z-index:2500) 위에 표시
+      if (document.body.classList.contains('mode-3d')) {
+        bar.style.setProperty('z-index', '2640', 'important');
+      }
       if (masterBtn) masterBtn.classList.add('active');
     } else {
       // 켜진 레이어 모두 끄기
