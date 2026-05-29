@@ -3253,6 +3253,57 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // 🌊 GET: 자연 지형지물 단건 조회
+        app.get('/api/natural-features/:id', verifyToken, async (req, res) => {
+            try {
+                const { ObjectId } = require('mongodb');
+                const feature = await collections.naturalFeatures.findOne({ _id: new ObjectId(req.params.id) });
+                if (!feature) return res.status(404).json({ message: '자연 지형지물을 찾을 수 없습니다.' });
+                res.json(feature);
+            } catch (error) {
+                console.error('자연 지형지물 단건 조회 오류:', error);
+                res.status(500).json({ message: '조회 실패', error: error.message });
+            }
+        });
+
+        // 🌊 PUT: 자연 지형지물 수정
+        app.put('/api/natural-features/:id', verifyToken, async (req, res) => {
+            try {
+                const { ObjectId } = require('mongodb');
+                const update = req.body;
+                delete update._id;
+                const result = await collections.naturalFeatures.findOneAndUpdate(
+                    { _id: new ObjectId(req.params.id) },
+                    { $set: update },
+                    { returnDocument: 'after' }
+                );
+                if (!result) return res.status(404).json({ message: '자연 지형지물을 찾을 수 없습니다.' });
+                naturalFeaturesCache = null;
+                naturalFeaturesCacheTime = null;
+                logCRUD('UPDATE', 'NaturalFeature', update.name || req.params.id, `(ID: ${req.params.id})`);
+                res.json(result);
+            } catch (error) {
+                console.error('자연 지형지물 수정 오류:', error);
+                res.status(500).json({ message: '수정 실패', error: error.message });
+            }
+        });
+
+        // 🌊 DELETE: 자연 지형지물 삭제
+        app.delete('/api/natural-features/:id', verifyToken, async (req, res) => {
+            try {
+                const { ObjectId } = require('mongodb');
+                const result = await collections.naturalFeatures.deleteOne({ _id: new ObjectId(req.params.id) });
+                if (result.deletedCount === 0) return res.status(404).json({ message: '자연 지형지물을 찾을 수 없습니다.' });
+                naturalFeaturesCache = null;
+                naturalFeaturesCacheTime = null;
+                logCRUD('DELETE', 'NaturalFeature', req.params.id, '');
+                res.json({ message: '삭제 완료', id: req.params.id });
+            } catch (error) {
+                console.error('자연 지형지물 삭제 오류:', error);
+                res.status(500).json({ message: '삭제 실패', error: error.message });
+            }
+        });
+
         // 🌊 POST: 자연 지형지물 추가
         app.post('/api/natural-features', verifyToken, async (req, res) => {
             try {
