@@ -2625,17 +2625,7 @@ body.force-mobile .marker-type-selector button {
     .battle-projectile.bp6 { animation: battle-projectile-3 1.9s ease-in infinite; animation-delay:1.4s;  }
     /* 돌 투사체 */
     .battle-rock {
-        position: absolute;
-        pointer-events: none;
-        width: 5px; height: 5px;
-        border-radius: 50%;
-        background: #a08060;
-        border: 1px solid #604020;
-        opacity: 0;
-        bottom: 10px;
-        left: 50%;
-        will-change: transform, opacity;
-        box-shadow: 0 0 2px rgba(0,0,0,0.7);
+        display: none !important;
     }
     .battle-rock.br1 { animation: battle-rock-1 1.4s ease-in infinite; animation-delay:0.2s; }
     .battle-rock.br2 { animation: battle-rock-2 1.7s ease-in infinite; animation-delay:0.9s; }
@@ -12278,7 +12268,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         // 단, 데이터 개수가 변했으면 (새 데이터 도착) 즉시 통과
         const now = Date.now();
         const dataFingerprint = `${castles.length}_${territories.length}_${countries.length}_${naturalFeatures.length}_${drawings.length}_${contributions.length}`;
-        if (!force && lastUpdateMapCall.year === year && 
+        if (!force && !window.isPlaying && lastUpdateMapCall.year === year && 
             lastUpdateMapCall.month === month && 
             lastUpdateMapCall.cacheOnly === cacheOnly &&
             lastUpdateMapCall.dataFingerprint === dataFingerprint &&
@@ -19583,6 +19573,8 @@ const loadingMessages = [
         if (tPauseBtn) { tPauseBtn.classList.remove('active'); tPauseBtn.style.opacity = '0.4'; tPauseBtn.style.color = ''; }
         updatePlaybackButtonLabel();
 
+        // 3D 모드에서는 마커 재빌드 비용이 있으므로 tick 간격을 넉넉하게 설정
+        const tickMs = (window._is3dMode ? Math.max(PLAYBACK_TICK_MS, 350) : PLAYBACK_TICK_MS);
         playInterval = setInterval(() => {
             if (playbackMode === 0) return; // safety
 
@@ -19607,7 +19599,7 @@ const loadingMessages = [
             yearInput.value = year;
             monthInput.value = month;
             updateTime(year, month);
-        }, PLAYBACK_TICK_MS);
+        }, tickMs);
     }
 
     function stopPlayback() {
@@ -26439,7 +26431,8 @@ kingSelect.addEventListener('change', () => {
             let mlMap     = null;
             let mlOverlay = null;   // 전체화면 div
             let is3d      = false;
-            let _3dMarkers = [];    // maplibregl.Marker 인스턴스 목록 (refresh 시 제거)
+            let _3dMarkers = [];    // maplibregl.Marker 인스턴스 목록 (culling용)
+            let _3dMarkersMap = new Map(); // key→Marker (깜빡임 없는 diff 갱신용)
             let _3dRenderListener = null; // behind-globe culling 리스너
             let terrainOn = true;
             let orbitOn   = false;
@@ -26590,6 +26583,12 @@ kingSelect.addEventListener('change', () => {
 
             function refreshLayers() {
                 if (!mlMap) return;
+                // ── 재생 중에는 debounce 생략, 즉시 렌더 ──
+                if (window.isPlaying) {
+                    clearTimeout(_refreshLayersTimer);
+                    _refreshLayersThrottled();
+                    return;
+                }
                 // ── debounce: 400ms 안에 연속 호출은 마지막 1회만 실행 ──
                 clearTimeout(_refreshLayersTimer);
                 _refreshLayersTimer = setTimeout(() => {
@@ -26987,76 +26986,81 @@ kingSelect.addEventListener('change', () => {
                     const fillId    = `territory-fill-${key}`;
                     const outlineId = `territory-outline-${key}`;
                     const srcId     = `territories-${key}`;
-                    [outlineId, fillId].forEach(id => { if (_m.getLayer(id)) _m.removeLayer(id); });
-                    if (_m.getSource(srcId)) _m.removeSource(srcId);
-                    const features = td[key] || [];
-                    if (features.length === 0 || !_showTerritory) return;
-                    _m.addSource(srcId, { type: 'geojson', data: { type: 'FeatureCollection', features } });
-                    _m.addLayer({ id: fillId, type: 'fill', source: srcId,
-                        paint: {
-                            'fill-color':   ['coalesce', ['get', 'fillColor'], '#888888'],
-                            'fill-opacity': ['coalesce', ['to-number', ['get', 'fillOpacity'], null], LEVEL_FILL_OPACITY[key]]
-                        }
-                    });
-                    _m.addLayer({ id: outlineId, type: 'line', source: srcId,
-                        paint: {
-                            'line-color':   ['coalesce', ['get', 'lineColor'], '#888888'],
-                            'line-width':   ['coalesce', ['to-number', ['get', 'weight'], null], 0.5],
-                            'line-opacity': ['coalesce', ['to-number', ['get', 'lineOpacity'], null], 0.4]
-                        }
-                    });
+                    const features  = td[key] || [];
+                    const fc        = { type: 'FeatureCollection', features };
+
+                    if (_m.getSource(srcId)) {
+                        // ── 소스가 이미 있으면 setData()로 깜빡임 없이 업데이트 ──
+                        _m.getSource(srcId).setData(fc);
+                        const vis = (features.length > 0 && _showTerritory) ? 'visible' : 'none';
+                        [fillId, outlineId].forEach(id => { if (_m.getLayer(id)) _m.setLayoutProperty(id, 'visibility', vis); });
+                    } else {
+                        // ── 최초 렌더: terrain 우회 후 소스+레이어 생성 ──
+                        if (features.length === 0 || !_showTerritory) return;
+                        _m.addSource(srcId, { type: 'geojson', data: fc });
+                        _m.addLayer({ id: fillId, type: 'fill', source: srcId,
+                            paint: {
+                                'fill-color':   ['coalesce', ['get', 'fillColor'], '#888888'],
+                                'fill-opacity': ['coalesce', ['to-number', ['get', 'fillOpacity'], null], LEVEL_FILL_OPACITY[key]]
+                            }
+                        });
+                        _m.addLayer({ id: outlineId, type: 'line', source: srcId,
+                            paint: {
+                                'line-color':   ['coalesce', ['get', 'lineColor'], '#888888'],
+                                'line-width':   ['coalesce', ['to-number', ['get', 'weight'], null], 0.5],
+                                'line-opacity': ['coalesce', ['to-number', ['get', 'lineOpacity'], null], 0.4]
+                            }
+                        });
+                    }
                 });
 
                 // terrain 복원
                 if (currentTerrain) _m.setTerrain(currentTerrain);
 
                 // ── 강 레이어 (MapLibre GeoJSON line) — 영토 위에 렌더링 ──
-                ['3d-rivers-fill', '3d-rivers-line'].forEach(id => { if (_m.getLayer(id)) _m.removeLayer(id); });
-                if (_m.getSource('3d-rivers')) _m.removeSource('3d-rivers');
                 const _showRivers = (typeof layerVisibility === 'undefined') || layerVisibility.rivers !== false;
-                if (_showRivers) {
-                    const riverFeatures = [];
-                    // naturalFeatures 기반
-                    if (typeof naturalFeatures !== 'undefined') {
-                        naturalFeatures.forEach(f => {
-                            if (f.type !== 'river' || !f.geometry) return;
-                            riverFeatures.push({ type: 'Feature', geometry: f.geometry, properties: { name: f.name || '' } });
-                        });
-                    }
-                    // drawings(type:river) 기반
-                    if (typeof drawings !== 'undefined') {
-                        const { year: _rYear } = (typeof getCurrentYearMonth === 'function') ? getCurrentYearMonth() : { year: 0 };
-                        drawings.forEach(d => {
-                            if (d.type !== 'river' || !d.geojson?.geometry) return;
-                            const sy = d.start_year != null ? d.start_year : -Infinity;
-                            const ey = d.end_year   != null ? d.end_year   : Infinity;
-                            if (!(_rYear >= sy && _rYear <= ey)) return; // 연도 범위 밖이면 제외
-                            riverFeatures.push({ type: 'Feature', geometry: d.geojson.geometry, properties: { name: d.name || '강' } });
-                        });
-                    }
-                    if (riverFeatures.length > 0) {
-                        _m.addSource('3d-rivers', { type: 'geojson', data: { type: 'FeatureCollection', features: riverFeatures } });
-                        // Polygon/MultiPolygon 강 도형 내부 채우기
-                        _m.addLayer({ id: '3d-rivers-fill', type: 'fill', source: '3d-rivers',
-                            filter: ['in', '$type', 'Polygon'],
-                            paint: { 'fill-color': '#1e003d', 'fill-opacity': 0.55 }
-                        });
-                        // 선/폴리곤 윤곽 공통 line 레이어
-                        _m.addLayer({ id: '3d-rivers-line', type: 'line', source: '3d-rivers',
-                            paint: { 'line-color': '#1e003d', 'line-width': 2.0, 'line-opacity': 0.9 },
-                            layout: { 'line-cap': 'round', 'line-join': 'round' }
-                        });
-                    }
+                const riverFeatures = [];
+                if (typeof naturalFeatures !== 'undefined') {
+                    naturalFeatures.forEach(f => {
+                        if (f.type !== 'river' || !f.geometry) return;
+                        riverFeatures.push({ type: 'Feature', geometry: f.geometry, properties: { name: f.name || '' } });
+                    });
+                }
+                if (typeof drawings !== 'undefined') {
+                    const { year: _rYear } = (typeof getCurrentYearMonth === 'function') ? getCurrentYearMonth() : { year: 0 };
+                    drawings.forEach(d => {
+                        if (d.type !== 'river' || !d.geojson?.geometry) return;
+                        const sy = d.start_year != null ? d.start_year : -Infinity;
+                        const ey = d.end_year   != null ? d.end_year   : Infinity;
+                        if (!(_rYear >= sy && _rYear <= ey)) return;
+                        riverFeatures.push({ type: 'Feature', geometry: d.geojson.geometry, properties: { name: d.name || '강' } });
+                    });
+                }
+                const riverFC = { type: 'FeatureCollection', features: riverFeatures };
+                if (_m.getSource('3d-rivers')) {
+                    // ── 소스 존재 시 setData() 인플레이스 업데이트 ──
+                    _m.getSource('3d-rivers').setData(riverFC);
+                    const vis = (_showRivers && riverFeatures.length > 0) ? 'visible' : 'none';
+                    ['3d-rivers-fill', '3d-rivers-line'].forEach(id => { if (_m.getLayer(id)) _m.setLayoutProperty(id, 'visibility', vis); });
+                } else if (_showRivers && riverFeatures.length > 0) {
+                    // ── 최초 렌더: 소스+레이어 생성 ──
+                    _m.addSource('3d-rivers', { type: 'geojson', data: riverFC });
+                    _m.addLayer({ id: '3d-rivers-fill', type: 'fill', source: '3d-rivers',
+                        filter: ['in', '$type', 'Polygon'],
+                        paint: { 'fill-color': '#1e003d', 'fill-opacity': 0.55 }
+                    });
+                    _m.addLayer({ id: '3d-rivers-line', type: 'line', source: '3d-rivers',
+                        paint: { 'line-color': '#1e003d', 'line-width': 2.0, 'line-opacity': 0.9 },
+                        layout: { 'line-cap': 'round', 'line-join': 'round' }
+                    });
                 }
                 } // end rebuildTerritory
 
                 // ══════════════════════════════════════════════
-                // ② 마커 재빌드 (zoom/LOD/pan 변경 시)
+                // ② 마커 diff 갱신 (zoom/LOD/pan 변경 시 — 변경분만 제거·추가)
                 // ══════════════════════════════════════════════
                 if (!rebuildMarkers) return; // 마커 변경 없으면 종료
 
-                _3dMarkers.forEach(mk => mk.remove());
-                _3dMarkers = [];
                 if (_3dRenderListener) { _m.off('render', _3dRenderListener); _3dRenderListener = null; }
 
                 // ── 성/도시 HTML 마커 — window._3dCastleData 사용 (2D updateMap이 이미 계산 완료) ──
@@ -27094,6 +27098,44 @@ kingSelect.addEventListener('change', () => {
                 const _inVP  = castleData3d.filter(({ castle: c }) => c.lat != null && c.lng != null && _inViewport(c.lat, c.lng));
                 const _outVP = castleData3d.filter(({ castle: c }) => c.lat != null && c.lng != null && !_inViewport(c.lat, c.lng));
                 const _sortedCastleData = [..._inVP, ..._outVP];
+
+                // ── diff를 위한 새 키셋 수집 (필터 통과 여부는 _makeMarker 내에서 판단) ──
+                // 마커 고유 키: 성ID + 활성이름 + 국가색 (연도/국가 변화 시 자동 재생성)
+                const _newMarkerKeys = new Set();
+                const _newMarkerEntries = new Map(); // key → entry
+
+                // pre-scan: 어떤 마커가 살아남을지 미리 결정
+                for (const entry of _sortedCastleData) {
+                    const { castle: c, activeRec, countryInfo: ci } = entry;
+                    if (c.lat == null || c.lng == null) continue;
+                    // LOD 필터 (빠른 사전 컷)
+                    const _isCapPre = c.is_capital || !!(activeRec?.is_capital) || c.place_type === 'capital' || c.place_type === 'hwangseong';
+                    const _prePriority = _isCapPre ? 1 : getMarkerPriority(c);
+                    if (_prePriority > _maxPriority) continue;
+                    if (_prePriority > 1 && !_inViewport(c.lat, c.lng)) continue;
+                    const _mk = `mk_${c._id||c.name+'@'+c.lat+'_'+c.lng}_${activeRec?.name||c.name||''}_${ci?.color||''}_${ci?.name||''}`;
+                    _newMarkerKeys.add(_mk);
+                    _newMarkerEntries.set(_mk, entry);
+                }
+
+                // 국가 라벨도 키에 포함 (대략 country ID 기반)
+                const _showCountryLabelPre = (typeof layerVisibility === 'undefined') || layerVisibility.countryLabel !== false;
+                if (_showCountryLabelPre && typeof _renderedCountryIds !== 'undefined') {
+                    _renderedCountryIds.forEach(cid => {
+                        _newMarkerKeys.add(`lbl_${cid}`);
+                    });
+                }
+
+                // 기존 마커 중 더 이상 필요 없는 것 제거
+                for (const [key, mk] of _3dMarkersMap) {
+                    if (!_newMarkerKeys.has(key)) {
+                        mk.remove();
+                        _3dMarkersMap.delete(key);
+                    }
+                }
+
+                // _3dMarkers 배열 재구성 (살아남은 마커 유지)
+                _3dMarkers = [..._3dMarkersMap.values()];
 
                 const _makeMarker = ({ castle: c, activeRec, countryInfo: ci }) => {
 
@@ -27391,21 +27433,33 @@ kingSelect.addEventListener('change', () => {
                     });
                     const mk = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, 8] })
                         .setLngLat([c.lng, c.lat]).addTo(_m);
+                    // diff Map에 등록
+                    const _entryKey = `mk_${c._id||c.name+'@'+c.lat+'_'+c.lng}_${activeRec?.name||c.name||''}_${ci?.color||''}_${ci?.name||''}`;
+                    _3dMarkersMap.set(_entryKey, mk);
                     _3dMarkers.push(mk);
                 }; // end _makeMarker
 
-                // chunked rAF: 60개씩 나눠서 메인 스레드 블록 최소화
+                // chunked rAF: 새 마커만(diff) 60개씩 나눠서 메인 스레드 블록 최소화
+                const _newEntries = [..._newMarkerEntries.entries()]
+                    .filter(([key]) => !_3dMarkersMap.has(key) || /* already added above */ false)
+                    .map(([, entry]) => entry);
+                // _3dMarkersMap에 아직 없는 것만 생성
+                const _toCreate = _sortedCastleData.filter(entry => {
+                    const { castle: c, activeRec, countryInfo: ci } = entry;
+                    const _k = `mk_${c._id||c.name+'@'+c.lat+'_'+c.lng}_${activeRec?.name||c.name||''}_${ci?.color||''}_${ci?.name||''}`;
+                    return _newMarkerKeys.has(_k) && !_3dMarkersMap.has(_k);
+                });
                 const _chunkSize = 60;
                 let _chunkIdx = 0;
                 const _renderNextChunk = () => {
-                    const end = Math.min(_chunkIdx + _chunkSize, _sortedCastleData.length);
+                    const end = Math.min(_chunkIdx + _chunkSize, _toCreate.length);
                     for (let i = _chunkIdx; i < end; i++) {
-                        _makeMarker(_sortedCastleData[i]);
+                        _makeMarker(_toCreate[i]);
                     }
                     _chunkIdx = end;
-                    if (_chunkIdx < _sortedCastleData.length) requestAnimationFrame(_renderNextChunk);
+                    if (_chunkIdx < _toCreate.length) requestAnimationFrame(_renderNextChunk);
                 };
-                if (_sortedCastleData.length > 0) requestAnimationFrame(_renderNextChunk);
+                if (_toCreate.length > 0) requestAnimationFrame(_renderNextChunk);
 
                 // ── 3D 국가명 라벨 렌더링 (2D renderMacroCountryNames와 동일 로직) ──
                 const _showCountryLabel = (typeof layerVisibility === 'undefined') || layerVisibility.countryLabel !== false;
@@ -27455,8 +27509,11 @@ kingSelect.addEventListener('change', () => {
                         labelEl.style.cssText = 'pointer-events:none;';
                         labelEl.dataset.ml3dPriority = '3'; // 국가명 최우선
                         labelEl.innerHTML = `<div class="ml3d-txt" style="display:flex;flex-direction:column;align-items:center;">${labelHtml}</div>`;
+                        const lblKey = `lbl_${countryId}`;
+                        if (_3dMarkersMap.has(lblKey)) return; // 이미 존재 → 재생성 생략
                         const mk = new maplibregl.Marker({ element: labelEl, anchor: 'bottom', offset: [0, -70] })
                             .setLngLat([labelLng, labelLat]).addTo(_m);
+                        _3dMarkersMap.set(lblKey, mk);
                         _3dMarkers.push(mk);
                     });
                 }
@@ -27828,6 +27885,10 @@ kingSelect.addEventListener('change', () => {
                 if (mlOverlay) mlOverlay.style.display = 'none';
                 // 커스텀 네비게이션 버튼 제거
                 if (window._ml3dNavEl) { window._ml3dNavEl.remove(); window._ml3dNavEl = null; }
+                // 3D 마커 전체 제거 + diff Map 초기화
+                _3dMarkers.forEach(mk => { try { mk.remove(); } catch(e){} });
+                _3dMarkers = [];
+                _3dMarkersMap.clear();
                 // 3D 자원 마커 제거
                 (window._3dResourceMarkers || []).forEach(function(mk){ try { mk.remove(); } catch(e){} });
                 window._3dResourceMarkers = [];
