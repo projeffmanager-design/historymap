@@ -27567,6 +27567,27 @@ kingSelect.addEventListener('change', () => {
             // ── 3D 모드 진입 시 2D UI 요소들 z-index 올리기 (CSS body.mode-3d 클래스로 처리) ──
 
             function _elevateUiFor3d() {
+                // 🚩 타임슬라이더 강제 표시 (pcTopPanelToggleBtn으로 숨겨진 경우 복원)
+                const _slider = document.getElementById('combinedSlider');
+                const _sliderTicks = document.querySelector('.slider-ticks-container');
+                const _timelineCont = document.getElementById('timeline-container');
+                if (_slider) _slider.style.removeProperty('display');
+                if (_sliderTicks) _sliderTicks.style.removeProperty('display');
+                if (_timelineCont) _timelineCont.style.removeProperty('display');
+
+                // 🚩 [핵심수정] #map에 CSS filter가 적용된 경우(다크/라이트/일반 모드),
+                // position:fixed 자식들이 #map의 stacking context에 갇혀 mlOverlay 아래에 숨는 버그 수정.
+                // → #timeline-control / #timeline-container / 관련 요소들을 body 직속으로 이동시켜
+                //   mlOverlay(z-index:2500) 위에 정상 렌더링 되도록 함.
+                ['timeline-control', 'timeline-container', 'current-year-display', 'bottom-vignette'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el && !el._3d_origParent) {
+                        el._3d_origParent = el.parentNode;
+                        el._3d_origNext   = el.nextSibling;
+                        document.body.appendChild(el);
+                    }
+                });
+
                 // top-bar가 relative → fixed로 바뀌므로 height만큼 spacer 삽입 (레이아웃 보존)
                 const topBar = document.getElementById('top-bar-container');
                 // offsetHeight를 mode-3d 클래스 추가 전에 측정 (fixed 전환 전)
@@ -27677,6 +27698,29 @@ kingSelect.addEventListener('change', () => {
                 // play-controls right 복원 (2D positionPlayCtrl 기준)
                 // 2D 모드로 복귀 시 positionPlayCtrl이 재정렬 처리
                 setTimeout(() => { if (window._positionPlayCtrl) window._positionPlayCtrl(); }, 150);
+
+                // 🚩 타임슬라이더 강제 복원 (3D 모드 진입 전 숨겨진 경우 대비)
+                const _slider2 = document.getElementById('combinedSlider');
+                const _sliderTicks2 = document.querySelector('.slider-ticks-container');
+                const _timelineCont2 = document.getElementById('timeline-container');
+                if (_slider2) _slider2.style.removeProperty('display');
+                if (_sliderTicks2) _sliderTicks2.style.removeProperty('display');
+                if (_timelineCont2) _timelineCont2.style.removeProperty('display');
+
+                // 🚩 [핵심수정] _elevateUiFor3d에서 body로 이동시킨 timeline 관련 요소들 원위치 복원
+                ['timeline-control', 'timeline-container', 'current-year-display', 'bottom-vignette'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el && el._3d_origParent) {
+                        const p = el._3d_origParent, n = el._3d_origNext;
+                        try {
+                            if (n && n.parentNode === p) p.insertBefore(el, n); else p.appendChild(el);
+                        } catch(e) {
+                            try { p.appendChild(el); } catch(e2) {}
+                        }
+                        delete el._3d_origParent;
+                        delete el._3d_origNext;
+                    }
+                });
             }
 
             // ── 3D 모드 진입 ──
