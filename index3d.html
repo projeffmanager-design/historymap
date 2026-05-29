@@ -27632,12 +27632,16 @@ kingSelect.addEventListener('change', () => {
                 const ph = document.getElementById('_3d_topbar_placeholder');
                 if (ph) ph.remove();
 
-                // 🚩 tile toggle + play controls 원위치 복원
-                ['map-tile-toggle-group', 'timeline-play-controls'].forEach(id => {
+                // 🚩 tile toggle + play controls 원위치 복원 (역순으로 복원 — nextSibling 의존성 회피)
+                ['timeline-play-controls', 'map-tile-toggle-group'].forEach(id => {
                     const el = document.getElementById(id);
                     if (el && el._3d_origParent) {
                         const p = el._3d_origParent, n = el._3d_origNext;
-                        if (n) p.insertBefore(el, n); else p.appendChild(el);
+                        try {
+                            if (n && n.parentNode === p) p.insertBefore(el, n); else p.appendChild(el);
+                        } catch(e) {
+                            try { document.body.appendChild(el); } catch(e2) {}
+                        }
                         el.style.removeProperty('position');
                         el.style.removeProperty('top');
                         el.style.removeProperty('right');
@@ -27659,8 +27663,12 @@ kingSelect.addEventListener('change', () => {
                 if (rightPanel && rightPanel._3d_originalParent) {
                     const parent = rightPanel._3d_originalParent;
                     const next = rightPanel._3d_originalNextSibling;
-                    if (next) parent.insertBefore(rightPanel, next);
-                    else parent.appendChild(rightPanel);
+                    try {
+                        if (next && parent.contains(next)) parent.insertBefore(rightPanel, next);
+                        else parent.appendChild(rightPanel);
+                    } catch(e) {
+                        try { parent.appendChild(rightPanel); } catch(e2) {}
+                    }
                     delete rightPanel._3d_originalParent;
                     delete rightPanel._3d_originalNextSibling;
                     rightPanel.style.removeProperty('z-index');
@@ -27691,7 +27699,13 @@ kingSelect.addEventListener('change', () => {
                     mlOverlay.style.display = 'block';
                     // 🚩 mlOverlay가 body에 추가된 후 #rightPanel을 다시 맨 끝으로 → 항상 위에 표시
                     const _rp = document.getElementById('rightPanel');
-                    if (_rp) {
+                    if (_rp && !_rp._3d_originalParent) {
+                        _rp._3d_originalParent = _rp.parentNode;
+                        _rp._3d_originalNextSibling = _rp.nextSibling;
+                        document.body.appendChild(_rp);
+                        _rp.style.setProperty('z-index', '3000', 'important');
+                        _rp.style.setProperty('position', 'fixed', 'important');
+                    } else if (_rp) {
                         document.body.appendChild(_rp);
                         _rp.style.setProperty('z-index', '3000', 'important');
                         _rp.style.setProperty('position', 'fixed', 'important');
@@ -27825,8 +27839,8 @@ kingSelect.addEventListener('change', () => {
                         const c = map.getCenter();
                         mlMap.jumpTo({ center: [c.lng, c.lat], zoom: map.getZoom() });
                         mlMap.resize();
-
-                        // 🚩 재진입 시 nav controls 재생성 (exit3d에서 제거됨)
+                        // 🚩 재진입 시 _is3dMode 복원 (exit3d에서 false로 설정됨)
+                        window._is3dMode = true;
                         if (!document.getElementById('ml-nav-ctrl')) {
                             const _navEl2 = document.createElement('div');
                             _navEl2.id = 'ml-nav-ctrl';
@@ -27875,6 +27889,10 @@ kingSelect.addEventListener('change', () => {
                         mlMap.on('moveend',  window._3dZoomMoveHandler);
                         mlMap.on('pitchend', window._3dZoomMoveHandler);
                         refreshLayers();
+                        // 🚩 자원 마커 재렌더 (재진입 시)
+                        setTimeout(function() {
+                            if (window._refresh3dResources) window._refresh3dResources();
+                        }, 500);
                     }
                 });
             }
@@ -27896,6 +27914,10 @@ kingSelect.addEventListener('change', () => {
                 // 3D 자원 마커 제거
                 (window._3dResourceMarkers || []).forEach(function(mk){ try { mk.remove(); } catch(e){} });
                 window._3dResourceMarkers = [];
+                // 🚩 캐시 키 초기화 — 재진입 시 전체 재렌더 보장
+                _refreshLayersCacheKey = null;
+                _refreshTerritoryDataKey = null;
+                _refreshMarkerKey = null;
                 // pitchend/zoomend/moveend 리스너 해제
                 if (window._3dZoomMoveHandler) {
                     mlMap && mlMap.off('zoomend',  window._3dZoomMoveHandler);
@@ -35426,11 +35448,74 @@ window._refresh3dResources = function _refresh3dResources() {
     el.innerHTML = iconHtml
       + (name ? '<span style="font-size:9px;color:#e8d9b8;white-space:nowrap;text-shadow:0 0 3px rgba(0,0,0,0.9);">' + name + '</span>' : '');
 
-    // 팝업
+    // 팝업 — 자원 타입별 상세 정보 (2D map 동일 포맷)
+    var resType = d._resType || '';
+    var popupHtml = (function() {
+      var s = '<div style="min-width:190px;font-size:12px;color:#e8d9b8">';
+      if (resType === 'gold' || resType === 'iron') {
+        var icon2 = resType === 'gold' ? '🧈' : '🪨';
+        var label2 = resType === 'gold' ? '금 산지' : '철광 산지';
+        s += '<div style="font-weight:700;font-size:13px;margin-bottom:6px">' + icon2 + ' ' + (d.name || '') + '</div>'
+          + '<div style="color:#aaa;font-size:10px;margin-bottom:4px">' + label2 + ' — ' + (d.major ? '대형 ★' : '일반') + '</div>'
+          + (d.description ? '<div style="color:#6b9fc0;font-size:10px;margin-top:4px;border-top:1px solid #2a3a4a;padding-top:4px">📜 ' + d.description + '</div>' : '')
+          + (d.hist  ? '<div style="color:#6b9fc0;font-size:10px;margin-top:3px">📜 ' + d.hist  + '</div>' : '')
+          + (d.strat ? '<div style="color:#f87171;font-size:10px;margin-top:3px">⚔️ ' + d.strat + '</div>' : '');
+      } else if (resType === 'crops') {
+        var yieldFmt = d.annual_yield_ton ? d.annual_yield_ton.toLocaleString() + ' 톤' : '-';
+        var areaFmt  = d.area_km2 ? d.area_km2.toLocaleString() + ' km²' : '-';
+        s += '<div style="font-weight:700;font-size:13px;margin-bottom:5px">' + (d._emoji||'🌱') + ' ' + (d.name_ko || '') + ' <span style="color:#888;font-size:11px">(' + (d.name||'') + ')</span></div>'
+          + '<div style="color:#aaa;font-size:10px;margin-bottom:5px">' + (d.region||'') + ' — ' + (d.crop_type_ko||d.crop_type||'') + '</div>'
+          + '<table style="font-size:11px;border-collapse:collapse;width:100%">'
+          + '<tr><td style="color:#888;padding:1px 4px 1px 0">생산량</td><td style="font-weight:600;color:#4ade80">' + yieldFmt + '</td></tr>'
+          + '<tr><td style="color:#888;padding:1px 4px 1px 0">경작 면적</td><td>' + areaFmt + '</td></tr>'
+          + '<tr><td style="color:#888;padding:1px 4px 1px 0">생산성</td><td>' + (d.productivity||'-') + ' / 10</td></tr>'
+          + '</table>'
+          + (d.era_note ? '<div style="color:#6b9fc0;font-size:10px;margin-top:5px;border-top:1px solid #2a3a4a;padding-top:4px">📜 ' + d.era_note + '</div>' : '');
+      } else if (resType === 'horse') {
+        var ANIMAL_LABEL2 = { horse:'말', buffalo:'물소', monkey:'원숭이', camel:'낙타' };
+        var label3 = ANIMAL_LABEL2[d.resource_type] || '동물';
+        s += '<div style="font-weight:700;font-size:13px;margin-bottom:4px">' + (d._emoji||'🐾') + ' ' + (d.name_ko || d.name || '') + '</div>'
+          + '<div style="color:#aaa;font-size:10px;margin-bottom:5px">' + (d.name !== d.name_ko ? (d.name||'') + ' — ' : '') + (d.region||'') + ' · ' + label3 + '</div>'
+          + '<table style="font-size:11px;border-collapse:collapse;width:100%">';
+        if (d.resource_type === 'horse') {
+          var stars = '★'.repeat(d.quality || 0) + '☆'.repeat(10 - (d.quality || 0));
+          s += '<tr><td style="color:#888;padding:1px 4px 1px 0">품질</td><td style="color:#f59e0b;font-size:10px">' + stars + ' (' + (d.quality||'-') + '/10)</td></tr>'
+            + '<tr><td style="color:#888;padding:1px 4px 1px 0">연간 공급</td><td style="font-weight:600;color:#4ade80">~' + ((d.annual_horses||0)).toLocaleString() + ' 두</td></tr>'
+            + '<tr><td style="color:#888;padding:1px 4px 1px 0">품종</td><td>' + (d.breed||'-') + '</td></tr>'
+            + (d.hist  ? '</table><div style="color:#6b9fc0;font-size:10px;margin-top:5px;border-top:1px solid #2a3a4a;padding-top:4px">📜 ' + d.hist + '</div>' : '</table>')
+            + (d.strat ? '<div style="color:#f87171;font-size:10px;margin-top:3px">⚔️ ' + d.strat + '</div>' : '');
+        } else {
+          if ((d.annual_count || 0) > 0) {
+            s += '<tr><td style="color:#888;padding:1px 4px 1px 0">추정 개체수</td><td style="font-weight:600;color:#4ade80">~' + (d.annual_count||0).toLocaleString() + '</td></tr>';
+          }
+          s += '</table>' + (d.description ? '<div style="color:#6b9fc0;font-size:10px;margin-top:5px;border-top:1px solid #2a3a4a;padding-top:4px">📜 ' + d.description + '</div>' : '');
+        }
+      } else if (resType === 'salt') {
+        var TYPE_LABEL_SALT = { sea:'해염', lake:'호수염', well:'정염', land:'암염' };
+        var saltTypeLabel = TYPE_LABEL_SALT[d.salt_type] || (d.salt_type||'');
+        s += '<b style="font-size:13px">' + (d.name||'') + '</b><br>'
+          + '<span style="color:#aaa;font-size:10px">' + (d.region||'') + '</span><br>'
+          + '종류: ' + saltTypeLabel + (d.major ? ' ★주요' : '') + '<br>'
+          + '연간 생산(상대): ' + (d.annual_ton || 0).toLocaleString() + 't<br>'
+          + (d.description ? '<div style="color:#6b9fc0;font-size:10px;margin-top:4px;border-top:1px solid #2a3a4a;padding-top:4px">📜 ' + d.description + '</div>' : '');
+      } else if (resType === 'silk') {
+        var SILK_TYPE_LABEL = { sericulture:'양잠', weaving:'직조', trade:'교역거점' };
+        var silkTypeLabel = SILK_TYPE_LABEL[d.silk_type] || (d.silk_type||'');
+        s += '<b style="font-size:13px">' + (d.name||'') + '</b><br>'
+          + '<span style="color:#aaa;font-size:10px">' + (d.region||'') + '</span><br>'
+          + '종류: ' + silkTypeLabel + (d.major ? ' ★주요' : '') + '<br>'
+          + '연간 생산(상대): ' + (d.annual_bolt || 0).toLocaleString() + '필<br>'
+          + (d.description ? '<div style="color:#6b9fc0;font-size:10px;margin-top:4px;border-top:1px solid #2a3a4a;padding-top:4px">📜 ' + d.description + '</div>' : '');
+      } else {
+        // 기타 자원
+        s += '<b>' + emoji + ' ' + name + '</b>';
+      }
+      s += '</div>';
+      return s;
+    })();
     el.addEventListener('click', function() {
-      window._openSharedPopup(mlMap, [lng, lat],
-        '<div style="font-size:12px;color:#e8d9b8;padding:2px 0"><b>' + emoji + ' ' + name + '</b></div>',
-        { offset: 6, maxWidth: '220px' });
+      window._openSharedPopup(mlMap, [lng, lat], popupHtml,
+        { offset: 6, maxWidth: '240px' });
     });
     var mk = new maplibregl.Marker({ element: el, anchor: 'bottom', occludedOpacity: 1.0 })
       .setLngLat([lng, lat])
@@ -35482,14 +35567,16 @@ window.toggleResourceBar = function(btn, forceState) {
       if (document.body.classList.contains('mode-3d')) {
         bar.style.setProperty('z-index', '2640', 'important');
       }
-      if (masterBtn) masterBtn.classList.add('active');
+      var masterBtn2 = document.getElementById('btn-resource-bar');
+      if (masterBtn2) masterBtn2.classList.add('active');
     } else {
       // 켜진 레이어 모두 끄기
       bar.querySelectorAll('.rlb-btn.on').forEach(function (b) {
         rlbToggle(b); // 개별 toggle 함수 호출해서 끔
       });
       bar.style.display = 'none';
-      if (masterBtn) masterBtn.classList.remove('active');
+      var masterBtn2 = document.getElementById('btn-resource-bar');
+      if (masterBtn2) masterBtn2.classList.remove('active');
     }
   };
 })();
