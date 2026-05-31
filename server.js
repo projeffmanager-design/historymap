@@ -6249,6 +6249,109 @@ app.delete('/api/marker-comments/:commentId', verifyToken, async (req, res) => {
 
 // For local development, listen on a port.
 
+// ══════════════════════════════════════════════════════════════════════
+// 📜 사관 보감 시스템 — 퀴즈 & 카드 수집 API
+// ══════════════════════════════════════════════════════════════════════
+
+// GET /api/quiz/by-marker/:markerId — 마커 ID로 퀴즈 조회 (로그인 불필요)
+app.get('/api/quiz/by-marker/:markerId', async (req, res) => {
+    try {
+        await setupRoutesAndCollections();
+        const quiz = await collections.quizzes.findOne({ markerId: req.params.markerId, active: true });
+        if (!quiz) return res.status(404).json({ message: '퀴즈 없음' });
+        // 정답 번호는 클라이언트에 노출하지 않음
+        const { correctOption, ...safe } = quiz;
+        res.json(safe);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// GET /api/quiz/:quizId — 퀴즈 단건 조회
+app.get('/api/quiz/:quizId', async (req, res) => {
+    try {
+        await setupRoutesAndCollections();
+        const { ObjectId } = require('mongodb');
+        const quiz = await collections.quizzes.findOne({ _id: new ObjectId(req.params.quizId) });
+        if (!quiz) return res.status(404).json({ message: '퀴즈 없음' });
+        const { correctOption, ...safe } = quiz;
+        res.json(safe);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// POST /api/quiz/submit — 퀴즈 정답 제출 (로그인 필요)
+app.post('/api/quiz/submit', verifyToken, async (req, res) => {
+    try {
+        await setupRoutesAndCollections();
+        const { ObjectId } = require('mongodb');
+        const { quizId, selectedOption } = req.body;
+        if (!quizId || selectedOption == null) return res.status(400).json({ message: '필수값 누락' });
+
+        const quiz = await collections.quizzes.findOne({ _id: new ObjectId(quizId) });
+        if (!quiz) return res.status(404).json({ message: '퀴즈 없음' });
+
+        const userId = req.user.id || req.user._id;
+        const user = await collections.users.findOne({ _id: new ObjectId(userId) });
+        if (!user) return res.status(404).json({ message: '사용자 없음' });
+
+        // 이미 통과했는지 확인
+        const already = (user.completedQuizzes || []).some(q => q.quizId === quizId);
+        if (already) {
+            // 이미 수집 → 카드 정보만 반환
+            const card = await collections.cards.findOne({ cardId: quiz.rewardCardId });
+            return res.json({ result: 'already', card, commentary: quiz.commentary });
+        }
+
+        const correct = (selectedOption === quiz.correctOption);
+        if (!correct) {
+            return res.json({ result: 'wrong', hint: quiz.hint || null });
+        }
+
+        // 정답 처리 — completedQuizzes, collectedCards 업데이트
+        const card = await collections.cards.findOne({ cardId: quiz.rewardCardId });
+        const now = new Date();
+        await collections.users.updateOne(
+            { _id: new ObjectId(userId) },
+            {
+                $addToSet: {
+                    completedQuizzes: { quizId, solvedAt: now },
+                    collectedCards:   { cardId: quiz.rewardCardId, unlockedAt: now }
+                }
+            }
+        );
+
+        res.json({ result: 'correct', card, commentary: quiz.commentary });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// GET /api/cards/my — 내 카드 목록 조회 (로그인 필요)
+app.get('/api/cards/my', verifyToken, async (req, res) => {
+    try {
+        await setupRoutesAndCollections();
+        const { ObjectId } = require('mongodb');
+        const userId = req.user.id || req.user._id;
+        const user = await collections.users.findOne({ _id: new ObjectId(userId) });
+        if (!user) return res.status(404).json({ message: '사용자 없음' });
+
+        const cardIds = (user.collectedCards || []).map(c => c.cardId);
+        const cards = cardIds.length ? await collections.cards.find({ cardId: { $in: cardIds } }).toArray() : [];
+
+        // unlockedAt 날짜 병합
+        const result = cards.map(card => {
+            const meta = (user.collectedCards || []).find(c => c.cardId === card.cardId);
+            return { ...card, unlockedAt: meta?.unlockedAt };
+        });
+        res.json(result);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// GET /api/cards/all — 전체 카드 도감 목록 (공개)
+app.get('/api/cards/all', async (req, res) => {
+    try {
+        await setupRoutesAndCollections();
+        const cards = await collections.cards.find({}, { projection: { cardId:1, name:1, type:1, imageUrl:1, tags:1 } }).toArray();
+        res.json(cards);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
 // ── BGM 목록 API ──────────────────────────────────────────────────────
 app.get('/api/bgm-list', (req, res) => {
     const dir = path.join(__dirname, 'public', 'bgm');

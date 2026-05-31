@@ -5048,8 +5048,7 @@ body.force-mobile .marker-type-selector button {
         top: var(--topbar-h, 44px) !important;
     }
     body.mode-3d #map3d-ctrl           { z-index: 2610 !important; }
-    body.mode-3d #bgm-mini-bar         { z-index: 2610 !important; }
-    body.mode-3d #koreamanri-logo      { z-index: 2610 !important; }
+    body.mode-3d #bgm-mini-bar         { z-index: 2620 !important; }
     body.mode-3d #rightPanel           { z-index: 2630 !important; }
     body.mode-3d #topbar-ancient-maps-dropdown-container { z-index: 2650 !important; }
     body.mode-3d #topbar-ancient-maps-dropdown-menu      { z-index: 2650 !important; }
@@ -6224,10 +6223,8 @@ body.force-mobile .marker-type-selector button {
       </div>
 
       <!-- 🏮 타이틀 중앙 고정 -->
-      <!-- <h1 id="main-title" style="font-family: 'Noto Serif KR', serif; margin: 0; color: #f5e9d2; text-shadow: 2px 2px 4px #000;"><img src="/samjoko.png" width="25" height="25"> 고려만리지도 <span class="hanja-title">(高麗萬里地圖)</span></h1> -->
-          <img src="https://github.com/projeffmanager-design/img/blob/main/koreamanri_logo_black_hori.png?raw=true"
-               alt="고려만리"
-               style="height:50px;width:auto;filter:drop-shadow(0 1px 4px rgba(0,0,0,0.6));opacity:0.93;">
+      <h1 id="main-title" style="font-family: 'Noto Serif KR', serif; margin: 0; color: #f5e9d2; text-shadow: 2px 2px 4px #000;"><img src="/samjoko.png" width="25" height="25"> 고려만리지도 <span class="hanja-title">(高麗萬里地圖)</span></h1>
+
         <div id="top-right-auth">
 
         <!-- 🎬 유튜브 링크 (아이디 앞) -->
@@ -6287,12 +6284,6 @@ body.force-mobile .marker-type-selector button {
   
       <!-- Hamburger Menu Panel -->
   <div id="hamburger-menu-panel">
-      <!-- 🏯 패널 상단 로고 -->
-      <div style="display:flex;justify-content:center;align-items:center;padding:14px 0 10px;border-bottom:1px solid rgba(255,255,255,0.07);margin-bottom:8px;">
-          <img src="https://github.com/projeffmanager-design/img/blob/main/koreamanri_logo_white_hori.png?raw=true"
-               alt="고려만리"
-               style="height:30px;width:auto;filter:drop-shadow(0 1px 4px rgba(0,0,0,0.6));opacity:0.93;">
-      </div>
       <h3>🔍 필터</h3>
       <div class="menu-section">
           <label for="menu-ethnicity-select">민족 필터:</label>
@@ -34776,22 +34767,6 @@ async function castleFormDeleteVoice() {
 
 </script>
 
-<!--  고려만리 로고 (BGM 바 바로 위 좌측 하단 고정) -->
-<div id="koreamanri-logo" style="
-    position: fixed;
-    bottom: 122px;
-    left: 16px;
-    z-index: 1001;
-    pointer-events: none;
-    line-height: 0;
-">
-    <img src="https://github.com/projeffmanager-design/img/blob/main/koreamanri_logo_white.png?raw=true"
-         alt="고려만리"
-         style="height: 150px; width: auto; display: block;
-                filter: drop-shadow(0 1px 4px rgba(0,0,0,0.7));
-                opacity: 0.92;">
-</div>
-
 <!-- ✅ 좌측 하단 미니 BGM 바 --><div id="bgm-mini-bar" style="
     position: fixed;
     bottom: 80px;
@@ -35658,6 +35633,526 @@ window.toggleResourceBar = function(btn, forceState) {
       if (masterBtn2) masterBtn2.classList.remove('active');
     }
   };
+})();
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     📜 사관 보감 시스템 — 퀴즈 팝업 & 카드 수집 연출
+     ══════════════════════════════════════════════════════════════════ -->
+<style>
+/* ── 퀴즈 오버레이 ── */
+#sagwan-quiz-overlay {
+    display: none;
+    position: fixed; inset: 0; z-index: 30000;
+    background: rgba(0,0,0,0.82);
+    backdrop-filter: blur(4px);
+    align-items: center; justify-content: center;
+    animation: sagwanFadeIn 0.25s ease;
+}
+#sagwan-quiz-overlay.active { display: flex; }
+@keyframes sagwanFadeIn { from { opacity:0; } to { opacity:1; } }
+
+#sagwan-quiz-modal {
+    background: linear-gradient(160deg, #0e1a2b 0%, #14243a 60%, #0a1520 100%);
+    border: 1px solid rgba(200,160,60,0.45);
+    border-radius: 14px;
+    box-shadow: 0 0 60px rgba(200,160,40,0.18), 0 8px 40px rgba(0,0,0,0.8);
+    width: min(680px, 94vw);
+    max-height: 88vh;
+    overflow-y: auto;
+    padding: 28px 30px 24px;
+    position: relative;
+    color: #e8d9b8;
+    font-family: 'Noto Serif KR', serif;
+}
+#sagwan-quiz-modal::-webkit-scrollbar { width: 5px; }
+#sagwan-quiz-modal::-webkit-scrollbar-thumb { background: rgba(200,160,60,0.3); border-radius: 3px; }
+
+.sq-close-btn {
+    position: absolute; top: 14px; right: 16px;
+    background: none; border: none; color: #888; font-size: 22px;
+    cursor: pointer; line-height: 1; transition: color 0.2s;
+}
+.sq-close-btn:hover { color: #e8d9b8; }
+
+.sq-location-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(200,160,40,0.12); border: 1px solid rgba(200,160,40,0.35);
+    border-radius: 20px; padding: 3px 12px; font-size: 11px; color: #c8a840;
+    margin-bottom: 14px; letter-spacing: 0.05em;
+}
+.sq-title {
+    font-size: 18px; font-weight: 700; color: #f0d888;
+    margin-bottom: 14px; line-height: 1.4;
+}
+.sq-context {
+    font-size: 12px; color: #9ab; line-height: 1.75;
+    background: rgba(255,255,255,0.04); border-left: 3px solid rgba(100,160,200,0.5);
+    border-radius: 0 6px 6px 0; padding: 10px 14px; margin-bottom: 16px;
+}
+.sq-question {
+    font-size: 14px; line-height: 1.8; color: #ddd; margin-bottom: 18px;
+    border-top: 1px solid rgba(200,160,60,0.2); padding-top: 16px;
+}
+.sq-question strong { color: #f0d888; }
+
+.sq-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+.sq-option {
+    display: flex; align-items: flex-start; gap: 12px;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(200,160,60,0.2);
+    border-radius: 8px; padding: 12px 16px; cursor: pointer;
+    transition: background 0.18s, border-color 0.18s, transform 0.12s;
+    font-size: 13px; line-height: 1.55; color: #ccc;
+}
+.sq-option:hover { background: rgba(200,160,40,0.1); border-color: rgba(200,160,40,0.5); transform: translateX(3px); }
+.sq-option.selected { background: rgba(200,160,40,0.18); border-color: rgba(200,160,40,0.7); color: #f0d888; }
+.sq-option.correct  { background: rgba(40,200,100,0.15); border-color: rgba(40,200,100,0.6); color: #6effa0; }
+.sq-option.wrong    { background: rgba(220,60,60,0.15); border-color: rgba(220,60,60,0.5); color: #ff9a9a; }
+.sq-option-num {
+    flex-shrink: 0; width: 26px; height: 26px;
+    border: 1px solid rgba(200,160,60,0.4); border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; color: #c8a840;
+}
+
+.sq-submit-btn {
+    width: 100%; padding: 13px; font-size: 14px; font-weight: 700;
+    background: linear-gradient(90deg, #b8860b, #d4a820, #b8860b);
+    border: none; border-radius: 8px; color: #0e1a2b;
+    cursor: pointer; transition: opacity 0.2s, transform 0.12s;
+    letter-spacing: 0.06em;
+}
+.sq-submit-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+.sq-submit-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+/* 결과 패널 */
+.sq-result { display: none; margin-top: 20px; border-top: 1px solid rgba(200,160,60,0.2); padding-top: 18px; }
+.sq-result.active { display: block; animation: sagwanFadeIn 0.3s ease; }
+.sq-result-correct { color: #6effa0; font-size: 16px; font-weight: 700; margin-bottom: 12px; }
+.sq-result-wrong   { color: #ff8a8a; font-size: 15px; font-weight: 700; margin-bottom: 10px; }
+.sq-result-already { color: #c8a840; font-size: 15px; font-weight: 700; margin-bottom: 10px; }
+.sq-commentary {
+    font-size: 12px; color: #9ab; line-height: 1.8;
+    background: rgba(40,200,100,0.06); border-left: 3px solid rgba(40,200,100,0.4);
+    border-radius: 0 6px 6px 0; padding: 10px 14px; margin-top: 10px;
+}
+
+/* ── 카드 수집 연출 ── */
+#sagwan-card-reveal {
+    display: none; position: fixed; inset: 0; z-index: 35000;
+    background: rgba(0,0,0,0.92); align-items: center; justify-content: center;
+    flex-direction: column; gap: 20px;
+}
+#sagwan-card-reveal.active { display: flex; animation: sagwanFadeIn 0.4s ease; }
+
+.scr-sparkle { font-size: 40px; animation: sagwanSpin 2s linear infinite; letter-spacing: 8px; }
+@keyframes sagwanSpin { 0%{transform:rotate(0deg) scale(1)} 50%{transform:rotate(180deg) scale(1.1)} 100%{transform:rotate(360deg) scale(1)} }
+
+.scr-card-wrap {
+    position: relative;
+    animation: sagwanCardDrop 0.6s cubic-bezier(0.34,1.56,0.64,1) 0.2s both;
+}
+@keyframes sagwanCardDrop {
+    from { opacity:0; transform: scale(0.5) translateY(-60px) rotateY(30deg); }
+    to   { opacity:1; transform: scale(1) translateY(0) rotateY(0deg); }
+}
+.scr-card-img {
+    width: min(320px, 80vw); border-radius: 14px;
+    box-shadow: 0 0 80px rgba(200,160,40,0.6), 0 0 20px rgba(200,160,40,0.4);
+    border: 2px solid rgba(200,160,40,0.8);
+}
+.scr-card-img.no-img {
+    width: min(320px,80vw); height: 200px;
+    background: linear-gradient(135deg,#1a2a3a,#0e1a2b);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 48px; border-radius: 14px;
+    border: 2px solid rgba(200,160,40,0.8);
+    box-shadow: 0 0 80px rgba(200,160,40,0.4);
+}
+.scr-card-name {
+    text-align: center; font-size: 18px; font-weight: 700;
+    color: #f0d888; font-family: 'Noto Serif KR', serif;
+    text-shadow: 0 0 20px rgba(200,160,40,0.8);
+    margin-top: 8px;
+}
+.scr-unlock-text {
+    color: #9ab; font-size: 12px; text-align: center;
+    letter-spacing: 0.1em; margin-top: 4px;
+}
+.scr-close-btn {
+    margin-top: 10px; padding: 10px 32px;
+    background: rgba(200,160,40,0.2); border: 1px solid rgba(200,160,40,0.5);
+    border-radius: 8px; color: #c8a840; font-size: 13px; cursor: pointer;
+    transition: background 0.2s;
+}
+.scr-close-btn:hover { background: rgba(200,160,40,0.35); }
+
+/* 내 보감 버튼 (지도 우측 하단) */
+#sagwan-pogam-btn {
+    position: fixed; bottom: 56px; right: 10px;
+    width: 48px; height: 48px; z-index: 2000;
+    background: linear-gradient(135deg, #1a2a3a, #0e1820);
+    border: 1px solid rgba(200,160,40,0.5); border-radius: 50%;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    cursor: pointer; gap: 1px; font-family: 'Noto Serif KR', serif;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+#sagwan-pogam-btn:hover { border-color: rgba(200,160,40,0.9); box-shadow: 0 0 14px rgba(200,160,40,0.3); }
+#sagwan-pogam-btn .spb-icon { font-size: 20px; line-height: 1; }
+#sagwan-pogam-btn .spb-label { font-size: 8px; color: #c8a840; letter-spacing: 0.05em; }
+#sagwan-pogam-btn .spb-count {
+    position: absolute; top: 1px; right: 1px;
+    background: #c8401a; color: #fff; font-size: 9px; font-weight: 700;
+    border-radius: 50%; width: 16px; height: 16px;
+    display: flex; align-items: center; justify-content: center;
+}
+
+/* 보감 패널 */
+#sagwan-pogam-panel {
+    display: none; position: fixed;
+    bottom: 112px; right: 10px;
+    width: min(340px, 92vw); max-height: 70vh;
+    background: linear-gradient(160deg,#0e1a2b,#14243a);
+    border: 1px solid rgba(200,160,40,0.4); border-radius: 12px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.7); overflow-y: auto;
+    z-index: 25000; padding: 16px;
+    font-family: 'Noto Serif KR', serif;
+}
+#sagwan-pogam-panel.active { display: block; animation: sagwanFadeIn 0.2s ease; }
+#sagwan-pogam-panel::-webkit-scrollbar { width: 4px; }
+#sagwan-pogam-panel::-webkit-scrollbar-thumb { background: rgba(200,160,40,0.3); border-radius:2px; }
+
+.spp-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px; border-bottom: 1px solid rgba(200,160,40,0.2); padding-bottom: 10px;
+}
+.spp-title { font-size: 15px; font-weight: 700; color: #f0d888; }
+.spp-close { background:none; border:none; color:#888; font-size:18px; cursor:pointer; }
+.spp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.spp-card {
+    aspect-ratio: 2/3; border-radius: 8px; overflow: hidden; position: relative;
+    border: 1px solid rgba(200,160,40,0.25); cursor: pointer;
+    transition: transform 0.18s, box-shadow 0.18s;
+    background: rgba(255,255,255,0.03);
+}
+.spp-card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(200,160,40,0.25); }
+.spp-card img { width:100%; height:100%; object-fit:cover; }
+.spp-card-empty { opacity:0.35; filter:grayscale(1); }
+.spp-card-name {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: linear-gradient(transparent, rgba(0,0,0,0.85));
+    padding: 12px 5px 5px;
+    font-size: 9px; color: #e8d9b8; text-align: center; line-height: 1.3;
+}
+.spp-empty-msg {
+    text-align: center; color: #556; font-size: 12px; padding: 30px 0;
+    line-height: 1.8;
+}
+</style>
+
+<!-- 퀴즈 오버레이 -->
+<div id="sagwan-quiz-overlay">
+  <div id="sagwan-quiz-modal">
+    <button class="sq-close-btn" onclick="sagwanQuizClose()">✕</button>
+    <div id="sq-location-badge" class="sq-location-badge">📍 <span id="sq-location-name"></span></div>
+    <div id="sq-title" class="sq-title"></div>
+    <div id="sq-context" class="sq-context"></div>
+    <div id="sq-question" class="sq-question"></div>
+    <div id="sq-options" class="sq-options"></div>
+    <button id="sq-submit" class="sq-submit-btn" onclick="sagwanQuizSubmit()">⚔️ 사관의 선택을 제출하다</button>
+    <!-- 결과 -->
+    <div id="sq-result" class="sq-result">
+      <div id="sq-result-msg"></div>
+      <div id="sq-commentary" class="sq-commentary" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 카드 수집 연출 -->
+<div id="sagwan-card-reveal">
+  <div class="scr-sparkle">✦ ✧ ✦ ✧ ✦</div>
+  <div class="scr-card-wrap">
+    <div id="scr-card-display"></div>
+    <div id="scr-card-name" class="scr-card-name"></div>
+    <div class="scr-unlock-text">사관 보감에 등록되었습니다</div>
+  </div>
+  <button class="scr-close-btn" onclick="sagwanCardRevealClose()">보감에 수록 완료 ✓</button>
+</div>
+
+<!-- 사관 보감 버튼 -->
+<button id="sagwan-pogam-btn" onclick="sagwanPogamToggle()" title="사관 보감">
+  <span class="spb-icon">📜</span>
+  <span class="spb-label">보감</span>
+  <span class="spb-count" id="sagwan-pogam-count" style="display:none">0</span>
+</button>
+
+<!-- 보감 패널 -->
+<div id="sagwan-pogam-panel">
+  <div class="spp-header">
+    <span class="spp-title">📜 사관 보감 — 수집한 카드</span>
+    <button class="spp-close" onclick="sagwanPogamToggle()">✕</button>
+  </div>
+  <div id="spp-grid" class="spp-grid"></div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════
+// 사관 보감 시스템 (Sagwan Bogam System)
+// ══════════════════════════════════════════════════════════════════════
+(function() {
+'use strict';
+
+const API = window.API_BASE_URL || '';
+let _quizData   = null;  // 현재 열린 퀴즈
+let _selectedOpt = null; // 선택된 보기 번호
+let _submitted   = false;
+
+// ── 헬퍼: JWT 토큰 가져오기 ──
+function getToken() {
+    return localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+}
+
+// ── 마커 ID 생성: 성/지명 → quizId 매핑 ──
+// castle.name 을 kebab-case markerId로 변환
+function nameToMarkerId(name) {
+    if (!name) return '';
+    return name.trim()
+        .replace(/\s+/g, '_')
+        .replace(/[^\w\uAC00-\uD7A3]/g, '')
+        .toLowerCase();
+}
+
+// ── 성 클릭 시 퀴즈 확인 (openDetailPanel 에서 호출) ──
+window.sagwanCheckQuiz = async function(castle) {
+    const token = getToken();
+    if (!token) return; // 비로그인 사용자는 스킵
+
+    // markerId 후보들: castle.quiz_marker_id 우선, 없으면 name 변환
+    const markerId = castle.quiz_marker_id || nameToMarkerId(castle.name);
+    if (!markerId) return;
+
+    try {
+        const r = await fetch(`${API}/api/quiz/by-marker/${markerId}`);
+        if (!r.ok) return; // 퀴즈 없으면 조용히 종료
+
+        const quiz = await r.json();
+
+        // 시대 필터: 현재 지도 연도와 퀴즈 era 범위 매핑
+        if (quiz.era) {
+            const cur = (typeof getCurrentYearMonth === 'function')
+                ? getCurrentYearMonth().year
+                : parseInt(document.getElementById('yearLabel')?.textContent) || 0;
+            if (cur < quiz.era.startYear || cur > quiz.era.endYear) return;
+        }
+
+        sagwanQuizOpen(quiz);
+    } catch(e) {
+        console.warn('[사관보감] 퀴즈 조회 오류:', e);
+    }
+};
+
+// ── 퀴즈 모달 열기 ──
+window.sagwanQuizOpen = function(quiz) {
+    _quizData   = quiz;
+    _selectedOpt = null;
+    _submitted   = false;
+
+    document.getElementById('sq-location-name').textContent = quiz.locationName || '';
+    document.getElementById('sq-title').textContent = quiz.title || '';
+    document.getElementById('sq-context').textContent = quiz.historicalContext || '';
+    document.getElementById('sq-question').innerHTML = quiz.question || '';
+
+    const optWrap = document.getElementById('sq-options');
+    optWrap.innerHTML = (quiz.options || []).map(o => `
+        <div class="sq-option" data-num="${o.number}" onclick="sagwanSelectOpt(this, ${o.number})">
+            <span class="sq-option-num">${o.number}</span>
+            <span>${o.text}</span>
+        </div>`).join('');
+
+    const submitBtn = document.getElementById('sq-submit');
+    submitBtn.disabled = true;
+    submitBtn.style.display = 'block';
+
+    document.getElementById('sq-result').classList.remove('active');
+    document.getElementById('sq-commentary').style.display = 'none';
+    document.getElementById('sq-result-msg').innerHTML = '';
+
+    document.getElementById('sagwan-quiz-overlay').classList.add('active');
+};
+
+window.sagwanSelectOpt = function(el, num) {
+    if (_submitted) return;
+    document.querySelectorAll('.sq-option').forEach(o => o.classList.remove('selected'));
+    el.classList.add('selected');
+    _selectedOpt = num;
+    document.getElementById('sq-submit').disabled = false;
+};
+
+window.sagwanQuizSubmit = async function() {
+    if (!_quizData || _selectedOpt == null || _submitted) return;
+    _submitted = true;
+    document.getElementById('sq-submit').disabled = true;
+
+    const token = getToken();
+    if (!token) {
+        alert('퀴즈에 참여하려면 로그인이 필요합니다.');
+        _submitted = false;
+        document.getElementById('sq-submit').disabled = false;
+        return;
+    }
+
+    try {
+        const r = await fetch(`${API}/api/quiz/submit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ quizId: _quizData._id, selectedOption: _selectedOpt })
+        });
+        const data = await r.json();
+
+        const resultDiv = document.getElementById('sq-result');
+        const msgEl     = document.getElementById('sq-result-msg');
+        const commEl    = document.getElementById('sq-commentary');
+        resultDiv.classList.add('active');
+
+        if (data.result === 'correct') {
+            // 선택지 색상 업데이트
+            document.querySelectorAll('.sq-option').forEach(o => {
+                if (parseInt(o.dataset.num) === _selectedOpt) o.classList.add('correct');
+            });
+            msgEl.innerHTML = `<div class="sq-result-correct">🎉 정답입니다! 왜곡된 지리를 바로잡으셨습니다.</div>`;
+            commEl.style.display = 'block';
+            commEl.textContent = data.commentary || '';
+            document.getElementById('sq-submit').style.display = 'none';
+
+            // 카드 수집 연출 (1.2초 후)
+            if (data.card) {
+                setTimeout(() => sagwanRevealCard(data.card), 1200);
+            }
+            sagwanUpdatePogamCount();
+
+        } else if (data.result === 'already') {
+            document.querySelectorAll('.sq-option').forEach(o => o.classList.add('correct'));
+            msgEl.innerHTML = `<div class="sq-result-already">📜 이미 수집하신 기록입니다. 사관 보감에서 카드를 확인하세요.</div>`;
+            commEl.style.display = 'block';
+            commEl.textContent = data.commentary || '';
+            document.getElementById('sq-submit').style.display = 'none';
+
+        } else {
+            // 오답
+            document.querySelectorAll('.sq-option').forEach(o => {
+                if (parseInt(o.dataset.num) === _selectedOpt) o.classList.add('wrong');
+            });
+            const hint = data.hint ? `<div style="color:#9ab;font-size:11px;margin-top:8px">💡 힌트: ${data.hint}</div>` : '';
+            msgEl.innerHTML = `<div class="sq-result-wrong">❌ 아직 왜곡된 역사의 그늘 속에 계십니다. 다시 생각해 보세요.</div>${hint}`;
+            // 오답은 재시도 가능
+            document.getElementById('sq-submit').disabled = false;
+            _submitted = false;
+            // 선택 초기화
+            setTimeout(() => {
+                document.querySelectorAll('.sq-option').forEach(o => o.classList.remove('wrong', 'selected'));
+                _selectedOpt = null;
+                document.getElementById('sq-submit').disabled = true;
+            }, 2000);
+        }
+    } catch(e) {
+        console.error('[사관보감] 제출 오류:', e);
+        _submitted = false;
+        document.getElementById('sq-submit').disabled = false;
+    }
+};
+
+window.sagwanQuizClose = function() {
+    document.getElementById('sagwan-quiz-overlay').classList.remove('active');
+    _quizData = null; _selectedOpt = null; _submitted = false;
+};
+
+// ── 카드 수집 연출 ──
+window.sagwanRevealCard = function(card) {
+    const display = document.getElementById('scr-card-display');
+    if (card.imageUrl && !card.imageUrl.includes('placeholder')) {
+        display.innerHTML = `<img class="scr-card-img" src="${card.imageUrl}" alt="${card.name}" onerror="this.parentNode.innerHTML='<div class=\\'scr-card-img no-img\\'>' + (card._emoji||'📜') + '</div>'">`;
+    } else {
+        display.innerHTML = `<div class="scr-card-img no-img">📜</div>`;
+    }
+    document.getElementById('scr-card-name').textContent = card.name || '';
+    document.getElementById('sagwan-card-reveal').classList.add('active');
+    sagwanQuizClose(); // 퀴즈 모달 닫기
+};
+
+window.sagwanCardRevealClose = function() {
+    document.getElementById('sagwan-card-reveal').classList.remove('active');
+};
+
+// ── 보감 패널 ──
+window.sagwanPogamToggle = async function() {
+    const panel = document.getElementById('sagwan-pogam-panel');
+    if (panel.classList.toggle('active')) {
+        await sagwanLoadPogam();
+    }
+};
+
+async function sagwanLoadPogam() {
+    const token = getToken();
+    const grid  = document.getElementById('spp-grid');
+    if (!token) {
+        grid.innerHTML = '<div class="spp-empty-msg">로그인 후 사관 보감을 열 수 있습니다.</div>';
+        return;
+    }
+    grid.innerHTML = '<div class="spp-empty-msg">로딩 중...</div>';
+    try {
+        const r = await fetch(`${API}/api/cards/my`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const cards = await r.json();
+        if (!cards.length) {
+            grid.innerHTML = '<div class="spp-empty-msg">아직 수집한 카드가 없습니다.<br>지도의 역사적 장소를 클릭하여<br>퀴즈를 풀고 카드를 수집하세요!</div>';
+            return;
+        }
+        grid.innerHTML = cards.map(c => `
+            <div class="spp-card" title="${c.name}">
+                ${c.imageUrl && !c.imageUrl.includes('placeholder')
+                    ? `<img src="${c.imageUrl}" alt="${c.name}">`
+                    : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:32px">📜</div>`}
+                <div class="spp-card-name">${c.name}</div>
+            </div>`).join('');
+        sagwanUpdatePogamCount(cards.length);
+    } catch(e) {
+        grid.innerHTML = '<div class="spp-empty-msg">불러오기 오류</div>';
+    }
+}
+
+async function sagwanUpdatePogamCount(count) {
+    const badge = document.getElementById('sagwan-pogam-count');
+    if (count != null) {
+        badge.textContent = count;
+        badge.style.display = count > 0 ? 'flex' : 'none';
+        return;
+    }
+    const token = getToken();
+    if (!token) return;
+    try {
+        const r = await fetch(`${API}/api/cards/my`, { headers: { 'Authorization': `Bearer ${token}` } });
+        const cards = await r.json();
+        badge.textContent = cards.length;
+        badge.style.display = cards.length > 0 ? 'flex' : 'none';
+    } catch(e) {}
+}
+
+// ── openDetailPanel 후킹 — 성 클릭 시 퀴즈 트리거 ──
+document.addEventListener('DOMContentLoaded', () => {
+    const _origOpenDetailPanel = window.openDetailPanel;
+    if (typeof _origOpenDetailPanel === 'function') {
+        window.openDetailPanel = function(castle, ...args) {
+            _origOpenDetailPanel.call(this, castle, ...args);
+            // 500ms 딜레이 후 퀴즈 체크 (패널 열리는 애니메이션 후)
+            setTimeout(() => window.sagwanCheckQuiz(castle), 500);
+        };
+    }
+    // 초기 보감 카운트 갱신
+    sagwanUpdatePogamCount();
+});
+
 })();
 </script>
 
