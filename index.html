@@ -1530,6 +1530,13 @@ body.force-mobile .marker-type-selector button {
   <script src="https://unpkg.com/topojson-client@3"></script>
   <style>
     /* ------------------- 1. 전체 레이아웃 및 디자인 CSS ------------------- */
+    /* ── 전역 레이아웃 기준값 ── */
+    :root {
+        /* 탑바 실제 높이: padding 5px×2 + 버튼 height 36px = 46px
+           2D·3D·위성 모든 모드에서 이 값을 단일 기준으로 사용 */
+        --topbar-h: 46px;
+    }
+
     /* 🚩 [추가] 뷰포트 전체를 사용하도록 html, body 높이 설정 */
     html, body {
         height: 100%;
@@ -5038,14 +5045,14 @@ body.force-mobile .marker-type-selector button {
     body.mode-3d #map-tile-toggle-group {
         position: fixed !important;
         z-index: 2610 !important;
-        /* top은 JS가 topbar 높이 측정 후 --topbar-h 변수로 설정 */
-        top: var(--topbar-h, 44px) !important;
+        /* --topbar-h는 :root에서 46px 고정 선언 — 모든 모드 공통 */
+        top: var(--topbar-h, 46px) !important;
         right: 0 !important;
     }
     body.mode-3d #timeline-play-controls {
         position: fixed !important;
         z-index: 2610 !important;
-        top: var(--topbar-h, 44px) !important;
+        top: var(--topbar-h, 46px) !important;
     }
     body.mode-3d #map3d-ctrl           { z-index: 2610 !important; }
     body.mode-3d #bgm-mini-bar         { z-index: 2610 !important; }
@@ -5176,7 +5183,7 @@ body.force-mobile .marker-type-selector button {
         width: 100%;
         box-sizing: border-box;
         position: relative;
-        z-index: 1100;
+        z-index: 1200;
         background: #1a1a1a;
     }
 
@@ -6089,7 +6096,22 @@ body.force-mobile .marker-type-selector button {
     }
     @media (max-width: 967px) {
         #pcTopPanelToggleBtn { display: block; }
-        
+
+        /* 🚩 모바일: 사관랭킹 패널 숨김 */
+        #rankingDisplay { display: none !important; }
+
+        /* 🚩 모바일: tile toggle — fixed 사용 안 함.
+           #map 안에 position:absolute;top:0;right:0 그대로 유지.
+           #map이 탑바 바로 아래에서 시작하므로 자동으로 픽셀퍼펙트 정렬됨.
+           fixed 전환 시 --topbar-h 측정 오차로 gap이 생기기 때문. */
+
+        /* 🚩 모바일: 재생 버튼만 tile toggle 옆에 fixed로 붙임 */
+        #timeline-play-controls {
+            position: fixed !important;
+            top: var(--topbar-h, 46px) !important;
+            z-index: 1100 !important;
+        }
+
         /* 모바일용 timeline-sidebar 스타일 */
         /* 모바일 — timeline-sidebar 폭 넓게, 높이 축소 */
         #timeline-sidebar {
@@ -6225,9 +6247,9 @@ body.force-mobile .marker-type-selector button {
 
       <!-- 🏮 타이틀 중앙 고정 -->
       <!-- <h1 id="main-title" style="font-family: 'Noto Serif KR', serif; margin: 0; color: #f5e9d2; text-shadow: 2px 2px 4px #000;"><img src="/samjoko.png" width="25" height="25"> 고려만리지도 <span class="hanja-title">(高麗萬里地圖)</span></h1> -->
-          <img src="https://github.com/projeffmanager-design/img/blob/main/koreamanri_logo_black_hori.png?raw=true"
+          <img src="https://github.com/projeffmanager-design/img/blob/main/koreamanri_logo_white_hori.png?raw=true"
                alt="고려만리"
-               style="height:50px;width:auto;filter:drop-shadow(0 1px 4px rgba(0,0,0,0.6));opacity:0.93;">
+               style="height:40px;width:auto;filter:drop-shadow(0 1px 4px rgba(0,0,0,0.6));opacity:0.93;">
         <div id="top-right-auth">
 
         <!-- 🎬 유튜브 링크 (아이디 앞) -->
@@ -27608,18 +27630,7 @@ kingSelect.addEventListener('change', () => {
                     }
                 });
 
-                // top-bar가 relative → fixed로 바뀌므로 height만큼 spacer 삽입 (레이아웃 보존)
-                const topBar = document.getElementById('top-bar-container');
-                // offsetHeight를 mode-3d 클래스 추가 전에 측정 (fixed 전환 전)
-                const tbH = topBar ? (topBar.getBoundingClientRect().height || topBar.offsetHeight || 44) : 44;
-                if (topBar && !document.getElementById('_3d_topbar_placeholder')) {
-                    const ph = document.createElement('div');
-                    ph.id = '_3d_topbar_placeholder';
-                    ph.style.cssText = `height:${tbH}px;width:100%;flex-shrink:0;`;
-                    topBar.parentNode.insertBefore(ph, topBar);
-                }
-                // CSS 변수로 topbar 높이 설정 (tile toggle / play controls의 top 기준)
-                document.documentElement.style.setProperty('--topbar-h', tbH + 'px');
+                // CSS :root에서 --topbar-h: 46px 고정, 탑바는 항상 fixed — spacer 불필요
                 // body 클래스 추가 → CSS가 모든 z-index 처리
                 document.body.classList.add('mode-3d');
 
@@ -27629,9 +27640,8 @@ kingSelect.addEventListener('change', () => {
                     _tgEl._3d_origParent = _tgEl.parentNode;
                     _tgEl._3d_origNext   = _tgEl.nextSibling;
                     document.body.appendChild(_tgEl);
-                    // cssText += 대신 개별 setProperty (removeProperty로 깔끔 복원 가능)
                     _tgEl.style.setProperty('position', 'fixed', 'important');
-                    _tgEl.style.setProperty('top', tbH + 'px', 'important');
+                    _tgEl.style.setProperty('top', 'var(--topbar-h, 46px)', 'important');
                     _tgEl.style.setProperty('right', '0', 'important');
                     _tgEl.style.setProperty('z-index', '2610', 'important');
                 }
@@ -27641,7 +27651,7 @@ kingSelect.addEventListener('change', () => {
                     _pcEl._3d_origNext   = _pcEl.nextSibling;
                     document.body.appendChild(_pcEl);
                     _pcEl.style.setProperty('position', 'fixed', 'important');
-                    _pcEl.style.setProperty('top', tbH + 'px', 'important');
+                    _pcEl.style.setProperty('top', 'var(--topbar-h, 46px)', 'important');
                     _pcEl.style.setProperty('z-index', '2610', 'important');
                 }
 
@@ -27667,11 +27677,6 @@ kingSelect.addEventListener('change', () => {
             }
             function _restoreUiAfter3d() {
                 document.body.classList.remove('mode-3d');
-                // CSS 변수 해제
-                document.documentElement.style.removeProperty('--topbar-h');
-                // spacer 제거
-                const ph = document.getElementById('_3d_topbar_placeholder');
-                if (ph) ph.remove();
 
                 // 🚩 tile toggle + play controls 원위치 복원 (역순으로 복원 — nextSibling 의존성 회피)
                 ['timeline-play-controls', 'map-tile-toggle-group'].forEach(id => {
@@ -27825,7 +27830,7 @@ kingSelect.addEventListener('change', () => {
                         // 🚩 커스텀 네비게이션 버튼 — 타일 토글 그룹 왼쪽에 가로 나열
                         const _navEl = document.createElement('div');
                         _navEl.id = 'ml-nav-ctrl';
-                        _navEl.style.cssText = 'position:fixed;z-index:2610;display:flex;flex-direction:row;gap:2px;top:var(--topbar-h,44px);right:0;';
+                        _navEl.style.cssText = 'position:fixed;z-index:2610;display:flex;flex-direction:row;gap:2px;top:var(--topbar-h,46px);right:0;';
                         _navEl.innerHTML = `
                             <button onclick="window.mlMap3d&&window.mlMap3d.easeTo({pitch:Math.min((window.mlMap3d.getPitch()||0)+10,85)})" title="틸트 올리기" style="width:30px;height:30px;background:rgba(30,20,10,0.82);border:1px solid rgba(180,140,60,0.4);border-radius:4px;color:#f0d080;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">⬆</button>
                             <button onclick="window.mlMap3d&&window.mlMap3d.easeTo({pitch:Math.max((window.mlMap3d.getPitch()||0)-10,0)})" title="틸트 내리기" style="width:30px;height:30px;background:rgba(30,20,10,0.82);border:1px solid rgba(180,140,60,0.4);border-radius:4px;color:#f0d080;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">⬇</button>
@@ -27908,7 +27913,7 @@ kingSelect.addEventListener('change', () => {
                         if (!document.getElementById('ml-nav-ctrl')) {
                             const _navEl2 = document.createElement('div');
                             _navEl2.id = 'ml-nav-ctrl';
-                            _navEl2.style.cssText = 'position:fixed;z-index:2610;display:flex;flex-direction:row;gap:2px;top:var(--topbar-h,44px);right:0;';
+                            _navEl2.style.cssText = 'position:fixed;z-index:2610;display:flex;flex-direction:row;gap:2px;top:var(--topbar-h,46px);right:0;';
                             _navEl2.innerHTML = `
                                 <button onclick="window.mlMap3d&&window.mlMap3d.easeTo({pitch:Math.min((window.mlMap3d.getPitch()||0)+10,85)})" title="틸트 올리기" style="width:30px;height:30px;background:rgba(30,20,10,0.82);border:1px solid rgba(180,140,60,0.4);border-radius:4px;color:#f0d080;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">⬆</button>
                                 <button onclick="window.mlMap3d&&window.mlMap3d.easeTo({pitch:Math.max((window.mlMap3d.getPitch()||0)-10,0)})" title="틸트 내리기" style="width:30px;height:30px;background:rgba(30,20,10,0.82);border:1px solid rgba(180,140,60,0.4);border-radius:4px;color:#f0d080;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">⬇</button>
@@ -28754,17 +28759,19 @@ kingSelect.addEventListener('change', () => {
                 if (playCtrl.parentElement !== document.body) {
                     document.body.appendChild(playCtrl);
                 }
-                // 타일토글의 실제 화면 위치 기준으로 정렬 — 타일 토글 좌측에 딱 붙임
-                const tgRect = tileToggle.getBoundingClientRect();
-                const topPx = tgRect.top > 0 ? tgRect.top : 44;
-                // right = viewport 너비 - tileToggle 왼쪽 끝 (정확한 flush 위치)
-                const rightPx = window.innerWidth - tgRect.left;
-                playCtrl.style.position = 'fixed';
-                playCtrl.style.top = topPx + 'px';
-                playCtrl.style.right = rightPx + 'px';
-                playCtrl.style.zIndex = '2610';
+                // CSS 레이아웃 확정 후 tile toggle의 실제 위치를 읽어 재생버튼을 붙임
+                requestAnimationFrame(function() {
+                    const tgRect  = tileToggle.getBoundingClientRect();
+                    const topPx   = tgRect.top  > 0 ? tgRect.top  : 46;
+                    const rightPx = window.innerWidth - tgRect.left;
+                    playCtrl.style.position = 'fixed';
+                    playCtrl.style.top      = topPx + 'px';
+                    playCtrl.style.right    = rightPx + 'px';
+                    playCtrl.style.zIndex   = '2610';
+                });
             }
-            positionPlayCtrl();
+            // 최초 호출: CSS 레이아웃 확정 뒤 실행
+            requestAnimationFrame(function() { requestAnimationFrame(positionPlayCtrl); });
             window.addEventListener('resize', positionPlayCtrl);
             window._positionPlayCtrl = positionPlayCtrl;
         })();
