@@ -6162,9 +6162,8 @@ body.force-mobile .marker-type-selector button {
     color: #f5e9d2;
     font-family: 'Noto Serif KR', serif;
   ">
-    <h2 style="font-size: 2.5em; margin-bottom: 32px; text-shadow: 2px 2px 4px #000;">
-      고려만리지도 <span style="font-size: 0.7em;">(高麗萬里地圖)</span>
-    </h2>
+          <img src="https://github.com/projeffmanager-design/img/blob/main/koreamanri_logo_white_hori.png?raw=true" alt="고려만리" style="height:40px;width:auto;filter:drop-shadow(0 1px 4px rgba(0,0,0,0.6));opacity:0.93;">
+          <br>
 
     <!-- 🎯 스피너 (상단) -->
     <div style="
@@ -9299,6 +9298,86 @@ body.force-mobile .marker-type-selector button {
         );
     }
 
+    /**
+     * 국기 이미지가 없는 국가에 사용할 전통 양식 SVG 깃발 생성
+     * @param {string} mainColor - 국가 고유 색상
+     * @param {string} sealChar  - 낙관 한 글자
+     * @param {number} [w=6]     - 출력 너비(px) — 기본 1/10 크기
+     * @returns {string} SVG 문자열 (인라인 HTML용)
+     */
+    function createCountryFlagSvg(mainColor, sealChar, w = 6) {
+        const h = Math.round(w * 2.2);
+        // 배경색 기준으로 텍스트 대비색 결정
+        const _hex = (mainColor || '#888888').replace(/^#/, '');
+        const _hx = _hex.length === 3 ? _hex.split('').map(c => c + c).join('') : _hex;
+        const _r = parseInt(_hx.slice(0, 2), 16) || 0;
+        const _g = parseInt(_hx.slice(2, 4), 16) || 0;
+        const _b = parseInt(_hx.slice(4, 6), 16) || 0;
+        const _lum = 0.2126 * _r + 0.7152 * _g + 0.0722 * _b;
+        const textColor = _lum > 140 ? '#2c1a00' : '#fff8e1';
+        const char = sealChar || '?';
+        // viewBox: 전체 폭 110 (깃대 20 + 깃발 90), 높이 130
+        // 깃발 천은 wave path로 바람에 휘날리는 모양
+        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 110 130" width="${w}" height="${h}" style="transform:rotate(-10deg);transform-origin:center bottom;display:block;">
+            <defs>
+                <filter id="cflag-sh-${char}" x="-30%" y="-20%" width="160%" height="160%">
+                    <feDropShadow dx="1" dy="2" stdDeviation="2" flood-color="rgba(0,0,0,0.5)"/>
+                </filter>
+                <!-- 펄럭임 그라디언트 -->
+                <linearGradient id="cflag-wave-${char}" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="${mainColor}" stop-opacity="1"/>
+                    <stop offset="50%" stop-color="${mainColor}" stop-opacity="0.75"/>
+                    <stop offset="100%" stop-color="${mainColor}" stop-opacity="0.55"/>
+                </linearGradient>
+            </defs>
+
+            <!-- 깃대 -->
+            <line x1="12" y1="2" x2="12" y2="128" stroke="#8B7355" stroke-width="3" stroke-linecap="round"/>
+            <!-- 깃대 상단 장식 -->
+            <circle cx="12" cy="4" r="4" fill="#C9A84C"/>
+            <circle cx="12" cy="4" r="2" fill="#8B7355"/>
+
+            <!-- 바람에 휘날리는 깃발 천 (wave cubic bezier) -->
+            <!-- 상단선: 약간 물결 -->
+            <!-- 하단선: 더 크게 물결 -->
+            <path fill="url(#cflag-wave-${char})" filter="url(#cflag-sh-${char})" opacity="0.95"
+                d="M14 14
+                   C 35 10, 55 18, 75 12
+                   C 88 8,  100 14, 105 18
+                   L 105 22
+                   C 100 18, 88 12, 75 16
+                   C 55 22, 35 14, 14 18
+                   Z
+                   M14 18
+                   C 35 14, 55 22, 75 16
+                   C 88 12, 100 18, 105 22
+                   L 102 72
+                   C 97 80, 85 72, 72 78
+                   C 52 86, 32 76, 14 80
+                   Z"/>
+
+            <!-- 하단 수술 장식 (wave에 맞춰 곡선으로) -->
+            <path fill="${mainColor}" opacity="0.85"
+                d="M16 80 l1 8 M24 81 l1 8 M32 80 l1 8 M40 79 l1 8 M48 79 l1 8 M56 80 l1 8 M64 80 l1 8 M72 78 l1 8 M80 76 l1 8 M88 74 l1 8 M96 72 l1 8"/>
+            <!-- 상단 수술 장식 -->
+            <path fill="${mainColor}" opacity="0.85"
+                d="M16 14 l-1-7 M24 12 l-1-7 M32 12 l-1-7 M40 12 l-1-7 M48 12 l-1-7 M56 12 l-1-7 M64 11 l-1-7 M72 11 l-1-7 M80 10 l-1-7 M88 10 l-1-7 M96 10 l-1-7"/>
+
+            <!-- 오른쪽 지네발 -->
+            <path fill="#c92a2a" opacity="0.8" d="M100 24l7-2-5 5z M102 40l7-2-5 5z M102 56l7-2-5 5z"/>
+            <path fill="#2b498f" opacity="0.8" d="M101 32l7-2-5 5z M102 48l7-2-5 5z"/>
+
+            <!-- 원형 장식 -->
+            <circle cx="58" cy="47" r="26" fill="none" stroke="${textColor}" stroke-width="1" stroke-dasharray="2,2" opacity="0.5"/>
+            <circle cx="58" cy="47" r="20" fill="rgba(0,0,0,0.18)"/>
+            <!-- 낙관 글자 -->
+            <text x="58" y="51" fill="${textColor}"
+                font-size="42" font-family="'Noto Serif KR','Nanum Myeongjo','궁서',serif"
+                font-weight="900" text-anchor="middle" dominant-baseline="middle"
+                transform="skewX(-4)">${char}</text>
+        </svg>`;
+    }
+
     // �🚩 [핵심 수정] 모바일 뷰일 때 기본 줌 레벨을 다르게 설정합니다.
     const isMobileOnLoad = window.innerWidth <= 967;
 
@@ -9748,9 +9827,11 @@ body.force-mobile .marker-type-selector button {
             const { country, labelLat, labelLng, capital } = cand;
             const countryColor = country.color || '#ffffff';
             const labelTextColor = '#000000'; // 검정 고정 — CSS text-shadow 흰색 외곽선으로 가독성 확보
+            // 깃발: 이미지가 있으면 img 태그, 없으면 SVG 자동 생성
+            const _macroSealChar = country.sealText || (()=>{ const n=country.name||''; const hj=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hj.length) return hj.slice(-1)[0]; const hg=(n.match(/[가-힣]/g)||[]); return hg.length ? hg.slice(-1)[0] : '?'; })();
             const flagHtmlMacro = country.flag
-                ? `<img src="${toRawImageUrl(country.flag)}" class="country-flag-img" style="width:60px;height:auto;display:inline-block;flex-shrink:0;margin-right:-14px;position:relative;z-index:0;align-self:flex-end;">`
-                : '';
+                ? `<img src="${toRawImageUrl(country.flag)}" class="country-flag-img" style="width:60px;height:auto;display:inline-block;flex-shrink:0;position:relative;z-index:0;">`
+                : `<div style="display:inline-block;flex-shrink:0;position:relative;z-index:0;line-height:0;">${createCountryFlagSvg(countryColor, _macroSealChar, 36)}</div>`;
             // 민족 토글이 켜져 있고 ethnicity 데이터가 있으면 국가명 하단에 소자 표시
             const ethnicHtml = (layerVisibility.ethnicLabel && country.ethnicity)
                 ? `<div class="macro-country-ethnic">${country.ethnicity}</div>`
@@ -13968,8 +14049,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     const rawIconUrl = castle.custom_icon.replace(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)\?raw=true$/, 'https://raw.githubusercontent.com/$1/$2/$3');
                     const _nfFlagHtml = countryInfo?.flag
                         ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;margin-bottom:1px;">`
-                        : '';
-                    const _nfFlagH = countryInfo?.flag ? 14 : 0;
+                        : (typeof createCountryFlagSvg==='function' ? `<div style="display:block;line-height:0;margin-bottom:1px;">${createCountryFlagSvg(countryInfo?.color||'#888888',(()=>{const n=countryInfo?.name||'';const hj=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]);if(hj.length)return hj.slice(-1)[0];const hg=(n.match(/[가-힣]/g)||[]);return hg.length?hg.slice(-1)[0]:'?'})(),14)}</div>` : '');
+                    const _nfFlagH = countryInfo?.flag ? 14 : (typeof createCountryFlagSvg==='function' && countryInfo ? 14 : 0);
                     const customIconHtml = `<div class="cm-wrap" style="display:inline-flex;flex-direction:column;align-items:center;gap:0;">${_nfFlagHtml}<img class="cm-icon" src="${rawIconUrl}" style="width:${_ciw3}px;height:${_cih3}px;object-fit:contain;display:block;" onerror="this.style.display='none'"><span class="cm-name" style="color:#d8cdb8;font-family:'Nanum Myeongjo',serif;font-weight:300;font-size:10px;white-space:nowrap;margin-top:0;text-shadow:0px 0px 2px rgba(0,0,0,0.9),0px 0px 4px rgba(0,0,0,0.8);">${castleName}</span></div>`;
                     const totalW = Math.max(_ciw3, 40);
                     const totalH = _nfFlagH + _cih3 + 14;
@@ -14087,8 +14168,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     const rawIconUrl = castle.custom_icon.replace(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)\?raw=true$/, 'https://raw.githubusercontent.com/$1/$2/$3');
                     const _cFlagHtml2 = countryInfo?.flag
                         ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;margin-bottom:1px;">`
-                        : '';
-                    const _flagH2 = countryInfo?.flag ? 14 : 0;
+                        : (typeof createCountryFlagSvg==='function' ? `<div style="display:block;line-height:0;margin-bottom:1px;">${createCountryFlagSvg(countryInfo?.color||'#888888',(()=>{const n=countryInfo?.name||'';const hj=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]);if(hj.length)return hj.slice(-1)[0];const hg=(n.match(/[가-힣]/g)||[]);return hg.length?hg.slice(-1)[0]:'?'})(),14)}</div>` : '');
+                    const _flagH2 = countryInfo?.flag ? 14 : (typeof createCountryFlagSvg==='function' && countryInfo ? 14 : 0);
                     const customIconHtml = `<div class="cm-wrap" style="display:inline-flex;flex-direction:column;align-items:center;gap:0;">${_cFlagHtml2}<img class="cm-icon" src="${rawIconUrl}" style="width:${iconWidth}px;height:${iconHeight}px;object-fit:contain;display:block;" onerror="this.style.display='none'"><span class="cm-name" style="color:#d8cdb8;font-family:'Nanum Myeongjo',serif;font-weight:300;font-size:10px;white-space:nowrap;margin-top:0;text-shadow:0px 0px 2px rgba(0,0,0,0.9),0px 0px 4px rgba(0,0,0,0.8);">${castleName}</span></div>`;
                     const flagIcon = L.divIcon({
                         className: 'custom-icon-marker',
@@ -14299,8 +14380,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const cih = castle.icon_height || 32;
                 const _capFlagHtml = countryInfo?.flag
                     ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;margin-bottom:1px;">`
-                    : '';
-                const _capFlagH = countryInfo?.flag ? 14 : 0;
+                    : (typeof createCountryFlagSvg==='function' ? `<div style="display:block;line-height:0;margin-bottom:1px;">${createCountryFlagSvg(countryInfo?.color||'#888888',(()=>{const n=countryInfo?.name||'';const hj=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]);if(hj.length)return hj.slice(-1)[0];const hg=(n.match(/[가-힣]/g)||[]);return hg.length?hg.slice(-1)[0]:'?'})(),14)}</div>` : '');
+                const _capFlagH = countryInfo?.flag ? 14 : (typeof createCountryFlagSvg==='function' && countryInfo ? 14 : 0);
                 const capitalCustomHtml = `
                 <div class="cm-wrap" style="display:flex; flex-direction:column; align-items:center; gap:0;">
                   ${_capFlagHtml}
@@ -14322,20 +14403,20 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     ? 'https://github.com/projeffmanager-design/img/blob/main/3demp.webp?raw=true'
                     : 'https://github.com/projeffmanager-design/img/blob/main/%E7%8E%8B%E5%9F%8E.png?raw=true';
                 const capitalIconHtml = `<div class="capital-marker">
-                    ${countryInfo?.flag ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;display:block;margin:0 auto 2px auto;">` : ''}
+                    ${countryInfo?.flag ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;display:block;margin:0 auto 2px auto;">` : (typeof createCountryFlagSvg==='function' ? `<div style="display:block;margin:0 auto 2px auto;line-height:0;">${createCountryFlagSvg(sealColor, sealChar, 14)}</div>` : '')}
                     <img class="capital-marker-img" src="${_capImgUrl2d}" onerror="this.style.display='none'">
                     <div class="capital-marker-bottom">
                         <div class="capital-seal" style="background-color:${sealColor}; border-color:${sealColor}; filter:brightness(0.75); color:${_capitalTxtColor}; text-shadow:${_capitalTxtColor==='#1a1a1a'?'none':'-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000'};">${sealChar}</div>
                         <span class="city-name">${castleName}</span>
                     </div>
                 </div>`;
-                const _capDefFlagH = countryInfo?.flag ? 16 : 0;
+                const _capDefFlagH = countryInfo?.flag ? 16 : (typeof createCountryFlagSvg === 'function' ? 14 : 0);
                 capitalIcon = L.divIcon({
                     className: 'custom-capital-flag-marker',
                     html: capitalIconHtml,
-                    iconSize: [100, 60 + _capDefFlagH],
-                    iconAnchor: [50, _capDefFlagH + 5],
-                    popupAnchor: [0, -(_capDefFlagH + 5)]
+                    iconSize: [60, 60 + _capDefFlagH],
+                    iconAnchor: [30, _capDefFlagH + 30],
+                    popupAnchor: [0, -(_capDefFlagH + 30)]
                 });
             }
             marker = L.marker([castle.lat, castle.lng], { icon: capitalIcon, zIndexOffset: 1000 });
@@ -14378,8 +14459,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const cih = castle.icon_height || sz;
                 const _ptFlagHtml = countryInfo?.flag
                     ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;margin-bottom:1px;">`
-                    : '';
-                const _ptFlagH = countryInfo?.flag ? 14 : 0;
+                    : (typeof createCountryFlagSvg==='function' ? `<div style="display:block;line-height:0;margin-bottom:1px;">${createCountryFlagSvg(countryInfo?.color||'#888888',(()=>{const n=countryInfo?.name||'';const hj=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]);if(hj.length)return hj.slice(-1)[0];const hg=(n.match(/[가-힣]/g)||[]);return hg.length?hg.slice(-1)[0]:'?'})(),14)}</div>` : '');
+                const _ptFlagH = countryInfo?.flag ? 14 : (typeof createCountryFlagSvg==='function' && countryInfo ? 14 : 0);
                 specialMarkerHtml = `
                 <div class="cm-wrap" style="display:flex; flex-direction:column; align-items:center; gap:0;">
                   ${_ptFlagHtml}
@@ -14423,7 +14504,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 } else {
                     const _ptDefFlagHtml = countryInfo?.flag
                         ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;display:block;margin-bottom:1px;">`
-                        : '';
+                        : (typeof createCountryFlagSvg==='function' ? `<div style="display:block;line-height:0;margin-bottom:1px;">${createCountryFlagSvg(countryInfo?.color||'#888888',(()=>{const n=countryInfo?.name||'';const hj=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]);if(hj.length)return hj.slice(-1)[0];const hg=(n.match(/[가-힣]/g)||[]);return hg.length?hg.slice(-1)[0]:'?'})(),14)}</div>` : '');
                     specialMarkerHtml = `
                     <div class="cm-wrap" style="display:flex; flex-direction:column; align-items:center; gap:0;">
                       ${_ptDefFlagHtml}
@@ -14547,8 +14628,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const dotColor = currentCountry?.color || 'white';
                 const _cFlagHtml = currentCountry?.flag
                     ? `<img class="cm-flag" src="${currentCountry.flag}" style="width:14px;height:auto;margin-bottom:1px;">`
-                    : '';
-                const _flagH = currentCountry?.flag ? 14 : 0;
+                    : (typeof createCountryFlagSvg==='function' ? `<div style="display:block;line-height:0;margin-bottom:1px;">${createCountryFlagSvg(currentCountry?.color||'#888888',(()=>{const n=currentCountry?.name||'';const hj=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]);if(hj.length)return hj.slice(-1)[0];const hg=(n.match(/[가-힣]/g)||[]);return hg.length?hg.slice(-1)[0]:'?'})(),14)}</div>` : '');
+                const _flagH = currentCountry?.flag ? 14 : (typeof createCountryFlagSvg==='function' && currentCountry ? 14 : 0);
                 const totalH = _flagH + iconHeight + 14;
                 const customMarkerHtml = `<div class="cm-wrap" style="display:flex;flex-direction:column;align-items:center;gap:0;">
                     ${_cFlagHtml}
@@ -27312,18 +27393,29 @@ kingSelect.addEventListener('change', () => {
                     // ── 마커 HTML: txt/ico 분리 구조 ──
                     let txtHtml = '', icoHtml = '', _isBattle3d = false, _3dMarkerFlagHtml = '';
 
+                    // 공통 낙관 글자 (깃발 SVG 자동 생성에 사용)
+                    const sealChar = ci?.sealText || (()=>{
+                        const n = ci?.name || c.name || '';
+                        const hj = (n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]);
+                        if (hj.length) return hj.slice(-1)[0];
+                        const hg = (n.match(/[가-힣]/g)||[]);
+                        return hg.length ? hg.slice(-1)[0] : '?';
+                    })();
+
+                    // 깃발 HTML 헬퍼: 이미지 있으면 img, 없으면 SVG 자동 생성 (14px 기준)
+                    const _mkFlagHtml = (flagUrl, color, seal, size = 14, noMargin = false) => {
+                        const mb = noMargin ? '0' : '1px';
+                        if (flagUrl) return `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(flagUrl):flagUrl}" style="width:${size}px;height:auto;display:block;margin:0 auto ${mb} auto;vertical-align:bottom;" onerror="this.style.display='none'">`;
+                        if (typeof createCountryFlagSvg === 'function') return `<div style="display:block;margin:0 auto ${mb} auto;line-height:0;font-size:0;vertical-align:bottom;">${createCountryFlagSvg(color||'#888', seal||'?', size)}</div>`;
+                        return '';
+                    };
+
                     if (isCapital3d || placeType3d === 'capital' || placeType3d === 'hwangseong') {
-                        const sealChar = ci?.sealText || (()=>{
-                            const n = ci?.name || '';
-                            const hj = (n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]);
-                            if (hj.length) return hj.slice(-1)[0];
-                            const hg = (n.match(/[가-힣]/g)||[]);
-                            return hg.length ? hg.slice(-1)[0] : '?';
-                        })();
+                        // sealChar는 위에서 공통 선언됨
                         const sealColor = dotColor3d;
                         const txtColor = (typeof getContrastColor === 'function') ? getContrastColor(sealColor) : '#ffffff';
                         if (c.custom_icon) {
-                            _3dMarkerFlagHtml = ci?.flag ? `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(ci.flag):ci.flag}" style="width:14px;height:auto;display:block;margin:0 auto 1px auto;" onerror="this.style.display='none'">` : '';
+                            _3dMarkerFlagHtml = _mkFlagHtml(ci?.flag, dotColor3d, sealChar, 14);
                             txtHtml = `<div style="${nameStyle3d}margin-bottom:2px;">${castleName3d}</div>`;
                             icoHtml = `<img src="${c.custom_icon}" style="width:${c.icon_width||32}px;height:${c.icon_height||32}px;object-fit:contain;" onerror="this.style.display='none'">`;
                         } else {
@@ -27364,11 +27456,11 @@ kingSelect.addEventListener('change', () => {
                                 <img src="${_battleIconUrl}" style="width:${sz}px;height:${sz}px;object-fit:contain;display:block;position:relative;z-index:2;" onerror="this.style.display='none'">
                             </div>`;
                         } else if (c.custom_icon) {
-                            _3dMarkerFlagHtml = ci?.flag ? `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(ci.flag):ci.flag}" style="width:14px;height:auto;display:block;margin:0 auto 1px auto;" onerror="this.style.display='none'">` : '';
+                            _3dMarkerFlagHtml = _mkFlagHtml(ci?.flag, dotColor3d, sealChar, 14);
                             txtHtml = `<div style="${nameStyle3d}margin-bottom:2px;">${castleName3d}</div>`;
                             icoHtml = `<img src="${c.custom_icon}" style="width:${c.icon_width||ptCfg.size}px;height:${c.icon_height||ptCfg.size}px;object-fit:contain;" onerror="this.style.display='none'">`;
                         } else {
-                            _3dMarkerFlagHtml = ci?.flag ? `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(ci.flag):ci.flag}" style="width:14px;height:auto;display:block;margin:0 auto 1px auto;" onerror="this.style.display='none'">` : '';
+                            _3dMarkerFlagHtml = _mkFlagHtml(ci?.flag, dotColor3d, sealChar, 14);
                             txtHtml = `<div style="display:flex;align-items:center;gap:1px;"><span style="${hanjaStyle3d}color:${dotColor3d};">${ptCfg.hanja}</span><span style="${nameStyle3d}">${castleName3d}</span></div>`;
                             icoHtml = `<img src="${ptCfg.icon}" style="width:${ptCfg.size}px;height:${ptCfg.size}px;object-fit:contain;" onerror="this.style.display='none'">`;
                         }
@@ -27455,11 +27547,11 @@ kingSelect.addEventListener('change', () => {
                                 : `<div style="font-size:20px;line-height:1;text-shadow:1px 1px 2px #000;">${_nfInfo?.symbol || '❖'}</div>`;
                         }
                     } else if (c.custom_icon) {
-                        _3dMarkerFlagHtml = ci?.flag ? `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(ci.flag):ci.flag}" style="width:14px;height:auto;display:block;margin:0 auto 1px auto;" onerror="this.style.display='none'">` : '';
+                        _3dMarkerFlagHtml = _mkFlagHtml(ci?.flag, dotColor3d, sealChar, 14);
                         txtHtml = `<div style="display:flex;flex-direction:column;align-items:center;"><div style="${nameStyle3d}margin-bottom:2px;">${castleName3d}</div></div>`;
                         icoHtml = `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(c.custom_icon):c.custom_icon}" style="width:${c.icon_width||20}px;height:${c.icon_height||20}px;object-fit:contain;display:block;vertical-align:bottom;" onerror="this.style.display='none'">`;
                     } else {
-                        _3dMarkerFlagHtml = ci?.flag ? `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(ci.flag):ci.flag}" style="width:14px;height:auto;display:block;margin:0 auto 1px auto;" onerror="this.style.display='none'">` : '';
+                        _3dMarkerFlagHtml = _mkFlagHtml(ci?.flag, dotColor3d, sealChar, 14);
                         txtHtml = `<div style="display:flex;flex-direction:column;align-items:center;"><div style="${nameStyle3d}">${castleName3d}</div></div>`;
                         icoHtml = `<div style="color:${dotColor3d};font-size:10px;line-height:1;display:block;margin-bottom:0;text-shadow:-1px -1px 1px rgba(0,0,0,0.45),1px 1px 1px rgba(0,0,0,0.45);">▼</div>`;
                     }
@@ -27481,10 +27573,10 @@ kingSelect.addEventListener('change', () => {
                         const _capitalImgUrl3d = _isHwang3d
                             ? 'https://github.com/projeffmanager-design/img/blob/main/3demp.webp?raw=true'
                             : 'https://github.com/projeffmanager-design/img/blob/main/3dking.webp?raw=true';
-                        markerHtml = `<div class="capital-marker ml3d-txt" style="pointer-events:none;">
+                        markerHtml = `<div class="capital-marker ml3d-txt" style="pointer-events:none;padding:0;">
                             <div class="capital-marker-bottom"><div class="capital-seal" style="background-color:${_sealColor2};border-color:${_sealColor2};filter:brightness(0.75);color:${_txtColor2};">${_sealChar2}</div><span class="city-name">${castleName3d}</span></div>
-                            ${ci?.flag ? `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(ci.flag):ci.flag}" style="width:28px;height:auto;display:block;margin:0px auto -4px auto;" onerror="this.style.display='none'">` : ''}
-                            <div class="ml3d-ico"><img class="capital-marker-img" src="${_capitalImgUrl3d}" style="width:38px;height:38px;object-fit:contain;" onerror="this.style.display='none'"></div>
+                            ${_mkFlagHtml(ci?.flag, dotColor3d, sealChar, 28, true)}
+                            <div class="ml3d-ico" style="margin:0;padding:0;line-height:0;"><img class="capital-marker-img" src="${_capitalImgUrl3d}" style="width:38px;height:38px;object-fit:contain;display:block;margin:0 !important;" onerror="this.style.display='none'"></div>
                         </div>`;
                     } else {
                         markerHtml = `<div style="display:flex;flex-direction:column;align-items:center;gap:0px;pointer-events:none;overflow:visible;line-height:0;">
@@ -27622,9 +27714,10 @@ kingSelect.addEventListener('change', () => {
                         if (!labelLat || !labelLng) return;
 
                         const countryColor = country.color || '#ffffff';
+                        const _3dLblSealChar = country.sealText || (()=>{ const n=country.name||''; const hj=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hj.length) return hj.slice(-1)[0]; const hg=(n.match(/[가-힣]/g)||[]); return hg.length ? hg.slice(-1)[0] : '?'; })();
                         const flagHtml = country.flag
                             ? `<img src="${(typeof toRawImageUrl === 'function') ? toRawImageUrl(country.flag) : country.flag}" style="width:90px;height:auto;object-fit:contain;display:block;flex-shrink:0;" onerror="this.style.display='none'">`
-                            : '';
+                            : `<div style="display:inline-block;flex-shrink:0;line-height:0;">${(typeof createCountryFlagSvg === 'function') ? createCountryFlagSvg(countryColor, _3dLblSealChar, 43) : ''}</div>`;
                         const ethnicHtml = (typeof layerVisibility !== 'undefined' && layerVisibility.ethnicLabel && country.ethnicity)
                             ? `<div style="font-size:10px;color:${countryColor};opacity:0.8;text-align:center;text-shadow:-1px -1px 0 #000,1px 1px 0 #000;margin-top:1px;">${country.ethnicity}</div>`
                             : '';
@@ -27725,10 +27818,10 @@ kingSelect.addEventListener('change', () => {
                 // ── zoom에 따라 마커 크기 스케일 (CSS 변수 방식 — 단일 reflow) ──
                 const _updateMarkerZoomScale = () => {
                     const z = _m.getZoom();
-                    // zoom 7 기준 1.0, 줌인할수록 커짐 (지도에 고정된 느낌)
-                    // scale = 2^((z-7) * 0.45), clamp [0.45, 2.25] (최대 절반으로 제한)
-                    const rawScale = Math.pow(2, (z - 7) * 0.45);
-                    const scale = Math.min(Math.max(rawScale, 0.45), 2.25);
+                    // zoom 8 기준 0.5, 줌아웃할수록 작아짐, 줌인해도 최대 0.5
+                    // scale = 2^((z-8) * 1.0), clamp [0.08, 0.5]
+                    const rawScale = Math.pow(2, (z - 8) * 1.0);
+                    const scale = Math.min(Math.max(rawScale, 0.08), 0.5);
                     document.documentElement.style.setProperty('--ml3d-zoom-scale', scale.toFixed(3));
 
                     // ── 줌레벨이 낮으면 텍스트 순차 숨김 (아이콘은 유지) ──
@@ -27738,6 +27831,7 @@ kingSelect.addEventListener('change', () => {
                     const hideNormal = z < 6.5;
                     const hideNormalAll = z < 5.5;
                     const hideCapital = z < 5.5;
+                    const hideCapitalAll = z < 4.5;
                     const hideCountryLabel = z >= 6.5;
                     _3dMarkers.forEach(mk => {
                         const el = mk.getElement();
@@ -27755,9 +27849,12 @@ kingSelect.addEventListener('change', () => {
                         const txtEl = el.querySelector('.ml3d-txt');
                         if (!txtEl) return;
                         if (txtEl.classList.contains('capital-marker')) {
-                            // 왕성 마커 — 더 멀어지면 이름 숨김
-                            const nameEl = txtEl.querySelector('.capital-marker-bottom');
-                            if (nameEl) nameEl.style.display = hideCapital ? 'none' : '';
+                            // 왕성 마커 — z < 4.5 전체 숨김, z < 5.5 이름만 숨김
+                            el.style.display = hideCapitalAll ? 'none' : '';
+                            if (!hideCapitalAll) {
+                                const nameEl = txtEl.querySelector('.capital-marker-bottom');
+                                if (nameEl) nameEl.style.display = hideCapital ? 'none' : '';
+                            }
                         } else {
                             // 일반 성 마커 — z < 5.5 이면 전체 숨김, z < 6.5 이면 텍스트만 숨김
                             el.style.display = hideNormalAll ? 'none' : '';
