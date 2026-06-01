@@ -3033,7 +3033,7 @@ body.force-mobile .marker-type-selector button {
             backdrop-filter: blur(14px);
             color: #ecf0f1;
             border-left: 1px solid rgba(180,140,80,0.35);
-            z-index: 1103;
+            z-index: 10000;
             box-shadow: -6px 0 30px rgba(0,0,0,0.7);
             transition: right 0.32s cubic-bezier(0.22,0.61,0.36,1);
             display: flex;
@@ -3042,6 +3042,9 @@ body.force-mobile .marker-type-selector button {
             box-sizing: border-box;
         }
         #country-detail-panel.active { right: 0; }
+        #country-detail-panel.active ~ #timeline-play-controls,
+        body:has(#country-detail-panel.active) #timeline-play-controls,
+        body:has(#object-detail-panel.active) #timeline-play-controls { display: none !important; }
         @media (max-width: 480px) {
             #country-detail-panel { width: 100vw; right: -100vw; border-left: none; }
         }
@@ -3448,7 +3451,7 @@ body.force-mobile .marker-type-selector button {
             color: #ecf0f1;
             border-left: 1px solid rgba(180, 140, 80, 0.35);
             padding: 0;
-            z-index: 1102;
+            z-index: 10000;
             box-shadow: -4px 0 24px rgba(0,0,0,0.65);
             transition: right 0.32s cubic-bezier(0.22,0.61,0.36,1);
             overflow-y: auto;
@@ -9843,7 +9846,7 @@ body.force-mobile .marker-type-selector button {
                 className: 'macro-country-label-icon',
                 // transform: translate(-50%, -100%) → 컨테이너 하단-중앙이 지도 좌표에 고정
                 // align-items:center → 깃발과 국가명 수직 중앙정렬
-                html: `<div style="display:inline-flex;flex-direction:row;align-items:center;gap:6px;pointer-events:none;white-space:nowrap;transform:translate(-50%, -100%);">${flagHtmlMacro}<div style="display:flex;flex-direction:column;align-items:flex-start;position:relative;z-index:1;"><div class="macro-country-name" style="font-size:${countryFontSize}px;">${country.name}</div>${ethnicHtml}</div></div>`,
+                html: `<div style="display:inline-flex;flex-direction:row;align-items:center;gap:6px;pointer-events:none;white-space:nowrap;transform:translate(-50%, -100%) scale(var(--macro-flag-scale, 1));transform-origin:bottom center;">${flagHtmlMacro}<div style="display:flex;flex-direction:column;align-items:flex-start;position:relative;z-index:1;"><div class="macro-country-name" style="font-size:${countryFontSize}px;">${country.name}</div>${ethnicHtml}</div></div>`,
                 iconSize: [0, 0],
                 iconAnchor: [0, 0]
             });
@@ -10023,7 +10026,12 @@ body.force-mobile .marker-type-selector button {
         else if (_z === 8) _s = 1.1;
         else if (_z >= 9) _s = 1.2;
         window._currentMarkerScale = _s;
+        // 국가명 깃발 라벨 스케일 (zoom 5 기준 1.0, 줌아웃할수록 작아짐)
+        const _flagScale = Math.min(Math.max(Math.pow(2, (_z - 5) * 0.6), 0.3), 1.0);
+        document.documentElement.style.setProperty('--macro-flag-scale', _flagScale.toFixed(3));
     });
+    // 초기값 설정
+    (()=>{ const _z0 = map.getZoom(); const _fs0 = Math.min(Math.max(Math.pow(2, (_z0 - 5) * 0.6), 0.3), 1.0); document.documentElement.style.setProperty('--macro-flag-scale', _fs0.toFixed(3)); })();
 
     // 🚩 [추가] zoomend 시 같은 모드 내 줌 변경 시 마커 재렌더링 (국가명은 updateMap 내부에서 갱신)
     // 🚀 [v3.6] 이전 줌의 simplify tolerance 기록 — tolerance가 바뀔 때만 영토 재렌더링
@@ -27722,7 +27730,7 @@ kingSelect.addEventListener('change', () => {
                             ? `<div style="font-size:10px;color:${countryColor};opacity:0.8;text-align:center;text-shadow:-1px -1px 0 #000,1px 1px 0 #000;margin-top:1px;">${country.ethnicity}</div>`
                             : '';
                         // 깃발 오른쪽에 국가명 중앙정렬, 깃발 하단이 지도 좌표에 닿도록 anchor:bottom offset:0
-                        const labelHtml = `<div style="display:inline-flex;flex-direction:row;align-items:center;gap:6px;pointer-events:none;">
+                        const labelHtml = `<div style="display:inline-flex;flex-direction:row;align-items:center;gap:6px;pointer-events:none;transform:scale(var(--macro-flag-scale,1));transform-origin:bottom center;">
                             ${flagHtml}
                             <div style="display:flex;flex-direction:column;align-items:flex-start;">
                                 <span style="font-size:14px;font-weight:bold;font-family:'Nanum Myeongjo','Apple SD Gothic Neo',serif;color:#000;text-shadow:-1px -1px 0 rgba(255,255,255,0.9),1px -1px 0 rgba(255,255,255,0.9),-1px 1px 0 rgba(255,255,255,0.9),1px 1px 0 rgba(255,255,255,0.9),0 0 6px rgba(255,255,255,0.7);white-space:nowrap;">${country.name}</span>
@@ -27823,6 +27831,9 @@ kingSelect.addEventListener('change', () => {
                     const rawScale = Math.pow(2, (z - 8) * 1.0);
                     const scale = Math.min(Math.max(rawScale, 0.08), 0.5);
                     document.documentElement.style.setProperty('--ml3d-zoom-scale', scale.toFixed(3));
+                    // 국가명 깃발 라벨 스케일 (zoom 5 기준 1.0, 줌아웃할수록 작아짐)
+                    const _flagScale = Math.min(Math.max(Math.pow(2, (z - 5) * 0.6), 0.3), 1.0);
+                    document.documentElement.style.setProperty('--macro-flag-scale', _flagScale.toFixed(3));
 
                     // ── 줌레벨이 낮으면 텍스트 순차 숨김 (아이콘은 유지) ──
                     // z < 6.5 : 일반 성 텍스트 숨김
