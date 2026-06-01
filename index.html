@@ -71,7 +71,7 @@
     #map .leaflet-marker-pane,
     #map .leaflet-tooltip-pane,
     #map .leaflet-popup-pane {
-        filter: sepia(0) contrast(1.11) brightness(0.91) grayscale(0);
+        filter: none !important;
     }
 
     /* 🚩 [추가] 영토 폴리곤 전환 애니메이션 — 슬라이더 이동 시 자연스러운 변화 */
@@ -2798,9 +2798,8 @@ body.force-mobile .marker-type-selector button {
         display: inline;
     }
 
-    /* 🚩 [추가] 국기 이미지 톤 다운 */
     .country-flag-img {
-        filter: saturate(60%) brightness(90%);
+        filter: none;
     }
 
     /* 장수/병력 정보: 배경색 유지 */
@@ -3077,8 +3076,8 @@ body.force-mobile .marker-type-selector button {
             padding: 0 18px 16px 18px; width: 100%; box-sizing: border-box;
         }
         .cdp-flag-img {
-            height: 44px; border: 1px solid rgba(255,255,255,0.25);
-            border-radius: 3px; flex-shrink: 0;
+            height: 44px; border: none;
+            border-radius: 0; flex-shrink: 0;
         }
         .cdp-flag-seal {
             display: inline-flex; align-items: center; justify-content: center;
@@ -4141,6 +4140,13 @@ body.force-mobile .marker-type-selector button {
 
     /* 🚩 [추가] 줌 레벨에 따라 크기가 조절될 마커들의 공통 스타일 */
     /* 커스텀 아이콘 마커: overflow 해제로 이름 텍스트 잘림 방지 */
+    /* 🚩 Leaflet divIcon wrapper: 깃발이 iconSize 위로 튀어나와도 잘리지 않도록 */
+    .leaflet-div-icon {
+        overflow: visible !important;
+        background: none !important;
+        border: none !important;
+    }
+
     .custom-icon-marker {
         background: none !important;
         border: none !important;
@@ -5074,6 +5080,11 @@ body.force-mobile .marker-type-selector button {
     body.mode-3d #current-year-display { z-index: 2600 !important; }
     body.mode-3d #rankingDisplay       { z-index: 2600 !important; }
     body.mode-3d #bottom-vignette      { z-index: 2600 !important; }
+    /* 3D 모드 성 마커 순서: 위→아래 = 제목 → 깃발 → 성아이콘 */
+    body.mode-3d .cm-wrap { flex-direction: column !important; }
+    body.mode-3d .cm-name { order: 1 !important; }
+    body.mode-3d .cm-flag { order: 2 !important; }
+    body.mode-3d .cm-icon { order: 3 !important; }
     body.mode-3d #event-sidebar        { z-index: 2600 !important; }
     body.mode-3d #object-detail-panel  { z-index: 2620 !important; }
     body.mode-3d #country-detail-panel { z-index: 2620 !important; }
@@ -9569,6 +9580,7 @@ body.force-mobile .marker-type-selector button {
     // 🚀 [최적화] 영토가 실제 렌더링된 국가만 추적 (거시 모드 국가명 표시용)
     let _renderedCountryIds = new Set();           // updateMap 영토 루프에서 수집
     let _renderedCountryCentroids = new Map();     // country_id → {lat, lng, count} 영토 중심점 누적
+    let _renderedCountryLargestPatch = new Map();  // country_id → {lat, lng, area} 가장 큰 영토 조각 중심
 
     // 🚩 [과제1] 거시 모드용 국가명 Pane (마커 위에 표시)
     if (!map.getPane('macroLabelPane')) {
@@ -9637,23 +9649,23 @@ body.force-mobile .marker-type-selector button {
         // 우선순위: ① 수도 좌표 → ② 영토 중심점(centroid)
         const currentTotalMonths = yearMonthToTotalMonths(year, month);
 
-        // 수도 인덱스 (렌더링된 국가만)
+        // 수도 인덱스 — 현재 시점의 왕성(is_capital=true 또는 place_type=capital) 기준
         const capitalByCountry = new Map();
         castles.forEach(c => {
             if (!c.lat || !c.lng) return;
-            if (!c.is_capital) return;
             const info = getActiveHistoryInfo(c.history, currentTotalMonths);
             if (!info) return;
-            // 현재 시점 history record에서 country_id + is_capital 동시 확인
-            const recCountryId = info.record.country_id
-                ? (typeof info.record.country_id === 'object'
-                    ? (info.record.country_id.$oid || String(info.record.country_id))
-                    : String(info.record.country_id))
+            const rec = info.record;
+            // 현재 history record에서 수도 여부 확인 (is_capital 또는 place_type=capital/hwangseong)
+            const isCapRec = !!(rec.is_capital || rec.place_type === 'capital' || rec.place_type === 'hwangseong');
+            if (!isCapRec) return;
+            const recCountryId = rec.country_id
+                ? (typeof rec.country_id === 'object'
+                    ? (rec.country_id.$oid || String(rec.country_id))
+                    : String(rec.country_id))
                 : null;
             if (!recCountryId) return;
             if (!_renderedCountryIds.has(recCountryId)) return;
-            // history record 자체의 is_capital이 true인 것만 수도로 인정
-            if (!info.record.is_capital) return;
             if (!capitalByCountry.has(recCountryId)) {
                 capitalByCountry.set(recCountryId, c);
             }
@@ -9675,14 +9687,21 @@ body.force-mobile .marker-type-selector button {
 
             let labelLat, labelLng;
 
-            // ① 수도 좌표 우선
+            // ① 수도 좌표에 정확히 고정 (오프셋 없음 - iconAnchor로 라벨을 위로 올림)
             const capital = capitalByCountry.get(countryId);
             if (capital) {
                 labelLat = capital.lat;
                 labelLng = capital.lng;
             }
 
-            // ② 수도가 없으면 영토 중심점(centroid) 사용
+            // ② 수도 없으면 가장 큰 영토 조각 중심
+            if (!labelLat && _renderedCountryLargestPatch.has(countryId)) {
+                const p = _renderedCountryLargestPatch.get(countryId);
+                labelLat = p.lat;
+                labelLng = p.lng;
+            }
+
+            // ③ 최후 fallback: 전체 centroid 평균
             if (!labelLat && _renderedCountryCentroids.has(countryId)) {
                 const c = _renderedCountryCentroids.get(countryId);
                 labelLat = c.lat / c.count;
@@ -9730,19 +9749,22 @@ body.force-mobile .marker-type-selector button {
             const countryColor = country.color || '#ffffff';
             const labelTextColor = '#000000'; // 검정 고정 — CSS text-shadow 흰색 외곽선으로 가독성 확보
             const flagHtmlMacro = country.flag
-                ? `<img src="${toRawImageUrl(country.flag)}" class="country-flag-img" style="width:18px;height:12px;margin-right:4px;vertical-align:middle;border:0.5px solid rgba(255,255,255,0.3);">`
+                ? `<img src="${toRawImageUrl(country.flag)}" class="country-flag-img" style="width:60px;height:auto;display:inline-block;flex-shrink:0;margin-right:-14px;position:relative;z-index:0;align-self:flex-end;">`
                 : '';
             // 민족 토글이 켜져 있고 ethnicity 데이터가 있으면 국가명 하단에 소자 표시
             const ethnicHtml = (layerVisibility.ethnicLabel && country.ethnicity)
                 ? `<div class="macro-country-ethnic">${country.ethnicity}</div>`
                 : '';
+            // 깃발 하단을 왕성 좌표에 붙이고, 국가명은 깃발 옆 중앙정렬
+            const _labelH = countryFontSize + 8;
+            const _capitalMarkerH = capital ? 10 : 0;
             const icon = L.divIcon({
                 className: 'macro-country-label-icon',
-                html: `<div style="display:flex; flex-direction:column; align-items:center; pointer-events:none;"><div class="macro-country-name" style="font-size: ${countryFontSize}px; display:inline-flex; align-items:center;">${flagHtmlMacro}${country.name}</div>${ethnicHtml}</div>`,
-                iconSize: [200, 40],
-                // 수도 좌표 기반일 때는 라벨을 마커 위에 표시 (iconAnchor Y를 크게)
-                // 영토 중심점 기반일 때는 중앙 정렬 유지
-                iconAnchor: capital ? [100, 46] : [100, 20]
+                // transform: translate(-50%, -100%) → 컨테이너 하단-중앙이 지도 좌표에 고정
+                // align-items:center → 깃발과 국가명 수직 중앙정렬
+                html: `<div style="display:inline-flex;flex-direction:row;align-items:center;gap:6px;pointer-events:none;white-space:nowrap;transform:translate(-50%, -100%);">${flagHtmlMacro}<div style="display:flex;flex-direction:column;align-items:flex-start;position:relative;z-index:1;"><div class="macro-country-name" style="font-size:${countryFontSize}px;">${country.name}</div>${ethnicHtml}</div></div>`,
+                iconSize: [0, 0],
+                iconAnchor: [0, 0]
             });
 
             L.marker([labelLat, labelLng], { 
@@ -10219,7 +10241,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
             : '';
         const countryName = countryInfo?.name || activeHistoryRecord?.country_name || '';
         const countryId = countryInfo?._id || countryInfo?.id || castle.country_id || activeHistoryRecord?.country_id || '';
-        const countryFlag = countryInfo?.flag ? `<img src="${countryInfo.flag}" style="height:13px;vertical-align:middle;margin-right:3px;border:1px solid #556;"> ` : '';
+        const countryFlag = countryInfo?.flag ? `<img src="${countryInfo.flag}" style="height:13px;vertical-align:middle;margin-right:3px;"> ` : '';
         const countryText = countryName
             ? `<span class="odp-country-link" data-country-id="${countryId}" style="color:#7eb8e8; cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px;">${countryFlag}${countryName}</span>`
             : '';
@@ -10264,7 +10286,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
 
                 const hCountry = allCountries.find(c => c._id === h.country_id || c.id === h.country_id);
                 const hCountryName = hCountry?.name || h.country_name || '';
-                const hFlag = hCountry?.flag ? `<img src="${hCountry.flag}" style="height:11px;vertical-align:middle;border:1px solid #556;margin-right:3px;">` : '';
+                const hFlag = hCountry?.flag ? `<img src="${hCountry.flag}" style="height:11px;vertical-align:middle;margin-right:3px;">` : '';
                 const hName = h.name || castleName;
                 const hNote = h.notes || h.note || '';
                 const hComment = h.comment || '';
@@ -10892,7 +10914,7 @@ function getKingByYear(countryName, year, month) {
             const countryColor = country.color || 'gray'; 
 
             if (country.flag) {
-                iconHtml = `<img src="${toRawImageUrl(country.flag)}" class="country-flag-img" style="width: 18px; height: 12px; border: 1px solid #ccc; margin-right: 5px; vertical-align: middle;">`;
+                iconHtml = `<img src="${toRawImageUrl(country.flag)}" class="country-flag-img" style="width: 18px; height: auto; margin-right: 5px; vertical-align: middle;">`;
             } else {
                 const sealChar = country.sealText || (()=>{ const n=country.name||''; const hanja=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hanja.length) return hanja.slice(-1)[0]; const hangul=(n.match(/[가-힣]/g)||[]); return hangul.length ? hangul.slice(-1)[0] : '?'; })();
                 const _sealTxtColor = (()=>{ try{ const h=(countryColor||'').replace(/^#/,''); const hx=h.length===3?h.split('').map(c=>c+c).join(''):h; if(hx.length!==6)return '#fff'; const lum=0.2126*parseInt(hx.slice(0,2),16)+0.7152*parseInt(hx.slice(2,4),16)+0.0722*parseInt(hx.slice(4,6),16); return lum>160?'#1a1a1a':'#ffffff'; }catch(e){return '#ffffff';} })();
@@ -12440,6 +12462,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             // 🚀 [최적화] 렌더링된 국가 추적 초기화 (거시 모드 국가명용)
             _renderedCountryIds.clear();
             _renderedCountryCentroids.clear();
+            _renderedCountryLargestPatch.clear();
             
             // 🚩 [추가] 이미 렌더링된 영토 추적 (중복 방지)
             const renderedTerritories = new Set();
@@ -12594,6 +12617,12 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         c.lat += cLat; c.lng += cLng; c.count++;
                     } else {
                         _renderedCountryCentroids.set(dominantCountryId, { lat: cLat, lng: cLng, count: 1 });
+                    }
+                    // 가장 큰 영토 조각 추적 (bbox 면적 기준)
+                    const area = (tBounds.maxLat - tBounds.minLat) * (tBounds.maxLng - tBounds.minLng);
+                    const existing = _renderedCountryLargestPatch.get(dominantCountryId);
+                    if (!existing || area > existing.area) {
+                        _renderedCountryLargestPatch.set(dominantCountryId, { lat: cLat, lng: cLng, area });
                     }
                 }
 
@@ -13937,15 +13966,19 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     const _ciw3 = Math.round(iconWidth * _mscaleC3);
                     const _cih3 = Math.round(iconHeight * _mscaleC3);
                     const rawIconUrl = castle.custom_icon.replace(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)\?raw=true$/, 'https://raw.githubusercontent.com/$1/$2/$3');
-                    const customIconHtml = `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:0;"><img src="${rawIconUrl}" style="width:${_ciw3}px;height:${_cih3}px;object-fit:contain;display:block);" onerror="this.style.display='none'"><span style="color:#d8cdb8;font-family:'Nanum Myeongjo',serif;font-weight:300;font-size:10px;white-space:nowrap;margin-top:0;text-shadow:0px 0px 2px rgba(0,0,0,0.9),0px 0px 4px rgba(0,0,0,0.8);">${castleName}</span></div>`;
+                    const _nfFlagHtml = countryInfo?.flag
+                        ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;margin-bottom:1px;">`
+                        : '';
+                    const _nfFlagH = countryInfo?.flag ? 14 : 0;
+                    const customIconHtml = `<div class="cm-wrap" style="display:inline-flex;flex-direction:column;align-items:center;gap:0;">${_nfFlagHtml}<img class="cm-icon" src="${rawIconUrl}" style="width:${_ciw3}px;height:${_cih3}px;object-fit:contain;display:block;" onerror="this.style.display='none'"><span class="cm-name" style="color:#d8cdb8;font-family:'Nanum Myeongjo',serif;font-weight:300;font-size:10px;white-space:nowrap;margin-top:0;text-shadow:0px 0px 2px rgba(0,0,0,0.9),0px 0px 4px rgba(0,0,0,0.8);">${castleName}</span></div>`;
                     const totalW = Math.max(_ciw3, 40);
-                    const totalH = _cih3 + 14;
+                    const totalH = _nfFlagH + _cih3 + 14;
                     const featureIcon = L.divIcon({
                         className: 'custom-icon-marker natural-feature-marker',
                         html: customIconHtml,
                         iconSize: [totalW, totalH],
-                        iconAnchor: [_ciw3 / 2, _cih3],
-                        popupAnchor: [0, -_cih3]
+                        iconAnchor: [_ciw3 / 2, _nfFlagH],
+                        popupAnchor: [0, -_nfFlagH]
                     });
                     marker = L.marker([castle.lat, castle.lng], { icon: featureIcon });
                 } else {
@@ -14052,16 +14085,20 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     const iconWidth = castle.icon_width || 32;
                     const iconHeight = castle.icon_height || 32;
                     const rawIconUrl = castle.custom_icon.replace(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)\?raw=true$/, 'https://raw.githubusercontent.com/$1/$2/$3');
-                    const customIconHtml = `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:0;"><img src="${rawIconUrl}" style="width:${iconWidth}px;height:${iconHeight}px;object-fit:contain;display:block);" onerror="this.style.display='none'"><span style="color:#d8cdb8;font-family:'Nanum Myeongjo',serif;font-weight:300;font-size:10px;white-space:nowrap;margin-top:0;text-shadow:0px 0px 2px rgba(0,0,0,0.9),0px 0px 4px rgba(0,0,0,0.8);">${castleName}</span></div>`;
+                    const _cFlagHtml2 = countryInfo?.flag
+                        ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;margin-bottom:1px;">`
+                        : '';
+                    const _flagH2 = countryInfo?.flag ? 14 : 0;
+                    const customIconHtml = `<div class="cm-wrap" style="display:inline-flex;flex-direction:column;align-items:center;gap:0;">${_cFlagHtml2}<img class="cm-icon" src="${rawIconUrl}" style="width:${iconWidth}px;height:${iconHeight}px;object-fit:contain;display:block;" onerror="this.style.display='none'"><span class="cm-name" style="color:#d8cdb8;font-family:'Nanum Myeongjo',serif;font-weight:300;font-size:10px;white-space:nowrap;margin-top:0;text-shadow:0px 0px 2px rgba(0,0,0,0.9),0px 0px 4px rgba(0,0,0,0.8);">${castleName}</span></div>`;
                     const flagIcon = L.divIcon({
                         className: 'custom-icon-marker',
                         html: customIconHtml,
-                        iconAnchor: [iconWidth / 2, 0],
-                        popupAnchor: [0, -(iconHeight + 14)]
+                        iconAnchor: [iconWidth / 2, _flagH2],
+                        popupAnchor: [0, -_flagH2]
                     });
                     marker = L.marker([markerLat, markerLng], { icon: flagIcon });
                     
-                    const flagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" class="country-flag-img" style="width: 20px; height: 13px; border: 1px solid #ccc; vertical-align: middle; margin-right: 5px;">` : '';
+                    const flagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" class="country-flag-img" style="width: 25px; height: auto; vertical-align: middle; margin-right: 5px;">` : '';
                     const descriptionHtml = castle.desc ? `<br>설명: ${stripImgTags(castle.desc)}` : '';
                     const metaInfo = [];
                     if (castle.createdBy) metaInfo.push(`사관: ${castle.createdBy}`);
@@ -14171,7 +14208,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 
                 marker = L.marker([markerLat, markerLng], { icon: flagIcon }); 
                 
-                const flagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" class="country-flag-img" style="width: 20px; height: 13px; border: 1px solid #ccc; vertical-align: middle; margin-right: 5px;">` : '';
+                const flagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" class="country-flag-img" style="width: 20px; height: auto; vertical-align: middle; margin-right: 5px;">` : '';
 
                 const descriptionHtml = castle.desc ? `<br>설명: ${stripImgTags(castle.desc)}` : '';
                 const metaInfo = [];
@@ -14241,7 +14278,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
         // place_type별 아이콘 설정 (capital은 별도 낙관 마커로 처리)
         const PLACE_TYPE_CONFIG = {
-            hwangseong: { icon: 'https://github.com/projeffmanager-design/img/blob/main/3demp.png?raw=true',              size: 40, hanja: '皇', label: '천자' },
+            hwangseong: { icon: 'https://github.com/projeffmanager-design/img/blob/main/3demp.webp?raw=true',              size: 40, hanja: '皇', label: '천자' },
             ju:       { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E5%B7%9E.png?raw=true',             size: 25, hanja: '州', label: '주'   },
             gun:      { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E9%83%A1.png?raw=true',             size: 15, hanja: '郡', label: '군'   },
             hyeon:    { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E7%B8%A3.png?raw=true',             size: 15, hanja: '縣', label: '현'   },
@@ -14249,7 +14286,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             jin:      { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E9%8E%AD.png?raw=true', size: 20, hanja: '鎭', label: '진'  },
             gateway:  { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E1%84%80%E1%85%AA%E1%86%AB.png?raw=true', size: 20, hanja: '關', label: '관' },
             battle:   { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E5%9F%8E.png?raw=true', size: 35, hanja: '戰', label: '전장' },
-            chon:     { icon: 'https://github.com/projeffmanager-design/img/blob/main/3dchon.png?raw=true',               size: 15, hanja: '村', label: '마을' },
+            chon:     { icon: 'https://github.com/projeffmanager-design/img/blob/main/3dchon.webp?raw=true',               size: 15, hanja: '村', label: '마을' },
         };
 
         // ── 4a. 왕성(capital)/황성(hwangseong): 커스텀 아이콘 우선, 없으면 낙관 마커 ──
@@ -14260,44 +14297,51 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 // 🚩 커스텀 아이콘이 있으면 우선 사용
                 const ciw = castle.icon_width || 32;
                 const cih = castle.icon_height || 32;
+                const _capFlagHtml = countryInfo?.flag
+                    ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;margin-bottom:1px;">`
+                    : '';
+                const _capFlagH = countryInfo?.flag ? 14 : 0;
                 const capitalCustomHtml = `
-                <div style="display:flex; flex-direction:column; align-items:center; gap:0;">
-                  <img src="${toRawImageUrl(castle.custom_icon)}" style="width:${ciw}px;height:${cih}px;object-fit:contain;display:block);" onerror="this.style.display='none'">
-                  <div style="color:#d8cdb8;font-weight:300;font-family:'Nanum Myeongjo',serif;font-size:10px;white-space:nowrap;text-shadow:0 0 2px rgba(0,0,0,0.9),0 0 4px rgba(0,0,0,0.8);margin-top:1px;">${castleName}</div>
+                <div class="cm-wrap" style="display:flex; flex-direction:column; align-items:center; gap:0;">
+                  ${_capFlagHtml}
+                  <img class="cm-icon" src="${toRawImageUrl(castle.custom_icon)}" style="width:${ciw}px;height:${cih}px;object-fit:contain;display:block;" onerror="this.style.display='none'">
+                  <div class="cm-name" style="color:#d8cdb8;font-weight:300;font-family:'Nanum Myeongjo',serif;font-size:10px;white-space:nowrap;text-shadow:0 0 2px rgba(0,0,0,0.9),0 0 4px rgba(0,0,0,0.8);margin-top:1px;">${castleName}</div>
                 </div>`;
                 capitalIcon = L.divIcon({
                     className: 'custom-capital-flag-marker',
                     html: capitalCustomHtml,
-                    iconSize: [Math.max(ciw, 60), cih + 14],
-                    iconAnchor: [Math.max(ciw, 60) / 2, 0],
-                    popupAnchor: [0, 0]
+                    iconSize: [Math.max(ciw, 60), _capFlagH + cih + 14],
+                    iconAnchor: [Math.max(ciw, 60) / 2, _capFlagH],
+                    popupAnchor: [0, -_capFlagH]
                 });
             } else {
                 const sealChar = countryInfo?.sealText || (()=>{ const n=countryInfo?.name||''; const hanja=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hanja.length) return hanja.slice(-1)[0]; const hangul=(n.match(/[가-힣]/g)||[]); return hangul.length ? hangul.slice(-1)[0] : '?'; })();
                 const sealColor = countryInfo?.color || '#c0392b';
                 const _capitalTxtColor = (typeof getContrastColor==='function') ? getContrastColor(sealColor) : '#ffffff';
                 const _capImgUrl2d = _isHwang2d
-                    ? 'https://github.com/projeffmanager-design/img/blob/main/3demp.png?raw=true'
+                    ? 'https://github.com/projeffmanager-design/img/blob/main/3demp.webp?raw=true'
                     : 'https://github.com/projeffmanager-design/img/blob/main/%E7%8E%8B%E5%9F%8E.png?raw=true';
                 const capitalIconHtml = `<div class="capital-marker">
+                    ${countryInfo?.flag ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;display:block;margin:0 auto 2px auto;">` : ''}
                     <img class="capital-marker-img" src="${_capImgUrl2d}" onerror="this.style.display='none'">
                     <div class="capital-marker-bottom">
                         <div class="capital-seal" style="background-color:${sealColor}; border-color:${sealColor}; filter:brightness(0.75); color:${_capitalTxtColor}; text-shadow:${_capitalTxtColor==='#1a1a1a'?'none':'-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000'};">${sealChar}</div>
                         <span class="city-name">${castleName}</span>
                     </div>
                 </div>`;
+                const _capDefFlagH = countryInfo?.flag ? 16 : 0;
                 capitalIcon = L.divIcon({
                     className: 'custom-capital-flag-marker',
                     html: capitalIconHtml,
-                    iconSize: [100, 60],
-                    iconAnchor: [50, 5],
-                    popupAnchor: [0, -5]
+                    iconSize: [100, 60 + _capDefFlagH],
+                    iconAnchor: [50, _capDefFlagH + 5],
+                    popupAnchor: [0, -(_capDefFlagH + 5)]
                 });
             }
             marker = L.marker([castle.lat, castle.lng], { icon: capitalIcon, zIndexOffset: 1000 });
 
             const editorInfoHtml = castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">사관: ${castle.createdBy}</small>` : '';
-            const _capFlagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" style="height:11px;vertical-align:middle;margin-right:3px;border:1px solid rgba(180,140,80,0.3);border-radius:1px;">` : '';
+            const _capFlagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" style="height:11px;vertical-align:middle;margin-right:3px;">` : '';
             const _capCountryHtml = countryName && countryName !== '알 수 없음' ? `<br>${_capFlagHtml}<span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;">${countryName}</span>` : '';
             popupHtml = `<b>🏯 ${castleName}</b>${_capCountryHtml}<br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${stripImgTags(castle.desc)}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}${buildNearbyBtn(castle.lat, castle.lng, castleName)}`;
             marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
@@ -14332,10 +14376,15 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 // 커스텀 아이콘이 있으면 place_type 아이콘 대신 사용
                 const ciw = castle.icon_width || sz;
                 const cih = castle.icon_height || sz;
+                const _ptFlagHtml = countryInfo?.flag
+                    ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;margin-bottom:1px;">`
+                    : '';
+                const _ptFlagH = countryInfo?.flag ? 14 : 0;
                 specialMarkerHtml = `
-                <div style="display:flex; flex-direction:column; align-items:center; gap:0;">
-                  <img src="${toRawImageUrl(castle.custom_icon)}" style="width:${ciw}px;height:${cih}px;object-fit:contain;display:block);" onerror="this.style.display='none'">
-                  <div style="display:flex;align-items:center;gap:1px;width:max-content;margin-top:1px;">
+                <div class="cm-wrap" style="display:flex; flex-direction:column; align-items:center; gap:0;">
+                  ${_ptFlagHtml}
+                  <img class="cm-icon" src="${toRawImageUrl(castle.custom_icon)}" style="width:${ciw}px;height:${cih}px;object-fit:contain;display:block;" onerror="this.style.display='none'">
+                  <div class="cm-name" style="display:flex;align-items:center;gap:1px;width:max-content;margin-top:1px;">
                     <span style="${nameStyle}">${castleName}</span>
                   </div>
                 </div>`;
@@ -14372,10 +14421,14 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                       </div>
                     </div>`;
                 } else {
+                    const _ptDefFlagHtml = countryInfo?.flag
+                        ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;display:block;margin-bottom:1px;">`
+                        : '';
                     specialMarkerHtml = `
-                    <div style="display:flex; flex-direction:column; align-items:center; gap:0;">
-                      <img src="${ptCfg.icon}" style="width:${sz}px;height:${sz}px;object-fit:contain;display:block);" onerror="this.style.display='none'">
-                      <div style="display:flex;align-items:center;gap:1px;width:max-content;margin-top:1px;">
+                    <div class="cm-wrap" style="display:flex; flex-direction:column; align-items:center; gap:0;">
+                      ${_ptDefFlagHtml}
+                      <img class="cm-icon" src="${ptCfg.icon}" style="width:${sz}px;height:${sz}px;object-fit:contain;display:block;" onerror="this.style.display='none'">
+                      <div class="cm-name" style="display:flex;align-items:center;gap:1px;width:max-content;margin-top:1px;">
                         <span style="${hanjaStyle}">${ptCfg.hanja}</span>
                         <span style="${nameStyle}">${castleName}</span>
                       </div>
@@ -14392,7 +14445,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             marker = L.marker([castle.lat, castle.lng], { icon: specialIcon });
 
             const editorInfoHtml = castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">사관: ${castle.createdBy}</small>` : '';
-            const _sptFlagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" style="height:11px;vertical-align:middle;margin-right:3px;border:1px solid rgba(180,140,80,0.3);border-radius:1px;">` : '';
+            const _sptFlagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" style="height:11px;vertical-align:middle;margin-right:3px;">` : '';
             const _sptCountryHtml = countryName && countryName !== '알 수 없음' ? `<br>${_sptFlagHtml}<span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;">${countryName}</span>` : '';
             popupHtml = `<b>${ptCfg.hanja} ${castleName}</b>${_sptCountryHtml}<br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${stripImgTags(castle.desc)}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}${buildNearbyBtn(castle.lat, castle.lng, castleName)}`;
             marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
@@ -14472,7 +14525,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         })();
         const _sealColor = currentCountry.color || '#c0392b';
         const flagHtml = currentCountry.flag
-            ? `<img src="${currentCountry.flag}" class="country-flag-img" style="width: 20px; height: 13px; border: 1px solid rgba(180,140,80,0.4); margin-right: 5px; vertical-align: middle; border-radius:2px;">`
+            ? `<img src="${currentCountry.flag}" class="country-flag-img" style="width: 25px; height: auto; margin-right: 5px; vertical-align: middle;">`
             : (()=>{ const _tc=(typeof getContrastColor==='function')?getContrastColor(_sealColor):(()=>{ try{ const h=(_sealColor||'').replace(/^#/,''); const hx=h.length===3?h.split('').map(c=>c+c).join(''):h; if(hx.length!==6)return'#fff'; const lum=0.2126*parseInt(hx.slice(0,2),16)+0.7152*parseInt(hx.slice(2,4),16)+0.0722*parseInt(hx.slice(4,6),16); return lum>160?'#1a1a1a':'#fff'; }catch(e){return'#fff';} })(); return `<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:${_sealColor};border-radius:2px;font-size:10px;color:${_tc};font-family:'Noto Serif KR',serif;transform:rotate(-3deg);box-shadow:1px 1px 3px rgba(0,0,0,0.5);margin-right:5px;vertical-align:middle;filter:brightness(0.85);">${_sealChar}</span>`; })();
         const countryEthnicity = currentCountry.ethnicity ? `<br><span style="color:#9aabbd;font-size:11px;">민족: ${currentCountry.ethnicity}</span>` : '';
         const editorInfoHtml = castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">사관: ${castle.createdBy}</small>` : '';
@@ -14492,17 +14545,22 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const iconWidth = castle.icon_width || 20;
                 const iconHeight = castle.icon_height || 20;
                 const dotColor = currentCountry?.color || 'white';
-                const totalH = iconHeight + 14; // 이미지 + 텍스트 높이
-                const customMarkerHtml = `<div style="display: flex; flex-direction: column; align-items: center; gap: 0px;">
-                    <img src="${toRawImageUrl(castle.custom_icon)}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain; margin-bottom: -4px;">
-                    <div class="city-marker-text" style="color:#d8cdb8; font-family:'Nanum Myeongjo',serif; font-weight:300; font-size:10px; white-space:nowrap; padding-bottom:1px; text-shadow: 0px 0px 2px rgba(0,0,0,0.9), 0px 0px 4px rgba(0,0,0,0.8);">${castleName}</div>
+                const _cFlagHtml = currentCountry?.flag
+                    ? `<img class="cm-flag" src="${currentCountry.flag}" style="width:14px;height:auto;margin-bottom:1px;">`
+                    : '';
+                const _flagH = currentCountry?.flag ? 14 : 0;
+                const totalH = _flagH + iconHeight + 14;
+                const customMarkerHtml = `<div class="cm-wrap" style="display:flex;flex-direction:column;align-items:center;gap:0;">
+                    ${_cFlagHtml}
+                    <img class="cm-icon" src="${toRawImageUrl(castle.custom_icon)}" style="width:${iconWidth}px;height:${iconHeight}px;object-fit:contain;margin-bottom:-4px;">
+                    <div class="cm-name city-marker-text" style="color:#d8cdb8;font-family:'Nanum Myeongjo',serif;font-weight:300;font-size:10px;white-space:nowrap;padding-bottom:1px;text-shadow:0px 0px 2px rgba(0,0,0,0.9),0px 0px 4px rgba(0,0,0,0.8);">${castleName}</div>
                 </div>`;
                 const customIcon = L.divIcon({
                     className: 'custom-icon-marker',
                     html: customMarkerHtml,
                     iconSize: [Math.max(iconWidth, 40), totalH],
-                    iconAnchor: [Math.max(iconWidth, 40) / 2, 0],
-                    popupAnchor: [0, 0]
+                    iconAnchor: [Math.max(iconWidth, 40) / 2, _flagH],
+                    popupAnchor: [0, -_flagH]
                 });
                 marker = L.marker([castle.lat, castle.lng], { icon: customIcon, zIndexOffset: activeHistoryRecord.is_capital ? 1000 : 0 });
             } else if (currentCountry.flag && !activeHistoryRecord.is_capital) { // 🚩 [수정] activeHistoryRecord 사용
@@ -14510,17 +14568,18 @@ function updateMap(year, month, cacheOnly = false, force = false) {
           // 🚩 [수정] 국기 제거 후 일반 성과 동일한 스타일로 통일
           const dotColorF = currentCountry.color || 'white';
           const flagAndNameIconHtml = `
-            <div style="position: relative; display: flex; flex-direction: column; align-items: center;">
-              <div style="color:${dotColorF}; font-size:10px; line-height:1; text-shadow: -1px -1px 1px rgba(0,0,0,0.45), 1px 1px 1px rgba(0,0,0,0.45);">▼</div>
-              <div style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); color:#d8cdb8; font-family:'Nanum Myeongjo',serif; font-weight:300; font-size:10px; white-space:nowrap; padding-bottom:1px; text-shadow: 0px 0px 2px rgba(0,0,0,0.9), 0px 0px 4px rgba(0,0,0,0.8);">${castleName}</div>
+            <div class="cm-wrap" style="display:flex;flex-direction:column;align-items:center;gap:0;">
+              ${currentCountry.flag ? `<img class="cm-flag" src="${currentCountry.flag}" style="width:14px;height:auto;margin-bottom:1px;">` : ''}
+              <div class="cm-icon" style="color:${dotColorF};font-size:10px;line-height:1;text-shadow:-1px -1px 1px rgba(0,0,0,0.45),1px 1px 1px rgba(0,0,0,0.45);">▼</div>
+              <div class="cm-name" style="color:#d8cdb8;font-family:'Nanum Myeongjo',serif;font-weight:300;font-size:10px;white-space:nowrap;padding-bottom:1px;text-shadow:0px 0px 2px rgba(0,0,0,0.9),0px 0px 4px rgba(0,0,0,0.8);">${castleName}</div>
             </div>
               `;
               const customIcon = L.divIcon({
                   className: 'custom-flag-name-marker', 
                   html: flagAndNameIconHtml,
-                  iconSize: [100, 26],
-                  iconAnchor: [50, 5],
-                  popupAnchor: [0, -5]
+                  iconSize: [100, 38],
+                  iconAnchor: [50, 14],
+                  popupAnchor: [0, -14]
               });
               marker = L.marker([castle.lat, castle.lng], { icon: customIcon });
             } else if (activeHistoryRecord.is_capital) { // 🚩 [제거] 전장 체크는 이미 위에서(국가 체크 전에) 처리되었으므로 여기서는 수도/일반 성만 처리
@@ -14530,6 +14589,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const sealColor = currentCountry.color || '#c0392b';
             const _capitalTxtColor = (typeof getContrastColor==='function') ? getContrastColor(sealColor) : '#ffffff';
             const capitalIconHtml = `<div class="capital-marker">
+                ${currentCountry.flag ? `<img src="${currentCountry.flag}" style="width:16px;height:auto;margin-bottom:2px;display:block;margin-left:auto;margin-right:auto;">` : ''}
                 <img class="capital-marker-img" src="https://raw.githubusercontent.com/projeffmanager-design/img/main/%E1%84%83%E1%85%A9%E1%86%BC%E1%84%8B%E1%85%A3%E1%86%BC%E1%84%8B%E1%85%AA%E1%86%BC%E1%84%89%E1%85%A5%E1%86%BC.png" onerror="this.style.display='none'">
                 <div class="capital-marker-bottom">
                     <div class="capital-seal" style="background-color:${sealColor}; border-color: ${sealColor}; filter: brightness(0.75); color:${_capitalTxtColor}; text-shadow:${_capitalTxtColor==='#1a1a1a'?'none':'-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000'};">${sealChar}</div>
@@ -14539,7 +14599,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const customIcon = L.divIcon({
                   className: 'custom-capital-flag-marker',
                   html: capitalIconHtml,
-                  iconSize: [100, 60],
+                  iconSize: [100, currentCountry.flag ? 78 : 60],
                   iconAnchor: [50, 5],
                   popupAnchor: [0, -5]
                 });
@@ -14553,15 +14613,21 @@ function updateMap(year, month, cacheOnly = false, force = false) {
               const eqHtml = hasVoice
                   ? `<div class="audio-eq"><span></span><span></span><span></span><span></span></div>`
                   : '';
-              const markerHtml = `<div style="display: flex; flex-direction: column; align-items: center; gap: 3px;">
-                                    ${eqHtml}<div style="color:${dotColor}; font-size:10px; line-height:1; display:block; text-shadow: -1px -1px 1px rgba(0,0,0,0.45), 1px 1px 1px rgba(0,0,0,0.45);">▼</div><div class="city-marker-text" style="color:#d8cdb8; font-family:'Nanum Myeongjo',serif; font-weight:300; font-size:10px; white-space:nowrap; padding-bottom:1px; text-shadow: 0px 0px 2px rgba(0,0,0,0.9), 0px 0px 4px rgba(0,0,0,0.8);">${castleName}</div>
+              const _flagImgHtml = currentCountry.flag
+                  ? `<img class="cm-flag" src="${currentCountry.flag}" style="width:14px;height:auto;margin-bottom:1px;">`
+                  : '';
+              const markerHtml = `<div class="cm-wrap" style="display:flex;flex-direction:column;align-items:center;gap:0;">
+                                    ${_flagImgHtml}
+                                    <div class="cm-icon">${eqHtml}<div style="color:${dotColor};font-size:10px;line-height:1;display:block;text-shadow:-1px -1px 1px rgba(0,0,0,0.45),1px 1px 1px rgba(0,0,0,0.45);">▼</div></div><div class="cm-name city-marker-text" style="color:#d8cdb8;font-family:'Nanum Myeongjo',serif;font-weight:300;font-size:10px;white-space:nowrap;padding-bottom:1px;text-shadow:0px 0px 2px rgba(0,0,0,0.9),0px 0px 4px rgba(0,0,0,0.8);">${castleName}</div>
                                   </div>`;
+              const _markerH = (currentCountry.flag ? 14 : 0) + (hasVoice ? 16 : 0) + 22;
+              const _anchorY  = (currentCountry.flag ? 14 : 0) + (hasVoice ? 16 : 0) + 5;
               const customIcon = L.divIcon({
                 className: 'custom-city-marker',
                 html: markerHtml,
-                iconSize: [100, hasVoice ? 42 : 26],
-                iconAnchor: [50, hasVoice ? 19 : 5],
-                popupAnchor: [0, -5]
+                iconSize: [100, _markerH],
+                iconAnchor: [50, _anchorY],
+                popupAnchor: [0, -_anchorY]
               });
               marker = L.marker([castle.lat, castle.lng], { icon: customIcon });
             }
@@ -18085,6 +18151,7 @@ const loadingMessages = [
           _dominantCountryCache.clear();
           _renderedCountryIds.clear();
           _renderedCountryCentroids.clear();
+          _renderedCountryLargestPatch.clear();
           renderedTerritoryKeys.clear();
 
           // ③ double-buffer: 새 레이어그룹에 먼저 그리고, 다 그린 뒤 기존 것 교체
@@ -18168,6 +18235,12 @@ const loadingMessages = [
                       c.lat += cLat; c.lng += cLng; c.count++;
                   } else {
                       _renderedCountryCentroids.set(dominantCountryId, { lat: cLat, lng: cLng, count: 1 });
+                  }
+                  // 가장 큰 영토 조각 추적 (bbox 면적 기준)
+                  const area = (tBounds.maxLat - tBounds.minLat) * (tBounds.maxLng - tBounds.minLng);
+                  const existing = _renderedCountryLargestPatch.get(dominantCountryId);
+                  if (!existing || area > existing.area) {
+                      _renderedCountryLargestPatch.set(dominantCountryId, { lat: cLat, lng: cLng, area });
                   }
               }
               renderedTerritoryKeys.add(`${territory._id || territory.name}_${year}`);
@@ -27127,15 +27200,15 @@ kingSelect.addEventListener('change', () => {
                 };
 
                 const PLACE_TYPE_CONFIG_3D = {
-                    hwangseong: { icon: 'https://github.com/projeffmanager-design/img/blob/main/3demp.png?raw=true',  size: 50, hanja: '皇' },
-                    ju:      { icon: 'https://github.com/projeffmanager-design/img/blob/main/3dju.png?raw=true', size: 22, hanja: '州' },
-                    gun:     { icon: 'https://github.com/projeffmanager-design/img/blob/main/3dgun.png?raw=true', size: 20, hanja: '郡' },
-                    hyeon:   { icon: 'https://github.com/projeffmanager-design/img/blob/main/3dhyun.png?raw=true', size: 20, hanja: '縣' },
-                    seong:   { icon: 'https://github.com/projeffmanager-design/img/blob/main/3dcastle.png?raw=true', size: 25, hanja: '城' },
-                    jin:     { icon: 'https://github.com/projeffmanager-design/img/blob/main/3djin.png?raw=true', size: 20, hanja: '鎭' },
-                    gateway: { icon: 'https://github.com/projeffmanager-design/img/blob/main/3dkwan.png?raw=true', size: 20, hanja: '關' },
-                    battle:  { icon: 'https://github.com/projeffmanager-design/img/blob/main/3dbattle.png?raw=true', size: 50, hanja: '戰' },
-                    chon:    { icon: 'https://github.com/projeffmanager-design/img/blob/main/3dchon.png?raw=true', size: 20, hanja: '村' },
+                    hwangseong: { icon: 'https://github.com/projeffmanager-design/img/blob/main/3demp.webp?raw=true',  size: 50, hanja: '皇' },
+                    ju:      { icon: 'https://github.com/projeffmanager-design/img/blob/main/3dju.webp?raw=true', size: 22, hanja: '州' },
+                    gun:     { icon: 'https://github.com/projeffmanager-design/img/blob/main/3dgun.webp?raw=true', size: 20, hanja: '郡' },
+                    hyeon:   { icon: 'https://github.com/projeffmanager-design/img/blob/main/3dhyun.webp?raw=true', size: 20, hanja: '縣' },
+                    seong:   { icon: 'https://github.com/projeffmanager-design/img/blob/main/3dcastle.webp?raw=true', size: 25, hanja: '城' },
+                    jin:     { icon: 'https://github.com/projeffmanager-design/img/blob/main/3djin.webp?raw=true', size: 20, hanja: '鎭' },
+                    gateway: { icon: 'https://github.com/projeffmanager-design/img/blob/main/3dkwan.webp?raw=true', size: 20, hanja: '關' },
+                    battle:  { icon: 'https://github.com/projeffmanager-design/img/blob/main/3dbattle.webp?raw=true', size: 50, hanja: '戰' },
+                    chon:    { icon: 'https://github.com/projeffmanager-design/img/blob/main/3dchon.webp?raw=true', size: 20, hanja: '村' },
                 };
                 const nameStyle3d = `color:#d8cdb8;font-family:'Nanum Myeongjo',serif;font-weight:300;font-size:10px;white-space:nowrap;text-shadow:0 0 2px rgba(0,0,0,0.9),0 0 4px rgba(0,0,0,0.8);`;
                 const hanjaStyle3d = `font-weight:300;font-size:10px;line-height:1;white-space:nowrap;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;`;
@@ -27237,7 +27310,7 @@ kingSelect.addEventListener('change', () => {
                     else if (c.is_natural_feature || c.is_label) _priority = 1;
 
                     // ── 마커 HTML: txt/ico 분리 구조 ──
-                    let txtHtml = '', icoHtml = '', _isBattle3d = false;
+                    let txtHtml = '', icoHtml = '', _isBattle3d = false, _3dMarkerFlagHtml = '';
 
                     if (isCapital3d || placeType3d === 'capital' || placeType3d === 'hwangseong') {
                         const sealChar = ci?.sealText || (()=>{
@@ -27250,6 +27323,7 @@ kingSelect.addEventListener('change', () => {
                         const sealColor = dotColor3d;
                         const txtColor = (typeof getContrastColor === 'function') ? getContrastColor(sealColor) : '#ffffff';
                         if (c.custom_icon) {
+                            _3dMarkerFlagHtml = ci?.flag ? `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(ci.flag):ci.flag}" style="width:14px;height:auto;display:block;margin:0 auto 1px auto;" onerror="this.style.display='none'">` : '';
                             txtHtml = `<div style="${nameStyle3d}margin-bottom:2px;">${castleName3d}</div>`;
                             icoHtml = `<img src="${c.custom_icon}" style="width:${c.icon_width||32}px;height:${c.icon_height||32}px;object-fit:contain;" onerror="this.style.display='none'">`;
                         } else {
@@ -27290,9 +27364,11 @@ kingSelect.addEventListener('change', () => {
                                 <img src="${_battleIconUrl}" style="width:${sz}px;height:${sz}px;object-fit:contain;display:block;position:relative;z-index:2;" onerror="this.style.display='none'">
                             </div>`;
                         } else if (c.custom_icon) {
+                            _3dMarkerFlagHtml = ci?.flag ? `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(ci.flag):ci.flag}" style="width:14px;height:auto;display:block;margin:0 auto 1px auto;" onerror="this.style.display='none'">` : '';
                             txtHtml = `<div style="${nameStyle3d}margin-bottom:2px;">${castleName3d}</div>`;
                             icoHtml = `<img src="${c.custom_icon}" style="width:${c.icon_width||ptCfg.size}px;height:${c.icon_height||ptCfg.size}px;object-fit:contain;" onerror="this.style.display='none'">`;
                         } else {
+                            _3dMarkerFlagHtml = ci?.flag ? `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(ci.flag):ci.flag}" style="width:14px;height:auto;display:block;margin:0 auto 1px auto;" onerror="this.style.display='none'">` : '';
                             txtHtml = `<div style="display:flex;align-items:center;gap:1px;"><span style="${hanjaStyle3d}color:${dotColor3d};">${ptCfg.hanja}</span><span style="${nameStyle3d}">${castleName3d}</span></div>`;
                             icoHtml = `<img src="${ptCfg.icon}" style="width:${ptCfg.size}px;height:${ptCfg.size}px;object-fit:contain;" onerror="this.style.display='none'">`;
                         }
@@ -27379,11 +27455,13 @@ kingSelect.addEventListener('change', () => {
                                 : `<div style="font-size:20px;line-height:1;text-shadow:1px 1px 2px #000;">${_nfInfo?.symbol || '❖'}</div>`;
                         }
                     } else if (c.custom_icon) {
-                        txtHtml = `<div style="${nameStyle3d}margin-bottom:2px;">${castleName3d}</div>`;
-                        icoHtml = `<img src="${c.custom_icon}" style="width:${c.icon_width||20}px;height:${c.icon_height||20}px;object-fit:contain;" onerror="this.style.display='none'">`;
+                        _3dMarkerFlagHtml = ci?.flag ? `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(ci.flag):ci.flag}" style="width:14px;height:auto;display:block;margin:0 auto 1px auto;" onerror="this.style.display='none'">` : '';
+                        txtHtml = `<div style="display:flex;flex-direction:column;align-items:center;"><div style="${nameStyle3d}margin-bottom:2px;">${castleName3d}</div></div>`;
+                        icoHtml = `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(c.custom_icon):c.custom_icon}" style="width:${c.icon_width||20}px;height:${c.icon_height||20}px;object-fit:contain;display:block;vertical-align:bottom;" onerror="this.style.display='none'">`;
                     } else {
-                        txtHtml = `<div style="${nameStyle3d}">${castleName3d}</div>`;
-                        icoHtml = `<div style="color:${dotColor3d};font-size:10px;line-height:1;text-shadow:-1px -1px 1px rgba(0,0,0,0.45),1px 1px 1px rgba(0,0,0,0.45);">▼</div>`;
+                        _3dMarkerFlagHtml = ci?.flag ? `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(ci.flag):ci.flag}" style="width:14px;height:auto;display:block;margin:0 auto 1px auto;" onerror="this.style.display='none'">` : '';
+                        txtHtml = `<div style="display:flex;flex-direction:column;align-items:center;"><div style="${nameStyle3d}">${castleName3d}</div></div>`;
+                        icoHtml = `<div style="color:${dotColor3d};font-size:10px;line-height:1;display:block;margin-bottom:0;text-shadow:-1px -1px 1px rgba(0,0,0,0.45),1px 1px 1px rgba(0,0,0,0.45);">▼</div>`;
                     }
 
                     // 텍스트 위, 아이콘 아래 (ml3d-txt / ml3d-ico 분리)
@@ -27401,24 +27479,27 @@ kingSelect.addEventListener('change', () => {
                         })()) : '?';
                         const _isHwang3d = placeType3d === 'hwangseong';
                         const _capitalImgUrl3d = _isHwang3d
-                            ? 'https://github.com/projeffmanager-design/img/blob/main/3demp.png?raw=true'
-                            : 'https://github.com/projeffmanager-design/img/blob/main/3dking.png?raw=true';
+                            ? 'https://github.com/projeffmanager-design/img/blob/main/3demp.webp?raw=true'
+                            : 'https://github.com/projeffmanager-design/img/blob/main/3dking.webp?raw=true';
                         markerHtml = `<div class="capital-marker ml3d-txt" style="pointer-events:none;">
                             <div class="capital-marker-bottom"><div class="capital-seal" style="background-color:${_sealColor2};border-color:${_sealColor2};filter:brightness(0.75);color:${_txtColor2};">${_sealChar2}</div><span class="city-name">${castleName3d}</span></div>
+                            ${ci?.flag ? `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(ci.flag):ci.flag}" style="width:28px;height:auto;display:block;margin:0px auto -4px auto;" onerror="this.style.display='none'">` : ''}
                             <div class="ml3d-ico"><img class="capital-marker-img" src="${_capitalImgUrl3d}" style="width:38px;height:38px;object-fit:contain;" onerror="this.style.display='none'"></div>
                         </div>`;
                     } else {
-                        markerHtml = `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;pointer-events:none;${_isBattle3d ? 'overflow:visible;' : ''}">
-                            <div class="ml3d-txt" style="display:flex;flex-direction:column;align-items:center;">${txtHtml}</div>
-                            ${icoHtml ? `<div class="ml3d-ico" style="${_isBattle3d ? 'overflow:visible;' : ''}">${icoHtml}</div>` : ''}
+                        markerHtml = `<div style="display:flex;flex-direction:column;align-items:center;gap:0px;pointer-events:none;overflow:visible;line-height:0;">
+                            <div class="ml3d-txt" style="display:flex;flex-direction:column;align-items:center;overflow:visible;line-height:1.2;">${txtHtml}</div>
+                            ${_3dMarkerFlagHtml ? `<div style="overflow:visible;display:flex;justify-content:center;margin-bottom:-8px;line-height:0;">${_3dMarkerFlagHtml}</div>` : ''}
+                            ${icoHtml ? `<div class="ml3d-ico" style="line-height:0;display:block;${_isBattle3d ? 'overflow:visible;' : ''}">${icoHtml}</div>` : ''}
                         </div>`;
                     }
 
                     const el = document.createElement('div');
-                    el.style.cssText = 'cursor:pointer;' + (_isBattle3d ? 'overflow:visible;' : '');
+                    el.style.cssText = 'cursor:pointer;overflow:visible;' + (_isBattle3d ? '' : '');
                     if (_isBattle3d) el.classList.add('ml3d-battle-wrap');
                     el.classList.add('ml3d-scale-marker');
                     el.dataset.ml3dPriority = String(_priority);
+                    if (c.is_natural_feature && !_isBattle3d) el.dataset.ml3dNatural = '1';
                     el.innerHTML = markerHtml;
 
                     let _popupCloseTimer = null;
@@ -27477,7 +27558,7 @@ kingSelect.addEventListener('change', () => {
                             }
                         }
                     });
-                    const mk = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, 8] })
+                    const mk = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, 0] })
                         .setLngLat([c.lng, c.lat]).addTo(_m);
                     // diff Map에 등록
                     const _entryKey = `mk_${c._id||c.name+'@'+c.lat+'_'+c.lng}_${activeRec?.name||c.name||''}_${ci?.color||''}_${ci?.name||''}`;
@@ -27542,14 +27623,18 @@ kingSelect.addEventListener('change', () => {
 
                         const countryColor = country.color || '#ffffff';
                         const flagHtml = country.flag
-                            ? `<img src="${(typeof toRawImageUrl === 'function') ? toRawImageUrl(country.flag) : country.flag}" style="width:18px;height:12px;margin-right:4px;vertical-align:middle;border:0.5px solid rgba(255,255,255,0.3);object-fit:cover;" onerror="this.style.display='none'">`
+                            ? `<img src="${(typeof toRawImageUrl === 'function') ? toRawImageUrl(country.flag) : country.flag}" style="width:90px;height:auto;object-fit:contain;display:block;flex-shrink:0;" onerror="this.style.display='none'">`
                             : '';
                         const ethnicHtml = (typeof layerVisibility !== 'undefined' && layerVisibility.ethnicLabel && country.ethnicity)
                             ? `<div style="font-size:10px;color:${countryColor};opacity:0.8;text-align:center;text-shadow:-1px -1px 0 #000,1px 1px 0 #000;margin-top:1px;">${country.ethnicity}</div>`
                             : '';
-                        const labelHtml = `<div style="display:flex;flex-direction:column;align-items:center;pointer-events:none;">
-                            <div style="display:inline-flex;align-items:center;font-size:14px;font-weight:bold;font-family:'Nanum Myeongjo','Apple SD Gothic Neo',serif;color:#000;text-shadow:-1px -1px 0 rgba(255,255,255,0.9),1px -1px 0 rgba(255,255,255,0.9),-1px 1px 0 rgba(255,255,255,0.9),1px 1px 0 rgba(255,255,255,0.9),0 0 6px rgba(255,255,255,0.7);white-space:nowrap;">${flagHtml}${country.name}</div>
-                            ${ethnicHtml}
+                        // 깃발 오른쪽에 국가명 중앙정렬, 깃발 하단이 지도 좌표에 닿도록 anchor:bottom offset:0
+                        const labelHtml = `<div style="display:inline-flex;flex-direction:row;align-items:center;gap:6px;pointer-events:none;">
+                            ${flagHtml}
+                            <div style="display:flex;flex-direction:column;align-items:flex-start;">
+                                <span style="font-size:14px;font-weight:bold;font-family:'Nanum Myeongjo','Apple SD Gothic Neo',serif;color:#000;text-shadow:-1px -1px 0 rgba(255,255,255,0.9),1px -1px 0 rgba(255,255,255,0.9),-1px 1px 0 rgba(255,255,255,0.9),1px 1px 0 rgba(255,255,255,0.9),0 0 6px rgba(255,255,255,0.7);white-space:nowrap;">${country.name}</span>
+                                ${ethnicHtml}
+                            </div>
                         </div>`;
                         const labelEl = document.createElement('div');
                         labelEl.style.cssText = 'pointer-events:none;';
@@ -27557,7 +27642,7 @@ kingSelect.addEventListener('change', () => {
                         labelEl.innerHTML = `<div class="ml3d-txt" style="display:flex;flex-direction:column;align-items:center;">${labelHtml}</div>`;
                         const lblKey = `lbl_${countryId}`;
                         if (_3dMarkersMap.has(lblKey)) return; // 이미 존재 → 재생성 생략
-                        const mk = new maplibregl.Marker({ element: labelEl, anchor: 'bottom', offset: [0, -70] })
+                        const mk = new maplibregl.Marker({ element: labelEl, anchor: 'bottom', offset: [0, 0] })
                             .setLngLat([labelLng, labelLat]).addTo(_m);
                         _3dMarkersMap.set(lblKey, mk);
                         _3dMarkers.push(mk);
@@ -27567,11 +27652,37 @@ kingSelect.addEventListener('change', () => {
                 // ── behind-globe culling: 카메라 뒤쪽 마커 숨기기 ──
                 // map.project()가 반환하는 y좌표가 음수(=하늘/지구 뒤)면 숨김
                 const _cullCanvas = _m.getCanvas();
+
+                // 두 LngLat 사이 거리(km) — Haversine 간이 계산
+                const _haverDist = (lng1, lat1, lng2, lat2) => {
+                    const R = 6371;
+                    const dLat = (lat2 - lat1) * Math.PI / 180;
+                    const dLng = (lng2 - lng1) * Math.PI / 180;
+                    const a = Math.sin(dLat/2)**2 +
+                              Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+                    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                };
+
                 _3dRenderListener = () => {
                     const cw = _cullCanvas.width  / (window.devicePixelRatio || 1);
                     const ch = _cullCanvas.height / (window.devicePixelRatio || 1);
                     const sidePad = 300;  // 좌우/아래: 화면 밖 여유
                     const topCut  = -60;  // 위(하늘/지구 뒤): 거의 허용 안 함
+
+                    // ── 거리 페이드: zoom에 따라 가시 반경(km) 결정 ──
+                    const _z = _m.getZoom();
+                    const _pitch = _m.getPitch();
+                    // 기준점: 화면 하단 중앙을 지도 좌표로 변환
+                    const _bottomCenter = _m.unproject([cw / 2, ch]);
+                    // 화면 중앙까지의 거리를 fadeStart로 사용 (중앙~상단에서만 페이드)
+                    const _midPoint = _m.unproject([cw / 2, ch / 2]);
+                    const _fadeStartKm = _haverDist(_bottomCenter.lng, _bottomCenter.lat, _midPoint.lng, _midPoint.lat);
+                    // maxDist = 화면 상단까지의 거리
+                    const _topPoint = _m.unproject([cw / 2, 0]);
+                    const _maxDistKm = _haverDist(_bottomCenter.lng, _bottomCenter.lat, _topPoint.lng, _topPoint.lat);
+                    // pitch가 낮으면(탑다운) 페이드 효과 약하게
+                    const _pitchFactor = Math.min(1, _pitch / 40);
+
                     _3dMarkers.forEach(mk => {
                         const pt = _m.project(mk.getLngLat());
                         // 전장 효과 마커는 연기가 위로 올라오므로 컬링을 더 관대하게
@@ -27587,6 +27698,26 @@ kingSelect.addEventListener('change', () => {
                         const priority = parseInt(el.dataset.ml3dPriority || '1', 10);
                         const depthZ = Math.round(Math.max(0, pt.y)) + priority * 100;
                         el.style.zIndex = String(depthZ);
+
+                        // ── 거리 페이드: 마커 전체(텍스트+아이콘) 흐리게 ──
+                        if (!isBattleFx && _pitchFactor > 0.1) {
+                            const ll = mk.getLngLat();
+                            const dist = _haverDist(_bottomCenter.lng, _bottomCenter.lat, ll.lng, ll.lat);
+                            let opacity = 1;
+                            if (dist >= _maxDistKm) {
+                                opacity = 0;
+                            } else if (dist > _fadeStartKm) {
+                                opacity = 1 - ((dist - _fadeStartKm) / (_maxDistKm - _fadeStartKm));
+                            }
+                            // pitch가 낮을수록 페이드 효과 감소 (탑다운 시 모두 표시)
+                            const finalOpacity = 1 - (1 - opacity) * _pitchFactor;
+                            el.style.opacity = finalOpacity.toFixed(3);
+                            // 국가명 라벨(priority=3)은 항상 선명하게 유지
+                            if (priority >= 3) el.style.opacity = '';
+                        } else if (!isBattleFx) {
+                            // pitch 낮으면 투명도 초기화
+                            el.style.opacity = '';
+                        }
                     });
                 };
                 _m.on('render', _3dRenderListener);
@@ -27595,10 +27726,44 @@ kingSelect.addEventListener('change', () => {
                 const _updateMarkerZoomScale = () => {
                     const z = _m.getZoom();
                     // zoom 7 기준 1.0, 줌인할수록 커짐 (지도에 고정된 느낌)
-                    // scale = 2^((z-7) * 0.45), clamp [0.45, 4.5]
+                    // scale = 2^((z-7) * 0.45), clamp [0.45, 2.25] (최대 절반으로 제한)
                     const rawScale = Math.pow(2, (z - 7) * 0.45);
-                    const scale = Math.min(Math.max(rawScale, 0.45), 4.5);
+                    const scale = Math.min(Math.max(rawScale, 0.45), 2.25);
                     document.documentElement.style.setProperty('--ml3d-zoom-scale', scale.toFixed(3));
+
+                    // ── 줌레벨이 낮으면 텍스트 순차 숨김 (아이콘은 유지) ──
+                    // z < 6.5 : 일반 성 텍스트 숨김
+                    // z < 5.5 : 일반 성 전체 숨김 + 왕성(수도) 텍스트 숨김 + 자연 마커 전체 숨김
+                    // z >= 6.5 : 도시 마커가 보이는 줌 → 국가명 라벨 숨김 (중복 방지)
+                    const hideNormal = z < 6.5;
+                    const hideNormalAll = z < 5.5;
+                    const hideCapital = z < 5.5;
+                    const hideCountryLabel = z >= 6.5;
+                    _3dMarkers.forEach(mk => {
+                        const el = mk.getElement();
+                        if (el.classList.contains('ml3d-battle-wrap')) return;
+                        // 국가명 라벨 (priority=3): 도시 마커가 보이면 숨김
+                        if (el.dataset.ml3dPriority === '3') {
+                            el.style.display = hideCountryLabel ? 'none' : '';
+                            return;
+                        }
+                        // 자연 마커: 왕성 이름 사라지는 시점에 전체 숨김
+                        if (el.dataset.ml3dNatural === '1') {
+                            el.style.display = hideNormalAll ? 'none' : '';
+                            return;
+                        }
+                        const txtEl = el.querySelector('.ml3d-txt');
+                        if (!txtEl) return;
+                        if (txtEl.classList.contains('capital-marker')) {
+                            // 왕성 마커 — 더 멀어지면 이름 숨김
+                            const nameEl = txtEl.querySelector('.capital-marker-bottom');
+                            if (nameEl) nameEl.style.display = hideCapital ? 'none' : '';
+                        } else {
+                            // 일반 성 마커 — z < 5.5 이면 전체 숨김, z < 6.5 이면 텍스트만 숨김
+                            el.style.display = hideNormalAll ? 'none' : '';
+                            if (!hideNormalAll) txtEl.style.display = hideNormal ? 'none' : '';
+                        }
+                    });
                 };
                 _updateMarkerZoomScale(); // 초기 적용
                 _m.on('zoom', _updateMarkerZoomScale);
@@ -34792,9 +34957,9 @@ async function castleFormDeleteVoice() {
     pointer-events: none;
     line-height: 0;
 ">
-    <img src="https://github.com/projeffmanager-design/img/blob/main/koreamanri_logo_white.png?raw=true"
+    <img src="https://github.com/projeffmanager-design/img/blob/main/koreamanri_logo_black.png?raw=true"
          alt="고려만리"
-         style="height: 130px; width: auto; display: block;
+         style="height: 100px; width: auto; display: block;
                 filter: drop-shadow(0 1px 4px rgba(0,0,0,0.7));
                 opacity: 0.92;">
 </div>
