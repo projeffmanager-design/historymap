@@ -15807,21 +15807,48 @@ function invalidateCountryLookupCache() {
     
 // 🎯 [v2.0.6] 로딩 상태 표시 함수 - 초기 로딩 화면 업데이트
 const loadingMessages = [
-    '역사의 장막을 걷어내고 있습니다...',
-    '고구려의 숨결을 다시 새기고 있습니다...',
-    '백제의 강역을 빛으로 펼치고 있습니다...',
-    '신라의 유산을 깨워내고 있습니다...',
-    '고려의 만리를 정밀히 그려내는 중입니다...',
-    '조선의 천도를 따라 지도를 완성하고 있습니다...',
-    '잊힌 기록을 하나씩 되살리고 있습니다...',
-    '시간의 경계를 넘어 여정을 준비하고 있습니다...',
-    '고서를 펼쳐 진실을 탐독하는 중입니다...',
-    '왕조의 흥망을 정제된 기록으로 엮고 있습니다...',
-    '전장의 흔적을 따라 역사를 복원하고 있습니다...',
-    '옛 도읍의 자취를 정밀히 추적하는 중입니다...',
-    '강역의 변천을 한눈에 담아내고 있습니다...',
-    '광대한 대륙의 영토를 재구성하고 있습니다...',
-    '마침내, 역사의 지도가 눈앞에 펼쳐집니다...'
+    '[HISTORIA AI] 역사 데이터베이스 접속 중...',
+    '[HISTORIA AI] 삼국사기 원문 로드 완료...',
+    '[HISTORIA AI] 삼국유사 원문 로드 완료...',
+    '[HISTORIA AI] 고려사·조선왕조실록 연동 중...',
+    
+    '[분석] 고대 지명과 현대 지명 매칭 시작...',
+    '[분석] 압록강·요하 유역 지형 데이터 비교 중...',
+    '[분석] 고지도와 현대 위성지도 교차 검증 중...',
+    
+    '[탐지] 사료 간 거리 정보 불일치 발견...',
+    '[탐지] 이동 경로와 지리 정보 간 모순 발견...',
+    '[탐지] 기후 기록과 현 위치 간 오차 감지...',
+    
+    '[검증] 천문 기록 역산 시작...',
+    '[검증] 일식·혜성 관측 기록 비교 중...',
+    '[검증] 별자리 관측 위치 재계산 중...',
+    
+    '[검증] 고대 생태 환경 분석 중...',
+    '[검증] 호랑이·표범 서식 기록 대조 중...',
+    '[검증] 식생 분포와 사서 기록 비교 중...',
+    
+    '[AI 추론] 강역 데이터 재구성 중...',
+    '[AI 추론] 왕조별 행정구역 모델 생성 중...',
+    '[AI 추론] 교통망 및 군사 이동 경로 복원 중...',
+    
+    '[경고] 기존 통설과 충돌하는 데이터 발견...',
+    '[경고] 사료 해석 과정에서 누락 가능성 발견...',
+    '[경고] 추가 검증 프로세스 자동 실행...',
+    
+    '[재분석] 지명·생태·천문 데이터 통합 중...',
+    '[재분석] 사료 신뢰도 평가 중...',
+    '[재분석] 역사 서술 구조 재구성 중...',
+    
+    '[결론] 가장 높은 개연성을 가진 역사 모델 생성...',
+    '[결론] 역사 복원 신뢰도 92.4%...',
+    
+    '『기록된 역사』와 『실제 역사』의 간극을 탐색하는 중...',
+    '과거의 흔적들이 하나의 지도 위에서 연결되고 있습니다...',
+    '사료, 지형, 하늘과 땅이 같은 답을 가리키고 있습니다...',
+    
+    '역사의 안개가 걷히고 있습니다...',
+    '진실에 가장 가까운 지도가 곧 펼쳐집니다...'
 ];
     
     function showLoadingStatus(message, percent) {
@@ -15842,21 +15869,35 @@ const loadingMessages = [
     // 📊 가짜 진행률 — 실제 로딩과 무관하게 자연스럽게 채움
     let _fakeProgress = 0;
     let _fakeTimer = null;
+    let _loadingMsgIdx = 0;
 
     function startFakeProgress(targetPercent = 90, intervalMs = 50) {
         clearInterval(_fakeTimer);
         _fakeProgress = 0;
+        _loadingMsgIdx = 0;
+        // 첫 메시지 즉시 표시
+        if (loadingMessages.length > 0) showLoadingStatus(loadingMessages[0], 0);
         _fakeTimer = setInterval(() => {
             if (_fakeProgress >= targetPercent) { clearInterval(_fakeTimer); return; }
             const speed = _fakeProgress < 30 ? 2 : _fakeProgress < 60 ? 1 : 0.5;
             _fakeProgress = Math.min(_fakeProgress + speed, targetPercent);
-            showLoadingStatus(null, _fakeProgress);
+            // 진행률에 맞춰 배열 메시지 순서대로 표시 (마지막 1개는 completeFakeProgress용으로 남김)
+            const msgCount = loadingMessages.length - 1;
+            const newIdx = Math.min(Math.floor((_fakeProgress / targetPercent) * msgCount), msgCount - 1);
+            if (newIdx !== _loadingMsgIdx) {
+                _loadingMsgIdx = newIdx;
+                showLoadingStatus(loadingMessages[_loadingMsgIdx], _fakeProgress);
+            } else {
+                showLoadingStatus(null, _fakeProgress);
+            }
         }, intervalMs);
     }
 
     function completeFakeProgress() {
         clearInterval(_fakeTimer);
-        showLoadingStatus('역사의 기록이 완성되었습니다.', 100);
+        // 배열 마지막 메시지를 완료 시 표시
+        const lastMsg = loadingMessages[loadingMessages.length - 1] || '역사의 기록이 완성되었습니다.';
+        showLoadingStatus(lastMsg, 100);
     }
 
     function hideLoadingStatus() {
@@ -27724,8 +27765,8 @@ kingSelect.addEventListener('change', () => {
                         const countryColor = country.color || '#ffffff';
                         const _3dLblSealChar = country.sealText || (()=>{ const n=country.name||''; const hj=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hj.length) return hj.slice(-1)[0]; const hg=(n.match(/[가-힣]/g)||[]); return hg.length ? hg.slice(-1)[0] : '?'; })();
                         const flagHtml = country.flag
-                            ? `<img src="${(typeof toRawImageUrl === 'function') ? toRawImageUrl(country.flag) : country.flag}" style="width:90px;height:auto;object-fit:contain;display:block;flex-shrink:0;" onerror="this.style.display='none'">`
-                            : `<div style="display:inline-block;flex-shrink:0;line-height:0;">${(typeof createCountryFlagSvg === 'function') ? createCountryFlagSvg(countryColor, _3dLblSealChar, 43) : ''}</div>`;
+                            ? `<img src="${(typeof toRawImageUrl === 'function') ? toRawImageUrl(country.flag) : country.flag}" style="width:77px;height:auto;object-fit:contain;display:block;flex-shrink:0;" onerror="this.style.display='none'">`
+                            : `<div style="display:inline-block;flex-shrink:0;line-height:0;">${(typeof createCountryFlagSvg === 'function') ? createCountryFlagSvg(countryColor, _3dLblSealChar, 37) : ''}</div>`;
                         const ethnicHtml = (typeof layerVisibility !== 'undefined' && layerVisibility.ethnicLabel && country.ethnicity)
                             ? `<div style="font-size:10px;color:${countryColor};opacity:0.8;text-align:center;text-shadow:-1px -1px 0 #000,1px 1px 0 #000;margin-top:1px;">${country.ethnicity}</div>`
                             : '';
