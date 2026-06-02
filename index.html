@@ -15894,6 +15894,30 @@ const loadingMessages = [
                 showLoadingStatus(null, _fakeProgress);
             }
         }, intervalMs);
+
+        // 🚩 [자동 리프레시] 워치독 — 로딩이 20초 이상 걸리면 캐시 클리어 후 자동 새로고침
+        // #auto-reloaded 해시가 있으면 이미 한 번 시도했으므로 무한루프 방지
+        if (!window.location.hash.includes('auto-reloaded')) {
+            const LOADING_TIMEOUT_MS = 20000;
+            if (window._loadingWatchdog) clearTimeout(window._loadingWatchdog);
+            window._loadingWatchdog = setTimeout(() => {
+                console.warn(`⏰ [워치독] 로딩 ${LOADING_TIMEOUT_MS/1000}초 초과 — 캐시 클리어 후 자동 새로고침`);
+                // 로딩 화면에 안내 메시지 표시
+                showLoadingStatus('로딩이 지연되고 있어 자동으로 새로고침합니다...', 99);
+                // 캐시 클리어 (문제 원인일 수 있는 IndexedDB + localStorage)
+                try {
+                    localStorage.removeItem('countries_cache');
+                    localStorage.removeItem('countries_cache_time');
+                    localStorage.removeItem('countries_cache_version');
+                    if (window.indexedDB) {
+                        indexedDB.databases().then(dbs => dbs.forEach(db => indexedDB.deleteDatabase(db.name))).catch(()=>{});
+                    }
+                } catch(e) {}
+                setTimeout(() => {
+                    window.location.href = window.location.pathname + '?t=' + Date.now() + '#auto-reloaded';
+                }, 1500);
+            }, LOADING_TIMEOUT_MS);
+        }
     }
 
     function completeFakeProgress() {
@@ -15906,6 +15930,8 @@ const loadingMessages = [
     function hideLoadingStatus() {
         // 100% 채운 뒤 페이드아웃
         completeFakeProgress();
+        // ✅ 로딩 완료 — 워치독 타이머 해제
+        if (window._loadingWatchdog) { clearTimeout(window._loadingWatchdog); window._loadingWatchdog = null; }
         // 🚀 [v2.0.6] 초기 로딩 화면 제거
         const initialScreen = document.getElementById('initial-loading-screen');
         if (initialScreen) {
