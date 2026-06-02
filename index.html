@@ -13393,17 +13393,51 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const customColor = drawing.color || '#3388ff';
             
             switch (drawing.type) {
-                case 'wall': // 성곽 스타일 — 단순 선으로 표현
-                    layer = L.geoJSON(drawing.geojson, {
-                        style: {
-                            color: customColor,
-                            weight: 3,
-                            opacity: 0.85,
-                        },
-                        pane: 'drawingPane',
-                        renderer: drawingRenderer,
-                        onEachFeature: (feature, fl) => bindDrawingEvents(fl, drawing)
-                    });
+                case 'wall': // 성곽 스타일 — 2D 플랫 이중선 + 치성 표현
+                    layer = L.layerGroup();
+                    (() => {
+                        const wallColor = customColor;
+                        // ① 바깥 두꺼운 선 (성벽 몸체)
+                        const outerLine = L.geoJSON(drawing.geojson, {
+                            style: { color: wallColor, weight: 7, opacity: 0.75, lineCap: 'round', lineJoin: 'round' },
+                            pane: 'drawingPane', renderer: drawingRenderer,
+                            onEachFeature: (f, fl) => bindDrawingEvents(fl, drawing)
+                        });
+                        // ② 안쪽 밝은 선 (성벽 윗면 하이라이트)
+                        const innerLine = L.geoJSON(drawing.geojson, {
+                            style: { color: '#e8dcc0', weight: 2, opacity: 0.6, dashArray: null },
+                            pane: 'drawingPane', renderer: drawingRenderer,
+                            interactive: false
+                        });
+                        // ③ 치성 사각형 — LineString 세그먼트마다 일정 간격으로 추가
+                        const _addTowers = (coords) => {
+                            const INTERVAL = 0.003; // 약 300m
+                            let dist = 0;
+                            for (let i = 0; i < coords.length - 1; i++) {
+                                const [lng0, lat0] = coords[i], [lng1, lat1] = coords[i+1];
+                                const segLen = Math.sqrt((lng1-lng0)**2 + (lat1-lat0)**2);
+                                dist += segLen;
+                                if (dist >= INTERVAL) {
+                                    dist = 0;
+                                    const mx = (lng0+lng1)/2, my = (lat0+lat1)/2;
+                                    const tw = 0.0003;
+                                    const rect = L.polygon([
+                                        [my-tw, mx-tw],[my-tw, mx+tw],[my+tw, mx+tw],[my+tw, mx-tw]
+                                    ], {
+                                        color: wallColor, weight: 1, opacity: 0.8,
+                                        fillColor: wallColor, fillOpacity: 0.7,
+                                        pane: 'drawingPane', renderer: drawingRenderer
+                                    });
+                                    layer.addLayer(rect);
+                                }
+                            }
+                        };
+                        const geom = drawing.geojson?.geometry;
+                        if (geom?.type === 'LineString') _addTowers(geom.coordinates);
+                        else if (geom?.type === 'MultiLineString') geom.coordinates.forEach(_addTowers);
+                        layer.addLayer(outerLine);
+                        layer.addLayer(innerLine);
+                    })();
                     break;
                 
                 case 'river': // 🚩 [수정] riverLayerGroup(riverPane)에서 렌더링하므로 drawingPane에서는 스킵
@@ -27362,8 +27396,121 @@ kingSelect.addEventListener('change', () => {
                 } // end rebuildTerritory
 
                 // ══════════════════════════════════════════════
-                // ② 마커 diff 갱신 (zoom/LOD/pan 변경 시 — 변경분만 제거·추가)
+                // ② 성벽(wall) 3D 레이어 — fill-extrusion 입체 성벽
                 // ══════════════════════════════════════════════
+                (function _render3dWalls() {
+                    const SRC  = '3d-walls';
+                    const FILL = '3d-walls-extrusion';
+                    const WALL_HEIGHT   = 18;   // 성벽 높이 (m)
+                    const TOWER_HEIGHT  = 26;   // 치성 높이 (m)
+                    const WALL_WIDTH_DEG = 0.00015; // 선 버퍼 폭 (경위도 도 단위 ≈ 14m)
+                    const _showWalls = (typeof layerVisibility === 'undefined') || layerVisibility.relic !== false;
+
+                    // ── 1. 이미지 텍스처 등록 (최초 1회) ──
+                    if (!_m.hasImage('internal-stone')) {
+                        const cv = document.createElement('canvas');
+                        cv.width = cv.height = 64;
+                        const ctx = cv.getContext('2d');
+                        ctx.fillStyle = '#bfae93'; ctx.fillRect(0, 0, 64, 64);
+                        ctx.strokeStyle = '#6e6351'; ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        [16,32,48,64].forEach(y => { ctx.moveTo(0,y); ctx.lineTo(64,y); });
+                        ctx.moveTo(16,0); ctx.lineTo(16,16); ctx.moveTo(48,0); ctx.lineTo(48,16);
+                        ctx.moveTo(32,16); ctx.lineTo(32,32); ctx.moveTo(64,16); ctx.lineTo(64,32);
+                        ctx.moveTo(16,32); ctx.lineTo(16,48); ctx.moveTo(48,32); ctx.lineTo(48,48);
+                        ctx.moveTo(32,48); ctx.lineTo(32,64); ctx.moveTo(0,48); ctx.lineTo(0,64);
+                        ctx.stroke();
+                        ctx.strokeStyle = '#ded5c5'; ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        [1,17,33,49].forEach(y => { ctx.moveTo(0,y); ctx.lineTo(64,y); });
+                        ctx.stroke();
+                        _m.addImage('internal-stone', ctx.getImageData(0, 0, 64, 64));
+                    }
+
+                    // ── 2. LineString → 버퍼 폴리곤 변환 헬퍼 ──
+                    const _lineToPolygon = (coords, width) => {
+                        if (coords.length < 2) return null;
+                        const polys = [];
+                        for (let i = 0; i < coords.length - 1; i++) {
+                            const [x0, y0] = coords[i];
+                            const [x1, y1] = coords[i + 1];
+                            const dx = x1 - x0, dy = y1 - y0;
+                            const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                            const nx = (-dy / len) * width, ny = (dx / len) * width;
+                            polys.push([
+                                [x0 + nx, y0 + ny], [x1 + nx, y1 + ny],
+                                [x1 - nx, y1 - ny], [x0 - nx, y0 - ny],
+                                [x0 + nx, y0 + ny]
+                            ]);
+                        }
+                        if (polys.length === 1) return { type: 'Polygon', coordinates: [polys[0]] };
+                        return { type: 'MultiPolygon', coordinates: polys.map(p => [p]) };
+                    };
+
+                    // ── 3. 현재 연도에 유효한 wall drawing 수집 ──
+                    const { year: _wYear } = (typeof getCurrentYearMonth === 'function') ? getCurrentYearMonth() : { year: 0 };
+                    const wallFeatures = [];
+                    if (typeof drawings !== 'undefined' && _showWalls) {
+                        drawings.forEach(d => {
+                            if (d.type !== 'wall' || !d.geojson?.geometry) return;
+                            const sy = d.start_year != null ? d.start_year : -Infinity;
+                            const ey = d.end_year   != null ? d.end_year   : Infinity;
+                            if (!(_wYear >= sy && _wYear <= ey)) return;
+                            const geom = d.geojson.geometry;
+                            const color = d.color || '#bfae93';
+                            const _addLine = (coords) => {
+                                const poly = _lineToPolygon(coords, WALL_WIDTH_DEG);
+                                if (!poly) return;
+                                wallFeatures.push({ type: 'Feature', geometry: poly,
+                                    properties: { height: WALL_HEIGHT, base: 0, color, drawingId: d._id || d.name || '' } });
+                                // 치성: 일정 간격으로 작은 사각형 추가
+                                const TOWER_INTERVAL = 0.003; // 약 300m 마다
+                                let dist = 0;
+                                for (let i = 0; i < coords.length - 1; i++) {
+                                    const [x0,y0] = coords[i], [x1,y1] = coords[i+1];
+                                    const segLen = Math.sqrt((x1-x0)**2 + (y1-y0)**2);
+                                    dist += segLen;
+                                    if (dist >= TOWER_INTERVAL) {
+                                        dist = 0;
+                                        const tw = WALL_WIDTH_DEG * 2.5;
+                                        const mx = (x0+x1)/2, my = (y0+y1)/2;
+                                        wallFeatures.push({ type: 'Feature',
+                                            geometry: { type: 'Polygon', coordinates: [[
+                                                [mx-tw, my-tw],[mx+tw, my-tw],[mx+tw, my+tw],[mx-tw, my+tw],[mx-tw, my-tw]
+                                            ]] },
+                                            properties: { height: TOWER_HEIGHT, base: 0, color, drawingId: 'tower_' + (d._id||i) }
+                                        });
+                                    }
+                                }
+                            };
+                            if (geom.type === 'LineString') _addLine(geom.coordinates);
+                            else if (geom.type === 'MultiLineString') geom.coordinates.forEach(_addLine);
+                            else if (geom.type === 'Polygon') geom.coordinates.forEach(_addLine);
+                        });
+                    }
+
+                    const wallFC = { type: 'FeatureCollection', features: wallFeatures };
+
+                    // ── 4. 소스/레이어 추가 또는 업데이트 ──
+                    if (_m.getSource(SRC)) {
+                        _m.getSource(SRC).setData(wallFC);
+                        const vis = (_showWalls && wallFeatures.length > 0) ? 'visible' : 'none';
+                        if (_m.getLayer(FILL)) _m.setLayoutProperty(FILL, 'visibility', vis);
+                    } else if (_showWalls && wallFeatures.length > 0) {
+                        _m.addSource(SRC, { type: 'geojson', data: wallFC });
+                        _m.addLayer({
+                            id: FILL, type: 'fill-extrusion', source: SRC,
+                            paint: {
+                                'fill-extrusion-pattern': 'internal-stone',
+                                'fill-extrusion-height': ['get', 'height'],
+                                'fill-extrusion-base':   ['get', 'base'],
+                                'fill-extrusion-opacity': 0.92
+                            }
+                        });
+                    }
+                })();
+
+
                 if (!rebuildMarkers) return; // 마커 변경 없으면 종료
 
                 if (_3dRenderListener) { _m.off('render', _3dRenderListener); _3dRenderListener = null; }
