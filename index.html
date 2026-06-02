@@ -16113,6 +16113,33 @@ const loadingMessages = [
           // 🚀 [최적화 v2.1.2] countries 캐시가 있으면 네트워크 요청 스킵!
           const countriesAlreadyLoaded = countries.length > 0;
           
+          // 🚩 [수정] 캐시 사용 시에도 백그라운드에서 flag/color 변경 감지 → 자동 갱신
+          if (countriesAlreadyLoaded) {
+              setTimeout(async () => {
+                  try {
+                      const _token = token;
+                      const res = await fetch(`${API_BASE_URL}/countries`, {
+                          headers: { 'Authorization': `Bearer ${_token}` }
+                      });
+                      if (!res.ok) return;
+                      const fresh = await res.json();
+                      const _fp = arr => arr.map(c => `${c._id}|${c.flag||''}|${c.color||''}|${c.name||''}`).sort().join(',');
+                      if (_fp(fresh) !== _fp(countries)) {
+                          console.log('🔄 [백그라운드] countries 변경 감지 (국기/색상). 캐시 갱신 및 재렌더링');
+                          const vk = localStorage.getItem('app_version') || 'init';
+                          localStorage.setItem('countries_cache', JSON.stringify(fresh));
+                          localStorage.setItem('countries_cache_time', Date.now().toString());
+                          localStorage.setItem('countries_cache_version', vk);
+                          countries = fresh;
+                          _countryLookupMap = null;
+                          if (updateMap._loggedMissingIds) updateMap._loggedMissingIds.clear();
+                          requestUpdateMap();
+                          if (typeof window._fillCountryFilterSelect === 'function') window._fillCountryFilterSelect();
+                      }
+                  } catch(e) { /* 백그라운드 실패 무시 */ }
+              }, 800);
+          }
+
           const loadPromises = {
               // 🎯 countries: 캐시가 있으면 즉시 resolve, 없으면 네트워크 요청
               countries: countriesAlreadyLoaded 
