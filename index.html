@@ -15056,8 +15056,11 @@ function invalidateCountryLookupCache() {
                                 const fresh = await res.json();
                                 const cachedCount = cached.length;
                                 const freshCount = fresh.length;
-                                if (freshCount !== cachedCount) {
-                                    console.log(`🔄 [백그라운드] countries 개수 변경 감지: ${cachedCount} → ${freshCount}. 캐시 갱신 및 지도 재렌더링`);
+                                // 🚩 [수정] 개수 변경 OR 국기/색상/이름 변경 감지
+                                const _fingerprint = arr => arr.map(c => `${c._id}|${c.flag||''}|${c.color||''}|${c.name||''}`).sort().join(',');
+                                const changed = freshCount !== cachedCount || _fingerprint(fresh) !== _fingerprint(cached);
+                                if (changed) {
+                                    console.log(`🔄 [백그라운드] countries 변경 감지 (개수:${cachedCount}→${freshCount} 또는 국기/색상 변경). 캐시 갱신 및 지도 재렌더링`);
                                     localStorage.setItem('countries_cache', JSON.stringify(fresh));
                                     localStorage.setItem('countries_cache_time', Date.now().toString());
                                     localStorage.setItem('countries_cache_version', versionKey);
