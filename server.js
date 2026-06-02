@@ -409,18 +409,34 @@ app.use(async (req, res, next) => {
 // 💡 [수정] Express 앱에서 정적 파일을 제공하는 경로를 'public' 폴더에서 프로젝트 루트로 변경합니다.
 // 이제 index.html, admin.html 등을 루트 디렉토리에서 직접 서비스할 수 있습니다.
 // index: false → / 요청 시 index.html 자동 서빙 방지 (login.html을 먼저 보여주기 위함)
-app.use(express.static(__dirname, { index: false }));
+// .html 파일은 항상 최신 버전을 받도록 캐시 비활성화
+app.use(express.static(__dirname, {
+    index: false,
+    setHeaders(res, filePath) {
+        if (filePath.endsWith('.html')) {
+            res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+            res.set('Pragma', 'no-cache');
+            res.set('Expires', '0');
+        }
+    }
+}));
 
 // 🚩 [추가] public 폴더를 정적 파일로 제공 (타일 파일 접근용)
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
 // 🚩 [수정] 루트(/) 요청 시 index.html(지도) 서빙 — 게스트 자동 입장
 app.get('/', (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 // 🚩 [추가] /map 요청 시 index.html 서빙 (URL에 .html 감추기)
 app.get('/map', (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
