@@ -10361,7 +10361,9 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         // ── 역사 기록 타임라인 ──
         const histSec = document.getElementById('odp-history-section');
         const tlEl = document.getElementById('odp-timeline');
-        const histories = Array.isArray(castle.history) ? castle.history : [];
+        const histories = Array.isArray(castle.history)
+            ? castle.history.slice().sort((a, b) => (a.start_year ?? -Infinity) - (b.start_year ?? -Infinity))
+            : [];
         if (histories.length > 0) {
             histSec.style.display = '';
             const allCountries = (typeof countries !== 'undefined') ? countries : [];
@@ -10396,7 +10398,20 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                 // 전장 시점엔 타임라인 dot도 빨간색으로 구분
                 const dotExtra = hIsBattle ? ' battle-dot' : '';
 
-                return `<li class="odp-tl-item${isActive ? ' active-record' : ''}${hIsBattle ? ' battle-record' : ''}">
+                const _canJump = h.start_year != null;
+                const _jumpYear = h.start_year ?? 0;
+                const _jumpMonth = h.start_month || 1;
+                const _clickAttr = _canJump
+                    ? `style="cursor:pointer;" onclick="(function(){
+                        const tm = yearMonthToTotalMonths(${_jumpYear}, ${_jumpMonth});
+                        const sl = document.getElementById('combinedSlider');
+                        if (!sl) return;
+                        sl.value = tm;
+                        if (typeof updateUI === 'function') updateUI(${_jumpYear}, ${_jumpMonth});
+                        if (typeof updateMap === 'function') updateMap(${_jumpYear}, ${_jumpMonth});
+                    })()"`
+                    : `style="cursor:default;"`;
+                return `<li class="odp-tl-item${isActive ? ' active-record' : ''}${hIsBattle ? ' battle-record' : ''}" ${_clickAttr}>
                     <div class="odp-tl-dot${isActive ? ' current' : ''}${dotExtra}"></div>
                     <div class="odp-tl-period">${period}</div>
                     <div class="odp-tl-name">${hName}${plLabel}</div>
@@ -27660,7 +27675,7 @@ kingSelect.addEventListener('change', () => {
                     const _mkFlagHtml = (flagUrl, color, seal, size = 14, noMargin = false) => {
                         const mb = noMargin ? '0' : '1px';
                         if (flagUrl) return `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(flagUrl):flagUrl}" style="width:${size}px;height:auto;display:block;margin:0 auto ${mb} auto;vertical-align:bottom;" onerror="this.style.display='none'">`;
-                        if (typeof createCountryFlagSvg === 'function') return `<div style="display:block;margin:0 auto ${mb} auto;line-height:0;font-size:0;vertical-align:bottom;">${createCountryFlagSvg(color||'#888', seal||'?', size)}</div>`;
+                        if (typeof createCountryFlagSvg === 'function') return `<div style="display:block;margin:0 auto -10px auto;line-height:0;font-size:0;vertical-align:bottom;">${createCountryFlagSvg(color||'#888', seal||'?', size)}</div>`;
                         return '';
                     };
 
@@ -27829,7 +27844,7 @@ kingSelect.addEventListener('change', () => {
                             : 'https://github.com/projeffmanager-design/img/blob/main/3dking.webp?raw=true';
                         markerHtml = `<div class="capital-marker ml3d-txt" style="pointer-events:none;padding:0;">
                             <div class="capital-marker-bottom"><div class="capital-seal" style="background-color:${_sealColor2};border-color:${_sealColor2};filter:brightness(0.75);color:${_txtColor2};">${_sealChar2}</div><span class="city-name">${castleName3d}</span></div>
-                            ${_mkFlagHtml(ci?.flag, dotColor3d, sealChar, 28, true)}
+                            <div style="line-height:0;margin-bottom:-26px;">${_mkFlagHtml(ci?.flag, dotColor3d, sealChar, 28, true)}</div>
                             <div class="ml3d-ico" style="margin:0 0 -6px 0;padding:0;line-height:0;"><img class="capital-marker-img" src="${_capitalImgUrl3d}" style="width:38px;height:38px;object-fit:contain;object-position:bottom center;display:block;margin:0 !important;" onerror="this.style.display='none'"></div>
                         </div>`;
                     } else {
