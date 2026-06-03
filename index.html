@@ -26923,8 +26923,8 @@ kingSelect.addEventListener('change', () => {
 
             function refreshLayers() {
                 if (!mlMap) return;
-                // ── 재생 중에는 debounce 생략, 즉시 렌더 ──
-                if (window.isPlaying) {
+                // ── 재생 중이거나 슬라이더 드래그 중에는 debounce 생략, 즉시 렌더 ──
+                if (window.isPlaying || document.body.classList.contains('slider-dragging')) {
                     clearTimeout(_refreshLayersTimer);
                     _refreshLayersThrottled();
                     return;
@@ -27275,10 +27275,10 @@ kingSelect.addEventListener('change', () => {
             // effective zoom → LOD 모드 (임계값 낮춰서 성이 더 일찍 표시되도록)
             function getLodMode(m) {
                 const ez = getEffectiveZoom(m);
-                if (ez < 2.5) return 'country';  // 극거시: 국가명 라벨만 (이전 3)
-                if (ez < 4)   return 'capital';  // 거시: 수도 + 자연지물 (이전 5)
-                if (ez < 6)   return 'major';    // 중간: 주요 성/전장까지 (이전 7)
-                return 'all';                    // 미시: 전부 (이전 ez≥7 → 이제 ez≥6)
+                if (ez < 3)   return 'country';  // 극거시: 국가명 라벨만
+                if (ez < 5)   return 'capital';  // 거시: 수도 + 자연지물
+                if (ez < 6)   return 'major';    // 중간: 군/전장/주요도시까지
+                return 'all';                    // 미시(ez≥7): 전부
             }
             // 마커 우선순위 (낮을수록 더 중요)
             function getMarkerPriority(c) {
@@ -27291,16 +27291,16 @@ kingSelect.addEventListener('change', () => {
                 if (c.is_military_flag)                        return 3; // 군대
                 if (c.place_type === 'battle')                 return 3; // 전장
                 if (c.population && c.population > 100000)    return 3; // 대도시
-                if (c.place_type === '주' || c.place_type === 'ju') return 3; // 주(州) — 이전 4→3
+                if (c.place_type === '주' || c.place_type === 'ju') return 3; // 주(州)
                 if (c.place_type === 'chon')                   return 5; // 마을은 가장 낮은 우선순위
-                return 4; // 일반 성/현 — 이전 5→4 (major 모드에서도 표시)
+                return 4; // 일반 성/현
             }
             // LOD 모드별 최대 priority
             //   country: 0 (국가라벨만)
             //   capital: 2 (수도 + 자연지물 + 지명라벨)
-            //   major:   4 (주요 성/전장/군대 + 일반 성까지)
-            //   all:     99 (전부)
-            const LOD_MAX_PRIORITY = { country: 0, capital: 2, major: 4, all: 99 };
+            //   major:   3 (군/전장/주요도시까지 — 일반 성/현 생략)
+            //   all:     99 (전부, ez≥7)
+            const LOD_MAX_PRIORITY = { country: 0, capital: 2, major: 3, all: 99 };
 
             function _refreshLayersInner(rebuildTerritory = true, rebuildMarkers = true) {
                 const _m = window.mlMap3d;
