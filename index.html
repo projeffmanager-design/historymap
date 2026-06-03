@@ -13048,8 +13048,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         // 🚩 [수정] drawings(type:river) 포함 — naturalFeatures OR drawings에 강이 있으면 렌더링
         const riverDrawings = drawings.filter(d => {
                 if (d.type !== 'river') return false;
-                const sy = d.start_year != null ? d.start_year : -Infinity;
-                const ey = d.end_year   != null ? d.end_year   : Infinity;
+                const sy = d.start_year ?? d.startYear ?? -Infinity;
+                const ey = d.end_year   ?? d.endYear   ?? Infinity;
                 return year >= sy && year <= ey;
             });
         if (layerVisibility.rivers && (naturalFeatures.length > 0 || riverDrawings.length > 0)) {
@@ -13365,8 +13365,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
         drawings.forEach(drawing => {
           try {
-            const startYear = drawing.start_year || -Infinity;
-            const endYear = drawing.end_year || Infinity;
+            const startYear = drawing.start_year ?? drawing.startYear ?? -Infinity;
+            const endYear = drawing.end_year ?? drawing.endYear ?? Infinity;
 
             if (!(year >= startYear && year <= endYear)) return; // 현재 시간대에 없으면 렌더링 안함
 
@@ -13397,21 +13397,24 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     layer = L.layerGroup();
                     (() => {
                         const wallColor = customColor;
-                        // ① 바깥 두꺼운 선 (성벽 몸체)
+                        // ① 바깥 두꺼운 선 (성벽 몸체) — Polygon일 때 내부 투명 처리
                         const outerLine = L.geoJSON(drawing.geojson, {
-                            style: { color: wallColor, weight: 7, opacity: 0.75, lineCap: 'round', lineJoin: 'round' },
+                            style: { color: wallColor, weight: 7, opacity: 0.75, lineCap: 'round', lineJoin: 'round',
+                                     fillOpacity: 0, fill: false },
                             pane: 'drawingPane', renderer: drawingRenderer,
                             onEachFeature: (f, fl) => bindDrawingEvents(fl, drawing)
                         });
                         // ② 안쪽 밝은 선 (성벽 윗면 하이라이트)
                         const innerLine = L.geoJSON(drawing.geojson, {
-                            style: { color: '#e8dcc0', weight: 2, opacity: 0.6, dashArray: null },
+                            style: { color: '#e8dcc0', weight: 2, opacity: 0.6, dashArray: null,
+                                     fillOpacity: 0, fill: false },
                             pane: 'drawingPane', renderer: drawingRenderer,
                             interactive: false
                         });
-                        // ③ 치성 사각형 — LineString 세그먼트마다 일정 간격으로 추가
+                        // ③ 치성 사각형 — LineString/Polygon 세그먼트마다 일정 간격으로 추가
                         const _addTowers = (coords) => {
-                            const INTERVAL = 0.003; // 약 300m
+                            // 좌표 수에 따라 치성 간격 동적 조정 (만리장성 등 대형 성벽 성능 보호)
+                            const INTERVAL = coords.length > 500 ? 0.02 : coords.length > 100 ? 0.008 : 0.003;
                             let dist = 0;
                             for (let i = 0; i < coords.length - 1; i++) {
                                 const [lng0, lat0] = coords[i], [lng1, lat1] = coords[i+1];
@@ -13435,6 +13438,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         const geom = drawing.geojson?.geometry;
                         if (geom?.type === 'LineString') _addTowers(geom.coordinates);
                         else if (geom?.type === 'MultiLineString') geom.coordinates.forEach(_addTowers);
+                        else if (geom?.type === 'Polygon') geom.coordinates.forEach(_addTowers);
+                        else if (geom?.type === 'MultiPolygon') geom.coordinates.forEach(rings => rings.forEach(_addTowers));
                         layer.addLayer(outerLine);
                         layer.addLayer(innerLine);
                     })();
@@ -27382,8 +27387,8 @@ kingSelect.addEventListener('change', () => {
                     const { year: _rYear } = (typeof getCurrentYearMonth === 'function') ? getCurrentYearMonth() : { year: 0 };
                     drawings.forEach(d => {
                         if (d.type !== 'river' || !d.geojson?.geometry) return;
-                        const sy = d.start_year != null ? d.start_year : -Infinity;
-                        const ey = d.end_year   != null ? d.end_year   : Infinity;
+                        const sy = d.start_year ?? d.startYear ?? -Infinity;
+                        const ey = d.end_year   ?? d.endYear   ?? Infinity;
                         if (!(_rYear >= sy && _rYear <= ey)) return;
                         riverFeatures.push({ type: 'Feature', geometry: d.geojson.geometry, properties: { name: d.name || '강' } });
                     });
@@ -27466,8 +27471,8 @@ kingSelect.addEventListener('change', () => {
                     if (typeof drawings !== 'undefined' && _showWalls) {
                         drawings.forEach(d => {
                             if (d.type !== 'wall' || !d.geojson?.geometry) return;
-                            const sy = d.start_year != null ? d.start_year : -Infinity;
-                            const ey = d.end_year   != null ? d.end_year   : Infinity;
+                            const sy = d.start_year ?? d.startYear ?? -Infinity;
+                            const ey = d.end_year   ?? d.endYear   ?? Infinity;
                             if (!(_wYear >= sy && _wYear <= ey)) return;
                             const geom = d.geojson.geometry;
                             const color = d.color || '#bfae93';
@@ -27477,7 +27482,8 @@ kingSelect.addEventListener('change', () => {
                                 wallFeatures.push({ type: 'Feature', geometry: poly,
                                     properties: { height: WALL_HEIGHT, base: 0, color, drawingId: d._id || d.name || '' } });
                                 // 치성: 일정 간격으로 작은 사각형 추가
-                                const TOWER_INTERVAL = 0.003; // 약 300m 마다
+                                // 좌표 수에 따라 치성 간격 동적 조정 (만리장성 등 대형 성벽 성능 보호)
+                                const TOWER_INTERVAL = coords.length > 500 ? 0.02 : coords.length > 100 ? 0.008 : 0.003;
                                 let dist = 0;
                                 for (let i = 0; i < coords.length - 1; i++) {
                                     const [x0,y0] = coords[i], [x1,y1] = coords[i+1];
