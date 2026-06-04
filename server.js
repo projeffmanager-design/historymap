@@ -1671,6 +1671,42 @@ app.delete('/api/general/:id', verifyAdmin, async (req, res) => {
         // ----------------------------------------------------
         // 🌍 COUNTRIES API 엔드포인트 (생략 - 기본 기능으로 가정)
         // ----------------------------------------------------
+
+// ============================================================
+// 🏯 PALACE PLACEMENTS API — 3D 성 배치 데이터
+// GET  /api/palace-placements       : 전체 배치 목록 조회
+// PUT  /api/palace-placements       : 전체 배치 목록 저장 (admin only)
+// ============================================================
+app.get('/api/palace-placements', async (req, res) => {
+    try {
+        await setupRoutesAndCollections();
+        const db = collections.users.s.db;
+        const doc = await db.collection('palace_placements').findOne({ _id: 'main' });
+        res.json(doc ? doc.placements : []);
+    } catch (e) {
+        console.error('[PalacePlacements] 조회 오류:', e);
+        res.status(500).json({ message: '조회 실패', error: e.message });
+    }
+});
+
+app.put('/api/palace-placements', verifyAdmin, async (req, res) => {
+    try {
+        await setupRoutesAndCollections();
+        const db = collections.users.s.db;
+        const placements = req.body;
+        if (!Array.isArray(placements)) return res.status(400).json({ message: 'placements 배열 필요' });
+        await db.collection('palace_placements').updateOne(
+            { _id: 'main' },
+            { $set: { placements, updatedAt: new Date() } },
+            { upsert: true }
+        );
+        res.json({ message: '저장 완료', count: placements.length });
+    } catch (e) {
+        console.error('[PalacePlacements] 저장 오류:', e);
+        res.status(500).json({ message: '저장 실패', error: e.message });
+    }
+});
+
 // ═══ /api/resources — 산지·서식지 데이터 CRUD ═══
 app.get('/api/resources', async (req, res) => {
   try {

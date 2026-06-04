@@ -15,11 +15,11 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=East+Sea+Dokdo&family=Nanum+Myeongjo:wght@700&family=Yeon+Sung&display=swap" rel="stylesheet">
 
-    <!-- MapLibre 사전 로드 (3D 첫 진입 속도 개선) -->
+    <!-- MapLibre 사전 캐시 (3D 버튼 클릭 시 사용 — prefetch로 낮은 우선순위 캐싱) -->
     <link rel="preconnect" href="https://unpkg.com" crossorigin>
     <link rel="preconnect" href="https://s3.amazonaws.com" crossorigin>
-    <link rel="preload" as="style"  href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="anonymous">
-    <link rel="preload" as="script" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"  crossorigin="anonymous">
+    <link rel="prefetch" as="style"  href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="anonymous">
+    <link rel="prefetch" as="script" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"  crossorigin="anonymous">
     
 <style>
     /* 🚩 그리기 폼 스타일 - 드래그 이동 가능 */
@@ -1528,6 +1528,97 @@ body.force-mobile .marker-type-selector button {
   <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
   <!-- Topojson for compressed territory tiles -->
   <script src="https://unpkg.com/topojson-client@3"></script>
+  <!-- ── Three.js r128 + GLTFLoader : 3D 성 모델 배치 편집기 전용 ── -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <style>
+  /* ══════════════════════════════════════════════
+     🏯 Palace Editor Panel — 3D 모드 전용 편집 UI
+     ══════════════════════════════════════════════ */
+  #palace-editor-panel {
+      display: none;
+      visibility: hidden;
+      pointer-events: none; /* 3D 편집기 패널 — 기본 숨김 */
+      position: fixed;
+      left: 14px;
+      bottom: 80px;
+      z-index: 9500;
+      background: rgba(14, 12, 20, 0.93);
+      border: 1px solid #4a3a1a;
+      border-radius: 8px;
+      padding: 12px 14px 14px;
+      min-width: 220px;
+      font-family: 'Noto Serif KR', 'Nanum Myeongjo', serif;
+      color: #c8b89a;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.7), inset 0 0 0 1px rgba(255,200,80,0.06);
+      user-select: none;
+  }
+  /* 햄버거 메뉴 버튼으로 열 때만 표시 (edit-mode + mode-3d + palace-editor-open) */
+  body.mode-3d.palace-editor-open #palace-editor-panel {
+      display: block;
+      visibility: visible;
+      pointer-events: auto;
+  }
+  /* GLB 선택 서브패널 */
+  #palace-editor-panel .pe-glb-picker {
+      display: none; margin-bottom: 10px;
+  }
+  #palace-editor-panel .pe-glb-picker.open { display: block; }
+  #palace-editor-panel .pe-glb-list {
+      display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto;
+  }
+  #palace-editor-panel .pe-glb-item {
+      display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+      background: rgba(255,255,255,0.05); border: 1px solid #3a3020;
+      border-radius: 4px; cursor: pointer; font-size: 11px; color: #c8b89a;
+      transition: background 0.15s;
+  }
+  #palace-editor-panel .pe-glb-item:hover { background: rgba(200,150,40,0.2); border-color: #dfb76c; }
+  #palace-editor-panel .pe-glb-item.selected { background: rgba(200,150,40,0.28); border-color: #dfb76c; color: #ffe4a0; }
+  #palace-editor-panel .pe-glb-icon { font-size: 18px; }
+  #palace-editor-panel .pe-title {
+      font-size: 13px; font-weight: 700; color: #dfb76c;
+      letter-spacing: 0.08em; margin-bottom: 10px;
+      border-bottom: 1px solid rgba(180,140,60,0.25); padding-bottom: 6px;
+  }
+  #palace-editor-panel .pe-modes {
+      display: flex; gap: 5px; margin-bottom: 10px;
+  }
+  #palace-editor-panel .pe-modes button {
+      flex: 1; padding: 4px 0; font-size: 11px;
+      background: rgba(255,255,255,0.06); border: 1px solid #3a3020;
+      border-radius: 4px; color: #b0a080; cursor: pointer;
+      font-family: inherit; transition: background 0.15s, color 0.15s;
+  }
+  #palace-editor-panel .pe-modes button.active {
+      background: rgba(200,150,40,0.28); border-color: #dfb76c; color: #ffe4a0;
+  }
+  #palace-editor-panel .pe-modes button:hover:not(.active) {
+      background: rgba(255,255,255,0.1);
+  }
+  #palace-editor-panel .pe-sliders { margin-bottom: 10px; }
+  #palace-editor-panel .pe-row {
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 6px; font-size: 11px;
+  }
+  #palace-editor-panel .pe-row label { width: 38px; flex-shrink: 0; color: #9a8a6a; }
+  #palace-editor-panel .pe-row input[type=range] {
+      flex: 1; accent-color: #dfb76c; cursor: pointer;
+  }
+  #palace-editor-panel .pe-row .pe-val {
+      width: 36px; text-align: right; color: #ffe4a0; font-size: 11px;
+  }
+  #palace-editor-panel .pe-status {
+      font-size: 10px; color: #7a6a50; margin-bottom: 8px; min-height: 14px;
+  }
+  #palace-editor-panel .pe-export {
+      width: 100%; padding: 5px 0; font-size: 11px;
+      background: rgba(180,120,20,0.22); border: 1px solid rgba(200,150,40,0.4);
+      border-radius: 4px; color: #dfb76c; cursor: pointer;
+      font-family: inherit; transition: background 0.15s;
+  }
+  #palace-editor-panel .pe-export:hover { background: rgba(200,150,40,0.35); }
+  </style>
   <style>
     /* ------------------- 1. 전체 레이아웃 및 디자인 CSS ------------------- */
     /* ── 전역 레이아웃 기준값 ── */
@@ -6139,7 +6230,87 @@ body.force-mobile .marker-type-selector button {
     }
 </style>
 <body>
-  <!-- 🎨 [추가] 수묵화 효과를 위한 SVG 필터 -->
+  <!-- 🏯 Palace Editor Panel — 3D 편집모드, 햄버거 메뉴에서 토글 -->
+  <div id="palace-editor-panel" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()">
+      <div class="pe-title" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>🏯 성 배치 편집기</span>
+          <span onclick="window.togglePalaceEditor(false)" style="cursor:pointer;font-size:14px;color:#7a6a50;padding:0 2px;" title="닫기">✕</span>
+      </div>
+      <div class="pe-modes">
+          <button id="pe-btn-add"    onclick="window.setPalaceMode('add')"   >＋ 추가</button>
+          <button id="pe-btn-edit"   onclick="window.setPalaceMode('edit')"  >✎ 수정</button>
+          <button id="pe-btn-delete" onclick="window.setPalaceMode('delete')">✕ 삭제</button>
+      </div>
+      <!-- GLB 모델 선택 (추가 모드 활성 시 표시) -->
+      <div class="pe-glb-picker" id="pe-glb-picker">
+          <div style="font-size:10px;color:#7a6a50;margin-bottom:5px;letter-spacing:.05em;">▾ 배치할 모델 선택</div>
+          <div class="pe-glb-list" id="pe-glb-list"><!-- JS로 채움 --></div>
+      </div>
+      <div class="pe-status" id="pe-status">모드를 선택하고 지도를 클릭하세요</div>
+      <div class="pe-sliders" id="pe-sliders" style="opacity:0.4;pointer-events:none;">
+          <div class="pe-row">
+              <label>크기</label>
+              <input type="range" id="pe-scale" min="0.1" max="20" step="0.1" value="1"
+                     oninput="window.onPalaceSlider('scale',this.value)">
+              <span class="pe-val" id="pe-scale-val">1.0</span>
+          </div>
+          <div style="font-size:10px;color:#7a6a50;margin:6px 0 3px;letter-spacing:.05em;">▾ 위치 오프셋</div>
+          <div class="pe-row">
+              <label title="동↔서 이동">← →</label>
+              <input type="range" id="pe-off-lng" min="-500" max="500" step="1" value="0"
+                     oninput="window.onPalaceSlider('offLng',this.value)">
+              <span class="pe-val" id="pe-off-lng-val">0m</span>
+          </div>
+          <div class="pe-row">
+              <label title="남↔북 이동">↑ ↓</label>
+              <input type="range" id="pe-off-lat" min="-500" max="500" step="1" value="0"
+                     oninput="window.onPalaceSlider('offLat',this.value)">
+              <span class="pe-val" id="pe-off-lat-val">0m</span>
+          </div>
+          <div class="pe-row">
+              <label title="고도 오프셋">⬆ ⬇</label>
+              <input type="range" id="pe-off-alt" min="-2000" max="2000" step="10" value="0"
+                     oninput="window.onPalaceSlider('offAlt',this.value)">
+              <span class="pe-val" id="pe-off-alt-val">0m</span>
+          </div>
+          <div style="font-size:10px;color:#7a6a50;margin:6px 0 3px;letter-spacing:.05em;">▾ 회전</div>
+          <div class="pe-row">
+              <label title="수평 방향 회전">↻ Z</label>
+              <input type="range" id="pe-rot-z" min="-180" max="180" step="1" value="0"
+                     oninput="window.onPalaceSlider('rotZ',this.value)">
+              <span class="pe-val" id="pe-rot-z-val">0°</span>
+          </div>
+          <div class="pe-row">
+              <label title="앞뒤 기울기">↕ X</label>
+              <input type="range" id="pe-rot-x" min="-180" max="180" step="1" value="0"
+                     oninput="window.onPalaceSlider('rotX',this.value)">
+              <span class="pe-val" id="pe-rot-x-val">0°</span>
+          </div>
+          <div class="pe-row">
+              <label title="좌우 기울기">↔ Y</label>
+              <input type="range" id="pe-rot-y" min="-180" max="180" step="1" value="0"
+                     oninput="window.onPalaceSlider('rotY',this.value)">
+              <span class="pe-val" id="pe-rot-y-val">0°</span>
+          </div>
+      </div>
+      <button class="pe-export" onclick="window.exportPalaceData()">📋 배치 데이터 복사</button>
+  </div>
+
+  <!-- 🏯 Palace Editor 스텁 — 3D 초기화 전 안전 처리 -->
+  <script>
+  (function(){
+      function _peNotReady(){ console.warn('[PalaceEditor] 3D 모드를 먼저 켜주세요.'); }
+      if (!window.setPalaceMode)      window.setPalaceMode      = _peNotReady;
+      if (!window.onPalaceSlider)     window.onPalaceSlider     = function(){};
+      if (!window.exportPalaceData)   window.exportPalaceData   = _peNotReady;
+      if (!window.togglePalaceEditor) window.togglePalaceEditor = function(on){
+          var force = (on === true || on === false) ? on : !document.body.classList.contains('palace-editor-open');
+          document.body.classList.toggle('palace-editor-open', force);
+      };
+  })();
+  </script>
+
+  <!-- �🎨 [추가] 수묵화 효과를 위한 SVG 필터 -->
   <svg width="0" height="0" style="position: absolute;">
     <defs>
       <filter id="sumi-ink-blur" x="-50%" y="-50%" width="200%" height="200%">
@@ -6438,6 +6609,9 @@ body.force-mobile .marker-type-selector button {
               <button id="menu-trashBtn" style="background: rgba(243,156,18,0.1); border-color: #f39c12; color: #f39c12;">🗑️ 휴지통</button>
               <hr style="border: 0; border-top: 1px solid #5d7185; margin: 8px 0;">
               <button id="menu-rebuild-db" style="background: rgba(155,89,182,0.1); border-color: #9b59b6; color: #9b59b6;">🗄️ 서버 DB 동기화</button>
+              <hr style="border: 0; border-top: 1px solid #5d7185; margin: 8px 0;">
+              <!-- 🏯 3D 성 배치 편집기 토글 (3D 모드에서만 활성화) -->
+              <button id="menu-palace-editor-btn" onclick="window.togglePalaceEditor(); document.getElementById('hamburger-menu-panel').classList.remove('active'); document.getElementById('hamburger-menu-overlay').classList.remove('active'); document.getElementById('hamburger-menu-btn').classList.remove('active');" style="background: rgba(223,183,108,0.1); border-color: #dfb76c; color: #dfb76c;">🏯 3D 성 배치 편집기</button>
               <hr style="border: 0; border-top: 1px solid #5d7185; margin: 8px 0;">
               <button id="menu-exitEditBtn" style="background: rgba(231,76,60,0.1); border-color: #e74c3c; color: #e74c3c;">🚪 편집모드 종료</button>
               <hr style="border: 0; border-top: 1px solid #5d7185; margin: 8px 0;">
@@ -28435,6 +28609,252 @@ kingSelect.addEventListener('change', () => {
                         window._is3dMode = true;
                         mlMap.on('error', (e) => console.error('[3D] MapLibre error:', e.error));
 
+                        // ── 🏯 3D 성 배치 편집기: map load 와 무관하게 즉시 함수 할당 ──
+                        (function initPalaceEditorFunctions() {
+                            if (window._palaceEditorInited) return;
+
+                            // DB에서 배치 복원 (_loadPalacesFromDB 에서 처리)
+                            window.deployedPalaces = [];
+                            window.selectedPalaceId = null;
+                            window.palaceEditMode   = 'view';
+                            window.selectedGlbKey   = 'kingcastle3D';
+
+                            const PALACE_GLB_LIST = [
+                                { key: 'kingcastle3D', label: '왕성 (기본)', icon: '🏯', path: '/public/3d/kingcastle3D.glb' },
+                            ];
+                            const _glbCache = {};
+                            // Three.js 참조 — onAdd 에서 채워짐
+                            let _threeRenderer = null, _threeCamera = null, _threeScene = null;
+
+                            // ── 헬퍼 ──
+                            function _peStatus(msg) { const el = document.getElementById('pe-status'); if (el) el.textContent = msg; }
+                            function _peEnableSliders(on) { const el = document.getElementById('pe-sliders'); if (el) { el.style.opacity = on ? '1' : '0.4'; el.style.pointerEvents = on ? '' : 'none'; } }
+                            // DB에 배치 데이터 저장 (PUT /api/palace-placements, admin 토큰 필요)
+                            function _savePalaces() {
+                                const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+                                fetch('/api/palace-placements', {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                                    body: JSON.stringify(window.deployedPalaces)
+                                }).then(r => {
+                                    if (!r.ok) r.json().then(d => console.warn('[PalaceEditor] 저장 실패:', d.message));
+                                    else console.log('[PalaceEditor] DB 저장 완료');
+                                }).catch(e => console.warn('[PalaceEditor] 저장 오류:', e));
+                            }
+                            // DB에서 배치 데이터 불러오기
+                            function _loadPalacesFromDB() {
+                                fetch('/api/palace-placements')
+                                    .then(r => r.json())
+                                    .then(data => {
+                                        if (Array.isArray(data) && data.length > 0) {
+                                            window.deployedPalaces = data;
+                                            // GLB 파일들을 미리 로드
+                                            const keys = [...new Set(data.map(p => p.glbKey || 'kingcastle3D'))];
+                                            keys.forEach(k => {
+                                                const g = PALACE_GLB_LIST.find(x => x.key === k);
+                                                if (g) _loadGlb(k, g.path);
+                                            });
+                                            _rebuildPalaceObjects();
+                                            if (window.mlMap3d) window.mlMap3d.triggerRepaint();
+                                            console.log('[PalaceEditor] DB에서 배치 복원:', data.length, '개');
+                                        }
+                                    })
+                                    .catch(e => console.warn('[PalaceEditor] 불러오기 오류:', e));
+                            }
+                            function _peUpdateSliders() {
+                                const p = window.deployedPalaces.find(x => x.id === window.selectedPalaceId);
+                                if (!p) return;
+                                const sc = document.getElementById('pe-scale');
+                                if (sc) { sc.value = p.scale; document.getElementById('pe-scale-val').textContent = p.scale.toFixed(1); }
+                                const olng = document.getElementById('pe-off-lng');
+                                if (olng) { olng.value = p.offLng||0; document.getElementById('pe-off-lng-val').textContent = Math.round(p.offLng||0)+'m'; }
+                                const olat = document.getElementById('pe-off-lat');
+                                if (olat) { olat.value = p.offLat||0; document.getElementById('pe-off-lat-val').textContent = Math.round(p.offLat||0)+'m'; }
+                                const oalt = document.getElementById('pe-off-alt');
+                                if (oalt) { oalt.value = p.offAlt||0; document.getElementById('pe-off-alt-val').textContent = Math.round(p.offAlt||0)+'m'; }
+                                const rz = document.getElementById('pe-rot-z');
+                                if (rz) { rz.value = p.rotZ||0; document.getElementById('pe-rot-z-val').textContent = Math.round(p.rotZ||0)+'°'; }
+                                const rx = document.getElementById('pe-rot-x');
+                                if (rx) { rx.value = p.rotX||0; document.getElementById('pe-rot-x-val').textContent = Math.round(p.rotX||0)+'°'; }
+                                const ry = document.getElementById('pe-rot-y');
+                                if (ry) { ry.value = p.rotY||0; document.getElementById('pe-rot-y-val').textContent = Math.round(p.rotY||0)+'°'; }
+                            }
+                            function _buildGlbList() {
+                                const el = document.getElementById('pe-glb-list'); if (!el) return;
+                                el.innerHTML = PALACE_GLB_LIST.map(g =>
+                                    `<div class="pe-glb-item${g.key === window.selectedGlbKey ? ' selected' : ''}" onclick="window._peSelectGlb('${g.key}')"><span class="pe-glb-icon">${g.icon}</span><span>${g.label}</span></div>`
+                                ).join('');
+                            }
+                            function _rebuildPalaceObjects() {
+                                // render() 루프가 매 프레임 오브젝트를 직접 갱신하므로
+                                // 여기서는 씬의 palace 오브젝트를 제거해 다음 프레임에 재생성되도록만 함
+                                if (!_threeScene) return;
+                                [..._threeScene.children].filter(c => c.userData.isPalace).forEach(c => _threeScene.remove(c));
+                            }
+                            function _loadGlb(key, path) {
+                                if (_glbCache[key]) return;
+                                const LC = (window.THREE && window.THREE.GLTFLoader) || window.GLTFLoader;
+                                if (!LC) { console.warn('[PalaceEditor] GLTFLoader 없음'); return; }
+                                new LC().load(path, gltf => {
+                                    _glbCache[key] = gltf.scene;
+                                    _rebuildPalaceObjects();
+                                    if (window.mlMap3d) window.mlMap3d.triggerRepaint();
+                                    console.log('[PalaceEditor] GLB 완료:', key);
+                                }, undefined, err => console.error('[PalaceEditor] GLB 실패:', key, err));
+                            }
+
+                            // ── 전역 함수 (스텁 overwrite) ──
+                            window._peSelectGlb = function(key) {
+                                window.selectedGlbKey = key; _buildGlbList();
+                                _peStatus((PALACE_GLB_LIST.find(g => g.key === key) || {}).label + ' 선택됨');
+                            };
+                            window._rebuildPalaceObjects = _rebuildPalaceObjects;
+                            window.onPalaceSlider = function(prop, val) {
+                                if (!window.selectedPalaceId) return;
+                                const p = window.deployedPalaces.find(x => x.id === window.selectedPalaceId); if (!p) return;
+                                p[prop] = parseFloat(val);
+                                const valElMap = {
+                                    scale: 'pe-scale-val',
+                                    offLng: 'pe-off-lng-val', offLat: 'pe-off-lat-val', offAlt: 'pe-off-alt-val',
+                                    rotZ: 'pe-rot-z-val', rotX: 'pe-rot-x-val', rotY: 'pe-rot-y-val'
+                                };
+                                const ve = document.getElementById(valElMap[prop]);
+                                if (ve) ve.textContent = prop === 'scale' ? parseFloat(val).toFixed(1) : Math.round(val) + (prop.startsWith('rot') ? '°' : 'm');
+                                _rebuildPalaceObjects(); if (window.mlMap3d) window.mlMap3d.triggerRepaint();
+                                _savePalaces();
+                            };
+                            window.setPalaceMode = function(mode) {
+                                window.palaceEditMode = mode;
+                                ['add','edit','delete','view'].forEach(m => { const b = document.getElementById('pe-btn-' + m); if (b) b.classList.toggle('active', m === mode); });
+                                const pk = document.getElementById('pe-glb-picker'); if (pk) pk.classList.toggle('open', mode === 'add');
+                                if (mode === 'add') _buildGlbList();
+                                _peStatus(mode === 'add' ? '모델 선택 후 지도를 클릭해 배치' : mode === 'edit' ? '수정할 성을 클릭하세요' : mode === 'delete' ? '삭제할 성을 클릭하세요' : '뷰 모드');
+                            };
+                            window.exportPalaceData = function() {
+                                const json = JSON.stringify(window.deployedPalaces, null, 2);
+                                console.log('[PalaceEditor] 배치 데이터:\n', json);
+                                if (navigator.clipboard) navigator.clipboard.writeText(json).then(() => _peStatus('복사됨 ✓')).catch(() => _peStatus('복사 실패'));
+                                else _peStatus('콘솔에서 확인');
+                            };
+                            window.togglePalaceEditor = function(on) {
+                                const force = (on === true || on === false) ? on : !document.body.classList.contains('palace-editor-open');
+                                document.body.classList.toggle('palace-editor-open', force);
+                                if (!force) {
+                                    window.palaceEditMode = 'view';
+                                    ['add','edit','delete','view'].forEach(m => { const b = document.getElementById('pe-btn-' + m); if (b) b.classList.remove('active'); });
+                                    const pk = document.getElementById('pe-glb-picker'); if (pk) pk.classList.remove('open');
+                                }
+                            };
+
+                            // 지도 클릭 핸들러
+                            window.mlMap3d.on('click', e => {
+                                if (!document.body.classList.contains('palace-editor-open')) return;
+                                const mode = window.palaceEditMode; if (mode === 'view') return;
+                                const { lng, lat } = e.lngLat;
+                                if (mode === 'add') {
+                                    const glbKey = window.selectedGlbKey || 'kingcastle3D';
+                                    const id = 'palace_' + Date.now();
+                                    window.deployedPalaces.push({ id, lat, lng, scale: 1, offLng: 0, offLat: 0, offAlt: 0, rotZ: 0, rotX: 0, rotY: 0, glbKey });
+                                    window.selectedPalaceId = id; _peUpdateSliders(); _peEnableSliders(true);
+                                    _rebuildPalaceObjects(); window.mlMap3d.triggerRepaint(); _peStatus('배치 완료 ✓');
+                                    _savePalaces();
+                                } else {
+                                    let nearest = null, minDist = 0.05;
+                                    window.deployedPalaces.forEach(p => { const d = Math.hypot(p.lat - lat, p.lng - lng); if (d < minDist) { minDist = d; nearest = p; } });
+                                    if (!nearest) { _peStatus('근처에 성이 없습니다'); return; }
+                                    if (mode === 'edit') { window.selectedPalaceId = nearest.id; _peUpdateSliders(); _peEnableSliders(true); _peStatus('선택됨: ' + (nearest.glbKey||'kingcastle3D')); }
+                                    else { window.deployedPalaces = window.deployedPalaces.filter(p => p.id !== nearest.id); if (window.selectedPalaceId === nearest.id) { window.selectedPalaceId = null; _peEnableSliders(false); } _rebuildPalaceObjects(); window.mlMap3d.triggerRepaint(); _peStatus('삭제 완료'); _savePalaces(); }
+                                }
+                            });
+
+                            window._palaceEditorInited = true;
+                            console.log('[PalaceEditor] 함수 할당 완료 (map load 전)');
+
+                            // Three.js 레이어 — map load 후 등록
+                            function _addPalaceLayer() {
+                                try {
+                                    const palaceLayer = {
+                                        id: 'dynamic-palace-layer', type: 'custom', renderingMode: '3d',
+                                        onAdd(map, gl) {
+                                            _threeRenderer = new THREE.WebGLRenderer({ canvas: map.getCanvas(), context: gl, antialias: true });
+                                            _threeRenderer.autoClear = false;
+                                            _threeScene = new THREE.Scene(); _threeCamera = new THREE.Camera();
+                                            _threeScene.add(new THREE.AmbientLight(0xffffff, 0.8));
+                                            const dl = new THREE.DirectionalLight(0xffd97a, 1.2); dl.position.set(100,200,100); _threeScene.add(dl);
+                                            PALACE_GLB_LIST.forEach(g => _loadGlb(g.key, g.path));
+                                        },
+                                        render(gl, matrix) {
+                                            if (!_threeScene || !_threeCamera || !_threeRenderer) return;
+                                            try {
+                                                // 1. 현재 지도 카메라 중심점 (메르카토르)
+                                                const centerMercator = maplibregl.MercatorCoordinate.fromLngLat(window.mlMap3d.getCenter());
+
+                                                // 2. MapLibre 전역 행렬 주입
+                                                _threeCamera.projectionMatrix = new THREE.Matrix4().fromArray(matrix);
+
+                                                // 3. Three.js 전역 원점을 카메라 중심으로 이동 → f32 깨짐 차단
+                                                const rteTransform = new THREE.Matrix4()
+                                                    .makeTranslation(centerMercator.x, centerMercator.y, centerMercator.z)
+                                                    .scale(new THREE.Vector3(1, -1, 1));
+                                                _threeCamera.projectionMatrix.multiply(rteTransform);
+
+                                                // 4. 오브젝트: 카메라 중심 기준 상대 좌표로 배치
+                                                window.deployedPalaces.forEach(palace => {
+                                                    let obj = _threeScene.getObjectByName(palace.id);
+                                                    if (!obj) {
+                                                        const base = _glbCache[palace.glbKey || 'kingcastle3D'];
+                                                        if (!base) return;
+                                                        obj = base.clone(true);
+                                                        obj.name = palace.id;
+                                                        obj.userData.isPalace = true;
+                                                        _threeScene.add(obj);
+                                                    }
+
+                                                    const toR = deg => (deg || 0) * Math.PI / 180;
+                                                    const mc = maplibregl.MercatorCoordinate.fromLngLat([palace.lng, palace.lat], palace.offAlt || 0);
+                                                    const metersPerUnit = 1 / mc.meterInMercatorCoordinateUnits();
+                                                    const offLngU = (palace.offLng || 0) / metersPerUnit;
+                                                    const offLatU = (palace.offLat || 0) / metersPerUnit;
+                                                    const s = mc.meterInMercatorCoordinateUnits() * palace.scale * (1 / Math.cos(palace.lat * Math.PI / 180)) * 1000;
+
+                                                    // 절대좌표 - 중심점 = 극소값 → 정밀도 완벽 보존
+                                                    const relX = (mc.x + offLngU) - centerMercator.x;
+                                                    const relY = (mc.y + offLatU) - centerMercator.y;
+                                                    const relZ =  mc.z            - centerMercator.z;
+
+                                                    obj.matrixAutoUpdate = true;
+                                                    // rteTransform이 Y축 반전(scale -1)을 처리했으므로 position은 -relY
+                                                    obj.position.set(relX, -relY, relZ);
+                                                    obj.rotation.set(
+                                                        Math.PI / 2 + toR(palace.rotX || 0),
+                                                        toR(palace.rotY || 0),
+                                                        toR(palace.rotZ || 0)
+                                                    );
+                                                    obj.scale.set(s, s, s);
+                                                });
+
+                                                // 삭제된 palace 씬에서 정리
+                                                const activeIds = new Set(window.deployedPalaces.map(p => p.id));
+                                                [..._threeScene.children]
+                                                    .filter(c => c.userData.isPalace && !activeIds.has(c.name))
+                                                    .forEach(c => _threeScene.remove(c));
+
+                                                _threeRenderer.resetState();
+                                                _threeRenderer.render(_threeScene, _threeCamera);
+                                                window.mlMap3d.triggerRepaint();
+                                            } catch(re) { console.warn('[PalaceEditor] render 오류:', re.message); }
+                                        }
+                                    };
+                                    if (window.mlMap3d.getLayer('dynamic-palace-layer')) window.mlMap3d.removeLayer('dynamic-palace-layer');
+                                    window.mlMap3d.addLayer(palaceLayer);
+                                    console.log('[PalaceEditor] Three.js 레이어 등록 완료');
+                                } catch(e) { console.warn('[PalaceEditor] Three.js 레이어 실패:', e.message); }
+                            }
+                            // 이미 로드된 경우 즉시, 아니면 load 이벤트 후
+                            if (window.mlMap3d.isStyleLoaded()) { _addPalaceLayer(); _loadPalacesFromDB(); }
+                            else { window.mlMap3d.once('load', () => { _addPalaceLayer(); _loadPalacesFromDB(); }); }
+                        })();
+
                         mlMap.on('load', () => {
                             console.log('[3D] map load fired!');
                             // 로딩 스피너 제거
@@ -28540,6 +28960,7 @@ kingSelect.addEventListener('change', () => {
                         mlMap.on('zoomend',  window._3dZoomMoveHandler);
                         mlMap.on('moveend',  window._3dZoomMoveHandler);
                         mlMap.on('pitchend', window._3dZoomMoveHandler);
+
                         refreshLayers();
                         // 🚩 자원 마커 재렌더 (재진입 시)
                         setTimeout(function() {
