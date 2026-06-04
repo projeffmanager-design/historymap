@@ -11792,8 +11792,8 @@ function getKingByYear(countryName, year, month) {
                     ? `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:0;"><div class="feature-name">${castleName}</div><img src="${iconInfo.imageUrl}" style="width:${_iw}px;height:${_iw}px;object-fit:contain;display:block;" onerror="this.style.display='none'"></div>`
                     : `<div class="feature-name">${castleName}</div><div style="line-height:1; display:block;">${iconSymbol}</div>`,
                 iconSize: [_iconBoxW, _iconBoxH],
-                iconAnchor: iconInfo?.anchorBottom ? [7.5, 15] : [_iconBoxW / 2, _iconBoxH / 2],
-                popupAnchor: [0, -_iconBoxH / 2]
+                iconAnchor: iconInfo?.anchorBottom ? [7.5, 15] : [_iconBoxW / 2, _iconBoxH],
+                popupAnchor: [0, -_iconBoxH]
             });
             marker = L.marker([newCastle.lat, newCastle.lng], { icon: featureIcon });
         }
@@ -12109,8 +12109,8 @@ function getKingByYear(countryName, year, month) {
                     ? `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:0;"><img src="${iconInfo.imageUrl}" style="width:${_iw2}px;height:${_iw2}px;object-fit:contain;display:block;" onerror="this.style.display='none'"><div class="feature-name">${castleName}</div></div>`
                     : `<div style="line-height:1; display:block;">${iconSymbol}</div><div class="feature-name">${castleName}</div>`,
                 iconSize: [_iconBoxW2, _iconBoxH2],
-                iconAnchor: [_iconBoxW2 / 2, _iconBoxH2 / 2],
-                popupAnchor: [0, -_iconBoxH2 / 2]
+                iconAnchor: [_iconBoxW2 / 2, _iconBoxH2],
+                popupAnchor: [0, -_iconBoxH2]
             });
             marker = L.marker([newCastle.lat, newCastle.lng], { icon: featureIcon });
         }
@@ -14449,8 +14449,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     className: 'custom-capital-flag-marker',
                     html: capitalCustomHtml,
                     iconSize: [Math.max(ciw, 60), _capFlagH + cih + 14],
-                    iconAnchor: [Math.max(ciw, 60) / 2, _capFlagH + cih + 14],
-                    popupAnchor: [0, -(_capFlagH + cih + 14)]
+                    iconAnchor: [Math.max(ciw, 60) / 2, _capFlagH + cih],
+                    popupAnchor: [0, -(_capFlagH + cih)]
                 });
             } else {
                 const sealChar = countryInfo?.sealText || (()=>{ const n=countryInfo?.name||''; const hanja=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hanja.length) return hanja.slice(-1)[0]; const hangul=(n.match(/[가-힣]/g)||[]); return hangul.length ? hangul.slice(-1)[0] : '?'; })();
@@ -14472,8 +14472,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     className: 'custom-capital-flag-marker',
                     html: capitalIconHtml,
                     iconSize: [60, 60 + _capDefFlagH],
-                    iconAnchor: [30, _capDefFlagH + 30],
-                    popupAnchor: [0, -(_capDefFlagH + 30)]
+                    iconAnchor: [30, _capDefFlagH + 60],
+                    popupAnchor: [0, -(_capDefFlagH + 60)]
                 });
             }
             marker = L.marker([castle.lat, castle.lng], { icon: capitalIcon, zIndexOffset: 1000 });
@@ -14510,6 +14510,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const nameStyle  = `color:#d8cdb8;font-weight:300;font-family:'Nanum Myeongjo',serif;font-size:10px;white-space:nowrap;text-shadow:0 0 2px rgba(0,0,0,0.9),0 0 4px rgba(0,0,0,0.8);`;
 
             let specialMarkerHtml;
+            let _sptAnchorY = sz; // 기본: 아이콘 높이 하단
             if (castle.custom_icon) {
                 // 커스텀 아이콘이 있으면 place_type 아이콘 대신 사용
                 const ciw = castle.icon_width || sz;
@@ -14518,6 +14519,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;margin-bottom:1px;">`
                     : (typeof createCountryFlagSvg==='function' ? `<div style="display:block;line-height:0;margin-bottom:1px;">${createCountryFlagSvg(countryInfo?.color||'#888888',(()=>{const n=countryInfo?.name||'';const hj=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]);if(hj.length)return hj.slice(-1)[0];const hg=(n.match(/[가-힣]/g)||[]);return hg.length?hg.slice(-1)[0]:'?'})(),14)}</div>` : ''));
                 const _ptFlagH = placeType === 'heritage' ? 0 : (countryInfo?.flag ? 14 : (typeof createCountryFlagSvg==='function' && countryInfo ? 14 : 0));
+                _sptAnchorY = _ptFlagH + cih;
                 specialMarkerHtml = `
                 <div class="cm-wrap" style="display:flex; flex-direction:column; align-items:center; gap:0;">
                   ${_ptFlagHtml}
@@ -14562,6 +14564,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     const _ptDefFlagHtml = placeType === 'heritage' ? '' : (countryInfo?.flag
                         ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;display:block;margin-bottom:1px;">`
                         : (typeof createCountryFlagSvg==='function' ? `<div style="display:block;line-height:0;margin-bottom:1px;">${createCountryFlagSvg(countryInfo?.color||'#888888',(()=>{const n=countryInfo?.name||'';const hj=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]);if(hj.length)return hj.slice(-1)[0];const hg=(n.match(/[가-힣]/g)||[]);return hg.length?hg.slice(-1)[0]:'?'})(),14)}</div>` : ''));
+                    const _ptDefFlagH = placeType === 'heritage' ? 0 : (countryInfo?.flag ? 14 : (typeof createCountryFlagSvg==='function' && countryInfo ? 14 : 0));
+                    _sptAnchorY = _ptDefFlagH + sz;
                     specialMarkerHtml = `
                     <div class="cm-wrap" style="display:flex; flex-direction:column; align-items:center; gap:0;">
                       ${_ptDefFlagHtml}
@@ -14576,9 +14580,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const specialIcon = L.divIcon({
                 className: `custom-${placeType}-marker`,
                 html: specialMarkerHtml,
-                iconSize:   placeType === 'battle' ? [sz, sz] : [100, sz],
-                iconAnchor: placeType === 'battle' ? [sz / 2, sz / 2] : [50, 5],
-                popupAnchor: [0, placeType === 'battle' ? -(sz / 2 + 4) : -5]
+                iconSize:   placeType === 'battle' ? [sz, sz] : [100, sz + 28],
+                iconAnchor: placeType === 'battle' ? [sz / 2, sz / 2] : [50, _sptAnchorY],
+                popupAnchor: [0, placeType === 'battle' ? -(sz / 2 + 4) : -_sptAnchorY]
             });
             marker = L.marker([castle.lat, castle.lng], { icon: specialIcon });
 
@@ -14696,9 +14700,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const customIcon = L.divIcon({
                     className: 'custom-icon-marker',
                     html: customMarkerHtml,
-                    iconSize: [Math.max(iconWidth, 40), totalH],
-                    iconAnchor: [Math.max(iconWidth, 40) / 2, totalH],
-                    popupAnchor: [0, -totalH]
+                    iconSize: [Math.max(iconWidth, 40), _flagH + iconHeight + 14],
+                    iconAnchor: [Math.max(iconWidth, 40) / 2, _flagH + iconHeight],
+                    popupAnchor: [0, -(_flagH + iconHeight)]
                 });
                 marker = L.marker([castle.lat, castle.lng], { icon: customIcon, zIndexOffset: activeHistoryRecord.is_capital ? 1000 : 0 });
             } else if (currentCountry.flag && !activeHistoryRecord.is_capital) { // 🚩 [수정] activeHistoryRecord 사용
