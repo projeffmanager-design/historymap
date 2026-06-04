@@ -9668,6 +9668,19 @@ body.force-mobile .marker-type-selector button {
     if (!map.getPane('macroLabelPane')) {
         map.createPane('macroLabelPane');
         map.getPane('macroLabelPane').style.zIndex = 650; // markerPane(600) 위, labelPane(700) 아래
+        // ── Leaflet zoom animation 동안 pane 전체가 scale 되어 깃발이 자연스럽게 커지고 작아짐 ──
+        // zoomend 시 re-render 전까지 기존 스케일된 마커를 숨겨 깜박임 최소화
+        map.on('zoomanim', function() {
+            const p = map.getPane('macroLabelPane');
+            if (p) p.style.opacity = '0';
+        });
+        map.on('zoomend', function() {
+            // re-render 후 다시 표시 (renderMacroCountryNames 완료 후)
+            setTimeout(() => {
+                const p = map.getPane('macroLabelPane');
+                if (p) p.style.opacity = '1';
+            }, 50);
+        });
     }
 
     /**
@@ -9719,13 +9732,11 @@ body.force-mobile .marker-type-selector button {
             ? getCurrentYearMonth() 
             : { year: parseInt(yearInput?.value || 400), month: 1 };
 
-        // 국가명 폰트 크기 — 줌 레벨에 따라 조정
-        // zoom 5(~300km): 14px, zoom 4(~600km): 11px, zoom 3(~1200km): 9px, zoom ≤ 2: 7px
+        // 국가명 폰트 크기 — 고정값 사용 (줌에 무관하게 동일하게 렌더링)
+        // Leaflet이 zoom animation 중 pane을 scale하므로 줌에 따라 자연스럽게 커지고 작아짐
+        // 고정값이어야 zoomend 재렌더 시 크기가 변하지 않아 깜박임이 없어짐
         const currentZoomForLabel = map ? map.getZoom() : 5;
-        const countryFontSize = currentZoomForLabel >= 5 ? 14
-            : currentZoomForLabel >= 4 ? 11
-            : currentZoomForLabel >= 3 ? 9
-            : 7;
+        const countryFontSize = 12;
 
         // 렌더링된 국가별 라벨 위치 결정
         // 우선순위: ① 수도 좌표 → ② 영토 중심점(centroid)
@@ -9839,14 +9850,11 @@ body.force-mobile .marker-type-selector button {
             const ethnicHtml = (layerVisibility.ethnicLabel && country.ethnicity)
                 ? `<div class="macro-country-ethnic">${country.ethnicity}</div>`
                 : '';
-            // 깃발 하단을 왕성 좌표에 붙이고, 국가명은 깃발 옆 중앙정렬
-            const _labelH = countryFontSize + 8;
-            const _capitalMarkerH = capital ? 10 : 0;
+            // iconSize:[0,0] + iconAnchor:[0,0] → 마커 좌표가 div의 좌상단에 고정됨
+            // position:absolute + bottom/left 으로 좌표 기준 고정 오프셋 설정
             const icon = L.divIcon({
                 className: 'macro-country-label-icon',
-                // transform: translate(-50%, -100%) → 컨테이너 하단-중앙이 지도 좌표에 고정
-                // align-items:center → 깃발과 국가명 수직 중앙정렬
-                html: `<div style="display:inline-flex;flex-direction:row;align-items:center;gap:0px;pointer-events:none;white-space:nowrap;transform:translate(-50%, -100%) scale(var(--macro-flag-scale, 1));transform-origin:bottom center;">${flagHtmlMacro}<div style="display:flex;flex-direction:column;align-items:flex-start;position:relative;z-index:1;margin-left:-50px;margin-bottom:-45px"><div class="macro-country-name" style="font-size:${countryFontSize}px;">${country.name}</div>${ethnicHtml}</div></div>`,
+                html: `<div style="transform:translate(-50%,calc(-100% - 4px));display:inline-flex;flex-direction:row;align-items:flex-end;gap:0px;pointer-events:none;white-space:nowrap;">${flagHtmlMacro}<div style="display:flex;flex-direction:column;align-items:flex-start;position:relative;z-index:1;margin-left:-50px;padding-bottom:4px;"><div class="macro-country-name" style="font-size:${countryFontSize}px;">${country.name}</div>${ethnicHtml}</div></div>`,
                 iconSize: [0, 0],
                 iconAnchor: [0, 0]
             });
@@ -14468,12 +14476,14 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     </div>
                 </div>`;
                 const _capDefFlagH = countryInfo?.flag ? 16 : (typeof createCountryFlagSvg === 'function' ? 14 : 0);
+                // 전체 높이: 깃발 + 왕성이미지(13+2) + 낙관+이름(13) + padding(5) ≈ _capDefFlagH + 33
+                const _capTotalH = _capDefFlagH + 33;
                 capitalIcon = L.divIcon({
                     className: 'custom-capital-flag-marker',
                     html: capitalIconHtml,
-                    iconSize: [60, 60 + _capDefFlagH],
-                    iconAnchor: [30, _capDefFlagH + 60],
-                    popupAnchor: [0, -(_capDefFlagH + 60)]
+                    iconSize: [60, _capTotalH],
+                    iconAnchor: [30, _capTotalH],
+                    popupAnchor: [0, -_capTotalH]
                 });
             }
             marker = L.marker([castle.lat, castle.lng], { icon: capitalIcon, zIndexOffset: 1000 });
