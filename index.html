@@ -9554,7 +9554,8 @@ body.force-mobile .marker-type-selector button {
     }
 
     let castleLayerGroup = L.layerGroup().addTo(map); 
-    let territoryLayerGroup = L.layerGroup({ pane: 'territoryPane' }).addTo(map); // �️ 영토 전용 pane
+    let naturalFeatureLayerGroup = L.layerGroup().addTo(map); // 🌿 자연지물 전용 레이어 (LOD 모드에서 숨기지 않음)
+    let territoryLayerGroup = L.layerGroup({ pane: 'territoryPane' }).addTo(map); // 🗺️ 영토 전용 pane�️ 영토 전용 pane
     let riverLayerGroup = L.layerGroup().addTo(map);     // 🌊 강 레이어 그룹 (별도 분리)
     let contributionLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 기여 레이어 그룹
     let labelLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 라벨 레이어 그룹
@@ -9688,11 +9689,20 @@ body.force-mobile .marker-type-selector button {
      * zoom < 6:   거시 모드(0) — 국가명만 표시          (약 300km+ 뷰)
      * zoom 6~<7:  중간 모드(1) — 국가명 + 수도만 표시   (약 200km 뷰)
      * zoom >= 7:  미시 모드(2) — 국가명 + 수도 + 모든 성 표시 (약 100km 뷰)
+     * 자연지물:   zoom >= 7.5 에서만 표시 (일반 성보다 먼저 사라짐, 3D와 동일)
      */
     function applyLODMode() {
         if (!map) return;
         const zoom = map.getZoom();
         const newMode = zoom < 6 ? 0 : zoom < 7 ? 1 : 2;
+        const showNatural = layerVisibility.natural !== false && zoom >= 7.5;
+
+        // 자연지물 레이어는 모드 캐시와 무관하게 매번 평가
+        if (showNatural) {
+            if (!map.hasLayer(naturalFeatureLayerGroup)) naturalFeatureLayerGroup.addTo(map);
+        } else {
+            if (map.hasLayer(naturalFeatureLayerGroup)) map.removeLayer(naturalFeatureLayerGroup);
+        }
 
         // 모드 변경이 없으면 스킵
         if (newMode === currentMacroMode) return;
@@ -9854,7 +9864,7 @@ body.force-mobile .marker-type-selector button {
             // position:absolute + bottom/left 으로 좌표 기준 고정 오프셋 설정
             const icon = L.divIcon({
                 className: 'macro-country-label-icon',
-                html: `<div style="transform:translate(-50%,calc(-100% - 4px));display:inline-flex;flex-direction:row;align-items:flex-end;gap:0px;pointer-events:none;white-space:nowrap;">${flagHtmlMacro}<div style="display:flex;flex-direction:column;align-items:flex-start;position:relative;z-index:1;margin-left:-50px;padding-bottom:4px;"><div class="macro-country-name" style="font-size:${countryFontSize}px;">${country.name}</div>${ethnicHtml}</div></div>`,
+                html: `<div style="transform:translate(-50%,calc(-100% - 18px));display:inline-flex;flex-direction:row;align-items:flex-end;gap:0px;pointer-events:none;white-space:nowrap;">${flagHtmlMacro}<div style="display:flex;flex-direction:column;align-items:flex-start;position:relative;z-index:1;margin-left:-50px;padding-bottom:4px;"><div class="macro-country-name" style="font-size:${countryFontSize}px;">${country.name}</div>${ethnicHtml}</div></div>`,
                 iconSize: [0, 0],
                 iconAnchor: [0, 0]
             });
@@ -13704,6 +13714,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         }
 
         castleLayerGroup.clearLayers(); // 마커 레이어는 기존처럼 클리어 후 다시 추가
+        naturalFeatureLayerGroup.clearLayers();
         markers.length = 0;
         window._3dCastleData = []; // 3D용 castle 원본 데이터 수집 배열
 
@@ -13803,6 +13814,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         
         labelLayerGroup.clearLayers(); // 🚩 [추가] 라벨 레이어 클리어
         castleLayerGroup.clearLayers();
+        naturalFeatureLayerGroup.clearLayers();
         allCastleMarkers.length = 0; // 🚀 [최적화] 매 렌더링 시 마커 트래킹 배열 초기화 (length=0으로 재사용)
         castles.forEach(castle => {
             // 🚩 LOD 필터링
@@ -13815,6 +13827,10 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const _isCapital = castle.is_capital ||
                 (Array.isArray(castle.history) && castle.history.some(h => h.is_capital));
             if (_isMacro && !castle.is_natural_feature && !castle.is_label) return;
+            if (_isMacro && castle.is_natural_feature) return; // 거시 모드: 자연지물 숨김
+            if (_isMid   && castle.is_natural_feature) return; // 중간 모드: 자연지물 숨김
+            // 미시 모드에서도 zoom < 7.5면 자연지물 숨김 (3D와 동일 임계값)
+            if (!_isMacro && !_isMid && castle.is_natural_feature && map.getZoom() < 7.5) return;
             if (_isMid   && !castle.is_natural_feature && !castle.is_label && !_isCapital) return;
             
             const baseCountryId = castle.country_id || castle.countryId || (Array.isArray(castle.history) && castle.history.length > 0 ? castle.history[0]?.country_id : null);
@@ -14109,16 +14125,16 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 if (castle.custom_icon) {
                     const iconWidth = castle.icon_width || 32;
                     const iconHeight = castle.icon_height || 32;
-                    const _mscaleC3 = window._currentMarkerScale || 1;
-                    const _ciw3 = Math.round(iconWidth * _mscaleC3);
-                    const _cih3 = Math.round(iconHeight * _mscaleC3);
+                    // ⚠️ _mscale 제거 — 고정 크기로 렌더. Leaflet pane zoom animation이 scale하므로 자연스럽게 동작
+                    const _ciw3 = iconWidth;
+                    const _cih3 = iconHeight;
                     const rawIconUrl = castle.custom_icon.replace(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)\?raw=true$/, 'https://raw.githubusercontent.com/$1/$2/$3');
                     const _nfFlagHtml = countryInfo?.flag
                         ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;margin-bottom:1px;">`
                         : '';  // 자동생성 SVG 깃발 제거 — 실제 깃발 이미지 없으면 표시 안 함
                     const _nfFlagH = countryInfo?.flag ? 14 : 0;
-                    const customIconHtml = `<div style="position:relative;width:${_ciw3}px;height:${_cih3}px;"><span style="position:absolute;bottom:100%;left:50%;transform:translateX(-50%);color:#d8cdb8;font-family:'Nanum Myeongjo',serif;font-weight:300;font-size:10px;white-space:nowrap;text-shadow:0px 0px 2px rgba(0,0,0,0.9),0px 0px 4px rgba(0,0,0,0.8);pointer-events:none;">${castleName}</span>${_nfFlagHtml}<img class="cm-icon" src="${rawIconUrl}" style="width:${_ciw3}px;height:${_cih3}px;object-fit:contain;display:block;" onerror="this.style.display='none'"></div>`;
                     const totalH = _nfFlagH + _cih3;
+                    const customIconHtml = `<div style="position:relative;width:${_ciw3}px;height:${totalH}px;"><span style="position:absolute;top:0;left:50%;transform:translate(-50%,-100%);color:#d8cdb8;font-family:'Nanum Myeongjo',serif;font-weight:300;font-size:10px;white-space:nowrap;text-shadow:0px 0px 2px rgba(0,0,0,0.9),0px 0px 4px rgba(0,0,0,0.8);pointer-events:none;">${castleName}</span>${_nfFlagHtml}<img class="cm-icon" src="${rawIconUrl}" style="width:${_ciw3}px;height:${_cih3}px;object-fit:contain;display:block;margin-top:${_nfFlagH}px;" onerror="this.style.display='none'"></div>`;
                     const featureIcon = L.divIcon({
                         className: 'custom-icon-marker natural-feature-marker',
                         html: customIconHtml,
@@ -14135,10 +14151,10 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     }
                     const iconClass = iconInfo?.className || 'feature-other';
                     const iconSymbol = iconInfo?.symbol || '❖';
-                    const _mscale3 = window._currentMarkerScale || 1;
-                    const _iw3 = iconInfo?.imageSize != null ? iconInfo.imageSize : Math.round(24 * _mscale3);
-                    const _iconBoxW3 = Math.round(60 * _mscale3);
-                    const _iconBoxH3 = Math.round(40 * _mscale3);
+                    // ⚠️ _mscale 제거 — 고정 크기로 렌더. Leaflet pane이 zoom animation 중 scale 적용
+                    const _iw3 = iconInfo?.imageSize != null ? iconInfo.imageSize : 24;
+                    const _iconBoxW3 = 60;
+                    const _iconBoxH3 = _iw3 + 18; // 이름 텍스트 높이(약 18px) + 아이콘
                     
                     const featureIcon = L.divIcon({
                         className: `natural-feature-marker ${iconClass} sumi-ink-effect`,
@@ -14194,7 +14210,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 marker._castleData = castle;
                 markers.push(marker);
                 allCastleMarkers.push(marker);
-                 marker.addTo(castleLayerGroup);
+                 marker.addTo(naturalFeatureLayerGroup); // 🌿 자연지물 전용 레이어 (castleLayerGroup 숨김 영향 받지 않음)
                 return; // 🚩 [복원] 다른 마커 타입으로 넘어가지 않도록 return 추가
             }
 
@@ -26970,8 +26986,10 @@ kingSelect.addEventListener('change', () => {
 
                 // ── 영토 캐시 키: 연도/월/데이터 수/표시여부만 — zoom·pan 무관 ──
                 const newTerritoryKey = `${year}_${month}_${(_td?.country?.length||0)}_${(_td?.province?.length||0)}_${(_td?.city?.length||0)}_${_showTerritory}_${_showRivers}`;
-                // ── 마커 캐시 키: 연도/월/castle 수/zoom/pitch/LOD ──
-                const newMarkerKey = `${year}_${month}_${(window._3dCastleData||[]).length}_${mlMap.getZoom().toFixed(1)}_${mlMap.getPitch().toFixed(0)}_${_lodMode}`;
+                // ── 마커 캐시 키: 연도/월/castle 수/zoom/pitch/LOD + 레이어 토글 상태 ──
+                const _lv = (typeof layerVisibility !== 'undefined') ? layerVisibility : {};
+                const _lvKey = `${_lv.natural?1:0}${_lv.city?1:0}${_lv.military?1:0}${_lv.relic?1:0}`;
+                const newMarkerKey = `${year}_${month}_${(window._3dCastleData||[]).length}_${mlMap.getZoom().toFixed(1)}_${mlMap.getPitch().toFixed(0)}_${_lodMode}_${_lvKey}`;
 
                 const territoryChanged = newTerritoryKey !== _refreshTerritoryDataKey;
                 const markerChanged    = newMarkerKey    !== _refreshMarkerKey;
@@ -27591,6 +27609,16 @@ kingSelect.addEventListener('change', () => {
                     const _prePriority = _isCapPre ? 1 : getMarkerPriority(c);
                     if (_prePriority > _maxPriority) continue;
                     if (_prePriority > 1 && !_inViewport(c.lat, c.lng)) continue;
+                    // ── layerVisibility 사전 필터 (토글 off 시 pre-scan에서도 제외) ──
+                    const _lv = (typeof layerVisibility !== 'undefined') ? layerVisibility : {};
+                    const _3dRelicTypesPre = ['tomb','construction','hunting','temple','palace','mine','port','kiln','farmland','heritage'];
+                    if (c.is_military_flag && _lv.military === false) continue;
+                    if (c.is_natural_feature) {
+                        const _nft = c.natural_feature_type || 'other';
+                        if (_3dRelicTypesPre.includes(_nft) && _lv.relic === false) continue;
+                        if (!_3dRelicTypesPre.includes(_nft) && _lv.natural === false) continue;
+                    }
+                    if (!c.is_natural_feature && !c.is_military_flag && !c.is_label && _lv.city === false) continue;
                     const _mk = `mk_${c._id||c.name+'@'+c.lat+'_'+c.lng}_${activeRec?.name||c.name||''}_${ci?.color||''}_${ci?.name||''}`;
                     _newMarkerKeys.add(_mk);
                     _newMarkerEntries.set(_mk, entry);
@@ -28113,15 +28141,17 @@ kingSelect.addEventListener('change', () => {
                     const _flagScale = Math.min(Math.max(Math.pow(2, (z - 5) * 0.6), 0.3), 1.0);
                     document.documentElement.style.setProperty('--macro-flag-scale', _flagScale.toFixed(3));
 
-                    // ── 줌레벨이 낮으면 텍스트 순차 숨김 (아이콘은 유지) ──
+                    // z < 7.5 : 자연 마커 전체 숨김 (일반 성보다 먼저 사라짐)
                     // z < 6.5 : 일반 성 텍스트 숨김
-                    // z < 5.5 : 일반 성 전체 숨김 + 왕성(수도) 텍스트 숨김 + 자연 마커 전체 숨김
+                    // z < 5.5 : 일반 성 전체 숨김 + 왕성(수도) 텍스트 숨김
                     // z >= 6.5 : 도시 마커가 보이는 줌 → 국가명 라벨 숨김 (중복 방지)
+                    const hideNatural = z < 7.5;
                     const hideNormal = z < 6.5;
                     const hideNormalAll = z < 5.5;
                     const hideCapital = z < 5.5;
                     const hideCapitalAll = z < 4.5;
                     const hideCountryLabel = z >= 6.5;
+                    const _naturalLayerOff = (typeof layerVisibility !== 'undefined') && layerVisibility.natural === false;
                     _3dMarkers.forEach(mk => {
                         const el = mk.getElement();
                         if (el.classList.contains('ml3d-battle-wrap')) return;
@@ -28130,9 +28160,9 @@ kingSelect.addEventListener('change', () => {
                             el.style.display = hideCountryLabel ? 'none' : '';
                             return;
                         }
-                        // 자연 마커: 왕성 이름 사라지는 시점에 전체 숨김
+                        // 자연 마커: z < 7.5 이면 숨김 (일반성보다 먼저), 레이어 토글 off 시도 즉시 숨김
                         if (el.dataset.ml3dNatural === '1') {
-                            el.style.display = hideNormalAll ? 'none' : '';
+                            el.style.display = (hideNatural || _naturalLayerOff) ? 'none' : '';
                             return;
                         }
                         const txtEl = el.querySelector('.ml3d-txt');
@@ -28153,6 +28183,8 @@ kingSelect.addEventListener('change', () => {
                 };
                 _updateMarkerZoomScale(); // 초기 적용
                 _m.on('zoom', _updateMarkerZoomScale);
+                // 레이어 토글 시 즉시 마커 표시/숨김 반영
+                window._3dUpdateMarkerZoomScale = _updateMarkerZoomScale;
 
                 setupLayerEvents();
             }
@@ -29440,12 +29472,24 @@ kingSelect.addEventListener('change', () => {
                      const { year, month } = getCurrentYearMonth();
                      updateMap(year, month);
                  }
+                 // ── 2D natural 토글: naturalFeatureLayerGroup 즉시 show/hide ──
+                 if (layerType === 'natural' && typeof applyLODMode === 'function') {
+                     applyLODMode();
+                 }
                  
                  // ── 3D 모드 연동: 마커/영토 토글 즉시 반영 ──
                  if (window._is3dMode && typeof window._3dRefreshLayers === 'function') {
                      const _3dMarkerLayers = ['city','military','natural','placeLabel','countryLabel','adminLabel','ethnicLabel','territoryPolygon','rivers'];
                      if (_3dMarkerLayers.includes(layerType)) {
-                         window._3dRefreshLayers();
+                         if (layerType === 'natural') {
+                             // natural 토글: DOM 즉시 show/hide + 필요시 full refresh
+                             if (typeof window._3dUpdateMarkerZoomScale === 'function') {
+                                 window._3dUpdateMarkerZoomScale();
+                             }
+                             window._3dRefreshLayers(); // 마커 재빌드도 같이 (추가/제거 정확히 반영)
+                         } else {
+                             window._3dRefreshLayers();
+                         }
                      }
                  }
                  
