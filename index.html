@@ -1531,6 +1531,9 @@ body.force-mobile .marker-type-selector button {
   <!-- ── Three.js r128 + GLTFLoader : 3D 성 모델 배치 편집기 전용 ── -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
+
+
   <style>
   /* ══════════════════════════════════════════════
      🏯 Palace Editor Panel — 3D 모드 전용 편집 UI
@@ -28699,6 +28702,11 @@ kingSelect.addEventListener('change', () => {
                             function _peEnableSliders(on) { const el = document.getElementById('pe-sliders'); if (el) { el.style.opacity = on ? '1' : '0.4'; el.style.pointerEvents = on ? '' : 'none'; } }
                             // DB에 배치 데이터 저장 (PUT /api/palace-placements, admin 토큰 필요)
                             function _savePalaces() {
+                                                                // 빈 배열로 DB 덮어쓰기 차단 (실수로 전체 삭제 방지)
+                                if (!Array.isArray(window.deployedPalaces) || window.deployedPalaces.length === 0) {
+                                    console.warn('[PalaceEditor] 빈 배열 저장 차단');
+                                    return;
+                                }
                                 const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
                                 fetch('/api/palace-placements', {
                                     method: 'PUT',
@@ -28784,17 +28792,32 @@ kingSelect.addEventListener('change', () => {
                                 if (!_threeScene) return;
                                 [..._threeScene.children].filter(c => c.userData.isPalace).forEach(c => _threeScene.remove(c));
                             }
-                            function _loadGlb(key, path) {
+                           function _loadGlb(key, path) {
                                 if (_glbCache[key]) return;
-                                const LC = (window.THREE && window.THREE.GLTFLoader) || window.GLTFLoader;
+                                var LC = (window.THREE && window.THREE.GLTFLoader) || window.GLTFLoader;
                                 if (!LC) { console.warn('[PalaceEditor] GLTFLoader 없음'); return; }
-                                new LC().load(path, gltf => {
+                                var loader = new LC();
+                                var DC = (window.THREE && window.THREE.DRACOLoader) || window.DRACOLoader;
+                                if (DC) {
+                                    if (!window._sharedDraco) {
+                                        window._sharedDraco = new DC();
+                                        window._sharedDraco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/');
+                                    }
+                                    loader.setDRACOLoader(window._sharedDraco);
+                                } else {
+                                    console.warn('[PalaceEditor] DRACOLoader 미로드 — <script> 추가 필요');
+                                }
+                                loader.load(path, function (gltf) {
                                     _glbCache[key] = gltf.scene;
                                     _rebuildPalaceObjects();
                                     if (window.mlMap3d) window.mlMap3d.triggerRepaint();
                                     console.log('[PalaceEditor] GLB 완료:', key);
-                                }, undefined, err => console.error('[PalaceEditor] GLB 실패:', key, err));
+                                }, undefined, function (err) {
+                                    console.error('[PalaceEditor] GLB 실패:', key, err);
+                                });
                             }
+
+
 
                             // ── 전역 함수 (스텁 overwrite) ──
                             window._peSelectGlb = function(key) {
