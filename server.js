@@ -1603,7 +1603,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
 
 // GET: 앱 버전 반환 (login.html 등 외부 페이지용)
 app.get('/api/app-version', (req, res) => {
-    res.json({ version: '3.6.66' });
+    res.json({ version: '3.7.5' });
 });
 
 // GET: 모든 장수 정보 반환
