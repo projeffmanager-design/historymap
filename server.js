@@ -6421,6 +6421,31 @@ app.get('/api/bgm-list', (req, res) => {
     }
 });
 
+// ── 3D GLB 모델 목록 API ──────────────────────────────────────────────
+app.get('/api/glb-list', (req, res) => {
+    const dir = path.join(__dirname, 'public', '3d');
+    res.set('Cache-Control', 'no-store');
+    // 1) fs로 직접 읽기 (로컬 dev)
+    try {
+        const files = fs.readdirSync(dir).filter(f => f.toLowerCase().endsWith('.glb')).sort();
+        if (files.length) {
+            return res.json(files.map(f => ({
+                key:   f.replace(/\.glb$/i, '').replace(/\s+/g, '_'),
+                label: f.replace(/\.glb$/i, '').replace(/[_+]/g, ' '),
+                path:  '/public/3d/' + encodeURIComponent(f),
+            })));
+        }
+    } catch (e) { /* Vercel 등 fs 불가 → 매니페스트로 폴백 */ }
+    // 2) 빌드 타임 매니페스트 폴백 (Vercel production)
+    try {
+        const mf = fs.readFileSync(path.join(dir, 'manifest.json'), 'utf-8');
+        return res.json(JSON.parse(mf));
+    } catch (e) {
+        console.error('GLB list error:', e);
+        return res.status(500).json([]);
+    }
+});
+
 if (require.main === module) {
     setupRoutesAndCollections().then(() => {
         app.listen(port, () => {

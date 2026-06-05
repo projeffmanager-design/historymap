@@ -6292,23 +6292,93 @@ body.force-mobile .marker-type-selector button {
                      oninput="window.onPalaceSlider('rotY',this.value)">
               <span class="pe-val" id="pe-rot-y-val">0°</span>
           </div>
+          <div style="font-size:10px;color:#7a6a50;margin:6px 0 3px;letter-spacing:.05em;">▾ 노출 시점 (연도)</div>
+          <div class="pe-row">
+              <label title="표시 시작 연도">시작</label>
+              <input type="number" id="pe-year-start" style="width:70px;background:rgba(255,255,255,0.07);border:1px solid #4a3a1a;border-radius:4px;color:#c8b89a;padding:2px 5px;font-size:12px;"
+                     placeholder="-9999" oninput="window.onPalaceSlider('yearStart',this.value)">
+              <span class="pe-val" id="pe-year-start-val" style="font-size:10px;">∞</span>
+          </div>
+          <div class="pe-row">
+              <label title="표시 종료 연도">종료</label>
+              <input type="number" id="pe-year-end" style="width:70px;background:rgba(255,255,255,0.07);border:1px solid #4a3a1a;border-radius:4px;color:#c8b89a;padding:2px 5px;font-size:12px;"
+                     placeholder="9999" oninput="window.onPalaceSlider('yearEnd',this.value)">
+              <span class="pe-val" id="pe-year-end-val" style="font-size:10px;">∞</span>
+          </div>
       </div>
       <button class="pe-export" onclick="window.exportPalaceData()">📋 배치 데이터 복사</button>
   </div>
 
-  <!-- 🏯 Palace Editor 스텁 — 3D 초기화 전 안전 처리 -->
+  <!-- 🏯 Palace Editor 실제 연동 및 스텁 처리 -->
   <script>
   (function(){
       function _peNotReady(){ console.warn('[PalaceEditor] 3D 모드를 먼저 켜주세요.'); }
       if (!window.setPalaceMode)      window.setPalaceMode      = _peNotReady;
       if (!window.onPalaceSlider)     window.onPalaceSlider     = function(){};
       if (!window.exportPalaceData)   window.exportPalaceData   = _peNotReady;
-      if (!window.togglePalaceEditor) window.togglePalaceEditor = function(on){
-          var force = (on === true || on === false) ? on : !document.body.classList.contains('palace-editor-open');
-          document.body.classList.toggle('palace-editor-open', force);
+
+      window.selectedPalaceModelKey = null;
+
+      // 매니페스트 우선 + API 폴백으로 GLB 목록 가져오기 (로컬/Vercel 모두 동작)
+      window.fetchGlbList = async function() {
+          try {
+              const r = await fetch('/public/3d/manifest.json', { cache: 'no-store' });
+              if (r.ok) { const list = await r.json(); if (Array.isArray(list) && list.length) return list; }
+          } catch(e) {}
+          try {
+              const r = await fetch('/api/glb-list', { cache: 'no-store' });
+              if (r.ok) return await r.json();
+          } catch(e) {}
+          return [];
       };
+
+      // 서버에서 GLB 리스트를 가져와 피커 UI에 꽂아주는 함수
+      window.refreshGlbListUI = async function() {
+          const listEl = document.getElementById('pe-glb-list');
+          if (!listEl) return;
+          try {
+              const glbList = await window.fetchGlbList();
+              if (!glbList || glbList.length === 0) {
+                  listEl.innerHTML = '<div style="font-size:11px;color:#7a6a50;padding:5px;">사용 가능한 GLB 파일이 없습니다.</div>';
+                  return;
+              }
+              const ICONS = ['🏯','🏰','🗼','🛕','⛩️','🏛️','🏟️','🕌','🕍'];
+              listEl.innerHTML = '';
+              glbList.forEach(function(model, index) {
+                  var item = document.createElement('div');
+                  item.className = 'pe-glb-item' + (index === 0 ? ' selected' : '');
+                  if (index === 0) window.selectedPalaceModelKey = model.key;
+                  item.dataset.key  = model.key;
+                  item.dataset.path = model.path;
+                  item.innerHTML = '<span class="pe-glb-icon">' + ICONS[index % ICONS.length] + '</span><span>' + model.label + '</span>';
+                  item.addEventListener('click', function() {
+                      document.querySelectorAll('#pe-glb-list .pe-glb-item').forEach(function(el){ el.classList.remove('selected'); });
+                      this.classList.add('selected');
+                      window.selectedPalaceModelKey = this.dataset.key;
+                      window.selectedGlbKey = this.dataset.key;
+                      if (typeof window._peSelectGlb === 'function') window._peSelectGlb(this.dataset.key);
+                  });
+                  listEl.appendChild(item);
+              });
+              if (glbList.length > 0 && !window.selectedGlbKey) window.selectedGlbKey = glbList[0].key;
+          } catch(e) {
+              console.error('[PalaceEditor] GLB 리스트 로딩 실패:', e);
+              listEl.innerHTML = '<div style="font-size:11px;color:#e74c3c;padding:5px;">리스트 로드 실패</div>';
+          }
+      };
+
+      if (!window.togglePalaceEditor) {
+          window.togglePalaceEditor = function(on){
+              var force = (on === true || on === false) ? on : !document.body.classList.contains('palace-editor-open');
+              document.body.classList.toggle('palace-editor-open', force);
+              if (document.body.classList.contains('palace-editor-open')) {
+                  window.refreshGlbListUI();
+              }
+          };
+      }
   })();
   </script>
+
 
   <!-- �🎨 [추가] 수묵화 효과를 위한 SVG 필터 -->
   <svg width="0" height="0" style="position: absolute;">
@@ -28617,11 +28687,9 @@ kingSelect.addEventListener('change', () => {
                             window.deployedPalaces = [];
                             window.selectedPalaceId = null;
                             window.palaceEditMode   = 'view';
-                            window.selectedGlbKey   = 'kingcastle3D';
+                            window.selectedGlbKey   = null;
+                            window.PALACE_GLB_LIST  = [];
 
-                            const PALACE_GLB_LIST = [
-                                { key: 'kingcastle3D', label: '왕성 (기본)', icon: '🏯', path: '/public/3d/kingcastle3D.glb' },
-                            ];
                             const _glbCache = {};
                             // Three.js 참조 — onAdd 에서 채워짐
                             let _threeRenderer = null, _threeCamera = null, _threeScene = null;
@@ -28649,10 +28717,15 @@ kingSelect.addEventListener('change', () => {
                                         if (Array.isArray(data) && data.length > 0) {
                                             window.deployedPalaces = data;
                                             // GLB 파일들을 미리 로드
-                                            const keys = [...new Set(data.map(p => p.glbKey || 'kingcastle3D'))];
+                                            const keys = [...new Set(data.map(p => p.glbKey || window.PALACE_GLB_LIST[0]?.key).filter(Boolean))];
                                             keys.forEach(k => {
-                                                const g = PALACE_GLB_LIST.find(x => x.key === k);
-                                                if (g) _loadGlb(k, g.path);
+                                                const g = (window.PALACE_GLB_LIST || []).find(x => x.key === k);
+                                                if (g) { _loadGlb(k, g.path); return; }
+                                                // PALACE_GLB_LIST 미로드 시 /api/glb-list에서 재시도
+                                                fetch('/api/glb-list').then(r => r.json()).then(list => {
+                                                    const found = list.find(x => x.key === k);
+                                                    if (found) _loadGlb(k, found.path);
+                                                });
                                             });
                                             _rebuildPalaceObjects();
                                             if (window.mlMap3d) window.mlMap3d.triggerRepaint();
@@ -28678,12 +28751,32 @@ kingSelect.addEventListener('change', () => {
                                 if (rx) { rx.value = p.rotX||0; document.getElementById('pe-rot-x-val').textContent = Math.round(p.rotX||0)+'°'; }
                                 const ry = document.getElementById('pe-rot-y');
                                 if (ry) { ry.value = p.rotY||0; document.getElementById('pe-rot-y-val').textContent = Math.round(p.rotY||0)+'°'; }
+                                const ys = document.getElementById('pe-year-start');
+                                if (ys) { ys.value = p.yearStart != null ? p.yearStart : ''; document.getElementById('pe-year-start-val').textContent = p.yearStart != null ? p.yearStart+'년' : '∞'; }
+                                const ye = document.getElementById('pe-year-end');
+                                if (ye) { ye.value = p.yearEnd != null ? p.yearEnd : ''; document.getElementById('pe-year-end-val').textContent = p.yearEnd != null ? p.yearEnd+'년' : '∞'; }
                             }
-                            function _buildGlbList() {
+                            async function _buildGlbList() {
                                 const el = document.getElementById('pe-glb-list'); if (!el) return;
-                                el.innerHTML = PALACE_GLB_LIST.map(g =>
-                                    `<div class="pe-glb-item${g.key === window.selectedGlbKey ? ' selected' : ''}" onclick="window._peSelectGlb('${g.key}')"><span class="pe-glb-icon">${g.icon}</span><span>${g.label}</span></div>`
-                                ).join('');
+                                el.innerHTML = '<div style="color:#7a6a50;font-size:11px;padding:4px;">로딩 중...</div>';
+                                try {
+                                    const res = await fetch('/api/glb-list');
+                                    const data = await res.json();
+                                    const GLB_ICONS = ['🏯','🏰','🗼','🛕','⛩️','🏛️','🏟️','🕌','🕍'];
+                                    window.PALACE_GLB_LIST = data.map((g, i) => ({
+                                        key: g.key, label: g.label,
+                                        icon: GLB_ICONS[i % GLB_ICONS.length], path: g.path
+                                    }));
+                                    if (!window.selectedGlbKey && window.PALACE_GLB_LIST.length > 0)
+                                        window.selectedGlbKey = window.PALACE_GLB_LIST[0].key;
+                                    el.innerHTML = window.PALACE_GLB_LIST.map(g =>
+                                        `<div class="pe-glb-item${g.key === window.selectedGlbKey ? ' selected' : ''}" onclick="window._peSelectGlb('${g.key}')"><span class="pe-glb-icon">${g.icon}</span><span>${g.label}</span></div>`
+                                    ).join('');
+                                    window.PALACE_GLB_LIST.forEach(g => _loadGlb(g.key, g.path));
+                                } catch(e) {
+                                    el.innerHTML = '<div style="color:#e74c3c;font-size:11px;padding:4px;">로드 실패</div>';
+                                    console.error('[PalaceEditor] GLB 목록 로드 실패:', e);
+                                }
                             }
                             function _rebuildPalaceObjects() {
                                 // render() 루프가 매 프레임 오브젝트를 직접 갱신하므로
@@ -28706,12 +28799,24 @@ kingSelect.addEventListener('change', () => {
                             // ── 전역 함수 (스텁 overwrite) ──
                             window._peSelectGlb = function(key) {
                                 window.selectedGlbKey = key; _buildGlbList();
-                                _peStatus((PALACE_GLB_LIST.find(g => g.key === key) || {}).label + ' 선택됨');
+                                _peStatus(((window.PALACE_GLB_LIST || []).find(g => g.key === key) || {}).label + ' 선택됨');
                             };
                             window._rebuildPalaceObjects = _rebuildPalaceObjects;
                             window.onPalaceSlider = function(prop, val) {
                                 if (!window.selectedPalaceId) return;
                                 const p = window.deployedPalaces.find(x => x.id === window.selectedPalaceId); if (!p) return;
+
+                                // yearStart/yearEnd는 정수 또는 null 처리
+                                if (prop === 'yearStart' || prop === 'yearEnd') {
+                                    const v = val === '' ? null : parseInt(val);
+                                    p[prop] = v;
+                                    const ve = document.getElementById(prop === 'yearStart' ? 'pe-year-start-val' : 'pe-year-end-val');
+                                    if (ve) ve.textContent = v != null ? v + '년' : '∞';
+                                    _savePalaces();
+                                    if (window.mlMap3d) window.mlMap3d.triggerRepaint();
+                                    return;
+                                }
+
                                 p[prop] = parseFloat(val);
                                 const valElMap = {
                                     scale: 'pe-scale-val',
@@ -28725,9 +28830,13 @@ kingSelect.addEventListener('change', () => {
                             };
                             window.setPalaceMode = function(mode) {
                                 window.palaceEditMode = mode;
-                                ['add','edit','delete','view'].forEach(m => { const b = document.getElementById('pe-btn-' + m); if (b) b.classList.toggle('active', m === mode); });
+                                ['add','edit','delete'].forEach(m => { const b = document.getElementById('pe-btn-' + m); if (b) b.classList.toggle('active', m === mode); });
                                 const pk = document.getElementById('pe-glb-picker'); if (pk) pk.classList.toggle('open', mode === 'add');
-                                if (mode === 'add') _buildGlbList();
+                                if (mode === 'add') {
+                                    // 항상 서버에서 최신 목록 fetch
+                                    if (typeof window.refreshGlbListUI === 'function') window.refreshGlbListUI();
+                                    else _buildGlbList();
+                                }
                                 _peStatus(mode === 'add' ? '모델 선택 후 지도를 클릭해 배치' : mode === 'edit' ? '수정할 성을 클릭하세요' : mode === 'delete' ? '삭제할 성을 클릭하세요' : '뷰 모드');
                             };
                             window.exportPalaceData = function() {
@@ -28754,7 +28863,7 @@ kingSelect.addEventListener('change', () => {
                                 if (mode === 'add') {
                                     const glbKey = window.selectedGlbKey || 'kingcastle3D';
                                     const id = 'palace_' + Date.now();
-                                    window.deployedPalaces.push({ id, lat, lng, scale: 1, offLng: 0, offLat: 0, offAlt: 0, rotZ: 0, rotX: 0, rotY: 0, glbKey });
+                                    window.deployedPalaces.push({ id, lat, lng, scale: 1, offLng: 0, offLat: 0, offAlt: 0, rotZ: 0, rotX: 0, rotY: 0, glbKey, yearStart: null, yearEnd: null });
                                     window.selectedPalaceId = id; _peUpdateSliders(); _peEnableSliders(true);
                                     _rebuildPalaceObjects(); window.mlMap3d.triggerRepaint(); _peStatus('배치 완료 ✓');
                                     _savePalaces();
@@ -28781,7 +28890,7 @@ kingSelect.addEventListener('change', () => {
                                             _threeScene = new THREE.Scene(); _threeCamera = new THREE.Camera();
                                             _threeScene.add(new THREE.AmbientLight(0xffffff, 0.8));
                                             const dl = new THREE.DirectionalLight(0xffd97a, 1.2); dl.position.set(100,200,100); _threeScene.add(dl);
-                                            PALACE_GLB_LIST.forEach(g => _loadGlb(g.key, g.path));
+                                            (window.PALACE_GLB_LIST || []).forEach(g => _loadGlb(g.key, g.path));
                                         },
                                         render(gl, matrix) {
                                             if (!_threeScene || !_threeCamera || !_threeRenderer) return;
@@ -28799,7 +28908,16 @@ kingSelect.addEventListener('change', () => {
                                                 _threeCamera.projectionMatrix.multiply(rteTransform);
 
                                                 // 4. 오브젝트: 카메라 중심 기준 상대 좌표로 배치
+                                                // 현재 타임라인 연도 가져오기
+                                                const _curYear = (typeof getCurrentYearMonth === 'function') ? getCurrentYearMonth().year : null;
+
                                                 window.deployedPalaces.forEach(palace => {
+                                                    // 노출 시점 필터링
+                                                    if (_curYear != null) {
+                                                        const ys = palace.yearStart, ye = palace.yearEnd;
+                                                        if (ys != null && _curYear < ys) { const o = _threeScene.getObjectByName(palace.id); if (o) _threeScene.remove(o); return; }
+                                                        if (ye != null && _curYear > ye) { const o = _threeScene.getObjectByName(palace.id); if (o) _threeScene.remove(o); return; }
+                                                    }
                                                     let obj = _threeScene.getObjectByName(palace.id);
                                                     if (!obj) {
                                                         const base = _glbCache[palace.glbKey || 'kingcastle3D'];
