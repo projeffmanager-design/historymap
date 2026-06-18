@@ -1683,7 +1683,11 @@
                 const isAdminRole = userRole === 'admin' || userRole === 'superuser';
                 const canVote = !isOwnContribution && selectedContribution.status === 'pending' && !isGuestUser;
                 const canReview = (isAdminRole || reviewerPositions.includes(userPosition)) && selectedContribution.status === 'pending' && !isOwnContribution;
-                const canApprove = (isAdminRole || approverPositions.includes(userPosition)) && selectedContribution.status === 'reviewed' && !isOwnContribution;
+                const positionMatches = (pos, list) => list.some(p => pos && pos.includes(p));
+                const canApprove = (isAdminRole || positionMatches(userPosition, approverPositions))
+                    && (selectedContribution.status === 'reviewed' || selectedContribution.status === 'pending')
+                    && !isOwnContribution;
+                const canRejectFinal = canApprove;
                 
                 console.log('  - canVote:', canVote);
                 console.log('  - canReview:', canReview);
@@ -1825,7 +1829,7 @@
                         </div>
                         ` : ''}
                         
-                        ${(canVote || canReview || canApprove) ? `
+                        ${(canVote || canReview || canApprove || canRejectFinal) ? `
                         <div style="background: rgba(255,255,255,0.04); padding: 18px; border-radius: 8px; margin-top: 22px; border: 1px solid rgba(180,140,80,0.25);">
                             <div style="color: #f0e2c0; font-weight: 700; margin-bottom: 14px; font-size: 15px;">⚡ 작업 수행</div>
                             <div style="display: flex; gap: 12px; flex-wrap: wrap;">
@@ -1835,6 +1839,7 @@
                                     <button onclick="reviewContribution('${contributionId}', 'rejected')" style="flex: 1; min-width: 130px; background: rgba(200,70,60,0.75); color: #f0e0dc; border: 1px solid rgba(200,70,60,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(220,80,70,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(200,70,60,0.75)';">❌ 검토 거부</button>
                                 ` : ''}
                                 ${canApprove ? `<button onclick="approveContribution('${contributionId}')" style="flex: 1; min-width: 130px; background: rgba(180,140,80,0.75); color: #180e00; border: 1px solid rgba(180,140,80,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(200,160,90,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(180,140,80,0.75)';">⭐ 최종 승인</button>` : ''}
+                                ${canRejectFinal ? `<button onclick="rejectFinalContribution('${contributionId}')" style="flex: 1; min-width: 130px; background: rgba(200,70,60,0.75); color: #f0e0dc; border: 1px solid rgba(200,70,60,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(220,80,70,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(200,70,60,0.75)';">🚫 최종 반려</button>` : ''}
                             </div>
                         </div>
                         ` : ''}
@@ -2046,6 +2051,18 @@
             }
         }
 
+        // 🚩 index.html(지도)에 사료 상태 변경 알림 — 사관 사료 마커 즉시 갱신
+        function notifyOpenerContributionChanged(contributionId, newStatus) {
+            if (window.opener && !window.opener.closed) {
+                window.opener.postMessage({
+                    type: 'contributionReviewed',
+                    contributionId,
+                    newStatus
+                }, '*');
+                console.log(`✅ [ranking.html → index.html] 사료 상태 변경 알림: ${contributionId} → ${newStatus}`);
+            }
+        }
+
         // 🚩 [추가] 사료 검토 함수
         async function reviewContribution(contributionId, action) {
             try {
@@ -2079,15 +2096,9 @@
                 if (response.ok) {
                     alert(status === 'approved' ? '검토 승인되었습니다!' : '검토 거부되었습니다.');
                     
-                    // � [추가] 부모 창(index.html)에 실시간 업데이트 알림
-                    if (window.opener && !window.opener.closed) {
-                        window.opener.postMessage({
-                            type: 'contributionReviewed',
-                            contributionId: contributionId,
-                            newStatus: status
-                        }, '*');
-                        console.log(`✅ [ranking.html → index.html] 검토 완료 메시지 전송: ${contributionId} → ${status}`);
-                    }
+                    // 서버 실제 상태: approved → reviewed, rejected → rejected
+                    const serverStatus = status === 'approved' ? 'reviewed' : 'rejected';
+                    notifyOpenerContributionChanged(contributionId, serverStatus);
                     
                     // �🚩 [수정] 모달을 닫고 목록 새로고침 (상태가 변경되므로)
                     document.getElementById('contributionDetailModal').style.display = 'none';
@@ -2127,6 +2138,8 @@
                 if (response.ok) {
                     alert('최종 승인되었습니다!');
                     
+                    notifyOpenerContributionChanged(contributionId, 'approved');
+                    
                     // 🚩 [수정] 모달을 닫고 목록 새로고침 (상태가 변경되므로)
                     document.getElementById('contributionDetailModal').style.display = 'none';
                     loadContributions();
@@ -2136,6 +2149,45 @@
             } catch (error) {
                 console.error('❌ 승인 실패:', error);
                 alert('승인에 실패했습니다.');
+            }
+        }
+
+        // 🚩 [추가] 사료 최종 반려 함수 (동수국사 이상)
+        async function rejectFinalContribution(contributionId) {
+            try {
+                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                if (!token) {
+                    alert('로그인이 필요합니다.');
+                    return;
+                }
+
+                const comment = prompt('최종 반려 사유를 입력하세요. (선택사항)');
+                if (comment === null) return;
+
+                if (!confirm(`이 사료를 최종 반려하시겠습니까?${comment ? '\n\n반려 사유: ' + comment : ''}`)) return;
+
+                const response = await fetch(`${API_BASE_URL}/contributions/${contributionId}/reject-final`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ comment })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert('🚫 ' + (result.message || '최종 반려되었습니다.'));
+                    notifyOpenerContributionChanged(contributionId, 'rejected');
+                    document.getElementById('contributionDetailModal').style.display = 'none';
+                    loadContributions();
+                } else {
+                    alert(result.message || '반려에 실패했습니다.');
+                }
+            } catch (error) {
+                console.error('❌ 최종 반려 실패:', error);
+                alert('반려에 실패했습니다.');
             }
         }
 

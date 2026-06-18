@@ -31204,11 +31204,26 @@ kingSelect.addEventListener('change', () => {
             }
         };
 
+        // 🚩 사관 사료 마커 즉시 갱신 (승인/반려 후 지도 핀 제거)
+        window.refreshContributionMarkers = async (removeId) => {
+            try {
+                const freshContributions = await fetchData('contributions');
+                contributions = Array.isArray(freshContributions) ? freshContributions : [];
+                if (removeId) {
+                    contributions = contributions.filter(c => c._id !== removeId);
+                }
+                if (contributionLayerGroup && layerVisibility.userContributions) {
+                    const { year, month } = getCurrentYearMonth();
+                    updateMap(year, month, false, true);
+                }
+            } catch (error) {
+                console.error('❌ [사관 사료] 마커 갱신 실패:', error);
+            }
+        };
+
         window.loadContributions = async () => {
             try {
-                contributions = await fetchData('contributions');
-                const { year, month } = getCurrentYearMonth();
-                updateMap(year, month);
+                await window.refreshContributionMarkers();
                 console.log('Contributions reloaded and map updated');
             } catch (error) {
                 console.error('Failed to reload contributions:', error);
@@ -31234,7 +31249,7 @@ kingSelect.addEventListener('change', () => {
                     // 모달 닫기 및 목록 새로고침
                     const modal = document.getElementById('contributionDetailModal');
                     if (modal) modal.style.display = 'none';
-                    await window.loadContributions();
+                    await window.refreshContributionMarkers(id);
                     if (typeof displayContributions === 'function') displayContributions();
                 } else {
                     alert('❌ ' + (data.message || '반려 실패'));
@@ -31330,38 +31345,20 @@ kingSelect.addEventListener('change', () => {
                     const detailModal2 = document.getElementById('contributionDetailModal');
                     if (detailModal2) detailModal2.style.display = 'none';
                     
-                    // 🟢 실시간 업데이트: 마커 색상 즉시 변경
-                    if (status === 'reviewed') {
-                        // 전역 contributions 배열에서 해당 contribution 찾아서 상태 업데이트
+                    // 🟢 실시간 업데이트: 검토 승인 → 색상 변경, 거부/최종승인 → 마커 제거
+                    if (status === 'approved') {
                         const contribution = contributions.find(c => c._id === id);
                         if (contribution) {
                             contribution.status = 'reviewed';
                             console.log(`✅ [실시간 업데이트] ${contribution.name}의 상태를 'reviewed'로 변경`);
                         }
-                        
-                        // userContributions 레이어의 모든 마커 다시 렌더링 (Leaflet 방식)
                         if (contributionLayerGroup && layerVisibility.userContributions) {
-                            console.log('🔄 [실시간 업데이트] 사관 마커 다시 렌더링 중...');
                             const currentYear = parseInt(document.getElementById('yearInput')?.value) || 400;
                             const currentMonth = parseInt(document.getElementById('monthInput')?.value) || 1;
                             updateMap(currentYear, currentMonth, false, true);
-                            console.log('✅ [실시간 업데이트] 마커 렌더링 완료');
                         }
-                    } else if (status === 'approved') {
-                        // approved된 경우 마커 제거 (정식 Castle로 전환됨)
-                        const contributionIndex = contributions.findIndex(c => c._id === id);
-                        if (contributionIndex !== -1) {
-                            console.log(`✅ [실시간 업데이트] ${contributions[contributionIndex].name} 승인됨 - 마커 제거`);
-                            contributions.splice(contributionIndex, 1);
-                            
-                            // 마커 다시 렌더링 (Leaflet 방식)
-                            if (contributionLayerGroup && layerVisibility.userContributions) {
-                                const currentYear = parseInt(document.getElementById('yearInput')?.value) || 400;
-                                const currentMonth = parseInt(document.getElementById('monthInput')?.value) || 1;
-                                updateMap(currentYear, currentMonth, false, true);
-                                console.log('✅ [실시간 업데이트] 승인된 마커 제거 완료');
-                            }
-                        }
+                    } else if (status === 'rejected' || status === 'reviewed') {
+                        await window.refreshContributionMarkers(id);
                     }
                 } else {
                     alert(data.message || '검토 실패');
@@ -32113,29 +32110,29 @@ kingSelect.addEventListener('change', () => {
           return;
         }
 
-        if (event.data.type === 'contributionReviewed') {
+        if (event.data && event.data.type === 'contributionReviewed') {
           const { contributionId, newStatus } = event.data;
           console.log(`📨 [메시지 수신] ${contributionId} → ${newStatus}`);
           
-          // 🔄 서버에서 최신 contributions 데이터 다시 불러오기
           try {
-            console.log('🔄 [실시간 업데이트] 서버에서 최신 데이터 불러오는 중...');
-            const freshContributions = await fetchData('contributions');
-            console.log('📥 [실시간 업데이트] 받은 데이터:', freshContributions ? freshContributions.length : 'null');
-            
-            if (freshContributions && freshContributions.length > 0) {
-              contributions = freshContributions;
-              console.log(`✅ [실시간 업데이트] Contributions 데이터 갱신 완료: ${contributions.length}개`);
-              
-              // Leaflet 방식: contributionLayerGroup 직접 갱신
+            if (newStatus === 'reviewed') {
+              const contribution = contributions.find(c => c._id === contributionId);
+              if (contribution) contribution.status = 'reviewed';
               if (contributionLayerGroup && layerVisibility.userContributions) {
-                contributionLayerGroup.clearLayers();
                 const currentYear = parseInt(document.getElementById('yearInput')?.value) || 400;
                 const currentMonth = parseInt(document.getElementById('monthInput')?.value) || 1;
                 updateMap(currentYear, currentMonth, false, true);
-                console.log('✅ [실시간 업데이트] 마커 레이어 갱신 완료');
+              }
+            } else if (newStatus === 'approved' || newStatus === 'rejected') {
+              if (typeof window.refreshContributionMarkers === 'function') {
+                await window.refreshContributionMarkers(contributionId);
+              }
+            } else {
+              if (typeof window.refreshContributionMarkers === 'function') {
+                await window.refreshContributionMarkers();
               }
             }
+            console.log('✅ [실시간 업데이트] 사관 사료 마커 갱신 완료');
           } catch (error) {
             console.error('❌ [실시간 업데이트] Contributions 갱신 실패:', error);
           }
