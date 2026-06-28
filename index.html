@@ -6698,6 +6698,7 @@ body.force-mobile .marker-type-selector button {
           <button id="menu-user-management" style="display:none;">회원 관리</button>
           <button id="menu-territory-management" style="display:none;">영토 관리</button>
           <hr style="border: 0; border-top: 2px solid rgba(231,76,60,0.4); margin: 12px 0 8px 0;">
+          <button id="menu-login" style="display:none; background: rgba(212,168,67,0.12); border-color: #d4a843; color: #f5d98b;">로그인</button>
           <button id="menu-logout" class="danger" style="margin-top:4px; opacity:0.85;">⏻ 로그아웃</button>
       </div>
 
@@ -25171,6 +25172,13 @@ kingSelect.addEventListener('change', () => {
         // 🚀 [최적화] 중복 호출 방지 캐시 추가
         let lastUserInfoUpdate = 0;
         const USER_INFO_CACHE_DURATION = 30000; // 30초 캐시
+
+        function syncHamburgerAuthButtons(loggedIn, isGuest = false) {
+            const menuLoginBtn = document.getElementById('menu-login');
+            const menuLogoutBtn = document.getElementById('menu-logout');
+            if (menuLoginBtn) menuLoginBtn.style.display = (!loggedIn || isGuest) ? 'block' : 'none';
+            if (menuLogoutBtn) menuLogoutBtn.style.display = (loggedIn && !isGuest) ? 'block' : 'none';
+        }
         
         async function updateTopBarUserInfo(forceUpdate = false, blocking = false) {
             console.log('🚀 updateTopBarUserInfo 호출됨 (forceUpdate:', forceUpdate, ', blocking:', blocking, ')');
@@ -25187,6 +25195,7 @@ kingSelect.addEventListener('change', () => {
             
             if (!currentUser || !token) {
                 console.log('❌ currentUser 또는 token이 없음');
+                syncHamburgerAuthButtons(false);
                 return;
             }
             
@@ -25201,6 +25210,7 @@ kingSelect.addEventListener('change', () => {
                     const logoutBtn = document.getElementById('topbar-logout-btn');
                     if (loginBtn) loginBtn.style.display = 'inline-flex';
                     if (logoutBtn) logoutBtn.style.display = 'none';
+                    syncHamburgerAuthButtons(true, true);
                     console.log('⚡ 게스트 사용자 - 직급 비노출');
                 } else {
                     // 로컬 스토리지에서 캐시된 정보 사용
@@ -25234,6 +25244,7 @@ kingSelect.addEventListener('change', () => {
                     const logoutBtn = document.getElementById('topbar-logout-btn');
                     if (loginBtn) loginBtn.style.display = 'inline-flex';
                     if (logoutBtn) logoutBtn.style.display = 'none';
+                    syncHamburgerAuthButtons(true, true);
                     return;
                 }
 
@@ -25292,6 +25303,7 @@ kingSelect.addEventListener('change', () => {
                 const _logoutBtn = document.getElementById('topbar-logout-btn');
                 if (_loginBtn) _loginBtn.style.display = 'none';
                 if (_logoutBtn) _logoutBtn.style.display = 'inline-flex';
+                syncHamburgerAuthButtons(true, false);
                 
                 // 🚀 [최적화] 마지막 업데이트 시간 기록
                 lastUserInfoUpdate = Date.now();
@@ -25309,6 +25321,7 @@ kingSelect.addEventListener('change', () => {
                 const _errLogoutBtn = document.getElementById('topbar-logout-btn');
                 if (_errLoginBtn) _errLoginBtn.style.display = 'none';
                 if (_errLogoutBtn) _errLogoutBtn.style.display = 'inline-flex';
+                syncHamburgerAuthButtons(true, !!currentUser?.isGuest);
             }
         }
 
@@ -29285,6 +29298,15 @@ kingSelect.addEventListener('change', () => {
             });
         }
 
+        // 🚩 [추가] 햄버거 메뉴 - 로그인 버튼
+        const menuLoginBtn = document.getElementById('menu-login');
+        if (menuLoginBtn) {
+            menuLoginBtn.addEventListener('click', () => {
+                toggleHamburgerMenu();
+                window.location.href = '/login';
+            });
+        }
+
         // �🚩 [수정] 햄버거 메뉴 - 로그아웃 버튼 → 2단계 확인 모달
         const menuLogoutBtn = document.getElementById('menu-logout');
         if (menuLogoutBtn) {
@@ -30265,6 +30287,7 @@ kingSelect.addEventListener('change', () => {
                 if (menuHistoricalRecord) menuHistoricalRecord.style.display = 'none';
                 const menuAccountMgmt = document.getElementById('menu-account-management');
                 if (menuAccountMgmt) menuAccountMgmt.style.display = 'none';
+                if (typeof syncHamburgerAuthButtons === 'function') syncHamburgerAuthButtons(true, true);
                 const menuLogoutHamburger = document.getElementById('menu-logout');
                 if (menuLogoutHamburger) menuLogoutHamburger.style.display = 'none';
                 // 🚫 [추가] 모바일(현재 창 너비) + 비로그인/게스트: 필터창도 숨김
@@ -30292,6 +30315,7 @@ kingSelect.addEventListener('change', () => {
                 // 🚩 [추가] 일반 유저는 사관 기록 제출 버튼 표시
                 const historicalRecordBtn = document.getElementById('historicalRecordButton');
                 if (historicalRecordBtn) historicalRecordBtn.style.display = 'block';
+                if (typeof syncHamburgerAuthButtons === 'function') syncHamburgerAuthButtons(true, false);
             }
             const isPrivileged = currentUser.role === 'admin' || currentUser.role === 'superuser';
             const approverPositions = ['수국사', '동수국사', '감수국사', '문하시중'];
@@ -30341,6 +30365,7 @@ kingSelect.addEventListener('change', () => {
             if (mobileEditDropdownContainer) {
                 mobileEditDropdownContainer.style.display = 'none';
             }
+            if (typeof syncHamburgerAuthButtons === 'function') syncHamburgerAuthButtons(false);
             setEditModeState(false);
         }
 
