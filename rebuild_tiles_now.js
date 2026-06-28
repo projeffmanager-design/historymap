@@ -87,6 +87,8 @@ function _territoryToFeature(territory) {
             name_ko: territory.name_ko,
             type: territory.type,
             level: territory.level,
+            // Do not export territory.country_id here. City/province ownership is timeline-based
+            // and is resolved from active castle/history markers at render time.
             country: territory.country ? territory.country.toString() : null,
             country_id: territory.country ? territory.country.toString() : null,
             start_year: territory.start_year || territory.start || null,
