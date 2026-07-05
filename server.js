@@ -1399,6 +1399,17 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
 
         // ── 📢 [추가] 지도 광고 마커 API — 관리자가 지도 위 원하는 위치에 직접 생성하는 스폰서 마커 ──
 
+        // 🔗 스킴 없는 URL 보정 헬퍼 — "www.example.com" → "https://www.example.com"
+        // (스킴이 없으면 클라이언트에서 상대 경로로 해석되는 버그 방지)
+        const normalizeAdUrl = (u) => {
+            if (!u) return '';
+            const t = String(u).trim();
+            if (!t) return '';
+            if (/^https?:\/\//i.test(t)) return t;
+            if (/^\/\//.test(t)) return 'https:' + t;
+            return 'https://' + t.replace(/^\/+/, '');
+        };
+
         // GET: 활성화된 광고 마커 전체 조회 (공개 - 지도 렌더링용)
         app.get('/api/ad-markers', async (req, res) => {
             try {
@@ -1437,8 +1448,8 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     lat: latNum,
                     lng: lngNum,
                     title: (title || '광고').trim(),
-                    imageUrl: (imageUrl || '').trim(),
-                    linkUrl: String(linkUrl).trim(),
+                    imageUrl: normalizeAdUrl(imageUrl),
+                    linkUrl: normalizeAdUrl(linkUrl),
                     description: (description || '').trim(),
                     active: active !== false,
                     clicks: 0,
@@ -1470,8 +1481,8 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                 if (lat !== undefined && lat !== null && !isNaN(latNum)) updateDoc.lat = latNum;
                 if (lng !== undefined && lng !== null && !isNaN(lngNum)) updateDoc.lng = lngNum;
                 if (title !== undefined) updateDoc.title = String(title).trim();
-                if (imageUrl !== undefined) updateDoc.imageUrl = String(imageUrl).trim();
-                if (linkUrl !== undefined) updateDoc.linkUrl = String(linkUrl).trim();
+                if (imageUrl !== undefined) updateDoc.imageUrl = normalizeAdUrl(imageUrl);
+                if (linkUrl !== undefined) updateDoc.linkUrl = normalizeAdUrl(linkUrl);
                 if (description !== undefined) updateDoc.description = String(description).trim();
                 if (active !== undefined) updateDoc.active = !!active;
 

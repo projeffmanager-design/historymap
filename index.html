@@ -24760,6 +24760,17 @@ kingSelect.addEventListener('change', () => {
     let adMarkers = [];
     let adMarkerLayerGroup = L.layerGroup().addTo(map);
 
+    // 🔗 스킴(https://) 없는 URL을 절대 URL로 보정 — "www.koreamanri.com" → "https://www.koreamanri.com"
+    // (스킴이 없으면 브라우저가 상대 경로로 해석해 http://127.0.0.1:3000/www.koreamanri.com 처럼 열리는 버그 방지)
+    function normalizeAdUrl(url) {
+        if (!url) return '';
+        const t = String(url).trim();
+        if (!t) return '';
+        if (/^https?:\/\//i.test(t)) return t;
+        if (/^\/\//.test(t)) return 'https:' + t; // //example.com 형태
+        return 'https://' + t.replace(/^\/+/, '');
+    }
+
     function buildAdMarkerIcon() {
         return L.divIcon({
             className: 'ad-marker-div-icon',
@@ -24782,7 +24793,7 @@ kingSelect.addEventListener('change', () => {
 
         if (m.imageUrl) {
             const img = document.createElement('img');
-            img.src = m.imageUrl;
+            img.src = normalizeAdUrl(m.imageUrl);
             img.style.cssText = 'width:100%; border-radius:6px; display:block; max-height:120px; object-fit:cover;';
             img.onerror = function () { img.style.display = 'none'; };
             wrap.appendChild(img);
@@ -24806,7 +24817,15 @@ kingSelect.addEventListener('change', () => {
         visitBtn.style.marginTop = '4px';
         visitBtn.onclick = () => {
             try { fetch(`${API_BASE_URL}/ad-markers/${idStr}/click`, { method: 'POST' }); } catch (e) {}
-            window.open(m.linkUrl, '_blank', 'noopener');
+            // 🚩 window.open의 3번째 인자(features)를 주면 "팝업 창"으로 떠버림 →
+            //    앵커 클릭 방식으로 변경해 일반 "새 탭"으로 열리게 함 (noopener 유지)
+            const a = document.createElement('a');
+            a.href = normalizeAdUrl(m.linkUrl);
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer sponsored';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
         };
         wrap.appendChild(visitBtn);
 
