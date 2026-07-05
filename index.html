@@ -12763,6 +12763,51 @@ function getCachedDominantCountry(territory, year, month) {
     return result;
 }
 
+// 🏯 [공용/수정] 영토 내부에 "활성" castle이 있는지 확인 — level(province/city) 구분 없이 동일하게 적용
+//    이전에는 city 레벨에서만 계산되어, province가 country 폴리곤에 흡수(absorb)될 때
+//    실제로는 castle이 존재해 색칠되어야 할 province가 스킵되어 지도 중간에 색이 빠지는 현상이 있었음.
+//    → level 제한을 없애고 updateMap/updateVisibleTerritories가 공용으로 사용하도록 통합.
+let _activeCastleTerritoryCache = new Map(); // key: territory._id → boolean
+let _activeCastleTerritoryCacheKey = ''; // 활성 성 목록 fingerprint (연도/월 변경 시 무효화)
+function getTerritoryHasActiveCastle(territory, geometry, year, month) {
+    if (!geometry) return false;
+
+    // 활성 성 목록(연도/월)이 바뀌면 캐시 초기화
+    const fingerprint = `${(window._activeCastlesForTerritory || []).length}_${year}_${month}`;
+    if (fingerprint !== _activeCastleTerritoryCacheKey) {
+        _activeCastleTerritoryCache.clear();
+        _activeCastleTerritoryCacheKey = fingerprint;
+    }
+
+    const cacheKey = String(territory._id || territory.name);
+    if (_activeCastleTerritoryCache.has(cacheKey)) return _activeCastleTerritoryCache.get(cacheKey);
+
+    const bounds = getTerritoryBounds(territory);
+    let rings = [];
+    if (geometry.type === 'Polygon') {
+        if (geometry.coordinates?.[0]) rings = [geometry.coordinates[0].map(c => [c[1], c[0]])];
+    } else if (geometry.type === 'MultiPolygon') {
+        rings = (geometry.coordinates || [])
+            .map(poly => poly?.[0] ? poly[0].map(c => [c[1], c[0]]) : null)
+            .filter(Boolean);
+    }
+
+    const hasCastle = rings.length > 0 && (window._activeCastlesForTerritory || []).some(castle => {
+        if (bounds && (
+            castle.lat < bounds.minLat || castle.lat > bounds.maxLat ||
+            castle.lng < bounds.minLng || castle.lng > bounds.maxLng
+        )) return false;
+        return rings.some(ring => isPointInPolygon([castle.lat, castle.lng], ring));
+    });
+
+    _activeCastleTerritoryCache.set(cacheKey, hasCastle);
+    if (_activeCastleTerritoryCache.size > 5000) {
+        const iter = _activeCastleTerritoryCache.keys();
+        for (let i = 0; i < 1000; i++) _activeCastleTerritoryCache.delete(iter.next().value);
+    }
+    return hasCastle;
+}
+
 // 🔄 [무한 루프 방지] updateMap 디바운싱
 let updateMapTimer = null;
 let lastUpdateMapCall = { year: null, month: null, cacheOnly: null, dataFingerprint: null };
@@ -12956,35 +13001,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const provinceFeatures = new Map();  // (미사용, 호환성 유지)
             const countryFeatures = new Map();   // (미사용, 호환성 유지)
             const allTerritoryFeatures = new Map(); // 레벨 무관 전체 수집
-            const activeCastleTerritoryCache = new Map();
 
-            const territoryHasActiveCastle = (territory, geometry) => {
-                if ((territory.level || 'city') !== 'city' || !geometry) return false;
-                const cacheKey = `${territory._id || territory.name}_${year}_${month}`;
-                if (activeCastleTerritoryCache.has(cacheKey)) return activeCastleTerritoryCache.get(cacheKey);
-
-                const bounds = getTerritoryBounds(territory);
-                let rings = [];
-                if (geometry.type === 'Polygon') {
-                    if (geometry.coordinates?.[0]) rings = [geometry.coordinates[0].map(c => [c[1], c[0]])];
-                } else if (geometry.type === 'MultiPolygon') {
-                    rings = (geometry.coordinates || [])
-                        .map(poly => poly?.[0] ? poly[0].map(c => [c[1], c[0]]) : null)
-                        .filter(Boolean);
-                }
-
-                const hasCastle = rings.length > 0 && (window._activeCastlesForTerritory || []).some(castle => {
-                    if (bounds && (
-                        castle.lat < bounds.minLat || castle.lat > bounds.maxLat ||
-                        castle.lng < bounds.minLng || castle.lng > bounds.maxLng
-                    )) return false;
-                    return rings.some(ring => isPointInPolygon([castle.lat, castle.lng], ring));
-                });
-
-                activeCastleTerritoryCache.set(cacheKey, hasCastle);
-                return hasCastle;
-            };
-            
             territories.forEach(territory => {
                 // _id 기준 중복 체크 — 같은 이름이 여러 시대 버전으로 존재할 때 모두 처리
                 const localKey = String(territory._id || `${territory.name}_${territory.type}`);
@@ -13103,7 +13120,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         isExclusive: dominantResult.isExclusive,
                         countriesInZone: dominantResult.countriesInZone,
                         level: territory.level || 'city',
-                        hasActiveCastle: territoryHasActiveCastle(territory, geometry)
+                        hasActiveCastle: getTerritoryHasActiveCastle(territory, geometry, year, month)
                     }
                 };
                 
@@ -13254,8 +13271,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         pushRings(provinceRingsByCountry, countryId, geom);
                     } else if (level === 'province') {
                         // province: country ring 안에 centroid가 있으면 skip (색이 같아서 이중 paint)
+                        // 🔧 [수정] 활성 castle이 있으면 흡수(skip)하지 않고 항상 칠함 — 색 누락 방지
                         const centroid = getCentroid(geom);
-                        if (centroid) {
+                        if (centroid && !f.properties?.hasActiveCastle) {
                             const cRings = countryRingsByCountry.get(countryId) || [];
                             if (cRings.some(ring => isPointInPolygon(centroid, ring))) {
                                 continue;
@@ -13265,6 +13283,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         pushRings(provinceRingsByCountry, countryId, geom);
                     } else {
                         // city: country+province ring 안에 centroid가 있으면 skip
+                        // 🔧 활성 castle이 있으면 흡수(skip)하지 않고 항상 칠함 — 색 누락 방지
                         const centroid = getCentroid(geom);
                         if (centroid && !f.properties?.hasActiveCastle) {
                             const pRings = provinceRingsByCountry.get(countryId) || [];
@@ -13417,8 +13436,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     _3d_pushRings(_3d_countryRings,  cidStr, geom);
                     _3d_pushRings(_3d_provinceRings, cidStr, geom);
                 } else if (level === 'province') {
+                    // 🔧 활성 castle이 있으면 흡수(skip)하지 않고 항상 칠함 — 색 누락 방지
                     const centroid = _3d_getCentroid(geom);
-                    if (centroid) {
+                    if (centroid && !f.properties?.hasActiveCastle) {
                         const cRings = _3d_countryRings.get(cidStr) || [];
                         if (cRings.some(ring => isPointInPolygon(centroid, ring))) continue; // absorbed
                     }
@@ -18869,7 +18889,8 @@ const loadingMessages = [
                   properties: {
                       name: territory.name,
                       country_id: dominantCountryId,
-                      level: territory.level || 'city'
+                      level: territory.level || 'city',
+                      hasActiveCastle: getTerritoryHasActiveCastle(territory, geometry, year, month)
                   }
               });
 
@@ -18966,16 +18987,18 @@ const loadingMessages = [
                   pushRings2(provinceRings2, countryId, geom);
               } else if (level === 'province') {
                   // province: country ring 안에 포함되면 skip (같은 색 이중 paint 방지)
+                  // 🔧 활성 castle이 있으면 흡수(skip)하지 않고 항상 칠함 — 색 누락 방지
                   const centroid = getCentroid2(geom);
-                  if (centroid) {
+                  if (centroid && !f.properties?.hasActiveCastle) {
                       const cRings = countryRings2.get(countryId) || [];
                       if (cRings.some(ring => isPointInPolygon(centroid, ring))) continue;
                   }
                   pushRings2(provinceRings2, countryId, geom);
               } else {
                   // city: country+province ring 안에 포함되면 skip
+                  // 🔧 활성 castle이 있으면 흡수(skip)하지 않고 항상 칠함 — 색 누락 방지
                   const centroid = getCentroid2(geom);
-                  if (centroid) {
+                  if (centroid && !f.properties?.hasActiveCastle) {
                       const pRings = provinceRings2.get(countryId) || [];
                       if (pRings.some(ring => isPointInPolygon(centroid, ring))) continue;
                   }
