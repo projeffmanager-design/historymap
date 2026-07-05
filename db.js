@@ -59,6 +59,7 @@ async function connectToDatabase() {
             collections.siteSettings = db.collection("site_settings"); // 🚩 [추가] 사이트 전역 설정 컬렉션
             collections.quizzes = db.collection("quizzes"); // 🚩 [추가] 사관 역사 퀴즈 컬렉션
             collections.cards = db.collection("cards");     // 🚩 [추가] 사관 보감(카드 도감) 컬렉션
+            collections.adMarkers = db.collection("ad_markers"); // 📢 [추가] 관리자 생성 지도 광고 마커 컬렉션
 
             // 🚩 [추가] 지리 공간 인덱스 생성
             try {

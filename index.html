@@ -15,6 +15,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=East+Sea+Dokdo&family=Nanum+Myeongjo:wght@700&family=Yeon+Sung&display=swap" rel="stylesheet">
 
+    <!-- 📢 [추가] Google AdSense 로더 — 지도 화면에는 노출되지 않고 햄버거 사이드 메뉴에서만 렌더링됨. -->
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6821586098117394" crossorigin="anonymous"></script>
+
     <!-- MapLibre 사전 캐시 (3D 버튼 클릭 시 사용 — prefetch로 낮은 우선순위 캐싱) -->
     <link rel="preconnect" href="https://unpkg.com" crossorigin>
     <link rel="preconnect" href="https://s3.amazonaws.com" crossorigin>
@@ -1631,6 +1634,9 @@ body.force-mobile .marker-type-selector button {
         /* 탑바 실제 높이: padding 5px×2 + 버튼 height 36px = 46px
            2D·3D·위성 모든 모드에서 이 값을 단일 기준으로 사용 */
         --topbar-h: 46px;
+        /* 📢 [추가] 하단 광고 바 높이 — JS가 광고 노출 여부에 따라 0px 또는 실제 높이로 갱신.
+           기본값 0px이므로 광고가 없으면 기존 좌표(38px/58px/56px 등)가 그대로 유지됨. */
+        --ad-bottom-h: 0px;
     }
 
     /* 🚩 [추가] 뷰포트 전체를 사용하도록 html, body 높이 설정 */
@@ -1661,7 +1667,37 @@ body.force-mobile .marker-type-selector button {
         box-sizing: border-box; /* 패딩을 너비/높이에 포함 */
         min-height: 0; /* flex 아이템의 최소 높이 문제 해결 */
     }
-    /* 🚩 우측 패널 및 리사이저 숨김 — 지도가 전체 너비 차지 */
+    /* � [추가] 하단 광고 바 — body의 flex 형제 요소로 두어 지도 영역이 자동으로 줄어들도록 함
+       (지도를 가리지 않고, 광고가 없을 때는 height:0으로 완전히 사라짐) */
+    #bottom-ad-bar {
+        flex: 0 0 auto;
+        width: 100%;
+        height: 56px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        background: #101418;
+        border-top: 1px solid rgba(255,255,255,0.08);
+        box-sizing: border-box;
+        overflow: hidden;
+    }
+    #bottom-ad-bar .bottom-ad-label {
+        flex-shrink: 0;
+        font-size: 9px;
+        color: #5d7185;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        writing-mode: vertical-rl;
+    }
+    /* 모바일 · 3D 모드에서는 정교하게 튜닝된 타임라인 레이아웃 보호를 위해 숨김
+       (모바일은 Google 앵커 광고 등 별도 방식을 권장) */
+    body.force-mobile #bottom-ad-bar,
+    body.mode-3d #bottom-ad-bar {
+        display: none !important;
+        height: 0 !important;
+    }
+    /* �🚩 우측 패널 및 리사이저 숨김 — 지도가 전체 너비 차지 */
     #resizer,
     #rightPanel {
         display: none !important;
@@ -1813,7 +1849,7 @@ body.force-mobile .marker-type-selector button {
     /* 🗺️ 하단 고지도 그라데이션 오버레이 */
     #bottom-vignette {
         position: fixed;
-        bottom: 0;
+        bottom: var(--ad-bottom-h, 0px);
         left: 0;
         right: 0;
         height: 56px;
@@ -1887,7 +1923,7 @@ body.force-mobile .marker-type-selector button {
     #timeline-sidebar {
         display: none;
         position: fixed;
-        bottom: 56px;
+        bottom: calc(56px + var(--ad-bottom-h, 0px));
         left: 50%;
         transform: translateX(-50%);
         width: min(900px, 97vw);
@@ -6565,7 +6601,19 @@ body.force-mobile .marker-type-selector button {
               <button id="topbarSearchBtn" title="검색">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>
               </button>
-              <div id="topbarSearchResults"></div>
+              <div id="topbarSearchResults">
+                  <div id="tb-results-top"></div>
+                  <div id="tb-search-ad-slot" style="display:none; padding:6px 0; margin:2px 0; border-top:1px dashed rgba(255,255,255,0.12); border-bottom:1px dashed rgba(255,255,255,0.12); text-align:center; overflow:hidden;">
+                      <div style="font-size:9px; color:#7a8a99; letter-spacing:1px; padding:0 12px 3px;">AD</div>
+                      <ins class="adsbygoogle"
+                           style="display:block"
+                           data-ad-client="ca-pub-6821586098117394"
+                           data-ad-slot="0000000004"
+                           data-ad-format="auto"
+                           data-full-width-responsive="true"></ins>
+                  </div>
+                  <div id="tb-results-bottom"></div>
+              </div>
           </div>
           <!-- 📱 모바일 전용 검색 아이콘 버튼 (좌측 그룹, #topbar-search-box 대체) -->
           <button id="mobile-search-icon-btn" title="검색" style="display:none;">
@@ -6638,7 +6686,19 @@ body.force-mobile .marker-type-selector button {
           <input type="text" id="mobileSearchInput" placeholder="지명·국가·인물·사건 검색…" autocomplete="off" inputmode="search" enterkeyhint="search">
           <button id="mobileSearchCancelBtn">취소</button>
       </div>
-      <div id="mobileSearchResults"></div>
+      <div id="mobileSearchResults">
+          <div id="mb-results-top"></div>
+          <div id="mb-search-ad-slot" style="display:none; padding:8px 0; margin:2px 0; border-top:1px dashed rgba(255,255,255,0.12); border-bottom:1px dashed rgba(255,255,255,0.12); text-align:center; overflow:hidden;">
+              <div style="font-size:9px; color:#7a8a99; letter-spacing:1px; padding:0 14px 3px;">AD</div>
+              <ins class="adsbygoogle"
+                   style="display:block"
+                   data-ad-client="ca-pub-6821586098117394"
+                   data-ad-slot="0000000005"
+                   data-ad-format="auto"
+                   data-full-width-responsive="true"></ins>
+          </div>
+          <div id="mb-results-bottom"></div>
+      </div>
   </div>
 
   <!-- 사관청 소식 팝업 오버레이 -->
@@ -6878,6 +6938,19 @@ body.force-mobile .marker-type-selector button {
               </div>
           </a>
       </div>
+
+      <!-- 📢 [추가] Google AdSense — 사이드 메뉴 전용 광고 슬롯
+           지도 화면 위에는 절대 노출되지 않고, 사용자가 햄버거 메뉴를 열었을 때만 보임.
+           ⚠️ data-ad-slot 을 AdSense 승인 후 발급받은 실제 광고 단위 슬롯 ID로 교체하세요. -->
+      <div id="sidebar-ad-slot" style="margin-top:16px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.08); min-height:0;">
+          <div style="font-size:9px; color:#5d7185; letter-spacing:1px; margin-bottom:6px; text-transform:uppercase;">Sponsored</div>
+          <ins class="adsbygoogle"
+               style="display:block"
+               data-ad-client="ca-pub-6821586098117394"
+               data-ad-slot="0000000000"
+               data-ad-format="auto"
+               data-full-width-responsive="true"></ins>
+      </div>
   </div>
 
   <!-- 🚩 [추가] 로그아웃 확인 모달 (2단계 방지) -->
@@ -6899,7 +6972,12 @@ body.force-mobile .marker-type-selector button {
   <div id="mainContainer">
     <div id="leftColumn" style="flex-basis: 100%; flex-grow: 1; flex-shrink: 1;">
       <div id="map" style="width: 100%; height: 100%; min-height: 0; position: relative;">
-        <!-- 🚩 [숨김] 시간 컨트롤과 레이어 토글을 지도 내부 왼쪽 상단에 배치 (햄버거 메뉴로 이동) -->
+        <!-- � [추가] 지도 좌상단 소형 광고 — 빈 코너에 배치, 명확히 "AD" 라벨 표기 + 닫기 가능
+             (편집모드 그리기 툴바는 우측 중앙으로 옮겨져 있어 이 코너는 항상 비어 있음) -->
+        <!-- 📢 [변경] 기존 고정 위치 지도 코너 광고 박스는, 관리자가 지도 위 원하는 곳에
+             직접 생성하는 "광고 마커" 시스템으로 대체되었습니다.
+             (우클릭 → 편집 모드 → "광고 마커 만들기" / 렌더링·폼: loadAdMarkers(), adMarkerForm 참고) -->
+        <!-- �🚩 [숨김] 시간 컨트롤과 레이어 토글을 지도 내부 왼쪽 상단에 배치 (햄버거 메뉴로 이동) -->
         <div id="time-controls-map" class="time-controls" style="position: absolute; top: 10px; left: 10px; z-index: 1000; background: rgba(30, 42, 56, 0.95); padding: 8px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); display: none; align-items: center; gap: 5px;">
             <!-- 🚩 [수정] 모바일 컨트롤 그룹 (연도 + 화살표 + 표시 + 편집) -->
             <div id="mobile-left-controls" style="display: none; align-items: center; gap: 2px;">
@@ -7036,7 +7114,7 @@ body.force-mobile .marker-type-selector button {
         </div>
         
         <!-- 🚩 [추가] 모바일용 위성/일반 버튼 (우측 하단) -->
-        <div id="mobile-tile-layer-control" style="display: none; position: fixed; bottom: 50px; right: 10px; z-index: 1000; gap: 2px;">
+        <div id="mobile-tile-layer-control" style="display: none; position: fixed; bottom: calc(50px + var(--ad-bottom-h, 0px)); right: 10px; z-index: 1000; gap: 2px;">
             <button id="satellite-tile-btn" class="active" style="padding: 4px 10px; font-size: 10px; background: rgba(50, 62, 76, 0.9); border: 1px solid rgba(93, 113, 133, 0.5); border-radius: 3px; color: #b0b0b0; cursor: pointer; font-weight: 500;">위성</button>
             <button id="normal-tile-btn" style="padding: 4px 10px; font-size: 10px; background: rgba(50, 62, 76, 0.9); border: 1px solid rgba(93, 113, 133, 0.5); border-radius: 3px; color: #b0b0b0; cursor: pointer; font-weight: 500;">일반</button>
         </div>
@@ -7058,7 +7136,7 @@ body.force-mobile .marker-type-selector button {
         </div>
 
         <!-- 🚩 [추가] 현재 연도 표시 (왼쪽 상단) -->
-        <div id="current-year-display" style="position: fixed; bottom: 58px; left: 50%; transform: translateX(-50%); z-index: 1000; background: transparent; color: rgba(255,255,255,0.82); font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; font-size: 13px; font-weight: 400; text-shadow: 0 1px 4px rgba(0,0,0,0.9); pointer-events: none; white-space: nowrap; letter-spacing: 0.03em;"></div>
+        <div id="current-year-display" style="position: fixed; bottom: calc(58px + var(--ad-bottom-h, 0px)); left: 50%; transform: translateX(-50%); z-index: 1000; background: transparent; color: rgba(255,255,255,0.82); font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; font-size: 13px; font-weight: 400; text-shadow: 0 1px 4px rgba(0,0,0,0.9); pointer-events: none; white-space: nowrap; letter-spacing: 0.03em;"></div>
         
         <!-- 🚩 [복구] 지도 위 미니 사관 랭킹 (5위까지) -->
         <div id="rankingDisplay" style="position: fixed; top: 72px; right: 0; z-index: 1000; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; border: none; border-radius: 8px; color: white; font-size: 12px; font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; text-shadow: 1px 1px 3px rgba(0,0,0,0.9); line-height: 1.6; pointer-events: auto; min-width: 180px; max-width: 234px; user-select: none; transition: background 0.25s ease, box-shadow 0.25s ease;">
@@ -7069,7 +7147,7 @@ body.force-mobile .marker-type-selector button {
         </div>
         
         <!-- 🚩 [추가] 연대표 바 컨테이너 - pointer-events는 JS로 제어 -->
-        <div id="timeline-container" style="position: fixed; bottom: 38px; left: 2%; right: 2%; width: 96%; height: 14px; overflow: visible; display: block; background: transparent; z-index: 9998; pointer-events: none;">
+        <div id="timeline-container" style="position: fixed; bottom: calc(38px + var(--ad-bottom-h, 0px)); left: 2%; right: 2%; width: 96%; height: 14px; overflow: visible; display: block; background: transparent; z-index: 9998; pointer-events: none;">
             <!-- 연도 표시 (슬라이더 핸들 중앙에 표시) -->
             <div id="year-indicator" style="position: absolute; left: 50%; top: -35px; transform: translateX(-50%); background: rgba(0, 0, 0, 0.9); color: white; padding: 6px 14px; border-radius: 8px; font-size: 22px; line-height: 22px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; box-sizing: border-box; pointer-events: none; opacity: 0; transition: opacity 0.2s ease; z-index: 10001; border: 2px solid rgba(255,255,255,0.3); backdrop-filter: blur(8px); box-shadow: 0 4px 12px rgba(0,0,0,0.3);"></div>
             <!-- 연대표 바들 (createDynastyTimeline()에 의해 동적 생성) -->
@@ -7079,7 +7157,7 @@ body.force-mobile .marker-type-selector button {
         <div id="bottom-vignette"></div>
         
         <!-- 🚩 [수정] 타임슬라이더: 화면 최하단에 배치 (항상 표시) -->
-        <div id="timeline-control" style="position: fixed; bottom: 5px; left: 0; right: 0; width: 100%; z-index: 9999; pointer-events: none; background: transparent; border-radius: 0; padding: 0;">
+        <div id="timeline-control" style="position: fixed; bottom: calc(5px + var(--ad-bottom-h, 0px)); left: 0; right: 0; width: 100%; z-index: 9999; pointer-events: none; background: transparent; border-radius: 0; padding: 0;">
             <!-- 연도 표시 (슬라이더 핸들 위에 따라다님) -->
             <div id="slider-year-tooltip" style="position: absolute; background: rgba(0, 0, 0, 0.88); color: white; padding: 4px 12px; border-radius: 5px; font-size: 14px; font-weight: bold; pointer-events: none; opacity: 0; transition: opacity 0.2s ease; z-index: 10000; bottom: 20px; left: 50%; transform: translateX(-50%); border: 1px solid rgba(255,255,255,0.25); backdrop-filter: blur(4px);"></div>
 
@@ -7260,6 +7338,39 @@ body.force-mobile .marker-type-selector button {
                 <button type="button" id="cancelNaturalFeatureBtn">취소</button>
                 <button type="button" id="deleteNaturalFeatureBtn" class="danger" style="display:none;">삭제</button>
                 <button type="submit" id="saveNaturalFeatureBtn" class="primary">저장</button>
+            </form>
+        </div>
+
+        <!-- 📢 [추가] 광고 마커 편집 폼 (관리자 전용 — 지도 우클릭 → 편집 모드 → "광고 마커 만들기"로 진입) -->
+        <div id="adMarkerForm" style="display:none; position: fixed; bottom: 80px; right: 10px; cursor: default; user-select: none; z-index: 10000; background: rgba(28,38,50,0.97); border: 1px solid #5d7185; border-radius: 8px; padding: 10px 14px 14px; width: 260px; box-sizing: border-box; box-shadow: 0 4px 16px rgba(0,0,0,0.5);">
+            <div id="adMarkerFormHeader" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; cursor: grab; padding: 4px 8px; background: rgba(255,255,255,0.07); border-radius: 4px; margin-left: -8px; margin-right: -8px; margin-top: -4px;">
+                <h3 style="margin: 0; font-size: 13px; color: #f0d060;">📢 광고 마커 편집</h3>
+                <span style="font-size: 10px; color: #95a5a6; pointer-events: none;">⠿ 드래그</span>
+            </div>
+            <form id="editAdMarkerForm" style="display:flex; flex-direction:column; gap:6px; font-size:12px; color:#ecf0f1;">
+                <input type="hidden" id="admId">
+                <input type="hidden" id="admLat">
+                <input type="hidden" id="admLng">
+                <label for="admTitle" style="font-size:11px; color:#aab8c2;">제목/문구:</label>
+                <input type="text" id="admTitle" required placeholder="예: OO 상점 안내"
+                    style="width:100%; box-sizing:border-box; padding:6px 8px; background:#1a2533; border:1px solid #5d7185; border-radius:4px; color:#ecf0f1; font-size:12px;">
+                <label for="admImageUrl" style="font-size:11px; color:#aab8c2;">이미지 URL (선택):</label>
+                <input type="text" id="admImageUrl" placeholder="https://..."
+                    style="width:100%; box-sizing:border-box; padding:6px 8px; background:#1a2533; border:1px solid #5d7185; border-radius:4px; color:#ecf0f1; font-size:12px;">
+                <label for="admLinkUrl" style="font-size:11px; color:#aab8c2;">연결 링크(URL):</label>
+                <input type="text" id="admLinkUrl" required placeholder="https://example.com"
+                    style="width:100%; box-sizing:border-box; padding:6px 8px; background:#1a2533; border:1px solid #5d7185; border-radius:4px; color:#ecf0f1; font-size:12px;">
+                <label for="admDescription" style="font-size:11px; color:#aab8c2;">설명 (선택):</label>
+                <textarea id="admDescription" rows="3" placeholder="팝업에 표시될 짧은 설명"
+                    style="width:100%; box-sizing:border-box; padding:6px 8px; background:#1a2533; border:1px solid #5d7185; border-radius:4px; color:#ecf0f1; font-size:12px; resize:vertical; font-family:inherit;"></textarea>
+                <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:#aab8c2; margin:2px 0;">
+                    <input type="checkbox" id="admActive" checked style="width:auto;"> 활성화 (지도에 표시)
+                </label>
+                <div style="display:flex; gap:6px; margin-top:6px;">
+                    <button type="button" id="cancelAdMarkerBtn" style="flex:1; padding:7px; background:rgba(93,113,133,0.25); border:1px solid #5d7185; border-radius:5px; color:#ecf0f1; cursor:pointer; font-size:12px;">취소</button>
+                    <button type="button" id="deleteAdMarkerBtn" style="display:none; flex:1; padding:7px; background:rgba(231,76,60,0.2); border:1px solid #e74c3c; border-radius:5px; color:#e74c3c; cursor:pointer; font-size:12px;">삭제</button>
+                    <button type="submit" id="saveAdMarkerBtn" style="flex:1; padding:7px; background:rgba(46,204,113,0.2); border:1px solid #2ecc71; border-radius:5px; color:#2ecc71; cursor:pointer; font-weight:bold; font-size:12px;">저장</button>
+                </div>
             </form>
         </div>
 
@@ -7723,6 +7834,60 @@ body.force-mobile .marker-type-selector button {
 
   </div> <!-- mainContainer 종료 -->
 
+  <!-- 📢 [추가] 하단 광고 바 — 타임라인 바로 아래, 지도/타임라인을 가리지 않도록
+       body의 flex 형제 요소로 배치 (지도 높이가 자동으로 줄어듦). 모바일/3D 모드는 CSS로 숨김. -->
+  <div id="bottom-ad-bar">
+      <span class="bottom-ad-label">AD</span>
+      <ins class="adsbygoogle"
+           style="display:inline-block;width:468px;height:50px;max-width:100%;"
+           data-ad-client="ca-pub-6821586098117394"
+           data-ad-slot="0000000001"></ins>
+  </div>
+  <script>
+  (function initBottomAdBar(){
+      var bar = document.getElementById('bottom-ad-bar');
+      if (!bar) return;
+      function applyOffset(px){
+          document.documentElement.style.setProperty('--ad-bottom-h', px + 'px');
+      }
+      function isBarActive(){
+          // 모바일/3D 모드에서는 CSS(!important)가 강제로 숨김 처리함
+          return window.getComputedStyle(bar).display !== 'none';
+      }
+      if (!isBarActive()) {
+          // 🩺 [진단] force-mobile 또는 mode-3d 클래스 때문에 CSS가 강제로 숨겼습니다.
+          console.log('📢 [하단광고] CSS에 의해 숨김 — body.force-mobile=' + document.body.classList.contains('force-mobile') + ', body.mode-3d=' + document.body.classList.contains('mode-3d') + ' (창 크기가 세로로 길면 force-mobile이 자동 적용됩니다)');
+          applyOffset(0);
+          return;
+      }
+      try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch(e) { console.warn('⚠️ [AdSense] 하단 광고 로드 실패:', e); }
+
+      // AdSense가 비동기로 <ins>를 채우고 data-ad-status(filled/unfilled)를 부여함 — 최대 ~3.2초 대기
+      var checks = 0;
+      var iv = setInterval(function(){
+          checks++;
+          if (!isBarActive()) { applyOffset(0); clearInterval(iv); return; }
+          var ins = bar.querySelector('ins.adsbygoogle');
+          var status = ins && ins.getAttribute('data-ad-status');
+          if (status === 'filled') {
+              applyOffset(bar.offsetHeight || 56);
+              clearInterval(iv);
+          } else if (status === 'unfilled' || checks >= 8) {
+              // 🩺 [진단] data-ad-slot="0000000001"이 AdSense 대시보드에 실제로 생성된
+              // 광고 단위 ID가 아니거나, 계정/사이트가 아직 승인되지 않았을 가능성이 높습니다.
+              console.warn('📢 [하단광고] 광고 미채움(status=' + status + ', ' + checks + '회 확인 후) → 바를 숨깁니다. AdSense 대시보드에서 실제 "디스플레이 광고" 단위를 만들고 data-ad-slot 값을 교체했는지 확인하세요.');
+              bar.style.display = 'none';
+              applyOffset(0);
+              clearInterval(iv);
+          }
+      }, 400);
+
+      window.addEventListener('resize', function(){
+          if (isBarActive() && bar.style.display !== 'none') applyOffset(bar.offsetHeight || 56);
+      });
+  })();
+  </script>
+
     <!-- 🚩 [이동] 왕 패널 & 역사 패널: #map(filter 적용) 밖으로 이동 → position:fixed 정상 동작 -->
     <!-- 🚩 왕 목록 투명 박스 (지도변경 토글바 바로 왼쪽) -->
     <div id="map-king-panel" style="position: fixed; top: 40px; right: 0; width: 360px; min-width: 200px; min-height: 40px; z-index: 997; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; border: none; padding: 0; border-radius: 8px; box-shadow: none; overflow: hidden; pointer-events: auto; display: none; box-sizing: border-box; font-size: 11px; font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; color: white; text-shadow: 1px 1px 3px rgba(0,0,0,0.9); line-height: 1.6; transition: background 0.25s ease, box-shadow 0.25s ease;">
@@ -7796,6 +7961,39 @@ body.force-mobile .marker-type-selector button {
                     <div class="odp-section-title">📜 역사 기록</div>
                     <ul class="odp-timeline" id="odp-timeline"></ul>
                 </div>
+
+                <!-- 📢 광고 (역사 기록 / 사관 의견 사이) -->
+                <div id="odp-ad-slot" style="margin:14px 0; padding:10px 0; border-top:1px dashed rgba(180,140,80,0.25); border-bottom:1px dashed rgba(180,140,80,0.25); text-align:center; overflow:hidden;">
+                    <div style="font-size:9px; color:#5a6a78; letter-spacing:1.5px; margin-bottom:5px;">AD</div>
+                    <ins class="adsbygoogle"
+                         style="display:block"
+                         data-ad-client="ca-pub-6821586098117394"
+                         data-ad-slot="0000000003"
+                         data-ad-format="auto"
+                         data-full-width-responsive="true"></ins>
+                </div>
+                <script>
+                    function initOdpAd() {
+                        if (window._odpAdPushed) return;
+                        window._odpAdPushed = true;
+                        try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) {}
+                        const slot = document.getElementById('odp-ad-slot');
+                        if (!slot) return;
+                        let tries = 0;
+                        const timer = setInterval(() => {
+                            tries++;
+                            const ins = slot.querySelector('ins.adsbygoogle');
+                            const status = ins && ins.getAttribute('data-ad-status');
+                            if (status === 'filled') {
+                                clearInterval(timer);
+                            } else if (status === 'unfilled' || tries >= 8) {
+                                clearInterval(timer);
+                                console.warn('📢 [상세패널광고] 광고 미채움(status=' + status + ') → 숨김. data-ad-slot="0000000003"이 실제 AdSense 광고 단위 ID인지 확인하세요.');
+                                slot.style.display = 'none';
+                            }
+                        }, 400);
+                    }
+                </script>
 
                 <!-- 사관 의견 섹션 -->
                 <div id="odp-comments-section" style="display:none;">
@@ -10834,6 +11032,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
 
         // ── 패널 열기 (다른 편집 패널 닫지 않음, 오른쪽이라 겹치지 않음) ──
         panel.classList.add('active');
+        if (typeof initOdpAd === 'function') initOdpAd(); // 📢 역사기록/사관의견 사이 광고 (최초 1회 로드)
 
         // 🎙️ 음성 보고 로드 (castle._id 기반)
         _loadVoice(castle._id);
@@ -11562,6 +11761,11 @@ function getKingByYear(countryName, year, month) {
         if (exceptId !== 'naturalFeatureForm') {
             const nfEl = document.getElementById('naturalFeatureForm');
             if (nfEl) nfEl.style.display = "none";
+        }
+        // 📢 adMarkerForm도 같이 닫기
+        if (exceptId !== 'adMarkerForm') {
+            const admEl = document.getElementById('adMarkerForm');
+            if (admEl) admEl.style.display = "none";
         }
     }
 
@@ -20999,7 +21203,16 @@ const loadingMessages = [
       setActiveMarkerType('normal');
       };
 
-      // 🚩 [수정] 편집 모드 버튼을 먼저 추가
+      // � [추가] 광고 마커 생성 버튼 (편집 모드 + admin/superuser 전용)
+      const addAdMarkerButton = document.createElement('button');
+      addAdMarkerButton.innerText = '📢 여기에 광고 마커 만들기';
+      addAdMarkerButton.className = 'primary';
+      addAdMarkerButton.onclick = () => {
+        map.closePopup();
+        openAdMarkerForm(null, e.latlng);
+      };
+
+      // �🚩 [수정] 편집 모드 버튼을 먼저 추가
       if (privileged) {
         const editModeButtonBottom = document.createElement('button');
         editModeButtonBottom.className = 'primary';
@@ -21028,6 +21241,7 @@ const loadingMessages = [
       // 🚩 [추가] 편집 모드일 때만 '성 추가' 버튼을 팝업에 표시
       if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) {
         popupContent.appendChild(addCastleButton);
+        popupContent.appendChild(addAdMarkerButton);
       }
       
       // 🚩 [추가] 일반 유저용 '역사 연구 사료 제출 꽂기' 버튼 (게스트 제외)
@@ -24542,6 +24756,266 @@ kingSelect.addEventListener('change', () => {
         document.getElementById('naturalFeatureForm').style.display = 'none';
     });
 
+    // --- 📢 광고 마커(Ad Marker) 관리 --- (관리자가 지도 위에 직접 생성하는 스폰서 마커)
+    let adMarkers = [];
+    let adMarkerLayerGroup = L.layerGroup().addTo(map);
+
+    function buildAdMarkerIcon() {
+        return L.divIcon({
+            className: 'ad-marker-div-icon',
+            html: '<div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#f5a623,#e2690f);border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;font-size:15px;">📢</div>',
+            iconSize: [30, 30],
+            iconAnchor: [15, 15],
+            popupAnchor: [0, -16]
+        });
+    }
+
+    function buildAdMarkerPopupContent(m) {
+        const idStr = m._id?.$oid || m._id?.toString?.() || m._id;
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'min-width:170px; max-width:220px; display:flex; flex-direction:column; gap:4px;';
+
+        const label = document.createElement('div');
+        label.textContent = '광고 · SPONSORED';
+        label.style.cssText = 'font-size:9px; color:#f0a020; letter-spacing:1px; font-weight:bold;';
+        wrap.appendChild(label);
+
+        if (m.imageUrl) {
+            const img = document.createElement('img');
+            img.src = m.imageUrl;
+            img.style.cssText = 'width:100%; border-radius:6px; display:block; max-height:120px; object-fit:cover;';
+            img.onerror = function () { img.style.display = 'none'; };
+            wrap.appendChild(img);
+        }
+
+        const title = document.createElement('div');
+        title.textContent = m.title || '광고';
+        title.style.cssText = 'font-size:13px; font-weight:bold; color:#ecf0f1;';
+        wrap.appendChild(title);
+
+        if (m.description) {
+            const desc = document.createElement('div');
+            desc.textContent = m.description;
+            desc.style.cssText = 'font-size:12px; color:#bdc3c7; white-space:pre-wrap;';
+            wrap.appendChild(desc);
+        }
+
+        const visitBtn = document.createElement('button');
+        visitBtn.className = 'primary';
+        visitBtn.innerText = '자세히 보기 →';
+        visitBtn.style.marginTop = '4px';
+        visitBtn.onclick = () => {
+            try { fetch(`${API_BASE_URL}/ad-markers/${idStr}/click`, { method: 'POST' }); } catch (e) {}
+            window.open(m.linkUrl, '_blank', 'noopener');
+        };
+        wrap.appendChild(visitBtn);
+
+        const privilegedAdm = currentUser?.role === 'superuser' || currentUser?.role === 'admin';
+        if (privilegedAdm) {
+            const adminRow = document.createElement('div');
+            adminRow.style.cssText = 'display:flex; gap:6px; margin-top:4px; border-top:1px solid rgba(255,255,255,0.15); padding-top:6px;';
+
+            const editBtn = document.createElement('button');
+            editBtn.innerText = '✏️ 수정';
+            editBtn.style.cssText = 'flex:1; font-size:11px; padding:4px; background:rgba(52,152,219,0.15); border:1px solid #3498db; color:#3498db; border-radius:4px; cursor:pointer;';
+            editBtn.onclick = () => { map.closePopup(); openAdMarkerForm(m); };
+            adminRow.appendChild(editBtn);
+
+            const delBtn = document.createElement('button');
+            delBtn.innerText = '🗑️ 삭제';
+            delBtn.style.cssText = 'flex:1; font-size:11px; padding:4px; background:rgba(231,76,60,0.15); border:1px solid #e74c3c; color:#e74c3c; border-radius:4px; cursor:pointer;';
+            delBtn.onclick = async () => {
+                if (!confirm(`"${m.title || '광고'}" 마커를 삭제하시겠습니까?`)) return;
+                try {
+                    const res = await fetch(`${API_BASE_URL}/ad-markers/${idStr}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (!res.ok) throw new Error('삭제 실패');
+                    map.closePopup();
+                    await loadAdMarkers();
+                } catch (err) { alert(err.message); }
+            };
+            adminRow.appendChild(delBtn);
+
+            wrap.appendChild(adminRow);
+        }
+
+        return wrap;
+    }
+
+    function renderAdMarkers() {
+        adMarkerLayerGroup.clearLayers();
+        adMarkers.forEach(m => {
+            if (m.active === false) return;
+            if (m.lat == null || m.lng == null) return;
+            const marker = L.marker([m.lat, m.lng], { icon: buildAdMarkerIcon(), zIndexOffset: 500 });
+            marker.bindPopup(() => buildAdMarkerPopupContent(m), { className: 'compact-popup', maxWidth: 240 });
+            marker.on('click', (evt) => { L.DomEvent.stopPropagation(evt); });
+            adMarkerLayerGroup.addLayer(marker);
+        });
+    }
+
+    async function loadAdMarkers() {
+        try {
+            const res = await fetch(`${API_BASE_URL}/ad-markers`);
+            if (!res.ok) throw new Error('광고 마커 조회 실패');
+            adMarkers = await res.json();
+            renderAdMarkers();
+        } catch (err) {
+            console.warn('⚠️ [광고마커] 로드 실패:', err.message);
+        }
+    }
+
+    // 3D 모드에서는 2D 지도 자체가 가려지지만, 방어적으로 레이어를 명시적으로 뗐다 붙임
+    (function watchAdMarkerLayerFor3d() {
+        let hiddenFor3d = false;
+        const mo = new MutationObserver(() => {
+            const is3d = document.body.classList.contains('mode-3d');
+            if (is3d && !hiddenFor3d) { map.removeLayer(adMarkerLayerGroup); hiddenFor3d = true; }
+            else if (!is3d && hiddenFor3d) { map.addLayer(adMarkerLayerGroup); hiddenFor3d = false; }
+        });
+        mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    })();
+
+    // markerData가 있으면 수정 모드, latlng만 있으면 신규 생성 모드
+    function openAdMarkerForm(markerData, latlng) {
+        closeAllFormsExcept('adMarkerForm');
+        const form = document.getElementById('adMarkerForm');
+        const wasDragged = form.dataset.dragged === 'true';
+        if (!wasDragged) {
+            form.style.position = 'fixed';
+            form.style.bottom = '80px';
+            form.style.right = '10px';
+            form.style.left = 'auto';
+            form.style.top = 'auto';
+        }
+        form.style.display = 'block';
+        document.getElementById('editAdMarkerForm').reset();
+        document.getElementById('admActive').checked = true;
+
+        if (markerData) {
+            // 수정 모드
+            const id = markerData._id?.$oid || markerData._id?.toString?.() || markerData._id;
+            document.getElementById('admId').value = id;
+            document.getElementById('admLat').value = markerData.lat;
+            document.getElementById('admLng').value = markerData.lng;
+            document.getElementById('admTitle').value = markerData.title || '';
+            document.getElementById('admImageUrl').value = markerData.imageUrl || '';
+            document.getElementById('admLinkUrl').value = markerData.linkUrl || '';
+            document.getElementById('admDescription').value = markerData.description || '';
+            document.getElementById('admActive').checked = markerData.active !== false;
+            document.getElementById('deleteAdMarkerBtn').style.display = 'inline-block';
+        } else {
+            // 신규 생성 모드 — 드래그로 위치 조정 가능한 임시 마커 배치
+            document.getElementById('admId').value = '';
+            document.getElementById('admLat').value = latlng.lat.toFixed(6);
+            document.getElementById('admLng').value = latlng.lng.toFixed(6);
+            document.getElementById('deleteAdMarkerBtn').style.display = 'none';
+
+            if (editMarker) map.removeLayer(editMarker);
+            editMarker = L.marker(latlng, { draggable: true }).addTo(map);
+            editMarker.dragging.enable();
+            editMarker.on('click', (evt) => { L.DomEvent.stopPropagation(evt); });
+            editMarker.on('dragstart', () => { window._editMarkerDragging = true; });
+            editMarker.on('dragend', (event) => {
+                window._editMarkerDragging = false;
+                window._editMarkerJustDragged = true;
+                setTimeout(() => { window._editMarkerJustDragged = false; }, 300);
+                const pos = event.target.getLatLng();
+                document.getElementById('admLat').value = pos.lat.toFixed(6);
+                document.getElementById('admLng').value = pos.lng.toFixed(6);
+            });
+            editMarker.bindPopup('마커를 드래그하여 위치 조정').openPopup();
+        }
+    }
+
+    // adMarkerForm 드래그
+    (() => {
+        const panel = document.getElementById('adMarkerForm');
+        const header = document.getElementById('adMarkerFormHeader');
+        if (!panel || !header) return;
+        let isDragging = false, startX, startY, startLeft, startTop;
+        header.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            isDragging = true;
+            const rect = panel.getBoundingClientRect();
+            startX = e.clientX; startY = e.clientY;
+            startLeft = rect.left; startTop = rect.top;
+            header.style.cursor = 'grabbing';
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            panel.style.setProperty('left', (startLeft + e.clientX - startX) + 'px', 'important');
+            panel.style.setProperty('top', (startTop + e.clientY - startY) + 'px', 'important');
+            panel.style.setProperty('right', 'auto', 'important');
+            panel.style.setProperty('bottom', 'auto', 'important');
+        });
+        document.addEventListener('mouseup', () => {
+            if (!isDragging) return;
+            isDragging = false;
+            header.style.cursor = 'grab';
+            panel.dataset.dragged = 'true';
+        });
+    })();
+
+    // adMarkerForm 저장 (생성 + 수정 겸용)
+    document.getElementById('editAdMarkerForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('admId').value;
+        const data = {
+            lat: parseFloat(document.getElementById('admLat').value),
+            lng: parseFloat(document.getElementById('admLng').value),
+            title: document.getElementById('admTitle').value.trim(),
+            imageUrl: document.getElementById('admImageUrl').value.trim(),
+            linkUrl: document.getElementById('admLinkUrl').value.trim(),
+            description: document.getElementById('admDescription').value.trim(),
+            active: document.getElementById('admActive').checked
+        };
+        if (!data.title || !data.linkUrl || isNaN(data.lat) || isNaN(data.lng)) {
+            return alert('제목과 연결 링크는 필수입니다.');
+        }
+        try {
+            const isEdit = !!id;
+            const res = await fetch(`${API_BASE_URL}/ad-markers${isEdit ? '/' + id : ''}`, {
+                method: isEdit ? 'PUT' : 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify(data)
+            });
+            if (!res.ok) { const errData = await res.json().catch(() => ({})); throw new Error(errData.message || '저장 실패'); }
+            document.getElementById('adMarkerForm').style.display = 'none';
+            if (editMarker) { map.removeLayer(editMarker); editMarker = null; }
+            await loadAdMarkers();
+        } catch (err) { alert(err.message); }
+    });
+
+    // adMarkerForm 삭제
+    document.getElementById('deleteAdMarkerBtn').addEventListener('click', async () => {
+        const id = document.getElementById('admId').value;
+        const admTitleVal = document.getElementById('admTitle').value;
+        if (!id) return;
+        if (!confirm(`"${admTitleVal}" 광고 마커를 삭제하시겠습니까?`)) return;
+        try {
+            const res = await fetch(`${API_BASE_URL}/ad-markers/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!res.ok) throw new Error('삭제 실패');
+            document.getElementById('adMarkerForm').style.display = 'none';
+            await loadAdMarkers();
+        } catch (err) { alert(err.message); }
+    });
+
+    // adMarkerForm 취소
+    document.getElementById('cancelAdMarkerBtn').addEventListener('click', () => {
+        document.getElementById('adMarkerForm').style.display = 'none';
+        if (editMarker) { map.removeLayer(editMarker); editMarker = null; }
+    });
+
+    // 초기 로드 — 모든 방문자(게스트 포함)에게 표시되어야 하므로 로그인 여부와 무관하게 호출
+    loadAdMarkers();
+
     // --- 12. 사서 기록 폼 관리 --- (기존 로직 유지)
     
     // openHistoryFormBtn 이벤트는 이미 openHistoryForm 함수로 처리됨 (오른쪽 패널 제거)
@@ -26115,6 +26589,17 @@ kingSelect.addEventListener('change', () => {
                 hamburgerPanel.classList.add('active');
                 hamburgerOverlay.classList.add('active');
                 hamburgerBtn.classList.add('active');
+
+                // 📢 [추가] AdSense — 메뉴가 처음 열릴 때 1회만 광고 요청
+                // (오프스크린 상태에서 미리 요청하지 않도록 지연 로딩 + 중복 push 방지)
+                if (!window._sidebarAdPushed) {
+                    window._sidebarAdPushed = true;
+                    try {
+                        (window.adsbygoogle = window.adsbygoogle || []).push({});
+                    } catch (e) {
+                        console.warn('⚠️ [AdSense] 사이드 메뉴 광고 로드 실패:', e);
+                    }
+                }
             }
         }
         
@@ -26309,6 +26794,48 @@ kingSelect.addEventListener('change', () => {
 
             let _tbNominatimTimer = null;
 
+            // 📢 검색결과 렌더링 (역사DB 계열 / 실지도 계열 사이에 광고 삽입)
+            // dbHtml: 군대마커·역사DB·역사기록 등 / mapHtml: 실지도(Nominatim) 결과
+            const _tbRenderSearchSections = (dbHtml, mapHtml) => {
+                const top = document.getElementById('tb-results-top');
+                const bottom = document.getElementById('tb-results-bottom');
+                const adSlot = document.getElementById('tb-search-ad-slot');
+                if (top) top.innerHTML = dbHtml || '';
+                if (bottom) bottom.innerHTML = mapHtml || '';
+                if (adSlot) {
+                    if (dbHtml && mapHtml) {
+                        adSlot.style.display = '';
+                        if (typeof initTbSearchAd === 'function') initTbSearchAd();
+                    } else {
+                        adSlot.style.display = 'none';
+                    }
+                }
+            };
+            // 로딩중/결과없음 등 단일 메시지만 표시 (top 영역에 넣고 광고/bottom은 숨김)
+            const _tbRenderMessage = (msgHtml) => {
+                _tbRenderSearchSections(msgHtml, '');
+            };
+
+            function initTbSearchAd() {
+                if (window._tbAdPushed) return;
+                window._tbAdPushed = true;
+                try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) {}
+                const slot = document.getElementById('tb-search-ad-slot');
+                if (!slot) return;
+                let tries = 0;
+                const timer = setInterval(() => {
+                    tries++;
+                    const ins = slot.querySelector('ins.adsbygoogle');
+                    const status = ins && ins.getAttribute('data-ad-status');
+                    if (status === 'filled') {
+                        clearInterval(timer);
+                    } else if (status === 'unfilled' || tries >= 8) {
+                        clearInterval(timer);
+                        slot.style.display = 'none';
+                    }
+                }, 400);
+            }
+
             const doTopbarSearch = async () => {
                 const query = topbarSearchInput.value.trim();
                 if (!query) return;
@@ -26335,7 +26862,7 @@ kingSelect.addEventListener('change', () => {
                     }
                 }
 
-                topbarSearchResults.innerHTML = '<div style="color:#7a9aaa;font-size:11px;padding:8px 12px;">검색 중…</div>';
+                _tbRenderMessage('<div style="color:#7a9aaa;font-size:11px;padding:8px 12px;">검색 중…</div>');
                 topbarSearchResults.style.display = 'block';
 
                 // ── 1) 역사 DB: castles 배열에서 name/name_ko 포함 ──────
@@ -26414,19 +26941,19 @@ kingSelect.addEventListener('change', () => {
                     }
                 } catch(e) { /* Nominatim 실패 무시 */ }
 
-                // ── 3) 렌더링 ─────────────────────────────────────────
-                let html = '';
+                // ── 3) 렌더링 (역사DB 계열 / 실지도 계열 분리 → 사이에 광고 삽입) ────
+                let dbHtml = '';
                 if (militaryHits.length) {
-                    html += _tbSectionTitle('⚔️ 군대 마커', '#e0a050');
-                    html += militaryHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
+                    dbHtml += _tbSectionTitle('⚔️ 군대 마커', '#e0a050');
+                    dbHtml += militaryHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
                 }
                 if (dbHits.length) {
-                    html += _tbSectionTitle('● 역사 DB', '#7ab8cc');
-                    html += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
+                    dbHtml += _tbSectionTitle('● 역사 DB', '#7ab8cc');
+                    dbHtml += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
                 }
                 if (historyHits.length) {
-                    html += _tbSectionTitle('● 역사 기록 / 원전 사료', '#a888d4');
-                    html += historyHits.map((h) => {
+                    dbHtml += _tbSectionTitle('● 역사 기록 / 원전 사료', '#a888d4');
+                    dbHtml += historyHits.map((h) => {
                         const isSource = h.type === 'source';
                         const icon = isSource ? '📖' : '📚';
                         const subColor = isSource ? '#b890e8' : '#8868b4';
@@ -26440,18 +26967,19 @@ kingSelect.addEventListener('change', () => {
                         </div>`;
                     }).join('');
                 }
+                let mapHtml = '';
                 if (mapHits.length) {
-                    html += _tbSectionTitle('● 실지도 – 현재 화면', '#c8a850');
-                    html += mapHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, null)).join('');
+                    mapHtml += _tbSectionTitle('● 실지도 – 현재 화면', '#c8a850');
+                    mapHtml += mapHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, null)).join('');
                 }
                 if (mapHitsGlobal && mapHitsGlobal.length) {
-                    html += _tbSectionTitle('● 실지도 – 전역 검색', '#a8a870');
-                    html += mapHitsGlobal.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, null)).join('');
+                    mapHtml += _tbSectionTitle('● 실지도 – 전역 검색', '#a8a870');
+                    mapHtml += mapHitsGlobal.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, null)).join('');
                 }
-                if (!html) {
-                    html = '<div style="color:#8fa0b0;font-size:11px;padding:8px 12px;">검색 결과가 없습니다.</div>';
+                if (!dbHtml && !mapHtml) {
+                    dbHtml = '<div style="color:#8fa0b0;font-size:11px;padding:8px 12px;">검색 결과가 없습니다.</div>';
                 }
-                topbarSearchResults.innerHTML = html;
+                _tbRenderSearchSections(dbHtml, mapHtml);
                 topbarSearchResults.style.display = 'block';
             };
 
@@ -26467,7 +26995,7 @@ kingSelect.addEventListener('change', () => {
                 clearTimeout(_tbNominatimTimer);
                 const query = topbarSearchInput.value.trim();
                 const ql = query.toLowerCase();
-                topbarSearchResults.innerHTML = '';
+                _tbRenderSearchSections('', '');
                 if (!query) { topbarSearchResults.style.display = 'none'; return; }
 
                 // DB 결과 즉시 표시 (인덱스 포함)
@@ -26497,7 +27025,7 @@ kingSelect.addEventListener('change', () => {
                     html += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
                 }
                 if (html) {
-                    topbarSearchResults.innerHTML = html;
+                    _tbRenderSearchSections(html, '');
                     topbarSearchResults.style.display = 'block';
                 }
 
@@ -26519,18 +27047,19 @@ kingSelect.addEventListener('change', () => {
                     // 현재 입력값이 바뀌었으면 무시
                     if (topbarSearchInput.value.trim().toLowerCase() !== ql) return;
 
-                    // DB 결과 재렌더 + Nominatim 추가
-                    let fullHtml = '';
+                    // DB 결과 재렌더 + Nominatim 추가 (역사DB / 실지도 사이에 광고 삽입)
+                    let dbOnlyHtml = '';
                     if (dbHits.length) {
-                        fullHtml += _tbSectionTitle('● 역사 DB', '#7ab8cc');
-                        fullHtml += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
+                        dbOnlyHtml += _tbSectionTitle('● 역사 DB', '#7ab8cc');
+                        dbOnlyHtml += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
                     }
+                    let mapOnlyHtml = '';
                     if (mapHits.length) {
-                        fullHtml += _tbSectionTitle('● 실지도 (OpenStreetMap)', '#c8a850');
-                        fullHtml += mapHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, null)).join('');
+                        mapOnlyHtml += _tbSectionTitle('● 실지도 (OpenStreetMap)', '#c8a850');
+                        mapOnlyHtml += mapHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, null)).join('');
                     }
-                    if (!fullHtml) fullHtml = '<div style="color:#8fa0b0;font-size:11px;padding:8px 12px;">검색 결과가 없습니다.</div>';
-                    topbarSearchResults.innerHTML = fullHtml;
+                    if (!dbOnlyHtml && !mapOnlyHtml) dbOnlyHtml = '<div style="color:#8fa0b0;font-size:11px;padding:8px 12px;">검색 결과가 없습니다.</div>';
+                    _tbRenderSearchSections(dbOnlyHtml, mapOnlyHtml);
                     topbarSearchResults.style.display = 'block';
                 }, 400);
             });
@@ -26559,7 +27088,7 @@ kingSelect.addEventListener('change', () => {
             const closeMobileSearch = () => {
                 mobileSearchOverlay.classList.remove('open');
                 if (mobileSearchInput) mobileSearchInput.value = '';
-                if (mobileSearchResults) { mobileSearchResults.innerHTML = ''; mobileSearchResults.style.display = 'none'; }
+                if (mobileSearchResults) { _mbRenderSearchSections('', ''); mobileSearchResults.style.display = 'none'; }
             };
 
             mobileSearchIconBtn.addEventListener('click', openMobileSearch);
@@ -26582,6 +27111,44 @@ kingSelect.addEventListener('change', () => {
                 </div>`;
             };
 
+            // 📢 검색결과 렌더링 (역사DB 계열 / 실지도 계열 사이에 광고 삽입)
+            const _mbRenderSearchSections = (dbHtml, mapHtml) => {
+                const top = document.getElementById('mb-results-top');
+                const bottom = document.getElementById('mb-results-bottom');
+                const adSlot = document.getElementById('mb-search-ad-slot');
+                if (top) top.innerHTML = dbHtml || '';
+                if (bottom) bottom.innerHTML = mapHtml || '';
+                if (adSlot) {
+                    if (dbHtml && mapHtml) {
+                        adSlot.style.display = '';
+                        if (typeof initMbSearchAd === 'function') initMbSearchAd();
+                    } else {
+                        adSlot.style.display = 'none';
+                    }
+                }
+            };
+            const _mbRenderMessage = (msgHtml) => { _mbRenderSearchSections(msgHtml, ''); };
+
+            function initMbSearchAd() {
+                if (window._mbAdPushed) return;
+                window._mbAdPushed = true;
+                try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) {}
+                const slot = document.getElementById('mb-search-ad-slot');
+                if (!slot) return;
+                let tries = 0;
+                const timer = setInterval(() => {
+                    tries++;
+                    const ins = slot.querySelector('ins.adsbygoogle');
+                    const status = ins && ins.getAttribute('data-ad-status');
+                    if (status === 'filled') {
+                        clearInterval(timer);
+                    } else if (status === 'unfilled' || tries >= 8) {
+                        clearInterval(timer);
+                        slot.style.display = 'none';
+                    }
+                }, 400);
+            }
+
             let _mbTimer = null;
             const doMobileSearch = async (query) => {
                 // 좌표 직접 입력 감지
@@ -26596,7 +27163,7 @@ kingSelect.addEventListener('change', () => {
                     }
                 }
                 const ql = query.toLowerCase();
-                mobileSearchResults.innerHTML = '<div style="color:#7a9aaa;font-size:12px;padding:10px 14px;">검색 중…</div>';
+                _mbRenderMessage('<div style="color:#7a9aaa;font-size:12px;padding:10px 14px;">검색 중…</div>');
                 mobileSearchResults.style.display = 'block';
 
                 // 역사 DB 즉시 검색
@@ -26648,11 +27215,11 @@ kingSelect.addEventListener('change', () => {
 
                 if (mobileSearchInput.value.trim().toLowerCase() !== ql) return;
 
-                let html = '';
-                if (milHits.length) { html += _mbTitle('⚔️ 군대 마커','#e0a050'); html += milHits.map(h=>_mbItem(h.label,h.sub,h.lat,h.lng,h.idx)).join(''); }
-                if (dbHits.length)  { html += _mbTitle('● 역사 DB','#7ab8cc');    html += dbHits.map(h=>_mbItem(h.label,h.sub,h.lat,h.lng,h.idx)).join(''); }
-                if (histHits.length){ html += _mbTitle('● 역사 기록','#a888d4');
-                    html += histHits.map(h => {
+                let dbHtml = '';
+                if (milHits.length) { dbHtml += _mbTitle('⚔️ 군대 마커','#e0a050'); dbHtml += milHits.map(h=>_mbItem(h.label,h.sub,h.lat,h.lng,h.idx)).join(''); }
+                if (dbHits.length)  { dbHtml += _mbTitle('● 역사 DB','#7ab8cc');    dbHtml += dbHits.map(h=>_mbItem(h.label,h.sub,h.lat,h.lng,h.idx)).join(''); }
+                if (histHits.length){ dbHtml += _mbTitle('● 역사 기록','#a888d4');
+                    dbHtml += histHits.map(h => {
                         const safeLabel = (h.label||'').replace(/'/g,"\\'");
                         const safeId    = (h.id||'').toString();
                         return `<div class="topbar-result-item" onclick="_tbGoToHistory(${h.year},${h.month},'${safeLabel}','${safeId}'); document.getElementById('mobile-search-overlay').classList.remove('open');" style="display:flex;flex-direction:column;gap:2px;">
@@ -26661,16 +27228,17 @@ kingSelect.addEventListener('change', () => {
                         </div>`;
                     }).join('');
                 }
-                if (mapHits.length) { html += _mbTitle('● 실지도','#c8a850'); html += mapHits.map(h=>_mbItem(h.label,h.sub,h.lat,h.lng,null)).join(''); }
-                if (!html) html = '<div style="color:#8fa0b0;font-size:12px;padding:10px 14px;">해당 지명을 찾을 수 없습니다.</div>';
-                mobileSearchResults.innerHTML = html;
+                let mapHtml = '';
+                if (mapHits.length) { mapHtml += _mbTitle('● 실지도','#c8a850'); mapHtml += mapHits.map(h=>_mbItem(h.label,h.sub,h.lat,h.lng,null)).join(''); }
+                if (!dbHtml && !mapHtml) dbHtml = '<div style="color:#8fa0b0;font-size:12px;padding:10px 14px;">해당 지명을 찾을 수 없습니다.</div>';
+                _mbRenderSearchSections(dbHtml, mapHtml);
                 mobileSearchResults.style.display = 'block';
             };
 
             mobileSearchInput.addEventListener('input', () => {
                 clearTimeout(_mbTimer);
                 const q = mobileSearchInput.value.trim();
-                if (!q) { mobileSearchResults.innerHTML=''; mobileSearchResults.style.display='none'; return; }
+                if (!q) { _mbRenderSearchSections('', ''); mobileSearchResults.style.display='none'; return; }
                 _mbTimer = setTimeout(() => doMobileSearch(q), 300);
             });
             mobileSearchInput.addEventListener('keydown', (e) => {

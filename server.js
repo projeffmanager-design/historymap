@@ -424,7 +424,20 @@ app.use(express.static(__dirname, {
 // 🚩 [추가] public 폴더를 정적 파일로 제공 (타일 파일 접근용)
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
-// 🚩 [수정] 루트(/) 요청 시 index.html(지도) 서빙 — 게스트 자동 입장
+// � [추가] /ads.txt — Google AdSense 크롤러용 명시적 라우트
+// (Vercel serverless에서 모든 요청이 server.js로 rewrite되므로 확실하게 직접 서빙)
+app.get('/ads.txt', (req, res) => {
+    res.type('text/plain');
+    res.set('Cache-Control', 'public, max-age=86400'); // 24시간 캐시 (Google 권장)
+    try {
+        res.send(fs.readFileSync(path.join(__dirname, 'ads.txt'), 'utf-8'));
+    } catch (e) {
+        // 파일이 번들에 없더라도 내용이 한 줄뿐이므로 하드코딩 폴백
+        res.send('google.com, pub-6821586098117394, DIRECT, f08c47fec0942fa0\n');
+    }
+});
+
+// �🚩 [수정] 루트(/) 요청 시 index.html(지도) 서빙 — 게스트 자동 입장
 app.get('/', (req, res) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.set('Pragma', 'no-cache');
@@ -1381,6 +1394,131 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
             } catch (error) {
                 logCRUD('ERROR', 'Castle', 'PERMANENT_DELETE', error.message);
                 res.status(500).json({ message: "Castle 정보 영구 삭제 실패", error: error.message });
+            }
+        });
+
+        // ── 📢 [추가] 지도 광고 마커 API — 관리자가 지도 위 원하는 위치에 직접 생성하는 스폰서 마커 ──
+
+        // GET: 활성화된 광고 마커 전체 조회 (공개 - 지도 렌더링용)
+        app.get('/api/ad-markers', async (req, res) => {
+            try {
+                const markers = await collections.adMarkers.find({ active: { $ne: false } }).toArray();
+                res.json(markers);
+            } catch (error) {
+                console.error('[GET /api/ad-markers] 에러:', error);
+                res.status(500).json({ message: "광고 마커 조회 실패", error: error.message });
+            }
+        });
+
+        // GET: 전체 광고 마커 조회 (비활성 포함 - 관리자 전용, 관리 화면용)
+        app.get('/api/admin/ad-markers', verifyAdmin, async (req, res) => {
+            try {
+                const markers = await collections.adMarkers.find({}).sort({ createdAt: -1 }).toArray();
+                res.json(markers);
+            } catch (error) {
+                console.error('[GET /api/admin/ad-markers] 에러:', error);
+                res.status(500).json({ message: "광고 마커 조회 실패", error: error.message });
+            }
+        });
+
+        // POST: 광고 마커 생성 (관리자 전용)
+        app.post('/api/ad-markers', verifyAdmin, async (req, res) => {
+            try {
+                const { lat, lng, title, imageUrl, linkUrl, description, active } = req.body;
+                const latNum = parseFloat(lat);
+                const lngNum = parseFloat(lng);
+                if (lat == null || lng == null || isNaN(latNum) || isNaN(lngNum)) {
+                    return res.status(400).json({ message: "위도(lat)/경도(lng)는 필수입니다." });
+                }
+                if (!linkUrl || !String(linkUrl).trim()) {
+                    return res.status(400).json({ message: "연결 링크(linkUrl)는 필수입니다." });
+                }
+                const newMarker = {
+                    lat: latNum,
+                    lng: lngNum,
+                    title: (title || '광고').trim(),
+                    imageUrl: (imageUrl || '').trim(),
+                    linkUrl: String(linkUrl).trim(),
+                    description: (description || '').trim(),
+                    active: active !== false,
+                    clicks: 0,
+                    impressions: 0,
+                    createdBy: req.user?.username || req.user?.id || 'admin',
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                };
+                const result = await collections.adMarkers.insertOne(newMarker);
+                logCRUD('CREATE', 'AdMarker', newMarker.title, `(ID: ${result.insertedId})`);
+                res.status(201).json({ message: "광고 마커 생성 성공", marker: { ...newMarker, _id: result.insertedId } });
+            } catch (error) {
+                logCRUD('ERROR', 'AdMarker', 'POST', error.message);
+                res.status(500).json({ message: "광고 마커 생성 실패", error: error.message });
+            }
+        });
+
+        // PUT: 광고 마커 수정 (관리자 전용)
+        app.put('/api/ad-markers/:id', verifyAdmin, async (req, res) => {
+            try {
+                const { id } = req.params;
+                const _id = toObjectId(id);
+                if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+
+                const { lat, lng, title, imageUrl, linkUrl, description, active } = req.body;
+                const updateDoc = { updatedAt: new Date() };
+                const latNum = parseFloat(lat);
+                const lngNum = parseFloat(lng);
+                if (lat !== undefined && lat !== null && !isNaN(latNum)) updateDoc.lat = latNum;
+                if (lng !== undefined && lng !== null && !isNaN(lngNum)) updateDoc.lng = lngNum;
+                if (title !== undefined) updateDoc.title = String(title).trim();
+                if (imageUrl !== undefined) updateDoc.imageUrl = String(imageUrl).trim();
+                if (linkUrl !== undefined) updateDoc.linkUrl = String(linkUrl).trim();
+                if (description !== undefined) updateDoc.description = String(description).trim();
+                if (active !== undefined) updateDoc.active = !!active;
+
+                const updatedDoc = await collections.adMarkers.findOneAndUpdate(
+                    { _id },
+                    { $set: updateDoc },
+                    { returnDocument: 'after' }
+                );
+                // 🚩 mongodb 드라이버 v6+: findOneAndUpdate가 { value } 래핑 없이 문서를 직접 반환함
+                if (!updatedDoc) return res.status(404).json({ message: "광고 마커를 찾을 수 없습니다." });
+
+                logCRUD('UPDATE', 'AdMarker', updatedDoc.title || id, `(ID: ${id})`);
+                res.json({ message: "광고 마커 수정 성공", marker: updatedDoc });
+            } catch (error) {
+                logCRUD('ERROR', 'AdMarker', 'PUT', error.message);
+                res.status(500).json({ message: "광고 마커 수정 실패", error: error.message });
+            }
+        });
+
+        // DELETE: 광고 마커 삭제 (관리자 전용)
+        app.delete('/api/ad-markers/:id', verifyAdmin, async (req, res) => {
+            try {
+                const { id } = req.params;
+                const _id = toObjectId(id);
+                if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+
+                const result = await collections.adMarkers.deleteOne({ _id });
+                if (result.deletedCount === 0) return res.status(404).json({ message: "광고 마커를 찾을 수 없습니다." });
+
+                logCRUD('DELETE', 'AdMarker', id, '');
+                res.json({ message: "광고 마커 삭제 성공" });
+            } catch (error) {
+                logCRUD('ERROR', 'AdMarker', 'DELETE', error.message);
+                res.status(500).json({ message: "광고 마커 삭제 실패", error: error.message });
+            }
+        });
+
+        // POST: 광고 마커 클릭 카운트 증가 (공개 - 통계용, 실패해도 무방)
+        app.post('/api/ad-markers/:id/click', async (req, res) => {
+            try {
+                const { id } = req.params;
+                const _id = toObjectId(id);
+                if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
+                await collections.adMarkers.updateOne({ _id }, { $inc: { clicks: 1 } });
+                res.json({ ok: true });
+            } catch (error) {
+                res.status(200).json({ ok: false }); // 통계 실패는 조용히 무시 (사용자 경험에 영향 없음)
             }
         });
 
