@@ -288,7 +288,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.7.6',           // [v3.7.6] 영웅/왕 캐시 동기화 및 3D 영웅 초기 표시 개선
+        APP_VERSION: '3.7.7',           // [v3.7.7] 영웅 API no-store 및 슬라이더 연도 변경 동기화
         DATA_SCHEMA_VERSION: '2.1.2'    // city territory absorption fix — 캐시 강제 갱신
     };
     // 세션 캐시에서 schema version 을 참조할 수 있도록 전역 노출
@@ -7124,7 +7124,7 @@ body.force-mobile .marker-type-selector button {
       color: rgba(212, 175, 55, 0.45);
       font-family: monospace;
       letter-spacing: 0.05em;
-    ">v<span id="loading-screen-version-text">3.7.6</span></div>
+    ">v<span id="loading-screen-version-text">3.7.7</span></div>
   </div>
 
   
@@ -21319,6 +21319,15 @@ const loadingMessages = [
         scheduleHistoryPanelUpdate(year);
     }
 
+    function refreshHeroPinsForTime(year, month, cacheOnly = false) {
+        if (typeof window.__codexScheduleHeroPins === 'function') {
+            window.__codexScheduleHeroPins(year, month, cacheOnly);
+        }
+        if (window._is3dMode && typeof window._3dRefreshHeroPins === 'function') {
+            window._3dRefreshHeroPins();
+        }
+    }
+
     // 🚩 [수정] 월 입력 필드에서 화살표 키를 눌렀을 때 연도 변경 로직 충돌 해결
     monthInput.addEventListener('keydown', (e) => {
         let keydownYear = parseInt(yearInput.value) || 0;
@@ -27860,6 +27869,7 @@ kingSelect.addEventListener('change', () => {
                     _sliderLastMapYear = _sliderPendingYear;
                     _sliderLastMapMonth = _sliderPendingMonth;
                     updateMap(_sliderLastMapYear, _sliderLastMapMonth);
+                    refreshHeroPinsForTime(_sliderLastMapYear, _sliderLastMapMonth, false);
                 });
             }
         });
@@ -27871,6 +27881,7 @@ kingSelect.addEventListener('change', () => {
             if (_sliderRAF) { cancelAnimationFrame(_sliderRAF); _sliderRAF = null; }
             if (_sliderPendingYear !== null) {
                 updateMap(_sliderPendingYear, _sliderPendingMonth, false, true);
+                refreshHeroPinsForTime(_sliderPendingYear, _sliderPendingMonth, false);
                 checkAndDisplayEvent(_sliderPendingYear, _sliderPendingMonth);
                 scheduleHistoryPanelUpdate(_sliderPendingYear);
                 _sliderLastMapYear = _sliderPendingYear;
