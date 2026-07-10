@@ -19204,8 +19204,11 @@ const loadingMessages = [
               }
               
               const { year, month } = getCurrentYearMonth();
+              if (typeof window.__codexClearHeroCache === 'function') window.__codexClearHeroCache();
               updateMap(year, month);
               updateKingLabel(year, month);
+              if (typeof window.__codexScheduleHeroPins === 'function') window.__codexScheduleHeroPins(year, month, false);
+              if (window._is3dMode && typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
           } catch (error) {
               console.error(`❌ 왕 동기화 실패: ${kingId}`, error);
           }
@@ -19221,8 +19224,11 @@ const loadingMessages = [
               console.error("❌ 왕 메모리 추가 실패: 국가 ID 없음", newKing);
           }
           const { year, month } = getCurrentYearMonth();
+          if (typeof window.__codexClearHeroCache === 'function') window.__codexClearHeroCache();
           updateMap(year, month);
           updateKingLabel(year, month);
+          if (typeof window.__codexScheduleHeroPins === 'function') window.__codexScheduleHeroPins(year, month, false);
+          if (window._is3dMode && typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
       };
       
       window.deleteKingInMemory = (kingId) => {
@@ -19240,8 +19246,11 @@ const loadingMessages = [
           
           if (found) {
               const { year, month } = getCurrentYearMonth();
+              if (typeof window.__codexClearHeroCache === 'function') window.__codexClearHeroCache();
               updateMap(year, month);
               updateKingLabel(year, month);
+              if (typeof window.__codexScheduleHeroPins === 'function') window.__codexScheduleHeroPins(year, month, false);
+              if (window._is3dMode && typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
           } else {
               console.warn(`⚠️ 삭제할 왕을 찾을 수 없음: ${kingId}`);
           }
@@ -26404,6 +26413,39 @@ kingSelect.addEventListener('change', () => {
 
         // ── 이벤트 바인딩 ──
         function bindEvents() {
+            async function refreshHeroAdminDerivedState() {
+                if (typeof window.__codexClearHeroCache === 'function') {
+                    window.__codexClearHeroCache();
+                }
+                if (typeof window._3dRefreshHeroPins === 'function') {
+                    window._3dRefreshHeroPins();
+                }
+                try {
+                    const kingsRes = await fetch(`${API}/kings`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                        cache: 'no-store'
+                    });
+                    if (kingsRes.ok) {
+                        const kingsData = await kingsRes.json();
+                        kings = {};
+                        if (Array.isArray(kingsData)) {
+                            kingsData.forEach(item => {
+                                if (item.country_id && Array.isArray(item.kings)) {
+                                    kings[item.country_id] = item.kings;
+                                }
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[heroSystem] kings 재동기화 실패:', e);
+                }
+                const { year, month } = getCurrentYearMonth();
+                if (typeof updateKingLabel === 'function') updateKingLabel(year, month);
+                if (typeof updateMap === 'function') updateMap(year, month, false, true);
+                if (window.__codexScheduleHeroPins) window.__codexScheduleHeroPins(year, month, false);
+                if (window._is3dMode && typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
+            }
+
             // 사이드바 닫기
             document.getElementById('heroSidebarClose').onclick = closeHeroDetail;
             if (map && !window.__heroDetailMapCloseBound) {
@@ -26522,6 +26564,7 @@ kingSelect.addEventListener('change', () => {
                     if (!res.ok) throw new Error(data.message);
                     alert(data.message);
                     clearAdminForm();
+                    await refreshHeroAdminDerivedState();
                     await loadAdminList();
                     renderByYear(_currentYear, _currentMonth);
                 } catch (e) { alert('저장 실패: ' + e.message); }
@@ -26540,6 +26583,7 @@ kingSelect.addEventListener('change', () => {
                     if (!res.ok) throw new Error(data.message);
                     alert(data.message);
                     clearAdminForm();
+                    await refreshHeroAdminDerivedState();
                     await loadAdminList();
                     renderByYear(_currentYear, _currentMonth);
                 } catch (e) { alert('삭제 실패: ' + e.message); }
@@ -29709,6 +29753,14 @@ kingSelect.addEventListener('change', () => {
                 });
             }
 
+            function _schedule3dHeroPins(force = false) {
+                if (!window._is3dMode || !mlMap) return;
+                requestAnimationFrame(() => _render3dHeroPins(force));
+                setTimeout(() => _render3dHeroPins(force), 250);
+                setTimeout(() => _render3dHeroPins(false), 900);
+            }
+            window._3dRefreshHeroPins = () => _schedule3dHeroPins(true);
+
             // ── MapLibre CDN 동적 로드 (1회) ──
             function loadMapLibre(cb) {
                 if (window.maplibregl) { cb(); return; }
@@ -29896,6 +29948,7 @@ kingSelect.addEventListener('change', () => {
                     console.log('[3D] _3dTerritoryData 없음 → updateMap 트리거');
                     if (typeof updateMap === 'function' && typeof getCurrentYearMonth === 'function') {
                         updateMap(year, month);
+                        _schedule3dHeroPins(false);
                         return;
                     }
                 }
@@ -29909,7 +29962,7 @@ kingSelect.addEventListener('change', () => {
 
                 try {
                     _refreshLayersInner(territoryChanged, doRebuildMarkers);
-                    _render3dHeroPins(markerChanged || territoryChanged);
+                    _schedule3dHeroPins(markerChanged || territoryChanged);
                 } catch(e) { console.error('[3D] refreshLayers ERROR:', e); }
             }
             // updateMap() 완료 후 자동 호출 — window에 노출
@@ -31695,6 +31748,7 @@ kingSelect.addEventListener('change', () => {
                             mlMap.on('moveend',  _lodHandler);
                             mlMap.on('pitchend', _lodHandler);
                             refreshLayers();
+                            _schedule3dHeroPins(true);
                         });
                     } else {
                         const c = map.getCenter();
@@ -31751,6 +31805,7 @@ kingSelect.addEventListener('change', () => {
                         mlMap.on('pitchend', window._3dZoomMoveHandler);
 
                         refreshLayers();
+                        _schedule3dHeroPins(true);
                         // 🚩 자원 마커 재렌더 (재진입 시)
                         setTimeout(function() {
                             if (window._refresh3dResources) window._refresh3dResources();

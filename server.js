@@ -3146,6 +3146,7 @@ app.post('/api/kings', verifyAdmin, async (req, res) => {
         if (result.modifiedCount === 0 && result.upsertedCount === 0) {
             throw new Error("국가 찾기/추가 실패");
         }
+        invalidateHeroCaches();
         
         res.status(201).json({ 
             message: "King 추가 성공", 
@@ -3242,6 +3243,7 @@ app.put('/api/kings/:id', verifyAdmin, async (req, res) => {
         if (result.matchedCount === 0) {
             return res.status(404).json({ message: "해당 ID를 가진 왕 레코드를 찾을 수 없습니다." });
         }
+        invalidateHeroCaches();
 
         res.json({ message: "King 정보 업데이트 성공" });
     } catch (error) {
@@ -3268,6 +3270,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         if (result.modifiedCount === 0) {
              return res.status(404).json({ message: "해당 ID를 가진 왕 레코드를 찾을 수 없거나 이미 삭제되었습니다." });
         }
+        invalidateHeroCaches();
 
         res.json({ message: "King 정보 삭제 성공" });
     } catch (error) {
