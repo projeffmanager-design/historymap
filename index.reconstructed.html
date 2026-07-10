@@ -1,0 +1,2640 @@
+const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+        const res = await fetch('/api/admin/upload-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}` },
+            body: JSON.stringify({ filename: file.name, contentBase64: base64, mimeType: file.type })
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.message || '업로드 실패');
+        }
+        const { url } = await res.json();
+        if (urlInput) urlInput.value = url;
+        document.getElementById('castlePhoto').value = url;
+        if (msgEl) { msgEl.style.color = '#7fcf9f'; msgEl.textContent = '✅ 업로드 완료!'; }
+        const thumb = document.getElementById('castlePhotoThumb');
+        const thumbImg = document.getElementById('castlePhotoThumbImg');
+        if (thumb && thumbImg) { thumbImg.src = url; thumb.style.display = ''; }
+        if (fileInput) fileInput.value = '';
+    } catch (e) {
+        if (msgEl) { msgEl.style.color = '#cf8080'; msgEl.textContent = '❌ ' + e.message; }
+    }
+}
+// URL 입력값을 서버 경유로 GitHub에 업로드 (403 외부 이미지 우회)
+async function uploadCastlePhotoFromUrl() {
+    const urlInput = document.getElementById('castlePhoto');
+    const msgEl = document.getElementById('castlePhotoUploadMsg');
+    const sourceUrl = urlInput?.value?.trim();
+    if (!sourceUrl) return alert('이미지 URL을 먼저 입력하세요.');
+    // 이미 raw.githubusercontent.com이면 그냥 사용
+    if (sourceUrl.includes('raw.githubusercontent.com')) {
+        _previewCastlePhoto();
+        return;
+    }
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#7fcf9f'; msgEl.textContent = '서버에서 이미지 가져오는 중…'; }
+    try {
+        const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+        const ext = sourceUrl.split('?')[0].split('.').pop().toLowerCase().replace(/[^a-z]/g,'') || 'jpg';
+        const res = await fetch('/api/admin/upload-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}` },
+            body: JSON.stringify({ sourceUrl, filename: `image.${ext}` })
+        });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.message || '업로드 실패'); }
+        const { url } = await res.json();
+        urlInput.value = url;
+        if (msgEl) { msgEl.style.color = '#7fcf9f'; msgEl.textContent = '✅ GitHub에 저장 완료!'; }
+        const thumb = document.getElementById('castlePhotoThumb');
+        const thumbImg = document.getElementById('castlePhotoThumbImg');
+        if (thumb && thumbImg) { thumbImg.src = url; thumb.style.display = ''; }
+    } catch (e) {
+        if (msgEl) { msgEl.style.color = '#cf8080'; msgEl.textContent = '❌ ' + e.message; }
+    }
+}
+let basePath = primary;
+          let resp = await fetch(`${origin}${primary}/index.json?v=${version}`);
+          if (!resp.ok) {
+              console.log(`🔄 ${primary} 실패, ${fallback} 시도...`);
+              basePath = fallback;
+              resp = await fetch(`${origin}${fallback}/index.json?v=${version}`);
+          }
+          if (!resp.ok) throw new Error(`타일 인덱스 로드 실패: ${resp.status}`);
+          const indexJson = await resp.json();
+          // index.json 형식: { updated_at, tiles: [...] } 또는 구버전 배열
+          const tileList   = Array.isArray(indexJson) ?
+indexJson : (indexJson.tiles || []);
+          const updatedAt  = Array.isArray(indexJson) ?
+null : (indexJson.updated_at || null);
+          // updated_at이 IndexedDB 캐시 저장 시점보다 최신이면 캐시 무효화
+          if (updatedAt) {
+              try {
+                  const db = await openTerritoryDB();
+                  const tx = db.transaction([TERRITORY_STORE_NAME], 'readonly');
+                  const store = tx.objectStore(TERRITORY_STORE_NAME);
+                  const cached = await new Promise(r => { const q = store.get('all_territories'); q.onsuccess = () => r(q.result); q.onerror = () => r(null); });
+                  if (cached && cached.timestamp < updatedAt) {
+                      console.log(`🔄 타일 업데이트 감지 (서버: ${new Date(updatedAt).toLocaleString()}) → IndexedDB 캐시 무효화`);
+                      const tx2 = db.transaction([TERRITORY_STORE_NAME], 'readwrite');
+                      tx2.objectStore(TERRITORY_STORE_NAME).delete('all_territories');
+                  }
+              } catch(e) { /* 무시 */ }
+          }
+          _tileIndexCache    = tileList;
+          _tilesBasePathCache = basePath;
+          console.log(`📊 타일 인덱스: ${_tileIndexCache.length}개 타일 (경로: ${basePath})`);
+          // 메타타일 인덱스 백그라운드 프리로드 (타일 로딩 블록 안 함)
+          if (_tileStrategyConfig.useMetatile) {
+              _ensureMetaIndex().catch(() => {}); // 실패해도 무시
+          }
+          return { tileIndex: _tileIndexCache, basePath };
+      }
+      async function loadTerritoryFromStaticTiles(bounds) {
+          // 전체 로드 완료 후 재호출 시: 렌더링만
+          if (allTerritoriesLoaded && territories.length > 0) {
+              console.log(`✅ 전체 영토 캐시 사용: ${territories.length}개`);
+              _updateTerritoryBtn();
+              return;
+          }
+          console.log(`🚀 [Viewport Lazy] 영토 뷰포트 로딩 시작...`);
+          const startTime = Date.now();
+          const origin    = window.location.origin;
+          const version   = new Date().toDateString();
+          try {
+              const { tileIndex, basePath } = await _ensureTileIndex();
+if (allRes.ok) {
+                    const list = await allRes.json();
+                    const found = list.find(v => v.castle_id === castleId);
+                    if (found) _castleFormVoiceId = found._id;
+                }
+            }
+        } else if (res.status === 404) {
+            statusEl.textContent = '등록된 음성 없음';
+        } else {
+            statusEl.textContent = '조회 실패';
+        }
+    } catch {
+        statusEl.textContent = '조회 실패';
+    }
+}
+async function castleFormUploadVoice() {
+    const castleId = editingCastleKey;
+    const fileInput = document.getElementById('castleVoiceFile');
+    const msgEl = document.getElementById('castleVoiceUploadMsg');
+    if (!castleId) return alert('저장된 마커에서만 사용 가능합니다.');
+    if (!fileInput || !fileInput.files[0]) return alert('파일을 선택하세요.');
+    const file = fileInput.files[0];
+    const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+    msgEl.style.display = 'block';
+    msgEl.style.color = '#7fcf9f';
+    msgEl.textContent = '업로드 중…';
+    try {
+        // 파일을 base64로 읽어 서버에 전송 → 서버가 Vercel Blob에 업로드 (CORS 우회)
+        const audioBase64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+        const res = await fetch('/api/admin/voice/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}` },
+            body: JSON.stringify({
+                castle_id: castleId,
+                audioBase64,
+                filename: file.name,
+                contentType: file.type || 'audio/mpeg',
+                speaker: '사관'
+            })
+        });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.message || '업로드 실패'); }
+        msgEl.textContent = '✅ 등록 완료!';
+        if (fileInput) fileInput.value = '';
+        await loadCastleVoiceSection(castleId);
+    } catch (e) {
+        msgEl.style.color = '#cf8080';
+        msgEl.textContent = '❌ ' + e.message;
+    }
+}
+async function castleFormDeleteVoice() {
+    if (!_castleFormVoiceId) return alert('음성 ID를 찾을 수 없습니다.');
+    if (!confirm('이 음성을 삭제하시겠습니까?')) return;
+    const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+    const res = await fetch(`/api/admin/voice/${_castleFormVoiceId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${tok}` }
+    });
+    if (res.ok) {
+        await loadCastleVoiceSection(editingCastleKey);
+    } else {
+        alert('삭제 실패');
+    }
+}
+</script>
+// =====================================================================
+// 🎙️ castleForm 음성 관리 함수
+// =====================================================================
+let _castleFormVoiceId = null;
+async function loadCastleVoiceSection(castleId) {
+    const sec = document.getElementById('castleVoiceSection');
+    const statusEl = document.getElementById('castleVoiceStatus');
+    const playerEl = document.getElementById('castleVoicePlayer');
+    const audioEl = document.getElementById('castleVoiceAudioEl');
+    const delBtn = document.getElementById('castleVoiceDeleteBtn');
+    const msgEl = document.getElementById('castleVoiceUploadMsg');
+    if (!sec) return;
+    sec.style.display = '';
+    statusEl.textContent = '확인 중…';
+    if (msgEl) { msgEl.style.display = 'none'; msgEl.textContent = ''; }
+    if (playerEl) playerEl.style.display = 'none';
+    if (delBtn) delBtn.style.display = 'none';
+    _castleFormVoiceId = null;
+    try {
+        const res = await fetch(`/api/voice?id=${castleId}`);
+        if (res.ok) {
+            const data = await res.json();
+            statusEl.textContent = '✅ 음성 등록됨';
+            if (audioEl) audioEl.src = data.audio_url;
+            if (playerEl) playerEl.style.display = '';
+            if (delBtn) delBtn.style.display = 'inline-block';
+            // voice doc _id 조회 (삭제용)
+            const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+            if (tok) {
+                const allRes = await fetch('/api/admin/voice', { headers: { 'Authorization': `Bearer ${tok}` } });
+                if (allRes.ok) {
+                    const list = await allRes.json();
+                    const found = list.find(v => v.castle_id === castleId);
+                    if (found) _castleFormVoiceId = found._id;
+                }
+            }
+        } else if (res.status === 404) {
+            statusEl.textContent = '등록된 음성 없음';
+        } else {
+            statusEl.textContent = '조회 실패';
+        }
+    } catch {
+        statusEl.textContent = '조회 실패';
+    }
+}
+async function castleFormUploadVoice() {
+    const castleId = editingCastleKey;
+    const fileInput = document.getElementById('castleVoiceFile');
+    const msgEl = document.getElementById('castleVoiceUploadMsg');
+    if (!castleId) return alert('저장된 마커에서만 사용 가능합니다.');
+    if (!fileInput || !fileInput.files[0]) return alert('파일을 선택하세요.');
+    const file = fileInput.files[0];
+    const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+    msgEl.style.display = 'block';
+    msgEl.style.color = '#7fcf9f';
+    msgEl.textContent = '업로드 중…';
+    try {
+        // 파일을 base64로 읽어 서버에 전송 → 서버가 Vercel Blob에 업로드 (CORS 우회)
+        const audioBase64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+type.startsWith('image/')) {
+                    e.preventDefault();
+                    const file = item.getAsFile();
+                    if (file) {
+                        const msgEl = document.getElementById('generalPhotoUploadMsg');
+                        if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#7fcf9f'; msgEl.textContent = '이미지 감지됨 — 업로드 중…'; }
+                        uploadGeneralPhoto(file);
+                    }
+                    break;
+                }
+            }
+        });
+    }
+});
+async function uploadCastlePhoto(mode) {
+    // mode: undefined → castlePhotoFile / 'natural' → naturalPhotoFile
+    const fileInput = document.getElementById(mode === 'natural' ?
+'naturalPhotoFile' : 'castlePhotoFile');
+    const msgEl = document.getElementById('castlePhotoUploadMsg');
+    const urlInput = document.getElementById(mode === 'natural' ?
+'naturalPhotoProxy' : 'castlePhoto');
+    if (!fileInput || !fileInput.files[0]) return alert('파일을 선택하세요.');
+    const file = fileInput.files[0];
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#7fcf9f'; msgEl.textContent = '업로드 중…'; }
+    try {
+        const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+        const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+        const res = await fetch('/api/admin/upload-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}` },
+            body: JSON.stringify({ filename: file.name, contentBase64: base64, mimeType: file.type })
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.message || '업로드 실패');
+        }
+        const { url } = await res.json();
+        if (urlInput) urlInput.value = url;
+        document.getElementById('castlePhoto').value = url;
+        if (msgEl) { msgEl.style.color = '#7fcf9f'; msgEl.textContent = '✅ 업로드 완료!'; }
+        const thumb = document.getElementById('castlePhotoThumb');
+        const thumbImg = document.getElementById('castlePhotoThumbImg');
+        if (thumb && thumbImg) { thumbImg.src = url; thumb.style.display = ''; }
+        if (fileInput) fileInput.value = '';
+    } catch (e) {
+        if (msgEl) { msgEl.style.color = '#cf8080'; msgEl.textContent = '❌ ' + e.message; }
+    }
+}
+// URL 입력값을 서버 경유로 GitHub에 업로드 (403 외부 이미지 우회)
+async function uploadCastlePhotoFromUrl() {
+    const urlInput = document.getElementById('castlePhoto');
+    const msgEl = document.getElementById('castlePhotoUploadMsg');
+    const sourceUrl = urlInput?.value?.trim();
+    if (!sourceUrl) return alert('이미지 URL을 먼저 입력하세요.
+'Authorization': `Bearer ${tok}` },
+            body: JSON.stringify({ filename: file.name || 'general_photo.jpg', contentBase64: base64, mimeType: file.type || 'image/jpeg' })
+        });
+        if (!res.ok) { const err = await res.json(); throw new Error(err.message || '업로드 실패'); }
+        const { url } = await res.json();
+        if (urlInput) urlInput.value = url;
+        if (msgEl) { msgEl.style.color = '#7fcf9f'; msgEl.textContent = '✅ 업로드 완료!'; }
+        _previewGeneralPhoto(url);
+        if (fileInput) fileInput.value = '';
+    } catch (e) {
+        if (msgEl) { msgEl.style.color = '#cf8080'; msgEl.textContent = '❌ ' + e.message; }
+    }
+}
+function _previewGeneralPhoto(url) {
+    url = url || document.getElementById('generalPhoto')?.value?.trim();
+    const thumb    = document.getElementById('generalPhotoThumb');
+    const thumbImg = document.getElementById('generalPhotoThumbImg');
+    if (!url || !thumb || !thumbImg) return;
+    thumbImg.src = url;
+    thumb.style.display = '';
+}
+// 붙여넣기 영역에 paste 이벤트 연결 (DOM 준비 후)
+document.addEventListener('DOMContentLoaded', function() {
+    const pasteArea = document.getElementById('generalPhotoPasteArea');
+    if (pasteArea) {
+        pasteArea.addEventListener('paste', function(e) {
+            const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+            if (!items) return;
+            for (const item of items) {
+                if (item.type.startsWith('image/')) {
+                    e.preventDefault();
+                    const file = item.getAsFile();
+                    if (file) {
+                        const msgEl = document.getElementById('generalPhotoUploadMsg');
+                        if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#7fcf9f'; msgEl.textContent = '이미지 감지됨 — 업로드 중…'; }
+                        uploadGeneralPhoto(file);
+                    }
+                    break;
+                }
+            }
+        });
+    }
+});
+async function uploadCastlePhoto(mode) {
+    // mode: undefined → castlePhotoFile / 'natural' → naturalPhotoFile
+    const fileInput = document.getElementById(mode === 'natural' ?
+'naturalPhotoFile' : 'castlePhotoFile');
+    const msgEl = document.getElementById('castlePhotoUploadMsg');
+    const urlInput = document.getElementById(mode === 'natural' ?
+'naturalPhotoProxy' : 'castlePhoto');
+    if (!fileInput || !fileInput.files[0]) return alert('파일을 선택하세요.');
+    const file = fileInput.files[0];
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#7fcf9f'; msgEl.textContent = '업로드 중…'; }
+    try {
+        const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+        const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+        const res = await fetch('/api/admin/upload-image', {
+            method: 'POST',
+}
+      };
+      window.updateCountryInMemory = async (originalNameOrId, serverResponseData) => {
+          // 서버에서 업데이트된 데이터를 다시 가져와서 동기화
+          try {
+              // 🚩 [수정] _id 또는 name으로 fetch (이름 변경 시에도 안전)
+              const fetchKey = serverResponseData.name || originalNameOrId;
+              const updatedCountry = await fetchData(`countries/${encodeURIComponent(fetchKey)}`);
+              // 🔄 [수정] name 또는 _id로 찾기
+              const index = countries.findIndex(c => c.name === originalNameOrId || String(c._id) === String(originalNameOrId));
+              if (index !== -1 && updatedCountry) {
+                  countries[index] = updatedCountry;
+                  // 🚩 [핵심 수정] 캐시 강제 무효화 — 이름 변경이 즉시 반영되도록
+                  invalidateCountryLookupCache();
+                  // 🚩 [수정] localStorage 캐시도 즉시 갱신 (재로그인 후에도 보이도록)
+                  try {
+                      localStorage.setItem('countries_cache', JSON.stringify(countries));
+                      localStorage.setItem('countries_cache_time', Date.now().toString());
+                  } catch(e) { console.warn('countries_cache 저장 실패', e); }
+                  console.log(`✅ 국가 DB 동기화 완료: ${originalNameOrId} → ${updatedCountry.name}`, updatedCountry);
+                  // 🚩 [수정] 전체 맵 갱신 (영토 국가명, 수도명, 라벨 등 모두 반영)
+                  const { year, month } = getCurrentYearMonth();
+                  updateMap(year, month);
+                  // 🚩 [추가] 국가 편집 select 목록도 갱신
+                  if (typeof updateCountrySelectForEdit === 'function') {
+                      updateCountrySelectForEdit();
+                  }
+              } else {
+                  console.warn(`⚠️ 메모리에서 찾을 수 없음: ${originalNameOrId}`);
+              }
+          } catch (error) {
+              console.error(`❌ 국가 동기화 실패: ${originalNameOrId}`, error);
+          }
+      };
+      window.addCountryInMemory = (newCountry) => {
+          countries.push(newCountry);
+          invalidateCountryLookupCache();
+          // 🚩 [수정] localStorage 캐시도 즉시 갱신 (재로그인 후에도 보이도록)
+          try {
+              localStorage.setItem('countries_cache', JSON.stringify(countries));
+              localStorage.setItem('countries_cache_time', Date.now().toString());
+          } catch(e) { console.warn('countries_cache 저장 실패', e); }
+          console.log(`✅ 국가 메모리 추가: ${newCountry.name} (ID: ${newCountry._id})`);
+          const { year, month } = getCurrentYearMonth();
+          updateMap(year, month);
+          if (typeof updateCountrySelectForEdit === 'function') updateCountrySelectForEdit();
+      };
+      window.deleteCountryInMemory = (countryName) => {
+          // 🔄 [수정] name 또는 _id로 찾기
+          const index = countries.findIndex(c => c.
+800);
+          }
+          const loadPromises = {
+              // 🎯 countries: 캐시가 있으면 즉시 resolve, 없으면 네트워크 요청
+              countries: countriesAlreadyLoaded
+                  ?
+Promise.resolve(countries).then(d => { console.log('⚡ [초고속] countries 캐시 사용 (네트워크 스킵)'); return d; })
+                  : fetchData('countries'),
+              // ❌ events: 제외 - 연대표 전용, 지도 렌더링에 불필요 (백그라운드 로드로 전환)
+              // ❌ history: 제외 - 2,221개로 가장 무거움, 지도에 직접 영향 없음
+              // ❌ castles: 제외 - 1,168개, 11초 소요, 백그라운드 로드로 전환
+          };
+          // 진행률 표시를 위한 개별 완료 추적
+          let completedCount = 0;
+          const totalLoads = Object.keys(loadPromises).length;
+          // 🎯 [디버깅] 각 요청의 시작/종료 시간 추적
+          const timingMap = {};
+          // 🎯 [핵심 최적화] countries 데이터가 오는 즉시 1차 렌더링 (Promise.all 기다리지 않음)
+          loadPromises.countries.then(data => {
+              countries = data || [];
+              // 🔑 [핵심] countries 교체 시 lookup 캐시 강제 무효화 (국가없음 매칭 실패 방지)
+              _countryLookupMap = null;
+              // 🔑 [진단] countries 재로드 시 매칭 실패 로그 리셋 (새 데이터로 재진단)
+              if (updateMap._loggedMissingIds) updateMap._loggedMissingIds.clear();
+              console.log(`✅ [즉시 렌더링] countries ${countries.length}개 로드 완료 (lookup 캐시 초기화)`);
+              // � [v3.5 최적화] 디바운스된 단일 호출 (기존: 즉시 1회 + rAF 매칭 재시도 1회 → 총 2회)
+              requestUpdateMap();
+              console.log('�️ [즉시 렌더링] countries 데이터로 지도 렌더링 예약 완료');
+          }).catch(err => {
+              console.error('❌ countries 즉시 로드 실패:', err);
+          });
+          const results = await Promise.all(
+              Object.entries(loadPromises).map(async ([key, promise]) => {
+                  const requestStart = performance.now();
+                  try {
+                      const data = await promise;
+                      const requestEnd = performance.now();
+                      const duration = ((requestEnd - requestStart) / 1000).toFixed(2);
+                      timingMap[key] = duration;
+                      completedCount++;
+                      console.log(`⏱️ [타이밍] ${key}: ${duration}초`);
+                      return [key, data];
+findIndex(c => c.name === countryName || String(c._id) === String(countryName));
+          if (index !== -1) {
+              countries.splice(index, 1);
+              invalidateCountryLookupCache();
+              // 🚩 [수정] localStorage 캐시도 즉시 갱신 (재로그인 후에도 반영되도록)
+              try {
+                  localStorage.setItem('countries_cache', JSON.stringify(countries));
+                  localStorage.setItem('countries_cache_time', Date.now().toString());
+              } catch(e) { console.warn('countries_cache 저장 실패', e); }
+              console.log(`✅ 국가 메모리 삭제: ${countryName}`);
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+              if (typeof updateCountrySelectForEdit === 'function') updateCountrySelectForEdit();
+          } else {
+              console.warn(`⚠️ 삭제할 국가를 찾을 수 없음: ${countryName}`);
+          }
+      };
+      window.updateEventInMemory = async (eventId, serverResponseData) => {
+          // 서버에서 업데이트된 데이터를 다시 가져와서 동기화
+          try {
+              const updatedEvent = await fetchData(`events/${eventId}`);
+              const index = events.findIndex(e => e._id === eventId);
+              if (index !== -1 && updatedEvent) {
+                  events[index] = updatedEvent;
+                  console.log(`✅ 이벤트 DB 동기화 완료: ${eventId}`, updatedEvent);
+              } else {
+                  console.warn(`⚠️ 메모리에서 찾을 수 없음: ${eventId}`);
+              }
+              // 🚩 [추가] 메모리 갱신 후 IndexedDB 캐시도 즉시 갱신 (페이지 갱신 시 캐시에서 로드되므로)
+              await saveEventsCache(events);
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } catch (error) {
+              console.error(`❌ 이벤트 동기화 실패: ${eventId}`, error);
+          }
+      };
+      window.addEventInMemory = (newEvent) => {
+          events.push(newEvent);
+          console.log(`✅ 이벤트 메모리 추가: ${newEvent._id}`);
+          const { year, month } = getCurrentYearMonth();
+          updateMap(year, month);
+      };
+      window.deleteEventInMemory = (eventId) => {
+          const index = events.findIndex(e => e._id === eventId);
+          if (index !== -1) {
+              events.splice(index, 1);
+              console.log(`✅ 이벤트 메모리 삭제: ${eventId}`);
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } else {
+              console.warn(`⚠️ 삭제할 이벤트를 찾을 수 없음: ${eventId}`);
+          }
+      };
+      window.updateKingInMemory = async (kingId, serverResponseData) => {
+          // 서버에서 업데이트된 데이터를 다시 가져와서 동기화
+          try {
+              const updatedKing = await fetchData(`kings/${kingId}`);
+              let found = false;
+{ headers }
+              );
+              if (!response.ok) {
+                  const errorText = await response.text();
+                  console.error(`❌ 영토 로드 실패: ${response.status}`, errorText);
+                  throw new Error(`영토 로드 실패: ${response.status}`);
+              }
+              const data = await response.json();
+              const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+              // 서버 응답은 이미 { type, coordinates, .
+} 구조로 단순화된 상태
+              territories = data.map(t => ({
+                  _id: t._id,
+                  name: t.name,
+                  name_ko: t.name_ko,
+                  name_type: t.name_type,
+                  type: t.type,
+                  coordinates: t.coordinates,
+                  bbox: t.bbox,
+                  level: t.level,
+                  country: t.country,
+                  properties: t.properties,
+                  osm_id: t.osm_id,
+                  start: t.start,
+                  end: t.end
+              }));
+              allTerritoriesLoaded = true;
+              clearInterval(progressInterval);
+              console.log(`🎉 영토 로드 완료: ${territories.length}개 (${elapsed}초)`);
+              territoryBtns.forEach(btn => {
+                  if (btn.tagName === 'BUTTON') btn.textContent = `영토 ${territories.length}개`;
+              });
+              requestUpdateMap(); // 디바운스 800ms — 캐시 페인트 직후 중복 방지
+          } catch (error) {
+              console.error('❌ 영토 로드 실패:', error);
+              clearInterval(progressInterval);
+              territoryBtns.forEach(btn => {
+                  if (btn.tagName === 'BUTTON') btn.textContent = '영토 (로드 실패)';
+              });
+          }
+      }
+      // 🚩 [최적화] 증분 업데이트 헬퍼 함수들 - 서버 응답 데이터로 정확히 동기화
+      window.updateCastleInMemory = async (castleKey, serverResponseData) => {
+          try {
+              // 1.
+업데이트할 대상 찾기
+              const index = castles.findIndex(c => c.name === castleKey || c._id === castleKey);
+              let updatedCastle = serverResponseData;
+              // 만약 서버 응답이 없다면 서버에서 다시 가져오기 (안전장치)
+              if (!updatedCastle) {
+                  console.log('📡 serverResponseData가 없어 서버에서 다시 가져옴');
+                  const response = await fetch(`${API_BASE_URL}/castle/${castleKey}`, {
+                      headers: { 'Authorization': `Bearer ${getToken()}` }
+                  });
+                  if (!response.ok) {
+                      throw new Error(`Failed to fetch castle: ${response.status}`);
+                  }
+                  updatedCastle = await response.json();
+              }
+              console.log('📥 사용할 데이터:', updatedCastle);
+              if (index !== -1 && updatedCastle) {
+                  const oldCastle = { ...castles[index] }; // 변경 전 상태 백업
+serverResponseData) => {
+          // 지우개 저장 10초 이내에는 서버 재fetch로 덮어쓰지 않음
+          if (window._eraserSavedAt && Date.now() - window._eraserSavedAt < 10000) {
+              console.log('⏭️ updateDrawingInMemory — 지우개 저장 직후 스킵');
+              return;
+          }
+          // 서버에서 업데이트된 데이터를 다시 가져와서 동기화
+          try {
+              const updatedDrawing = await fetchData(`drawings/${drawingId}`);
+              const index = drawings.findIndex(d => {
+                  const did = d._id?.$oid || d._id?.toString?.() || d._id;
+                  return String(did) === String(drawingId);
+              });
+              if (index !== -1 && updatedDrawing) {
+                  drawings[index] = normalizeDrawings([updatedDrawing])[0];
+                  console.log(`✅ 그리기 DB 동기화 완료: ${drawingId}`);
+              } else {
+                  console.warn(`⚠️ 메모리에서 찾을 수 없음: ${drawingId}`);
+              }
+              // 🚩 [버그수정] 업데이트 후 IndexedDB 캐시 갱신
+              saveDrawingsCache(drawings).catch(e => console.warn('⚠️ drawings 캐시 저장 실패:', e));
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } catch (error) {
+              console.error(`❌ 그리기 동기화 실패: ${drawingId}`, error);
+          }
+      };
+      window.addDrawingInMemory = (newDrawing) => {
+          // _id가 객체인 경우 string으로 정규화
+          const normalized = normalizeDrawings([newDrawing])[0];
+          drawings.push(normalized);
+          console.log(`✅ 그리기 메모리 추가: ${normalized._id}`);
+          // 저장 즉시 IndexedDB 캐시 갱신
+          saveDrawingsCache(drawings).catch(e => console.warn('⚠️ drawings 캐시 저장 실패:', e));
+          const { year, month } = getCurrentYearMonth();
+          updateMap(year, month);
+      };
+      window.deleteDrawingInMemory = (drawingId) => {
+          const index = drawings.findIndex(d => d._id === drawingId);
+          if (index !== -1) {
+              drawings.splice(index, 1);
+              console.log(`✅ 그리기 메모리 삭제: ${drawingId}`);
+              // 🚩 [버그수정] 삭제 후 IndexedDB 캐시 갱신
+              saveDrawingsCache(drawings).catch(e => console.warn('⚠️ drawings 캐시 저장 실패:', e));
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } else {
+              console.warn(`⚠️ 삭제할 그리기를 찾을 수 없음: ${drawingId}`);
+          }
+      };
+      // 🚩 [수정] 이전/다음 역사 이동 함수로 추출
+      const gotoPrevHistory = () => {
+          const year = parseInt(yearInput.value);
+          // 🚩 [v3.6.
+// 채팅 전송
+    async function sendChat(text) {
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        if (!token) { alert('로그인 후 채팅 가능합니다.'); return; }
+        try {
+            const resp = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ message: text })
+            });
+            if (resp.ok) {
+                await fetchLogs(); // 즉시 갱신
+            } else {
+                // Content-Type이 JSON인 경우만 파싱, 아니면 status 코드로 처리
+                const ct = resp.headers.get('content-type') || '';
+                if (ct.includes('application/json')) {
+                    const d = await resp.json();
+                    alert(d.message || `전송 실패 (${resp.status})`);
+                } else {
+                    alert(`전송 실패 (${resp.status})`);
+                }
+            }
+        } catch(err) {
+            console.warn('채팅 전송 오류:', err);
+            alert('전송 중 오류가 발생했습니다.');
+        }
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+        fetchLogs();
+        setInterval(fetchLogs, POLL_INTERVAL);
+        // 활동 피드 클릭 이벤트 위임 (항목 전체 클릭 or 지명 링크 클릭 → 마커 이동)
+        const feedScroll = document.getElementById('activity-feed-scroll');
+        if (feedScroll) {
+            feedScroll.addEventListener('click', function(e) {
+                // 지명 링크(.af-target-link) 직접 클릭: 버블링 막고 해당 마커만 열기
+                const targetLink = e.target.closest('.af-target-link[data-castle-id]');
+                if (targetLink) {
+                    e.stopPropagation();
+                    _openFeedMarker(targetLink.dataset.castleId);
+                    return;
+                }
+                // 항목 전체 클릭 (data-castle-id 있는 af-item)
+                const item = e.target.closest('.af-item[data-castle-id]');
+                if (!item) return;
+                _openFeedMarker(item.dataset.castleId);
+            });
+        }
+        async function _openFeedMarker(castleId) {
+            // 1) 현재 렌더링된 마커에서 먼저 찾기
+            const markerArr = (typeof allCastleMarkers !== 'undefined') ?
+allCastleMarkers : [];
+            const m = markerArr.find(x => x && x._castleData && String(x._castleData._id) === castleId);
+            if (m) {
+                m.fire('click');
+                return;
+            }
+            // 2) 렌더링되지 않은 경우 — 서버에서 직접 castle 정보를 가져와 패널 열기
+            try {
+                const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+                const res = await fetch(`/api/castle/${castleId}`, {
+                    headers: tok ?
+{ 'Authorization': `Bearer ${tok}` } : {}
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const castle = await res.json();
+stopScroll();
+        const lines = buildCaptionLines(year, historyRecords, sourceRecords);
+        if (lines.length <= 1) {
+            panel.style.display = 'none';
+            return;
+        }
+        panel.style.display = 'flex';
+        buildCaptionDOM(lines);
+        // 빌드 후 레이아웃 계산을 위해 한 프레임 대기
+        requestAnimationFrame(() => {
+            const viewH = panel.clientHeight || 120;
+            // 첫 줄이 패널 맨 아래에서 올라오도록 inner 상단에 viewH 패딩 추가
+            const inner2 = getCaptionInner();
+            if (inner2) inner2.style.paddingTop = viewH + 'px';
+            inner.style.transform = 'translateY(0px)';
+            startScroll();
+        });
+    };
+    // ── 자막 표시/숨김 토글 ──
+    window.toggleHistoryCaption = function(visible) {
+        window._historyCaptionVisible = visible;
+        // layerVisibility가 접근 가능하면 동기화
+        if (typeof layerVisibility !== 'undefined') layerVisibility.captionPanel = visible;
+        const panel = getCaptionPanel();
+        if (!panel) return;
+        if (!visible) {
+            panel.style.display = 'none';
+            stopScroll();
+        }
+    };
+})();
+// =====================================================================
+// 🖼️ castleForm 이미지 업로드 함수 (GitHub)
+// =====================================================================
+// =====================================================================
+// 🔍 이미지 라이트박스
+// =====================================================================
+function openLightbox(src) {
+    if (!src || src === window.location.href) return;
+    const lb  = document.getElementById('img-lightbox');
+    const img = document.getElementById('img-lightbox-img');
+    if (!lb || !img) return;
+    img.src = src;
+    lb.classList.add('open');
+    document.addEventListener('keydown', _lightboxKeyHandler);
+}
+function closeLightbox() {
+    const lb = document.getElementById('img-lightbox');
+    if (lb) lb.classList.remove('open');
+    document.removeEventListener('keydown', _lightboxKeyHandler);
+}
+function _lightboxKeyHandler(e) { if (e.key === 'Escape') closeLightbox(); }
+// =====================================================================
+// 🖼️ 장수 사진 업로드 (파일 선택 + 붙여넣기)
+// =====================================================================
+async function uploadGeneralPhoto(fileArg) {
+    const fileInput = document.getElementById('generalPhotoFile');
+    const file = fileArg || (fileInput && fileInput.files[0]);
+    const msgEl = document.getElementById('generalPhotoUploadMsg');
+    const urlInput = document.getElementById('generalPhoto');
+    if (!file) return alert('파일을 선택하거나 붙여넣으세요.');
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#7fcf9f'; msgEl.textContent = '업로드 중…'; }
+    try {
+        const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+        const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+        const res = await fetch('/api/admin/upload-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json',
+// � 좌표 선택 피커 모드
+    (function() {
+        let _pickerActive = false;
+        let _pickerPin = null;
+        const _moveHandler = (e) => {
+            const hov = document.getElementById('coordHoverDisplay');
+            if (hov) hov.textContent = `위도 ${e.latlng.lat.toFixed(6)}  경도 ${e.latlng.lng.toFixed(6)}`;
+        };
+        const _clickHandler = (e) => {
+            const lat = parseFloat(e.latlng.lat.toFixed(6));
+            const lng = parseFloat(e.latlng.lng.toFixed(6));
+            // 폼 필드에 자동 입력
+            const latEl = document.getElementById('castleLat');
+            const lngEl = document.getElementById('castleLng');
+            if (latEl) latEl.value = lat;
+            if (lngEl) lngEl.value = lng;
+            // 기존 핀 제거 후 새 핀 표시
+            if (_pickerPin) { map.removeLayer(_pickerPin); _pickerPin = null; }
+            _pickerPin = L.marker([lat, lng], {
+                icon: L.divIcon({ className: '', html: '<div style="width:16px;height:16px;background:#f0c060;border:2px solid #fff;border-radius:50%;box-shadow:0 0 6px rgba(0,0,0,0.7);"></div>', iconAnchor: [8,8] })
+            }).addTo(map).bindPopup(`📍 ${lat}, ${lng}`).openPopup();
+            window._coordPickerPin = _pickerPin;  // 외부에서 제거 가능하도록
+            showToast(`📍 좌표 선택 완료: ${lat}, ${lng}`, 'point', 2500);
+            _stopPicker();
+        };
+        const _keyHandler = (e) => { if (e.key === 'Escape') _stopPicker(); };
+        function _stopPicker() {
+            _pickerActive = false;
+            map.off('mousemove', _moveHandler);
+            map.off('click', _clickHandler);
+            document.removeEventListener('keydown', _keyHandler);
+            map.getContainer().style.cursor = '';
+            const btn    = document.getElementById('btnPickCoord');
+            const status = document.getElementById('coordPickerStatus');
+            const hov    = document.getElementById('coordHoverDisplay');
+            if (btn)    { btn.style.background = '#1e4a6e'; btn.style.borderColor = '#4a90c4'; btn.style.color = '#a8d0f0'; }
+            if (status) status.style.display = 'none';
+            if (hov)    { hov.style.display = 'none'; hov.textContent = ''; }
+        }
+        // 버튼 이벤트 연결 (DOM 준비 후)
+        document.addEventListener('DOMContentLoaded', () => {
+            const btn = document.getElementById('btnPickCoord');
+            if (!btn) return;
+            btn.addEventListener('click', () => {
+                if (_pickerActive) { _stopPicker(); return; }
+                _pickerActive = true;
+                map.on('mousemove', _moveHandler);
+                map.on('click', _clickHandler);
+                document.addEventListener('keydown', _keyHandler);
+                map.getContainer().style.cursor = 'crosshair';
+                btn.style.background = '#7a3010'; btn.style.borderColor = '#f0a060'; btn.style.
+// 커스텀 아이콘이 있으면 사용
+                  if (castle.custom_icon) {
+                      const iconWidth = castle.icon_width || 32;
+                      const iconHeight = castle.icon_height || 32;
+                      const customIconHtml = `<img src="${toRawImageUrl(castle.custom_icon)}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+                      const labelIcon = L.divIcon({
+                          className: 'custom-icon-marker',
+                          html: customIconHtml,
+                          iconSize: [iconWidth, iconHeight],
+                          iconAnchor: [iconWidth / 2, 0],
+                          pane: 'labelPane'
+                      });
+                      marker = L.marker([castle.lat, castle.lng], { icon: labelIcon, pane: 'labelPane' });
+                  } else {
+                      // 저장된 크기에 따라 폰트 크기 결정
+                      let fontSize = '15px';
+                      let strokeStyle = '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 0px 3px rgba(0,0,0,0.85)';
+                      switch (castle.label_size) {
+                          case 'large':
+                              fontSize = '26px';
+                              break;
+                          case 'small':
+                              fontSize = '10px';
+                              strokeStyle = '-0.5px -0.5px 0 rgba(0,0,0,0.9), 0.5px -0.5px 0 rgba(0,0,0,0.9), -0.5px 0.5px 0 rgba(0,0,0,0.9), 0.5px 0.5px 0 rgba(0,0,0,0.9), 0px 0px 2px rgba(0,0,0,0.8)';
+                              break;
+                          case 'xsmall':
+                              fontSize = '8px';
+                              strokeStyle = '-0.5px -0.5px 0 rgba(0,0,0,0.9), 0.5px -0.5px 0 rgba(0,0,0,0.9), -0.5px 0.5px 0 rgba(0,0,0,0.9), 0.5px 0.5px 0 rgba(0,0,0,0.9), 0px 0px 2px rgba(0,0,0,0.8)';
+                              break;
+                      }
+                      const labelIcon = L.divIcon({
+                          className: 'label-text-marker',
+                          html: `<div style="
+                              font-size: ${fontSize};
+                              font-weight: normal;
+                              color: ${castle.label_color || '#d8cdb8'};
+                              text-shadow: ${strokeStyle};
+                              white-space: nowrap;
+                              text-align: center;
+                          ">${castleName}</div>`,
+                          iconSize: [150, 40],
+                          iconAnchor: [75, 0],
+                          pane: 'labelPane'
+                      });
+                      marker = L.marker([castle.lat, castle.lng], { icon: labelIcon, pane: 'labelPane' });
+                  }
+}
+              // 🚩 [추가] 메모리 갱신 후 IndexedDB 캐시도 즉시 갱신 (페이지 갱신 시 캐시에서 로드되므로)
+              await saveEventsCache(events);
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } catch (error) {
+              console.error(`❌ 이벤트 동기화 실패: ${eventId}`, error);
+          }
+      };
+      window.addEventInMemory = (newEvent) => {
+          events.push(newEvent);
+          console.log(`✅ 이벤트 메모리 추가: ${newEvent._id}`);
+          const { year, month } = getCurrentYearMonth();
+          updateMap(year, month);
+      };
+      window.deleteEventInMemory = (eventId) => {
+          const index = events.findIndex(e => e._id === eventId);
+          if (index !== -1) {
+              events.splice(index, 1);
+              console.log(`✅ 이벤트 메모리 삭제: ${eventId}`);
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } else {
+              console.warn(`⚠️ 삭제할 이벤트를 찾을 수 없음: ${eventId}`);
+          }
+      };
+      window.updateKingInMemory = async (kingId, serverResponseData) => {
+          // 서버에서 업데이트된 데이터를 다시 가져와서 동기화
+          try {
+              const updatedKing = await fetchData(`kings/${kingId}`);
+              let found = false;
+              // kings 객체의 모든 국가 배열을 순회하며 해당 왕을 찾음
+              for (const cId in kings) {
+                  const list = kings[cId];
+                  const idx = list.findIndex(k => k._id === kingId || k._id.toString() === kingId);
+                  if (idx !== -1) {
+                      // 국가가 변경되었는지 확인
+                      const newCId = updatedKing.country_id || updatedKing.countryId;
+                      if (newCId && newCId !== cId) {
+                          // 기존 국가에서 제거
+                          list.splice(idx, 1);
+                          // 새 국가에 추가
+                          if (!kings[newCId]) kings[newCId] = [];
+                          kings[newCId].push(updatedKing);
+                      } else {
+                          // 같은 국가 내 업데이트
+                          list[idx] = updatedKing;
+                      }
+                      found = true;
+                      console.log(`✅ 왕 DB 동기화 완료: ${kingId}`);
+                      break;
+                  }
+              }
+              if (!found && updatedKing) {
+                  // 메모리에 없으면 새로 추가 (국가 ID가 있는 경우)
+                  const cId = updatedKing.country_id || updatedKing.countryId;
+                  if (cId) {
+                      if (!kings[cId]) kings[cId] = [];
+                      kings[cId].push(updatedKing);
+                      console.log(`✅ 왕 메모리 신규 추가 (동기화): ${kingId}`);
+                  }
+              }
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+              updateKingLabel(year, month);
+resizable=yes,scrollbars=yes`
+                );
+                toggleHamburgerMenu();
+            });
+        }
+        // 🚩 [추가] 햄버거 메뉴 - 랭킹 버튼
+        const menuRankingBtn = document.getElementById('menu-ranking-btn');
+        if (menuRankingBtn) {
+            menuRankingBtn.addEventListener('click', () => {
+                window.open('ranking.html', '_blank', 'width=900,height=700,scrollbars=yes');
+                toggleHamburgerMenu();
+            });
+        }
+        // 🚩 [추가] 데이터 강제 새로고침 공유 함수
+        async function doForceRefresh(triggerBtn) {
+                const confirmRefresh = confirm('모든 캐시를 삭제하고 서버에서 최신 데이터를 다시 불러옵니다.\n계속하시겠습니까?');
+                if (!confirmRefresh) return;
+                try {
+                    if (triggerBtn) { triggerBtn.disabled = true; }
+                    // 1️⃣ localStorage 캐시 전부 삭제
+                    console.log('🗑️ [강제 새로고침] localStorage 캐시 삭제.');
+                    localStorage.removeItem('countries_cache');
+                    localStorage.removeItem('countries_cache_time');
+                    localStorage.removeItem('countries_cache_version');
+                    // 2️⃣ IndexedDB 전체 삭제 (territories, castles, events, drawings, contributions)
+                    console.log('🗑️ [강제 새로고침] IndexedDB 삭제.');
+                    if (window.indexedDB) {
+                        try {
+                            const dbs = await indexedDB.databases();
+                            for (const db of dbs) {
+                                console.log(`🗑️ IndexedDB 삭제: ${db.name}`);
+                                indexedDB.deleteDatabase(db.name);
+                            }
+                        } catch (e) {
+                            console.warn('IndexedDB 클리어 실패:', e);
+                        }
+                    }
+                    // 3️⃣ Service Worker 캐시 삭제
+                    if ('caches' in window) {
+                        const cacheNames = await caches.keys();
+                        for (const name of cacheNames) {
+                            console.log(`🗑️ 캐시 삭제: ${name}`);
+                            await caches.delete(name);
+                        }
+                    }
+                    // 4️⃣ 서버에서 모든 데이터 직접 재로드
+                    console.log('🔄 [강제 새로고침] 서버에서 최신 데이터 로드 시작.');
+                    // countries (서버에서 직접 fetch — 캐시 바이패스)
+                    const countriesRes = await fetch(`${API_BASE_URL}/countries`, {
+                        headers: { 'Authorization': `Bearer ${getToken()}` },
+                        cache: 'no-store'
+                    });
+                    if (countriesRes.ok) {
+                        countries = await countriesRes.json();
+                        _countryLookupMap = null;
+                        if (updateMap._loggedMissingIds) updateMap._loggedMissingIds.clear();
+                        // 새 캐시 저장
+                        const versionKey = localStorage.getItem('app_version') || 'init';
+                        localStorage.setItem('countries_cache', JSON.stringify(countries));
+                        localStorage.setItem('countries_cache_time', Date.now().toString());
+                        localStorage.setItem('countries_cache_version', versionKey);
+                        console.
+_3d_originalParent;
+                    delete rightPanel._3d_originalNextSibling;
+                    rightPanel.style.removeProperty('z-index');
+                    rightPanel.style.removeProperty('position');
+                }
+                // play-controls right 복원 (2D positionPlayCtrl 기준)
+                // 2D 모드로 복귀 시 positionPlayCtrl이 재정렬 처리
+                setTimeout(() => { if (window._positionPlayCtrl) window._positionPlayCtrl(); }, 150);
+                // 🚩 타임슬라이더 강제 복원 (3D 모드 진입 전 숨겨진 경우 대비)
+                const _slider2 = document.getElementById('combinedSlider');
+                const _sliderTicks2 = document.querySelector('.slider-ticks-container');
+                const _timelineCont2 = document.getElementById('timeline-container');
+                if (_slider2) _slider2.style.removeProperty('display');
+                if (_sliderTicks2) _sliderTicks2.style.removeProperty('display');
+                if (_timelineCont2) _timelineCont2.style.removeProperty('display');
+                // 🚩 [핵심수정] _elevateUiFor3d에서 body로 이동시킨 timeline 관련 요소들 원위치 복원
+                ['timeline-control', 'timeline-container', 'current-year-display', 'bottom-vignette'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el && el._3d_origParent) {
+                        const p = el._3d_origParent, n = el._3d_origNext;
+                        try {
+                            if (n && n.parentNode === p) p.insertBefore(el, n); else p.appendChild(el);
+                        } catch(e) {
+                            try { p.appendChild(el); } catch(e2) {}
+                        }
+                        delete el._3d_origParent;
+                        delete el._3d_origNext;
+                    }
+                });
+            }
+            // ── 3D 모드 진입 ──
+            function enter3d() {
+                is3d = true;
+                btn3d.classList.add('active');
+                document.querySelectorAll('.map-tile-btn[data-tile]').forEach(b => b.classList.remove('active'));
+                _elevateUiFor3d();
+                loadMapLibre(() => {
+                    // 전체화면 오버레이 생성 (1회)
+                    if (!mlOverlay) {
+                        mlOverlay = document.createElement('div');
+                        mlOverlay.id = 'map3d-fullscreen';
+                        mlOverlay.style.cssText = 'position:fixed;inset:0;z-index:2500;background:#0a0a12;';
+                        document.body.appendChild(mlOverlay);
+                        // 닫기 버튼 없음 — 타일 토글의 3D 버튼으로 종료
+                    }
+                    mlOverlay.style.display = 'block';
+                    // 🚩 mlOverlay가 body에 추가된 후 #rightPanel을 다시 맨 끝으로 → 항상 위에 표시
+                    const _rp = document.getElementById('rightPanel');
+                    if (_rp && !_rp._3d_originalParent) {
+                        _rp._3d_originalParent = _rp.parentNode;
+                        _rp._3d_originalNextSibling = _rp.nextSibling;
+                        document.body.appendChild(_rp);
+                        _rp.style.setProperty('z-index', '3000', 'important');
+                        _rp.style.setProperty('position', 'fixed', 'important');
+                    } else if (_rp) {
+                        document.body.
+error('❌ 영토 로드 실패:', error);
+              clearInterval(progressInterval);
+              territoryBtns.forEach(btn => {
+                  if (btn.tagName === 'BUTTON') btn.textContent = '영토 (로드 실패)';
+              });
+          }
+      }
+      // 🚩 [최적화] 증분 업데이트 헬퍼 함수들 - 서버 응답 데이터로 정확히 동기화
+      window.updateCastleInMemory = async (castleKey, serverResponseData) => {
+          try {
+              // 1.
+업데이트할 대상 찾기
+              const index = castles.findIndex(c => c.name === castleKey || c._id === castleKey);
+              let updatedCastle = serverResponseData;
+              // 만약 서버 응답이 없다면 서버에서 다시 가져오기 (안전장치)
+              if (!updatedCastle) {
+                  console.log('📡 serverResponseData가 없어 서버에서 다시 가져옴');
+                  const response = await fetch(`${API_BASE_URL}/castle/${castleKey}`, {
+                      headers: { 'Authorization': `Bearer ${getToken()}` }
+                  });
+                  if (!response.ok) {
+                      throw new Error(`Failed to fetch castle: ${response.status}`);
+                  }
+                  updatedCastle = await response.json();
+              }
+              console.log('📥 사용할 데이터:', updatedCastle);
+              if (index !== -1 && updatedCastle) {
+                  const oldCastle = { ...castles[index] }; // 변경 전 상태 백업
+                  // 🚨 [핵심 수정 1] 전역 배열(castles)을 업데이트합니다.
+castles[index] = updatedCastle;
+                  console.log(`🔄 메모리상 데이터 교체 완료: ${updatedCastle.name} (타입: ${updatedCastle.is_natural_feature ?
+'자연지물' : '성'})`);
+                  // 🔄 IndexedDB 캐시도 즉시 갱신 — 다른 세션에서도 바로 반영
+                  saveCastlesCache(castles).catch(e => console.warn('⚠️ castles 캐시 갱신 실패:', e));
+                  // 2.
+지도 UI 업데이트 (타입별 분기)
+                  if (updatedCastle.is_label) {
+                      console.log('🏷️ 라벨 업데이트 시작.');
+                      const { year, month } = getCurrentYearMonth();
+                      try {
+                          updateSingleLabel(oldCastle, updatedCastle, year, month);
+                      } catch (labelError) {
+                          console.error('❌ 라벨 업데이트 실패, 전체 맵 갱신:', labelError);
+                          updateMap(year, month);
+                      }
+                  }
+                  else if (updatedCastle.is_natural_feature) {
+                      console.log('🌳 자연 지형지물 개별 업데이트 시작.');
+                      try {
+                          // 성(Castle)에서 자연지물로 변한 경우, 기존 성 마커를 지워야 함
+                          if (!oldCastle.is_natural_feature && window.castleLayerGroup) {
+                               // 기존 마커 레이어에서 해당 ID를 가진 마커 제거 시도
+                               window.castleLayerGroup.
+body.innerHTML =
+                sectionHtml('🏯 주변 성/유적', '#7ab8cc', castles,  castleRow) +
+                sectionHtml('📜 주변 사료',    '#c8a850', contribs, contribRow);
+        } catch(e) {
+            body.innerHTML = `<div style="color:#c86050;font-size:13px;padding:20px 0;">오류: ${e.message}</div>`;
+        } finally {
+            spinner.style.display = 'none';
+        }
+    };
+    // 팝업에서 버튼 클릭 시 호출
+    window.openMarkerCommentModal = function(castleId, castleName) {
+        _mcCurrentCastleId = castleId;
+        _mcCurrentCastleName = castleName;
+        document.getElementById('mcModalMarkerName').textContent = castleName ?
+`— ${castleName}` : '';
+        document.getElementById('mcCommentList').innerHTML = '<div id="mcLoadingMsg" style="color:#9aabbd;font-size:13px;text-align:center;padding:20px 0;">불러오는 중...</div>';
+        document.getElementById('mcTextInput').value = '';
+        document.getElementById('mcCharCount').textContent = '0';
+        // 로그인 여부 및 게스트 여부에 따라 입력창 표시
+        // 게스트는 의견 작성 불가
+        const loggedIn = !!currentUser && !currentUser.isGuest;
+        document.getElementById('mcInputArea').style.display = loggedIn ?
+'block' : 'none';
+        const loginNoticeEl = document.getElementById('mcLoginNotice');
+        if (loggedIn) {
+            if (loginNoticeEl) loginNoticeEl.style.display = 'none';
+        } else {
+            if (loginNoticeEl) {
+                loginNoticeEl.style.display = 'block';
+                if (currentUser && currentUser.isGuest) loginNoticeEl.textContent = '게스트 계정은 의견을 작성할 수 없습니다.';
+                else loginNoticeEl.textContent = '의견을 작성하려면 로그인이 필요합니다.';
+            }
+        }
+        document.getElementById('markerCommentModal').style.display = 'flex';
+        loadMarkerComments();
+    };
+    window.closeMarkerCommentModal = function() {
+        document.getElementById('markerCommentModal').style.display = 'none';
+    };
+    // 배경 클릭 시 닫기
+    document.getElementById('markerCommentModal').addEventListener('click', function(e) {
+        if (e.target === this) closeMarkerCommentModal();
+    });
+    // 글자수 카운트
+    document.getElementById('mcTextInput').addEventListener('input', function() {
+        document.getElementById('mcCharCount').textContent = this.value.length;
+    });
+    // Ctrl+Enter 등록
+    document.getElementById('mcTextInput').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitMarkerComment();
+    });
+    async function loadMarkerComments() {
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        if (!token) {
+            document.getElementById('mcCommentList').innerHTML = '<div style="color:#9aabbd;font-size:13px;text-align:center;padding:20px 0;">로그인 후 의견을 볼 수 있습니다.</div>';
+            return;
+        }
+        try {
+            const res = await fetch(`/api/marker-comments/${_mcCurrentCastleId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!res.ok) throw new Error(res.status);
+            const comments = await res.json();
+// 4.
+기여 데이터 최신화 (pending 상태인 기여를 다시 불러옴)
+            contributions = await fetchData('contributions');
+            // 5.
+맵 갱신 (기여 핀 다시 표시)
+            const { year, month } = getCurrentYearMonth();
+            updateMap(year, month);
+            alert('성공적으로 되돌렸습니다.');
+        } catch (error) {
+            console.error(error);
+            alert(`되돌리기 실패: ${error.message}`);
+        }
+    };
+    // ────────────────────────────────────────────────────────
+    // 📋 다른 마커에서 역사기록 복사
+    // ────────────────────────────────────────────────────────
+    document.getElementById('copyHistoryFromCastleBtn').addEventListener('click', () => {
+        // 검색 모달 생성
+        const existing = document.getElementById('copyHistoryModal');
+        if (existing) existing.remove();
+        const modal = document.createElement('div');
+        modal.id = 'copyHistoryModal';
+        modal.style.cssText = `
+            position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+            background:#1e2d3d; border:1px solid #2980b9; border-radius:8px;
+            padding:18px; z-index:99999; min-width:320px; max-width:420px;
+            box-shadow:0 4px 24px rgba(0,0,0,0.6); color:#d8cfc4;
+        `;
+        modal.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <b>📋 다른 마커에서 역사기록 복사</b>
+                <button onclick="document.getElementById('copyHistoryModal').remove()" style="background:none;border:none;color:#aaa;font-size:16px;cursor:pointer;">✕</button>
+            </div>
+            <div style="font-size:11px; color:#8fa8c0; margin-bottom:8px;">마커 이름으로 검색하여 역사기록을 가져옵니다.</div>
+            <input id="copyHistorySearchInput" type="text" placeholder="마커 이름 검색."
+                style="width:100%; box-sizing:border-box; padding:6px 8px; background:#0d1b2a; border:1px solid #2980b9; color:#d8cfc4; border-radius:4px; margin-bottom:8px;">
+            <div id="copyHistorySearchResults" style="max-height:200px; overflow-y:auto; font-size:12px;"></div>
+        `;
+        document.body.appendChild(modal);
+        const input = document.getElementById('copyHistorySearchInput');
+        const results = document.getElementById('copyHistorySearchResults');
+        const renderResults = (query) => {
+            const q = query.trim().toLowerCase();
+            const matched = castles.filter(c =>
+                c._id !== editingCastleKey &&
+                c.history && c.history.length > 0 &&
+                c.name && c.name.toLowerCase().includes(q)
+            ).slice(0, 20);
+            if (!q) {
+                results.innerHTML = '<div style="color:#8fa8c0; padding:4px;">이름을 입력하세요.</div>';
+                return;
+            }
+            if (matched.
+e);
+                                }
+                            }
+                            function _rebuildPalaceObjects() {
+                                // render() 루프가 매 프레임 오브젝트를 직접 갱신하므로
+                                // 여기서는 씬의 palace 오브젝트를 제거해 다음 프레임에 재생성되도록만 함
+                                if (!_threeScene) return;
+                                [._threeScene.children].filter(c => c.userData.isPalace).forEach(c => _threeScene.remove(c));
+                            }
+                           function _loadGlb(key, path) {
+                                if (_glbCache[key]) return;
+                                var LC = (window.THREE && window.THREE.GLTFLoader) || window.GLTFLoader;
+                                if (!LC) { console.warn('[PalaceEditor] GLTFLoader 없음'); return; }
+                                var loader = new LC();
+                                var DC = (window.THREE && window.THREE.DRACOLoader) || window.DRACOLoader;
+                                if (DC) {
+                                    if (!window._sharedDraco) {
+                                        window._sharedDraco = new DC();
+                                        window._sharedDraco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/');
+                                    }
+                                    loader.setDRACOLoader(window._sharedDraco);
+                                } else {
+                                    console.warn('[PalaceEditor] DRACOLoader 미로드 — <script> 추가 필요');
+                                }
+                                loader.load(path, function (gltf) {
+                                    _glbCache[key] = gltf.scene;
+                                    _rebuildPalaceObjects();
+                                    if (window.mlMap3d) window.mlMap3d.triggerRepaint();
+                                    console.log('[PalaceEditor] GLB 완료:', key);
+                                }, undefined, function (err) {
+                                    console.error('[PalaceEditor] GLB 실패:', key, err);
+                                });
+                            }
+                            // ── 전역 함수 (스텁 overwrite) ──
+                            window._peSelectGlb = function(key) {
+                                window.selectedGlbKey = key; _buildGlbList();
+                                _peStatus(((window.PALACE_GLB_LIST || []).find(g => g.key === key) || {}).label + ' 선택됨');
+                            };
+                            window._rebuildPalaceObjects = _rebuildPalaceObjects;
+                            window.onPalaceSlider = function(prop, val) {
+                                if (!window.selectedPalaceId) return;
+                                const p = window.deployedPalaces.find(x => x.id === window.selectedPalaceId); if (!p) return;
+                                // yearStart/yearEnd는 정수 또는 null 처리
+                                if (prop === 'yearStart' || prop === 'yearEnd') {
+                                    const v = val === '' ?
+null : parseInt(val);
+                                    p[prop] = v;
+                                    const ve = document.getElementById(prop === 'yearStart' ?
+'pe-year-start-val' : 'pe-year-end-val');
+                                    if (ve) ve.textContent = v != null ?
+v + '년' : '∞';
+                                    _savePalaces();
+                                    if (window.mlMap3d) window.mlMap3d.triggerRepaint();
+                                    return;
+                                }
+if (!lb || !img) return;
+    img.src = src;
+    lb.classList.add('open');
+    document.addEventListener('keydown', _lightboxKeyHandler);
+}
+function closeLightbox() {
+    const lb = document.getElementById('img-lightbox');
+    if (lb) lb.classList.remove('open');
+    document.removeEventListener('keydown', _lightboxKeyHandler);
+}
+function _lightboxKeyHandler(e) { if (e.key === 'Escape') closeLightbox(); }
+// =====================================================================
+// 🖼️ 장수 사진 업로드 (파일 선택 + 붙여넣기)
+// =====================================================================
+async function uploadGeneralPhoto(fileArg) {
+    const fileInput = document.getElementById('generalPhotoFile');
+    const file = fileArg || (fileInput && fileInput.files[0]);
+    const msgEl = document.getElementById('generalPhotoUploadMsg');
+    const urlInput = document.getElementById('generalPhoto');
+    if (!file) return alert('파일을 선택하거나 붙여넣으세요.');
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#7fcf9f'; msgEl.textContent = '업로드 중…'; }
+    try {
+        const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+        const tok = localStorage.getItem('token') || sessionStorage.getItem('token');
+        const res = await fetch('/api/admin/upload-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}` },
+            body: JSON.stringify({ filename: file.name || 'general_photo.jpg', contentBase64: base64, mimeType: file.type || 'image/jpeg' })
+        });
+        if (!res.ok) { const err = await res.json(); throw new Error(err.message || '업로드 실패'); }
+        const { url } = await res.json();
+        if (urlInput) urlInput.value = url;
+        if (msgEl) { msgEl.style.color = '#7fcf9f'; msgEl.textContent = '✅ 업로드 완료!'; }
+        _previewGeneralPhoto(url);
+        if (fileInput) fileInput.value = '';
+    } catch (e) {
+        if (msgEl) { msgEl.style.color = '#cf8080'; msgEl.textContent = '❌ ' + e.message; }
+    }
+}
+function _previewGeneralPhoto(url) {
+    url = url || document.getElementById('generalPhoto')?.value?.trim();
+    const thumb    = document.getElementById('generalPhotoThumb');
+    const thumbImg = document.getElementById('generalPhotoThumbImg');
+    if (!url || !thumb || !thumbImg) return;
+    thumbImg.src = url;
+    thumb.style.display = '';
+}
+// 붙여넣기 영역에 paste 이벤트 연결 (DOM 준비 후)
+document.addEventListener('DOMContentLoaded', function() {
+    const pasteArea = document.getElementById('generalPhotoPasteArea');
+    if (pasteArea) {
+        pasteArea.addEventListener('paste', function(e) {
+            const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+            if (!items) return;
+            for (const item of items) {
+                if (item.type.
+if (!r.ok) throw new Error();
+                    const data = await r.json();
+                    inputEl.value = '';
+                    charcountEl.textContent = '0 / 500';
+                    if (data.pointAwarded) showToast('💬 의견 등록 +1P 획득!', 'point');
+                    const res2 = await fetch(`/api/contributions/${contribId}/comments`);
+                    renderComments(await res2.json());
+                } catch(e) {
+                    showToast('의견 등록에 실패했습니다.', 'error');
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '등록';
+                }
+            };
+            modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+        };
+        window.deleteCCMComment = async (contribId, commentId) => {
+            if (!confirm('이 의견을 삭제하시겠습니까?')) return;
+            const tkn = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+            try {
+                const r = await fetch(`/api/contributions/${contribId}/comments/${commentId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${tkn}` }
+                });
+                if (!r.ok) throw new Error();
+                // 목록 다시 불러오기
+                const res = await fetch(`/api/contributions/${contribId}/comments`);
+                const comments = await res.json();
+                const listEl = document.getElementById('ccm-list');
+                const metaEl = document.getElementById('ccm-meta');
+                if (!comments || comments.length === 0) {
+                    listEl.innerHTML = '<div style="text-align:center; color:#6a7f8e; padding:20px 0;">아직 의견이 없습니다.</div>';
+                    metaEl.textContent = '';
+                } else {
+                    metaEl.textContent = `총 ${comments.length}개의 의견`;
+                    const modal = document.getElementById('contribCommentsModal');
+                    if (modal._contribId) window.openContribComments(modal._contribId, document.getElementById('ccm-title').textContent.replace('💬 의견 — ', ''));
+                }
+            } catch(e) {
+                showToast('삭제에 실패했습니다.', 'error');
+            }
+        };
+        // 사료 상세보기 - 새 탭에서 ranking.html 열기
+        window.openContribDetail = (id) => {
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+            const url = `ranking.html?contributionId=${encodeURIComponent(id)}${token ?
+'&t=' + encodeURIComponent(token) : ''}`;
+            window.open(url, '_blank');
+        };
+        // �🚩 [추가] 승인 함수
+        // 🚩 [수정] 최종 승인 함수 (수국사 이상 가능 - 새 API 사용, 승인 후 마커 변환)
+        window.approveContribution = (id) => {
+            // 기여 데이터 찾기
+            const contrib = (typeof contributions !== 'undefined' && Array.isArray(contributions))
+                ?
+contributions.find(c => c._id === id)
+                : null;
+            if (!contrib) return alert('기여 데이터를 찾을 수 없습니다.');
+error(`❌ 왕 동기화 실패: ${kingId}`, error);
+          }
+      };
+      window.addKingInMemory = (newKing) => {
+          const cId = newKing.countryId || newKing.country_id;
+          if (cId) {
+              if (!kings[cId]) kings[cId] = [];
+              kings[cId].push(newKing);
+              console.log(`✅ 왕 메모리 추가: ${newKing._id} (국가: ${cId})`);
+          } else {
+              console.error("❌ 왕 메모리 추가 실패: 국가 ID 없음", newKing);
+          }
+          const { year, month } = getCurrentYearMonth();
+          updateMap(year, month);
+          updateKingLabel(year, month);
+      };
+      window.deleteKingInMemory = (kingId) => {
+          let found = false;
+          for (const cId in kings) {
+              const list = kings[cId];
+              const idx = list.findIndex(k => k._id === kingId || k._id.toString() === kingId);
+              if (idx !== -1) {
+                  list.splice(idx, 1);
+                  found = true;
+                  console.log(`✅ 왕 메모리 삭제: ${kingId}`);
+                  break;
+              }
+          }
+          if (found) {
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+              updateKingLabel(year, month);
+          } else {
+              console.warn(`⚠️ 삭제할 왕을 찾을 수 없음: ${kingId}`);
+          }
+      };
+      window.updateDrawingInMemory = async (drawingId, serverResponseData) => {
+          // 지우개 저장 10초 이내에는 서버 재fetch로 덮어쓰지 않음
+          if (window._eraserSavedAt && Date.now() - window._eraserSavedAt < 10000) {
+              console.log('⏭️ updateDrawingInMemory — 지우개 저장 직후 스킵');
+              return;
+          }
+          // 서버에서 업데이트된 데이터를 다시 가져와서 동기화
+          try {
+              const updatedDrawing = await fetchData(`drawings/${drawingId}`);
+              const index = drawings.findIndex(d => {
+                  const did = d._id?.$oid || d._id?.toString?.() || d._id;
+                  return String(did) === String(drawingId);
+              });
+              if (index !== -1 && updatedDrawing) {
+                  drawings[index] = normalizeDrawings([updatedDrawing])[0];
+                  console.log(`✅ 그리기 DB 동기화 완료: ${drawingId}`);
+              } else {
+                  console.warn(`⚠️ 메모리에서 찾을 수 없음: ${drawingId}`);
+              }
+              // 🚩 [버그수정] 업데이트 후 IndexedDB 캐시 갱신
+              saveDrawingsCache(drawings).catch(e => console.warn('⚠️ drawings 캐시 저장 실패:', e));
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } catch (error) {
+              console.error(`❌ 그리기 동기화 실패: ${drawingId}`, error);
+          }
+      };
+      window.
+// ── 민족 대그룹 매핑 (DB 실제값 기준 includes 방식) ──
+        const getGroup = (eth) => {
+            if (!eth) return '기타';
+            if (eth.includes('동이') || eth.includes('東夷') || eth.includes('예맥') || eth.includes('濊貊')) return '동이(東夷)';
+            if (eth.includes('돌궐') || eth.includes('突厥') || eth.includes('Türk') || eth.includes('사타')) return '돌궐(突厥)';
+            if (eth.includes('선비') || eth.includes('鮮卑')) return '선비(鮮卑)';
+            if (eth.includes('몽골') || eth.includes('蒙古') || eth.includes('오이라트')) return '몽골(蒙古)';
+            if (eth.includes('흉노') || eth.includes('匈奴') || eth.includes('훈육') || eth.includes('험윤') || eth.includes('월지') || eth.includes('갈(')) return '흉노·북방유목';
+            if (eth.includes('여진') || eth.includes('女眞') || eth.includes('거란') || eth.includes('契丹') || eth.includes('탕구트')) return '여진·거란';
+            if (eth.includes('한족') || eth.includes('漢族') || eth.includes('화하') || eth.includes('華夏')) return '한족(漢族)';
+            if (eth.includes('토번') || eth.includes('吐蕃') || eth.includes('강(羌)') || eth.includes('저(氐)') || eth.includes('토하라')) return '티베트·강족';
+            if (eth.includes('비엣') || eth.includes('Việt') || eth.includes('남만') || eth.includes('백복') || eth.includes('백월')) return '동남아';
+            if (eth.includes('다민족') || eth.includes('아리아') || eth.includes('드라비다')) return '다민족';
+            return eth;
+        };
+if (index !== -1) {
+              castles.splice(index, 1);
+              console.log(`✅ 성/전장 메모리 삭제: ${castleKey}`);
+              populateCitySelectForEdit(); // 드롭다운 갱신
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } else {
+              console.warn(`⚠️ 삭제할 성/전장을 찾을 수 없음: ${castleKey}`);
+          }
+      };
+      // 🌊 [자연지형] 메모리 추가/삭제 함수
+      window.addNaturalFeatureInMemory = (newFeature) => {
+          naturalFeatures.push(newFeature);
+          console.log(`✅ 자연지형 메모리 추가 완료: ${newFeature.name} (ID: ${newFeature._id})`);
+          // 즉시 지도 갱신
+          const { year, month } = getCurrentYearMonth();
+          updateMap(year, month);
+      };
+      window.deleteNaturalFeatureInMemory = (featureKey) => {
+          const index = naturalFeatures.findIndex(f => f.name === featureKey || f._id === featureKey);
+          if (index !== -1) {
+              naturalFeatures.splice(index, 1);
+              console.log(`✅ 자연지형 메모리 삭제: ${featureKey}`);
+              const { year, month } = getCurrentYearMonth();
+              updateMap(year, month);
+          } else {
+              console.warn(`⚠️ 삭제할 자연지형을 찾을 수 없음: ${featureKey}`);
+          }
+      };
+      window.updateCountryInMemory = async (originalNameOrId, serverResponseData) => {
+          // 서버에서 업데이트된 데이터를 다시 가져와서 동기화
+          try {
+              // 🚩 [수정] _id 또는 name으로 fetch (이름 변경 시에도 안전)
+              const fetchKey = serverResponseData.name || originalNameOrId;
+              const updatedCountry = await fetchData(`countries/${encodeURIComponent(fetchKey)}`);
+              // 🔄 [수정] name 또는 _id로 찾기
+              const index = countries.findIndex(c => c.name === originalNameOrId || String(c._id) === String(originalNameOrId));
+              if (index !== -1 && updatedCountry) {
+                  countries[index] = updatedCountry;
+                  // 🚩 [핵심 수정] 캐시 강제 무효화 — 이름 변경이 즉시 반영되도록
+                  invalidateCountryLookupCache();
+                  // 🚩 [수정] localStorage 캐시도 즉시 갱신 (재로그인 후에도 보이도록)
+                  try {
+                      localStorage.setItem('countries_cache', JSON.stringify(countries));
+                      localStorage.setItem('countries_cache_time', Date.now().toString());
+                  } catch(e) { console.warn('countries_cache 저장 실패', e); }
+                  console.log(`✅ 국가 DB 동기화 완료: ${originalNameOrId} → ${updatedCountry.name}`, updatedCountry);
+                  // 🚩 [수정] 전체 맵 갱신 (영토 국가명, 수도명,
+if (response.ok) {
+                        alert('사관 기록이 제출되었습니다!
+검토 후 반영됩니다.');
+                        const historicalRecordForm = document.getElementById('historicalRecordForm');
+                        if (historicalRecordForm) closeEditPanel('historicalRecordForm');
+                        addHistoricalRecordForm.reset();
+                        // 🚩 [추가] 서버에서 받은 실제 ID가 포함된 객체 사용
+                        if (responseData.contribution) {
+                            contributions.push(responseData.contribution);
+                        } else {
+                            // Fallback
+                            const tempContrib = { .data, _id: 'temp_' + Date.now(), username: currentUser.username, status: 'pending', votes: 0 };
+                            contributions.push(tempContrib);
+                        }
+                        // 유저복원 레이어가 켜져있으면 맵 업데이트
+                        if (layerVisibility.userContributions) {
+                            const { year, month } = getCurrentYearMonth();
+                            updateMap(year, month);
+                        }
+                    } else {
+                        alert(responseData.message || '제출 실패');
+                    }
+                } catch (error) {
+                    console.error(error);
+                    alert('오류 발생');
+                }
+            });
+        }
+        window.voteContribution = async (id) => {
+            try {
+                console.log('voteContribution called with id:', id);
+                const response = await fetch(`${API_BASE_URL}/contributions/${id}/vote`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await response.json();
+                console.log('vote response data:', data);
+                if (response.ok) {
+                    // 🚩 [수정] 서버에서 받은 최신 추천 수로 UI 업데이트
+                    const countSpan = document.getElementById(`vote-count-${id}`);
+                    console.log('countSpan found:', countSpan, 'data.votes:', data.votes);
+                    if (countSpan && data.votes !== undefined) {
+                        countSpan.textContent = data.votes;
+                        console.log('Updated countSpan to:', data.votes);
+                    }
+                    // 팝업 버튼도 업데이트 (지도 팝업) - 팝업을 닫아서 최신 데이터로 다시 열리도록 함
+                    const openPopups = document.querySelectorAll('.leaflet-popup');
+                    openPopups.forEach(popup => {
+                        const popupContent = popup.querySelector('.leaflet-popup-content');
+                        if (popupContent && popupContent.innerHTML.includes(`voteContribution('${id}')`)) {
+                            // 이 팝업이 해당 contribution의 것이라면 닫기
+                            map.closePopup();
+                            console.log('Closed popup for contribution:', id);
+                        }
+                    });
+                    // 모달 버튼도 업데이트 (contribution 상세 정보 팝업)
+                    const modalVoteBtn = document.querySelector(`#contributionDetailModal button[onclick="voteContribution('${id}')"]`);
+                    console.log('modalVoteBtn found:', modalVoteBtn);
+                    if (modalVoteBtn) {
+                        if (data.action === 'vote') {
+                            // 추천 후 버튼 숨기기
+                            modalVoteBtn.style.display = 'none';
+const adSlot = document.getElementById('mb-search-ad-slot');
+                if (top) top.innerHTML = dbHtml || '';
+                if (bottom) bottom.innerHTML = mapHtml || '';
+                if (adSlot) {
+                    if (dbHtml && mapHtml) {
+                        adSlot.style.display = '';
+                        if (typeof initMbSearchAd === 'function') initMbSearchAd();
+                    } else {
+                        adSlot.style.display = 'none';
+                    }
+                }
+            };
+            const _mbRenderMessage = (msgHtml) => { _mbRenderSearchSections(msgHtml, ''); };
+            function initMbSearchAd() {
+                if (window._mbAdPushed) return;
+                window._mbAdPushed = true;
+                try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) {}
+                const slot = document.getElementById('mb-search-ad-slot');
+                if (!slot) return;
+                let tries = 0;
+                const timer = setInterval(() => {
+                    tries++;
+                    const ins = slot.querySelector('ins.adsbygoogle');
+                    const status = ins && ins.getAttribute('data-ad-status');
+                    if (status === 'filled') {
+                        clearInterval(timer);
+                    } else if (status === 'unfilled' || tries >= 8) {
+                        clearInterval(timer);
+                        slot.style.display = 'none';
+                    }
+                }, 400);
+            }
+            let _mbTimer = null;
+            const doMobileSearch = async (query) => {
+                // 좌표 직접 입력 감지
+                const coordMatch = query.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*$/);
+                if (coordMatch) {
+                    const cLat = parseFloat(coordMatch[1]);
+                    const cLng = parseFloat(coordMatch[2]);
+                    if (cLat >= -90 && cLat <= 90 && cLng >= -180 && cLng <= 180) {
+                        document.getElementById('mobile-search-overlay')?.classList.remove('open');
+                        window._tbGoToMapResult(cLat, cLng, `${cLat.toFixed(4)}, ${cLng.toFixed(4)}`, '📍 좌표 이동');
+                        return;
+                    }
+                }
+                const ql = query.toLowerCase();
+                _mbRenderMessage('<div style="color:#7a9aaa;font-size:12px;padding:10px 14px;">검색 중…</div>');
+                mobileSearchResults.style.display = 'block';
+                // 역사 DB 즉시 검색
+                const dbHits = [], milHits = [];
+                for (let i = 0; i < castles.length; i++) {
+                    const c = castles[i];
+                    const match = (c.name && c.name.toLowerCase().includes(ql)) ||
+                                  (c.name_ko && c.name_ko.toLowerCase().includes(ql)) ||
+                                  (c.general_name && c.general_name.toLowerCase().includes(ql));
+                    if (!match) continue;
+                    if (c.is_military_flag) {
+                        let lat = c.lat, lng = c.lng;
+                        if ((!lat||!lng) && Array.isArray(c.path_data) && c.path_data.length) { lat=c.path_data[0][0]; lng=c.path_data[0][1]; }
+                        milHits.push({ lat, lng, label: c.name||c.name_ko||'', sub: c.general_name||'',
+// 해당 국가의 라벨만 찾아서 제거
+          const markersToRemove = [];
+          for (let i = markers.length - 1; i >= 0; i--) {
+              const marker = markers[i];
+              const castleData = marker._castleData || marker.options.castleData;
+              if (castleData && castleData.is_label && castleData.label_type === 'country' &&
+                  (String(castleData.country_id) === countryId || castleData.country_id === countryName)) {
+                  if (castleLayerGroup && castleLayerGroup.hasLayer(marker)) {
+                      castleLayerGroup.removeLayer(marker);
+                  }
+                  markers.splice(i, 1);
+                  markersToRemove.push(marker);
+              }
+          }
+          // console.log(`  🗑️ 기존 라벨 제거: ${markersToRemove.length}개`);
+          // 해당 국가의 라벨 다시 렌더링
+          let addedCount = 0;
+          castles.forEach(castle => {
+              if (castle.is_label && castle.label_type === 'country' &&
+                  (String(castle.country_id) === countryId || castle.country_id === countryName)) {
+                  // 시간 범위 체크 (안전하게 기본값 처리)
+                  const start = (castle.start_year !== undefined && castle.start_year !== null) ?
+castle.start_year : (castle.built_year || -Infinity);
+                  const end = (castle.end_year !== undefined && castle.end_year !== null) ?
+castle.end_year : (castle.destroyed_year || Infinity);
+                  const isWithinDuration = start <= year && end >= year;
+                  if (!isWithinDuration) return;
+                  // 라벨 가시성 체크
+                  if (!layerVisibility.adminLabel) return;
+                  const castleName = castle.name;
+                  let marker;
+                  // 커스텀 아이콘이 있으면 사용
+                  if (castle.custom_icon) {
+                      const iconWidth = castle.icon_width || 32;
+                      const iconHeight = castle.icon_height || 32;
+                      const customIconHtml = `<img src="${toRawImageUrl(castle.custom_icon)}" style="width: ${iconWidth}px; height: ${iconHeight}px; object-fit: contain;">`;
+                      const labelIcon = L.divIcon({
+                          className: 'custom-icon-marker',
+                          html: customIconHtml,
+                          iconSize: [iconWidth, iconHeight],
+                          iconAnchor: [iconWidth / 2, 0],
+                          pane: 'labelPane'
+                      });
+                      marker = L.marker([castle.lat, castle.lng], { icon: labelIcon, pane: 'labelPane' });
+                  } else {
+                      // 저장된 크기에 따라 폰트 크기 결정
+                      let fontSize = '15px';
+                      let strokeStyle = '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 0px 3px rgba(0,0,0,0.85)';
+                      switch (castle.label_size) {
+                          case 'large':
+                              fontSize = '26px';
+                              break;
+                          case 'small':
+                              fontSize = '10px';
+                              strokeStyle = '-0.5px -0.5px 0 rgba(0,0,0,0.9), 0.5px -0.5px 0 rgba(0,0,0,0.9), -0.5px 0.
+role === 'admin' || currentUser.role === 'superuser')) {
+                menuUserBtn.style.display = '';
+            }
+            menuUserBtn.addEventListener('click', () => {
+                // 팝업 창 크기 및 위치 설정
+                const width = 1200;
+                const height = 800;
+                const left = (screen.width - width) / 2;
+                const top = (screen.height - height) / 2;
+                window.open(
+                    'admin.html',
+                    'adminPopup',
+                    `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+                );
+                toggleHamburgerMenu();
+            });
+        }
+        // 🚩 [추가] 햄버거 메뉴 - 영토 관리 버튼 (admin/superuser 전용)
+        const menuTerritoryBtn = document.getElementById('menu-territory-management');
+        if (menuTerritoryBtn) {
+            // admin/superuser에게만 버튼 표시
+            if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'superuser')) {
+                menuTerritoryBtn.style.display = '';
+            }
+            menuTerritoryBtn.addEventListener('click', () => {
+                // 팝업 창 크기 및 위치 설정
+                const width = 1400;
+                const height = 900;
+                const left = (screen.width - width) / 2;
+                const top = (screen.height - height) / 2;
+                window.open(
+                    'territory_manager.html',
+                    'territoryPopup',
+                    `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+                );
+                toggleHamburgerMenu();
+            });
+        }
+        // 🚩 [추가] 햄버거 메뉴 - 랭킹 버튼
+        const menuRankingBtn = document.getElementById('menu-ranking-btn');
+        if (menuRankingBtn) {
+            menuRankingBtn.addEventListener('click', () => {
+                window.open('ranking.html', '_blank', 'width=900,height=700,scrollbars=yes');
+                toggleHamburgerMenu();
+            });
+        }
+        // 🚩 [추가] 데이터 강제 새로고침 공유 함수
+        async function doForceRefresh(triggerBtn) {
+                const confirmRefresh = confirm('모든 캐시를 삭제하고 서버에서 최신 데이터를 다시 불러옵니다.\n계속하시겠습니까?');
+                if (!confirmRefresh) return;
+                try {
+                    if (triggerBtn) { triggerBtn.disabled = true; }
+                    // 1️⃣ localStorage 캐시 전부 삭제
+                    console.log('🗑️ [강제 새로고침] localStorage 캐시 삭제.');
+                    localStorage.removeItem('countries_cache');
+                    localStorage.removeItem('countries_cache_time');
+                    localStorage.removeItem('countries_cache_version');
+                    // 2️⃣ IndexedDB 전체 삭제 (territories, castles, events, drawings, contributions)
+                    console.log('🗑️ [강제 새로고침] IndexedDB 삭제.');
+                    if (window.indexedDB) {
+                        try {
+                            const dbs = await indexedDB.databases();
+_3dMarkersMap.clear();
+                // 3D 자원 마커 제거
+                (window._3dResourceMarkers || []).forEach(function(mk){ try { mk.remove(); } catch(e){} });
+                window._3dResourceMarkers = [];
+                // 🚩 캐시 키 초기화 — 재진입 시 전체 재렌더 보장
+                _refreshLayersCacheKey = null;
+                _refreshTerritoryDataKey = null;
+                _refreshMarkerKey = null;
+                // pitchend/zoomend/moveend 리스너 해제
+                if (window._3dZoomMoveHandler) {
+                    mlMap && mlMap.off('zoomend',  window._3dZoomMoveHandler);
+                    mlMap && mlMap.off('moveend',  window._3dZoomMoveHandler);
+                    mlMap && mlMap.off('pitchend', window._3dZoomMoveHandler);
+                    window._3dZoomMoveHandler = null;
+                }
+                // ★ 2.
+UI 복원 (body 클래스 제거 + 이동된 요소 원위치)
+                _restoreUiAfter3d();
+                // ★ 3.
+Leaflet에게 컨테이너 크기 재측정 강제 + 재렌더
+                setTimeout(() => {
+                    if (map && map.invalidateSize) {
+                        map.invalidateSize({ animate: false, pan: false });
+                    }
+                    const { year, month } = getCurrentYearMonth();
+                    if (typeof updateMap === 'function') updateMap(year, month, false, true);
+                    if (window._positionPlayCtrl) window._positionPlayCtrl();
+                }, 80);
+            }
+            // ── 버튼 이벤트 ──
+            btn3d.addEventListener('click', () => is3d ?
+exit3d() : enter3d());
+            // 다른 타일 버튼 클릭 시 3D 종료 (3D 모드일 때만)
+            document.querySelectorAll('.map-tile-btn[data-tile]').forEach(b => {
+                b.addEventListener('click', () => { if (is3d) exit3d(); });
+            });
+            // 슬라이더/연도 변경 → updateMap이 완료될 때 window._3dRefreshLayers()가 자동 호출됨
+            // (별도 이벤트 불필요)
+            // 🚩 [수정] 페이지 로드 시 자동 3D 진입 제거 — 위성 2D 지도로 시작
+            // 지형 ON/OFF
+            if (terrainBtn) terrainBtn.addEventListener('click', () => {
+                if (!mlMap) return;
+                terrainOn = !terrainOn;
+                if (terrainOn) {
+                    mlMap.setTerrain({ source: 'dem', exaggeration: 1.8 });
+                    terrainBtn.textContent = '🏔️ 지형 ON';
+                    terrainBtn.style.background = 'rgba(180,120,20,0.4)';
+                } else {
+                    mlMap.setTerrain(null);
+                    terrainBtn.textContent = '🗺️ 지형 OFF';
+                    terrainBtn.style.background = 'rgba(15,15,25,0.8)';
+                }
+            });
+        })();
+name || null;
+        }
+        // 선박: 강까지 도보(10%) + 수운(80%) + 목적지까지 도보(10%) 복합 추정
+        // 직선거리를 실제 강 경로로 이동한다고 가정한 근사치
+        const _boatWalkKm  = km * 0.10; // 강 접근/이탈 도보 구간
+        const _boatRiverKm = km * 0.80; // 수운 구간
+        const _boatWalkH   = (_boatWalkKm * 2) / 3.75;          // 왕복 도보 시간
+        const _boatRiverH  = _boatRiverKm / 6;                  // 수운 시간 (6km/h)
+        const _boatTotalH  = _boatWalkH + _boatRiverH;
+        // 하루 이동 가능 시간: 수운 10h + 도보 포함 실질 9h로 복합 계산
+        const boatDays = _calcTravelTime(_boatTotalH * (km / (_boatTotalH || 1)), 6, 9); // 등가 km/h 환산
+        // 더 직관적인 방법: 총 시간으로 직접 포맷
+        const _boatFormatted = (() => {
+            const h = _boatTotalH;
+            const dayH = 9; // 하루 9시간 이동
+            if (h < 1) { const m = Math.round(h * 60 / 10) * 10; return m <= 10 ?
+'30분 이내' : `약 ${m}분`; }
+            if (h < dayH) { const wh = Math.floor(h); const wm = Math.round((h - wh) * 60 / 10) * 10; return wm === 0 ?
+`약 ${wh}시간` : wm === 60 ?
+`약 ${wh+1}시간` : `약 ${wh}시간 ${wm}분`; }
+            const days = h / dayH; const whole = Math.floor(days); const frac = days - whole;
+            if (frac >= 0.8) return `약 ${whole+1}일`; if (frac >= 0.4) return `약 ${whole}일 반`; return whole <= 1 ?
+'약 1일' : `약 ${whole}일`;
+        })();
+// 🚩 [추가] 역사 기록의 국가 입력 필드에 대한 자동 완성 이벤트 리스너 (이벤트 위임)
+        // 드롭다운은 body 수준 fixed 엘리먼트로 표시 → overflow 클리핑 및 stacking context 문제 해결 (3D 모드 포함)
+        let _historyAcDropdown = null; // 전역 floating 드롭다운
+        let _historyAcActiveInput = null;
+        function _getOrCreateHistoryAcDropdown() {
+            if (!_historyAcDropdown) {
+                _historyAcDropdown = document.createElement('div');
+                _historyAcDropdown.id = 'history-ac-floating';
+                _historyAcDropdown.style.cssText = 'position:fixed;display:none;background:#3e4a56;border:1px solid #5d7185;z-index:100010;max-height:180px;overflow-y:auto;border-radius:0 0 4px 4px;min-width:160px;';
+                document.body.appendChild(_historyAcDropdown);
+            }
+            return _historyAcDropdown;
+        }
+        function _positionHistoryAcDropdown(inputEl) {
+            const dd = _getOrCreateHistoryAcDropdown();
+            const r = inputEl.getBoundingClientRect();
+            dd.style.top  = (r.bottom + window.scrollY) + 'px';
+            dd.style.left = r.left + 'px';
+            dd.style.width = r.width + 'px';
+            dd.style.display = 'block';
+        }
+        function _hideHistoryAcDropdown() {
+            if (_historyAcDropdown) _historyAcDropdown.style.display = 'none';
+            _historyAcActiveInput = null;
+        }
+        document.getElementById('castleHistoryList').addEventListener('input', (e) => {
+            if (e.target.classList.contains('history-country-name')) {
+                const input = e.target;
+                const hiddenInput = input.nextElementSibling; // hidden country-id
+                const query = input.value.toLowerCase();
+                const dd = _getOrCreateHistoryAcDropdown();
+                dd.innerHTML = '';
+                // 입력 내용이 바뀌면 hidden id 초기화
+                hiddenInput.value = '';
+                input.style.borderColor = '';
+                _historyAcActiveInput = input;
+                if (query.length === 0) {
+                    _hideHistoryAcDropdown();
+                    return;
+                }
+                const filteredCountries = countries.filter(c => c.name.toLowerCase().includes(query));
+                filteredCountries.forEach(country => {
+                    const item = document.createElement('div');
+                    item.style.cssText = 'padding:8px 10px;cursor:pointer;font-size:13px;color:#ecf0f1;border-bottom:1px solid rgba(93,113,133,0.3);';
+                    item.textContent = country.name;
+                    item.addEventListener('mouseover', () => item.style.background = '#5d7185');
+                    item.addEventListener('mouseout',  () => item.style.background = '');
+                    item.addEventListener('mousedown', (ev) => {
+                        ev.preventDefault();
+                        input.value = country.name;
+                        hiddenInput.value = country._id;
+                        input.style.borderColor = '#2ecc71';
+                        _hideHistoryAcDropdown();
+                        // 국가 선택 시 시작/종료 연도·월 자동 입력
+                        const row = input.closest('.history-record-row');
+                        const startYearInput  = row.querySelector('input.history-start-year');
+                        const startMonthInput = row.querySelector('input.history-start-month');
+                        const endYearInput    = row.querySelector('input.
+// ── 거리 페이드: 마커 전체(텍스트+아이콘) 흐리게 ──
+                        if (!isBattleFx && _pitchFactor > 0.1) {
+                            const ll = mk.getLngLat();
+                            const dist = _haverDist(_bottomCenter.lng, _bottomCenter.lat, ll.lng, ll.lat);
+                            let opacity = 1;
+                            if (dist >= _maxDistKm) {
+                                opacity = 0;
+                            } else if (dist > _fadeStartKm) {
+                                opacity = 1 - ((dist - _fadeStartKm) / (_maxDistKm - _fadeStartKm));
+                            }
+                            // pitch가 낮을수록 페이드 효과 감소 (탑다운 시 모두 표시)
+                            const finalOpacity = 1 - (1 - opacity) * _pitchFactor;
+                            el.style.opacity = finalOpacity.toFixed(3);
+                            // 국가명 라벨(priority=3)은 항상 선명하게 유지
+                            if (priority >= 3) el.style.opacity = '';
+                        } else if (!isBattleFx) {
+                            // pitch 낮으면 투명도 초기화
+                            el.style.opacity = '';
+                        }
+                    });
+                };
+                _m.on('render', _3dRenderListener);
+                // ── zoom에 따라 마커 크기 스케일 (CSS 변수 방식 — 단일 reflow) ──
+                const _updateMarkerZoomScale = () => {
+                    const z = _m.getZoom();
+                    // zoom 8 기준 0.5, 줌아웃할수록 작아짐, 줌인해도 최대 0.5
+                    // scale = 2^((z-8) * 1.0), clamp [0.08, 0.5]
+                    const rawScale = Math.pow(2, (z - 8) * 1.0);
+                    const scale = Math.min(Math.max(rawScale, 0.08), 0.5);
+                    document.documentElement.style.setProperty('--ml3d-zoom-scale', scale.toFixed(3));
+                    // 국가명 깃발 라벨 스케일 (zoom 5 기준 1.0, 줌아웃할수록 작아짐)
+                    const _flagScale = Math.min(Math.max(Math.pow(2, (z - 5) * 0.6), 0.3), 1.0);
+                    document.documentElement.style.setProperty('--macro-flag-scale', _flagScale.toFixed(3));
+                    // z < 7.5 : 자연 마커 전체 숨김 (일반 성보다 먼저 사라짐)
+                    // z < 6.5 : 일반 성 텍스트 숨김
+                    // z < 5.5 : 일반 성 전체 숨김 + 왕성(수도) 텍스트 숨김
+                    // z >= 6.5 : 도시 마커가 보이는 줌 → 국가명 라벨 숨김 (중복 방지)
+                    const hideNatural = z < 7.5;
+appendChild(el); } catch(e2) {}
+                        }
+                        delete el._3d_origParent;
+                        delete el._3d_origNext;
+                    }
+                });
+            }
+            // ── 3D 모드 진입 ──
+            function enter3d() {
+                is3d = true;
+                btn3d.classList.add('active');
+                document.querySelectorAll('.map-tile-btn[data-tile]').forEach(b => b.classList.remove('active'));
+                _elevateUiFor3d();
+                loadMapLibre(() => {
+                    // 전체화면 오버레이 생성 (1회)
+                    if (!mlOverlay) {
+                        mlOverlay = document.createElement('div');
+                        mlOverlay.id = 'map3d-fullscreen';
+                        mlOverlay.style.cssText = 'position:fixed;inset:0;z-index:2500;background:#0a0a12;';
+                        document.body.appendChild(mlOverlay);
+                        // 닫기 버튼 없음 — 타일 토글의 3D 버튼으로 종료
+                    }
+                    mlOverlay.style.display = 'block';
+                    // 🚩 mlOverlay가 body에 추가된 후 #rightPanel을 다시 맨 끝으로 → 항상 위에 표시
+                    const _rp = document.getElementById('rightPanel');
+                    if (_rp && !_rp._3d_originalParent) {
+                        _rp._3d_originalParent = _rp.parentNode;
+                        _rp._3d_originalNextSibling = _rp.nextSibling;
+                        document.body.appendChild(_rp);
+                        _rp.style.setProperty('z-index', '3000', 'important');
+                        _rp.style.setProperty('position', 'fixed', 'important');
+                    } else if (_rp) {
+                        document.body.appendChild(_rp);
+                        _rp.style.setProperty('z-index', '3000', 'important');
+                        _rp.style.setProperty('position', 'fixed', 'important');
+                    }
+                    if (!mlMap) {
+                        const c = map.getCenter();
+                        console.log('[3D] creating MapLibre map, center:', c.lng, c.lat, 'zoom:', map.getZoom());
+                        // 로딩 스피너 표시
+                        const _spinner = document.createElement('div');
+                        _spinner.id = 'ml3d-spinner';
+                        _spinner.style.cssText = 'position:absolute;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;background:#0a0a12;';
+                        _spinner.innerHTML = '<div style="width:48px;height:48px;border:4px solid rgba(240,208,128,0.2);border-top-color:#f0d080;border-radius:50%;animation:ml3d-spin 0.7s linear infinite;"></div>';
+                        if (!document.getElementById('ml3d-spin-style')) {
+                            const ss = document.createElement('style');
+                            ss.id = 'ml3d-spin-style';
+                            ss.textContent = '@keyframes ml3d-spin{to{transform:rotate(360deg)}}';
+                            document.head.appendChild(ss);
+                        }
+                        mlOverlay.appendChild(_spinner);
+                        mlMap = new maplibregl.Map({
+                            container: mlOverlay,
+                            style: {
+                                version: 8,
+                                glyphs: 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf',
+                                sources: {
+                                    sat: {
+                                        type: 'raster',
+// UI 업데이트
+            displayContributions();
+        } catch (error) {
+            console.error('사관기록 변환 오류:', error);
+            alert(`사관기록 변환 실패: ${error.message}`);
+        }
+    };
+    // 🚩 [추가] 승인된 오브젝트를 다시 기여(대기 상태)로 되돌리는 함수
+    window.revertContribution = async (castleId, contribId) => {
+        if (!confirm('이 오브젝트를 삭제하고 다시 유저 기여(대기 상태)로 되돌리시겠습니까?')) return;
+        try {
+            // 1.
+기여 상태를 pending으로 변경
+            const statusResponse = await fetch(`${API_BASE_URL}/contributions/${contribId}/status`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ status: 'pending' })
+            });
+            if (!statusResponse.ok) throw new Error('기여 상태 변경 실패');
+            // 2.
+성 오브젝트 삭제
+            const deleteResponse = await fetch(`${API_BASE_URL}/castle/${castleId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!deleteResponse.ok) throw new Error('오브젝트 삭제 실패');
+            // 3.
+메모리 및 UI 업데이트
+            deleteCastleInMemory(castleId);
+            closeEditPanel('castleForm');
+            if (editMarker) { map.removeLayer(editMarker); editMarker = null; }
+            // 4.
+기여 데이터 최신화 (pending 상태인 기여를 다시 불러옴)
+            contributions = await fetchData('contributions');
+            // 5.
+맵 갱신 (기여 핀 다시 표시)
+            const { year, month } = getCurrentYearMonth();
+            updateMap(year, month);
+            alert('성공적으로 되돌렸습니다.');
+        } catch (error) {
+            console.error(error);
+            alert(`되돌리기 실패: ${error.message}`);
+        }
+    };
+    // ────────────────────────────────────────────────────────
+    // 📋 다른 마커에서 역사기록 복사
+    // ────────────────────────────────────────────────────────
+    document.getElementById('copyHistoryFromCastleBtn').addEventListener('click', () => {
+        // 검색 모달 생성
+        const existing = document.getElementById('copyHistoryModal');
+        if (existing) existing.remove();
+        const modal = document.createElement('div');
+        modal.id = 'copyHistoryModal';
+        modal.style.cssText = `
+            position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+            background:#1e2d3d; border:1px solid #2980b9; border-radius:8px;
+            padding:18px; z-index:99999; min-width:320px; max-width:420px;
+            box-shadow:0 4px 24px rgba(0,0,0,0.6); color:#d8cfc4;
+        `;
+        modal.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;
+// ── 이동 수단별 소요 시간 계산 (통상 이동 기준) ─────────────
+        // 기마대 통상 행군: 시속 6km, 하루 8시간
+        const horseDays = _calcTravelTime(km, 6, 8);
+        // 보병대 통상 행군: 시속 3.75km, 하루 9시간 (군장 포함)
+        const footDays  = _calcTravelTime(km, 3.75, 9);
+        // 인근 강 탐색: 두 지점의 중간 근처 naturalFeatures 중 river 타입
+        let riverName = null;
+        if (typeof naturalFeatures !== 'undefined' && naturalFeatures.length) {
+            const midLat = (fromLat + toLat) / 2;
+            const midLng = (fromLng + toLng) / 2;
+            const riverFeature = naturalFeatures.find(f => {
+                if (f.type !== 'river') return false;
+                if (!f.lat || !f.lng) return false;
+                // 경로 중간 지점 근방 3도(~330km) 이내
+                const dlat = f.lat - midLat, dlng = f.lng - midLng;
+                return Math.sqrt(dlat*dlat + dlng*dlng) < 3.0;
+            });
+            if (riverFeature) riverName = riverFeature.name || null;
+        }
+        // 선박: 강까지 도보(10%) + 수운(80%) + 목적지까지 도보(10%) 복합 추정
+        // 직선거리를 실제 강 경로로 이동한다고 가정한 근사치
+        const _boatWalkKm  = km * 0.10; // 강 접근/이탈 도보 구간
+        const _boatRiverKm = km * 0.80; // 수운 구간
+        const _boatWalkH   = (_boatWalkKm * 2) / 3.75;          // 왕복 도보 시간
+        const _boatRiverH  = _boatRiverKm / 6;                  // 수운 시간 (6km/h)
+        const _boatTotalH  = _boatWalkH + _boatRiverH;
+        // 하루 이동 가능 시간: 수운 10h + 도보 포함 실질 9h로 복합 계산
+        const boatDays = _calcTravelTime(_boatTotalH * (km / (_boatTotalH || 1)), 6, 9); // 등가 km/h 환산
+        // 더 직관적인 방법: 총 시간으로 직접 포맷
+        const _boatFormatted = (() => {
+            const h = _boatTotalH;
+            const dayH = 9; // 하루 9시간 이동
+            if (h < 1) { const m = Math.round(h * 60 / 10) * 10; return m <= 10 ?
+window._sessionMapCache.castlesById.clear();
+          console.log('🏰 castles: 캐시 없음, 백그라운드 DB 로드 예정');
+      }
+      if (!cachedTerritories || cachedTerritories.length === 0) {
+          territories = [];
+          console.log('📦 territories 초기화 (캐시 없음)');
+      } else {
+          console.log('💾 territories 캐시 보존 (초기화 생략)');
+      }
+      if (!cachedEvents || cachedEvents.length === 0) {
+          events = [];
+          console.log('📦 events 초기화 (캐시 없음)');
+      } else {
+          events = cachedEvents;
+          console.log(`💾 events 캐시 사용: ${events.length}개 (초기화 생략)`);
+      }
+      if (!cachedDrawings || cachedDrawings.length === 0) {
+          drawings = [];
+          console.log('📦 drawings 초기화 (캐시 없음)');
+      } else {
+          drawings = normalizeDrawings(cachedDrawings);
+          console.log(`💾 drawings 캐시 사용: ${drawings.length}개 (초기화 생략)`);
+      }
+      if (!cachedContributions || cachedContributions.length === 0) {
+          contributions = [];
+          console.log('📦 contributions 초기화 (캐시 없음)');
+      } else {
+          contributions = cachedContributions;
+          console.log(`💾 contributions 캐시 사용: ${contributions.length}개 (초기화 생략)`);
+      }
+      // 나머지는 항상 초기화 (events/drawings는 캐시가 있으면 보존)
+      if (!cachedEvents || cachedEvents.length === 0) events = [];
+      if (!cachedDrawings || cachedDrawings.length === 0) drawings = [];
+      history = [];
+      naturalFeatures = [];
+      try {
+          // ===== 🚀 [0단계] 캐시된 핵심 데이터 병렬 즉시 적용 =====
+          // 🎯 [핵심] countries, territories, castles를 병렬로 로드하여 국가 색상 매칭 가능!
+console.log('🚀 캐시된 핵심 데이터 병렬 로딩 시작.');
+          // 이미 위에서 로드했으므로 여기서는 할당만
+          let hasCachedData = false;
+          // Countries 캐시 적용
+          if (cachedCountries) {
+              try {
+                  countries = JSON.parse(cachedCountries);
+                  console.log(`💾 [즉시 캐시] countries ${countries.length}개 로드 완료`);
+                  hasCachedData = true;
+              } catch (e) {
+                  console.warn('⚠️ Countries 캐시 파싱 실패:', e);
+              }
+          }
+          // Territories 캐시 적용
+          if (cachedTerritories && cachedTerritories.length > 0) {
+              territories = cachedTerritories;
+              window.territories = cachedTerritories; // 🎯 [핵심] 전역 변수 명시적 할당
+              console.
+if (score >= 200) return '종7품 직문한(直文翰)';
+            if (score >= 120) return '정8품 주서(注書)';
+            if (score >= 60)  return '종8품 검열(檢閱)';
+            if (score >= 30)  return '정9품 정자(正字)';
+            if (guest) return '송나라 사신';
+            return '종9품 수분권지(修分權知)';
+        }
+        // 🚩 [추가] 승급 축하 효과 표시 함수
+        function showPromotionEffect(oldPosition, newPosition) {
+            // 승급 여부 확인 (이전 직급과 다르고, 더 높은 직급인 경우)
+            // 고려 사관 통합 18단계 직급표 (종9품→정1품)
+            const positionOrder = [
+                '종9품 수분권지(修分權知)', '정9품 정자(正字)', '종8품 검열(檢閱)', '정8품 주서(注書)',
+                '종7품 직문한(直文翰)', '정7품 수찬(修撰)',
+                '종6품 기거도위(起居都尉)', '정6품 기거랑(起居郞)', '종5품 기거사(起居舍)', '정5품 기거주(起居注)',
+                '종4품 시강학사(侍講學士)', '정4품 사관수찬(史館修撰)', '종3품 직수찬관(直修撰官)', '정3품 수찬관(修撰官)',
+                '종2품 동수국사(同修國史)', '정2품 수국사(修國史)', '종1품 판사관사(判史館事)', '정1품 감수국사(監修國史)'
+            ];
+            const oldIndex = positionOrder.indexOf(oldPosition);
+            const newIndex = positionOrder.indexOf(newPosition);
+            // 🚩 [수정] 이미 이 승급 알림을 표시한 적이 있으면 다시 보여주지 않음 (1회만 표시)
+            const shownKey = `promotionShown_${newPosition}`;
+            if (localStorage.getItem(shownKey)) {
+                return;
+            }
+            if (newIndex > oldIndex && oldIndex !== -1) {
+                // 승급 알림을 표시했음을 기록 (1회 표시 보장)
+                localStorage.setItem(shownKey, '1');
+// 극거시: 국가명 라벨만
+                if (ez < 5)   return 'capital';  // 거시: 수도 + 자연지물
+                if (ez < 6)   return 'major';    // 중간: 군/전장/주요도시까지
+                return 'all';                    // 미시(ez≥7): 전부
+            }
+            // 마커 우선순위 (낮을수록 더 중요)
+            function getMarkerPriority(c) {
+                if (c.is_label && c.label_type === 'country')  return 0; // 국가명 라벨
+                if (c.is_capital)                              return 1; // 수도/왕성
+                if (c.place_type === 'capital')                return 1; // place_type 수도
+                if (c.place_type === 'hwangseong')             return 1; // 황성(천자)
+                if (c.is_natural_feature)                      return 2; // 자연지물 (산·강 등)
+                if (c.is_label)                                return 2; // 지명 라벨
+                if (c.is_military_flag)                        return 3; // 군대
+                if (c.place_type === 'battle')                 return 3; // 전장
+                if (c.population && c.population > 100000)    return 3; // 대도시
+                if (c.place_type === '주' || c.place_type === 'ju') return 3; // 주(州)
+                if (c.place_type === 'chon')                   return 5; // 마을은 가장 낮은 우선순위
+                return 4; // 일반 성/현
+            }
+            // LOD 모드별 최대 priority
+            //   country: 0 (국가라벨만)
+            //   capital: 2 (수도 + 자연지물 + 지명라벨)
+            //   major:   3 (군/전장/주요도시까지 — 일반 성/현 생략)
+            //   all:     99 (전부, ez≥7)
+            const LOD_MAX_PRIORITY = { country: 0, capital: 2, major: 3, all: 99 };
+            function _refreshLayersInner(rebuildTerritory = true, rebuildMarkers = true) {
+                const _m = window.mlMap3d;
+                if (!_m) { console.error('[3D] _m is null!'); return; }
+                // terrain이 활성화된 상태에서 fill 레이어 추가 시 드레이프 패스에서 제외되는 버그 방지
+                // → terrain 일시 해제 후 레이어 추가 후 복원
+                const currentTerrain = _m.getTerrain();
+function authHeader() {
+    const t = localStorage.getItem('token') || sessionStorage.getItem('token');
+    return t ?
+{ 'Authorization': 'Bearer ' + t } : {};
+  }
+  function isAdmin() {
+    const u = window.currentUser;
+    return u && (u.role === 'admin' || u.role === 'superuser');
+  }
+  // 패널 열고 해당 항목 바로 편집
+  window.rcOpenCropEdit = async function(id) {
+    // 편집 모드 진입 시 이미 권한 확인됨
+    // 캐시 로드
+    if (!_crops.length) {
+      const res = await fetch('/api/crops');
+      _crops = await res.json();
+    }
+    const it = _crops.find(x => String(x._id) === String(id));
+    if (!it) return alert('항목을 찾을 수 없습니다.');
+    // 패널 표시
+    const overlay = document.getElementById('resource-crud-overlay');
+    const panel   = document.getElementById('resource-crud-panel');
+    overlay.style.display = 'block';
+    panel.style.display   = 'flex';
+    // 타입 필터를 crops 전용으로 설정
+    document.getElementById('rc-type-filter').value = '';
+    // 폼 헤더 변경
+    document.getElementById('rc-form-title').textContent = '[농작물] 편집: ' + (it.name_ko || it.name || '');
+    // 폼 필드 채우기
+    document.getElementById('rc-f-type').value     = 'crops_internal'; // 더미값 (저장 시 crop_type 사용)
+    document.getElementById('rc-f-name-ko').value  = it.name_ko  || '';
+    document.getElementById('rc-f-name').value     = it.name     || '';
+    document.getElementById('rc-f-region').value   = it.region   || '';
+    document.getElementById('rc-f-lat').value      = it.lat != null ?
+it.lat : '';
+    document.getElementById('rc-f-lng').value      = it.lng != null ?
+it.lng : '';
+    document.getElementById('rc-f-major').checked  = !!it.major;
+    document.getElementById('rc-f-desc').value     = it.era_note || it.description || '';
+    // 추가 필드
+    const skip = new Set(['_id','name_ko','name','region','lat','lng','major','description','era_note','location']);
+    const extra = {};
+    Object.keys(it).forEach(k => { if (!skip.has(k)) extra[k] = it[k]; });
+    document.getElementById('rc-f-extra').value = Object.keys(extra).length ?
+JSON.stringify(extra, null, 2) : '';
+    document.getElementById('rc-form-msg').textContent = '';
+    // 폼 패널 열기
+    const formPanel = document.getElementById('rc-form-panel');
+    formPanel.style.width = '300px';
+    formPanel.style.overflow = 'visible';
+    // 저장 버튼을 crops 전용으로 교체
+    window._cropEditingId = id;
+    // 목록은 비워두고 상태바에 안내
+    document.getElementById('rc-tbody').innerHTML = '';
+    document.getElementById('rc-status').textContent = '농작물 항목 편집 중 — 저장 버튼을 누르세요';
+  };
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>고려만리지도 (高麗萬里地圖)</title>
+    <link rel="icon" type="image/jpg" href="/samjoko.png">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=East+Sea+Dokdo&family=Nanum+Myeongjo:wght@700&family=Yeon+Sung&display=swap" rel="stylesheet">
+    <!-- 📢 [추가] Google AdSense 로더 — 지도 화면에는 노출되지 않고 햄버거 사이드 메뉴에서만 렌더링됨.
+-->
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6821586098117394" crossorigin="anonymous"></script>
+    <!-- MapLibre 사전 캐시 (3D 버튼 클릭 시 사용 — prefetch로 낮은 우선순위 캐싱) -->
+    <link rel="preconnect" href="https://unpkg.com" crossorigin>
+    <link rel="preconnect" href="https://s3.amazonaws.com" crossorigin>
+    <link rel="prefetch" as="style"  href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="anonymous">
+    <link rel="prefetch" as="script" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"  crossorigin="anonymous">
+<style>
+    /* 🚩 그리기 폼 스타일 - 드래그 이동 가능 */
+    div#drawingForm[style],
+    div#drawingForm {
+        z-index: 10001 !important;
+        background: rgba(30, 42, 56, 0.95) !important;
+        padding: 8px 10px !important;
+        border-radius: 7px !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.35) !important;
+        width: 250px !important;
+        max-width: 260px !important;
+        color: #ecf0f1 !important;
+    }
+    #drawingForm form,
+    div#drawingForm form {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 0 !important;
+    }
+    /* 팝업이 항상 연대표와 label marker 위에 오도록 z-index 강제 */
+    .leaflet-popup-pane {
+        z-index: 10000 !important;
+    }
+    /* compact-popup — 새 팝업 스타일 블록에서 통합 관리 */
+circlemarker: false
+                }
+            });
+            map.addControl(drawControl);
+            // 그리기 이벤트 핸들러 바인딩
+            map.on(L.Draw.Event.CREATED, function (e) {
+                const layer = e.layer;
+                const geojson = layer.toGeoJSON();
+                // 🚩 [추가] Circle의 경우 radius 속성 보존
+                if (layer instanceof L.Circle) {
+                    geojson.properties = geojson.properties || {};
+                    geojson.properties.radius = layer.getRadius();
+                }
+                openDrawingForm(geojson);
+            });
+            map.on('draw:drawstart', () => { isDrawing = true; });
+            map.on('draw:drawstop', () => { isDrawing = false; });
+        }
+    }
+    // 🚩 [추가] PC 버전 상단 패널 토글 기능 초기화
+    function initializeTopPanelToggle() {
+        const toggleBtn = document.getElementById('pcTopPanelToggleBtn');
+        const body = document.body;
+        const controlsWrapper = document.getElementById('controls-wrapper');
+        const timelineContainer = document.getElementById('timeline-container');
+        let isControlsHidden = false;
+        toggleBtn.addEventListener('click', () => {
+            if (window.innerWidth <= 967) {
+                // 모바일: 상단 메뉴는 항상 표시되므로 토글하지 않음
+                // 오른쪽 패널만 토글
+                const rightPanel = document.getElementById('rightPanel');
+                if (rightPanel) {
+                    rightPanel.classList.toggle('visible');
+                    document.body.classList.toggle('controls-visible', rightPanel.classList.contains('visible'));
+                }
+            } else {
+                // PC 동작
+                isControlsHidden = !isControlsHidden;
+                // 🚩 [수정] 전체 패널을 숨기는 대신, 특정 부분만 숨기도록 변경
+                const slider = document.getElementById('combinedSlider');
+                const sliderTicks = controlsWrapper.querySelector('.slider-ticks-container'); // 눈금 컨테이너
+                if (slider) slider.style.display = isControlsHidden ?
+'none' : 'block';
+                if (sliderTicks) sliderTicks.style.display = isControlsHidden ?
+'none' : 'flex'; // 눈금은 flex로 복원
+                if (timelineContainer) timelineContainer.style.display = isControlsHidden ?
+'none' : 'block';
+                // 🚩 [수정] 버튼 상태 업데이트
+                toggleBtn.classList.toggle('active', !isControlsHidden);
+            }
+            map.invalidateSize(); // 지도 크기 재계산은 항상 수행
+            if (!isControlsHidden) {
+                // 🚩 [수정] 패널이 다시 나타날 때, 연대표의 위치를 재조정하고 다시 그립니다.
+createDynastyTimeline();
+            }
+        });
+    }
+    // 🚩 [수정] window 글로벌 함수들을 DOMContentLoaded 밖에서 정의하여 항상 사용 가능하게 함
+    window.voteContribution = async (id) => {
+        try {
+            console.log('voteContribution called with id:', id);
+            const response = await fetch(`${API_BASE_URL}/contributions/${id}/vote`, {
+                method: 'PUT',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await response.json();
+            console.log('vote response data:', data);
+showToast('✅ 선분 삭제 저장 완료', 'success');
+            window._segmentEraseMode = false;
+            window._segmentEraseDrawing = null;
+            window._segmentEraseSet = null;
+            window._eraserMouseDown = false;
+            map.dragging.enable();
+            document.getElementById('segmentEraseHint').style.display = 'none';
+            document.getElementById('segmentEraseBtn').textContent = '🧹 선분 지우기 모드';
+            document.getElementById('segmentEraseBtn').style.background = 'rgba(180,80,20,0.15)';
+            map.getContainer().style.cursor = '';
+            document.getElementById('drawingForm').style.display = 'none';
+        } catch(e) {
+            showToast('❌ 저장 중 오류: ' + e.message, 'error');
+        }
+    });
+    // ✂️ 선분 지우기 취소 (변경사항 되돌리기)
+    document.getElementById('segmentEraseCancelBtn').addEventListener('click', () => {
+        window._segmentEraseMode = false;
+        window._segmentEraseSet = null;
+        window._eraserMouseDown = false;
+        map.dragging.enable();
+        map.getContainer().style.cursor = '';
+        document.getElementById('segmentEraseHint').style.display = 'none';
+        document.getElementById('segmentEraseBtn').textContent = '✂️ 선분 지우기 모드';
+        document.getElementById('segmentEraseBtn').style.background = 'rgba(180,80,20,0.15)';
+        // 지도 재렌더링 (원본 데이터 다시 로드)
+        drawnItems.clearLayers();
+        const currentYear = parseInt(document.getElementById('yearInput')?.value) || 0;
+        renderDrawings(currentYear);
+        showToast('↩️ 선분 삭제 취소됨', 'info');
+    });
+    // ================================================================
+    // 📍 포인트(버텍스) 편집 모드
+    // ================================================================
+    (function() {
+        var _vtxMarkers  = L.layerGroup();  // 꼭짓점 마커 그룹
+        var _previewLine = null;            // 실시간 미리보기 폴리라인
+        var _origGeoJson = null;            // 편집 취소용 원본 백업
+        var _coords      = [];              // 현재 편집 중인 좌표 배열 [[lat,lng], ...]
+        // 꼭짓점 마커 아이콘
+        var vtxIcon = L.divIcon({
+            html: '<div style="width:12px;height:12px;background:#3498db;border:2px solid white;border-radius:50%;margin:-6px 0 0 -6px;cursor:grab;box-shadow:0 1px 4px rgba(0,0,0,6)"></div>',
+            className: '', iconSize: [1,1], iconAnchor: [0,0]
+        });
+        var delIcon = L.divIcon({
+            html: '<div style="width:12px;height:12px;background:#e74c3c;border:2px solid white;border-radius:50%;margin:-6px 0 0 -6px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,
+0],
+                pane: 'labelPane'
+            });
+            marker = L.marker([newCastle.lat, newCastle.lng], { icon: labelIcon, pane: 'labelPane' });
+        } else {
+            // 저장된 크기에 따라 폰트 크기 결정
+            let fontSize = '15px';
+            let strokeStyle = '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0px 0px 3px rgba(0,0,0,0.85)';
+            switch (newCastle.label_size) {
+                case 'large':
+                    fontSize = '26px';
+                    break;
+                case 'small':
+                    fontSize = '10px';
+                    strokeStyle = '-0.5px -0.5px 0 rgba(0,0,0,0.9), 0.5px -0.5px 0 rgba(0,0,0,0.9), -0.5px 0.5px 0 rgba(0,0,0,0.9), 0.5px 0.5px 0 rgba(0,0,0,0.9), 0px 0px 2px rgba(0,0,0,0.8)';
+                    break;
+                case 'xsmall':
+                    fontSize = '8px';
+                    strokeStyle = '-0.5px -0.5px 0 rgba(0,0,0,0.9), 0.5px -0.5px 0 rgba(0,0,0,0.9), -0.5px 0.5px 0 rgba(0,0,0,0.9), 0.5px 0.5px 0 rgba(0,0,0,0.9), 0px 0px 2px rgba(0,0,0,0.8)';
+                    break;
+            }
+            const labelIcon = L.divIcon({
+                className: 'label-text-marker',
+                html: `<div style="
+                    font-size: ${fontSize};
+                    font-weight: normal;
+                    color: ${newCastle.label_color || '#d8cdb8'};
+                    text-shadow: ${strokeStyle};
+                    white-space: nowrap;
+                    text-align: center;
+                ">${castleName}</div>`,
+                iconSize: [150, 40],
+                iconAnchor: [75, 0],
+                pane: 'labelPane'
+            });
+            marker = L.marker([newCastle.lat, newCastle.lng], { icon: labelIcon, pane: 'labelPane' });
+        }
+        // 마커에 데이터 저장
+        marker._castleData = newCastle;
+        marker.isCapital = typeof isCapitalCastle === 'function' ?
+hangul.slice(-1)[0] : '?'; })();
+                const _sealTxtColor = (()=>{ try{ const h=(countryColor||'').replace(/^#/,''); const hx=h.length===3?h.split('').map(c=>c+c).join(''):h; if(hx.length!==6)return '#fff'; const lum=0.2126*parseInt(hx.slice(0,2),16)+0.7152*parseInt(hx.slice(2,4),16)+0.0722*parseInt(hx.slice(4,6),16); return lum>160?'#1a1a1a':'#ffffff'; }catch(e){return '#ffffff';} })();
+                iconHtml = `<span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;background:${countryColor};border:1.5px solid ${countryColor};filter:brightness(0.75);color:${_sealTxtColor};font-size:9px;font-weight:900;border-radius:2px;transform:rotate(-3deg);margin-right:5px;vertical-align:middle;box-shadow:0 0 3px rgba(0,0,0,0.6);flex-shrink:0;">${sealChar}</span>`;
+            }
+            // 🚩 한줄평을 클릭 팝업으로 표시
+            const kingSummaryRaw = king.summary || '';
+            const kingSummaryEsc = kingSummaryRaw.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const summaryBadge = kingSummaryRaw
+                ?
+` <span class="king-summary-badge" onclick="showKingSummaryPopup(event,'${kingSummaryEsc}')">💬</span>`
+                : '';
+            let kingHtml = `${iconHtml} <span class="country-name-link" style="cursor: pointer; text-decoration: underline;" onclick="zoomToCountryCapital('${country._id}')">${country.name}</span>: <span class="king-name">${king.name}</span> (${period})${summaryBadge}`;
+            html += `<div class="king-item">${kingHtml}</div>`;
+        }
+    });
+    const kingContent = html || "해당 연도 왕 정보 없음";
+    // console.log(`🔍 [왕 패널] kingContent 길이: ${kingContent.length}`);
+    // document.getElementById('kingList').innerHTML = kingContent; // 오른쪽 패널 제거로 비활성화
+    // 🚩 [수정] 지도 내 왕 목록 패널만 업데이트
+    const mapKingList = document.getElementById('map-king-list');
+    if (mapKingList) {
+        mapKingList.innerHTML = kingContent;
+        // console.log(`✅ [왕 패널] map-king-list 업데이트 완료`);
+    } else {
+        console.warn('⚠️ [왕 패널] map-king-list 요소를 찾을 수 없습니다');
+    }
+}
+    /** 🚩 한줄평 클릭 팝업 */
+    window.showKingSummaryPopup = function(e, summary) {
+        e.stopPropagation();
+        const popup = document.getElementById('king-summary-popup');
+        if (!popup) return;
+        // 같은 배지를 다시 클릭하면 닫기
+        if (popup.classList.contains('visible') && popup._lastSummary === summary) {
+            popup.classList.remove('visible');
+            return;
+)\s*$/);
+                if (coordMatch) {
+                    const cLat = parseFloat(coordMatch[1]);
+                    const cLng = parseFloat(coordMatch[2]);
+                    if (cLat >= -90 && cLat <= 90 && cLng >= -180 && cLng <= 180) {
+                        document.getElementById('mobile-search-overlay')?.classList.remove('open');
+                        window._tbGoToMapResult(cLat, cLng, `${cLat.toFixed(4)}, ${cLng.toFixed(4)}`, '📍 좌표 이동');
+                        return;
+                    }
+                }
+                const ql = query.toLowerCase();
+                _mbRenderMessage('<div style="color:#7a9aaa;font-size:12px;padding:10px 14px;">검색 중…</div>');
+                mobileSearchResults.style.display = 'block';
+                // 역사 DB 즉시 검색
+                const dbHits = [], milHits = [];
+                for (let i = 0; i < castles.length; i++) {
+                    const c = castles[i];
+                    const match = (c.name && c.name.toLowerCase().includes(ql)) ||
+                                  (c.name_ko && c.name_ko.toLowerCase().includes(ql)) ||
+                                  (c.general_name && c.general_name.toLowerCase().includes(ql));
+                    if (!match) continue;
+                    if (c.is_military_flag) {
+                        let lat = c.lat, lng = c.lng;
+                        if ((!lat||!lng) && Array.isArray(c.path_data) && c.path_data.length) { lat=c.path_data[0][0]; lng=c.path_data[0][1]; }
+                        milHits.push({ lat, lng, label: c.name||c.name_ko||'', sub: c.general_name||'', idx: i });
+                        if (milHits.length >= 5) break;
+                    } else {
+                        dbHits.push({ lat: c.lat, lng: c.lng, label: c.name||c.name_ko||'', sub: c.general_name||'', idx: i });
+                        if (dbHits.length >= 8) break;
+                    }
+                }
+                // Nominatim + 역사기록 병렬
+                const [hRes, nomRes] = await Promise.allSettled([
+                    fetch(`${API_BASE_URL}/history/search?q=${encodeURIComponent(query)}&limit=6`),
+                    fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&accept-language=ko`, { headers: { 'Accept-Language': 'ko' } })
+                ]);
+                let histHits = [], mapHits = [];
+                try {
+                    if (hRes.status === 'fulfilled' && hRes.value.ok) {
+                        const hd = await hRes.value.json();
+                        histHits = hd.map(h => ({
+                            label: h.event_name || '(제목 없음)',
+                            sub: `${h.year > 0 ?
+h.year+'년' : 'BC '+Math.abs(h.year)+'년'}${h.month ?
+'
+border-radius:4px; cursor:zoom-in;"
+              onclick="openLightbox(this.src)">
+          </div>
+        </div>
+      </div>
+      <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           ⑦ 커스텀 아이콘 (군대 제외 공통)
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+      <div class="form-row" id="customIconRow">
+        <label for="customIcon">커스텀 아이콘 URL:</label>
+        <input type="text" id="customIcon" placeholder="이미지 URL (선택 사항)">
+      </div>
+      <div class="form-row" id="iconSizeRow">
+        <label>아이콘 크기:</label>
+        <div class="input-group">
+          <input type="number" id="iconWidth" placeholder="너비 (px)" min="10" max="200" style="width:120px;">
+          <input type="number" id="iconHeight" placeholder="높이 (px)" min="10" max="200" style="width:120px;">
+        </div>
+      </div>
+      <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           ⑧ 군대 전용: 이동 경로 (마지막)
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+      <div id="pathDataSection" style="display:none; border:1px solid #00aaff; padding:10px; margin-top:10px; border-radius:4px;">
+        <h4>⚔️ 군대 이동 경로</h4>
+        <div id="pathDataList"></div>
+        <button type="button" onclick="addPathPoint()" style="margin-top:5px;">경로 지점 추가</button>
+      </div>
+      <style>
+          /* ── 역사 기록 행 레이아웃 ── */
+          .history-record-row {
+              display: flex;
+              flex-direction: column;
+              gap: 6px;
+              width: 100%;
+              margin-bottom: 10px;
+              padding: 10px;
+              background: rgba(0,0,0,0.18);
+              border: 1px solid rgba(180,140,80,0.2);
+              border-radius: 6px;
+              box-sizing: border-box;
+          }
+          /* 1행: 이름 | 국가 | 유형 | [X] */
+          .history-row-line1 {
+              display: grid;
+              grid-template-columns: 1fr 1fr auto auto;
+              gap: 6px;
+              align-items: end;
+          }
+          /* 2행: 시작연도 | 시작월 | ~ | 종료연도 | 종료월 */
+          .history-row-line2 {
+              display: flex;
+              align-items: end;
+              gap: 5px;
+          }
+          .history-row-line2 .tilde {
+              align-self: flex-end;
+              padding-bottom: 6px;
+              color: #bdc3c7;
+              font-size: 13px;
+          }
+          /* 공통 필드 컨테이너 */
+          .
+925 3 12c0 8.25 11 23 11 23S25 20.25 25 12C25 5.925 20.075 1 14 1z"
+                          fill="#e84545" stroke="#fff" stroke-width="1.5"/>
+                    <circle cx="14" cy="12" r="5" fill="#fff"/>
+                  </svg>
+                </div>`,
+                iconSize: [28, 36],
+                iconAnchor: [14, 36],
+                popupAnchor: [0, -38]
+            });
+            // 실지도 결과 클릭 전역 핸들러
+            window._tbGoToMapResult = (lat, lng, label, sub) => {
+                document.getElementById('topbarSearchInput').value = label;
+                document.getElementById('topbarSearchResults').style.display = 'none';
+                // 기존 핀 제거
+                if (_tbMapPin) { map.removeLayer(_tbMapPin); _tbMapPin = null; }
+                // 줌 레벨: 현재보다 작으면 13으로 확대, 이미 크면 유지
+                const targetZoom = Math.max(map.getZoom(), 13);
+                if (window._is3dMode && window.mlMap3d) {
+                    // 3D 모드: MapLibre로 이동 (zoom 12 이상으로 확대)
+                    const target3dZoom = Math.max(window.mlMap3d.getZoom(), 12);
+                    window.mlMap3d.flyTo({ center: [lng, lat], zoom: target3dZoom, duration: 1200, essential: true });
+                }
+                map.flyTo([lat, lng], targetZoom, { animate: true, duration: 1.0 });
+                // 핀 표시 + 팝업
+                _tbMapPin = L.marker([lat, lng], { icon: _tbPinIcon, zIndexOffset: 9000 }).addTo(map);
+                const popupContent = `<div style="font-size:13px;font-weight:600;line-height:1.4;">${label}</div>`
+                    + (sub ?
+`<div style="font-size:11px;color:#666;margin-top:2px;">${sub.replace(/^[📍🌍]\s*/,'')}</div>` : '');
+                _tbMapPin.bindPopup(popupContent, { offset: [0, -34] }).openPopup();
+            };
+            let _tbNominatimTimer = null;
+            // 📢 검색결과 렌더링 (역사DB 계열 / 실지도 계열 사이에 광고 삽입)
+            // dbHtml: 군대마커·역사DB·역사기록 등 / mapHtml: 실지도(Nominatim) 결과
+            const _tbRenderSearchSections = (dbHtml, mapHtml) => {
+                const top = document.getElementById('tb-results-top');
+                const bottom = document.getElementById('tb-results-bottom');
+                const adSlot = document.getElementById('tb-search-ad-slot');
+                if (top) top.innerHTML = dbHtml || '';
+                if (bottom) bottom.innerHTML = mapHtml || '';
+                if (adSlot) {
+                    if (dbHtml && mapHtml) {
+                        adSlot.style.display = '';
+                        if (typeof initTbSearchAd === 'function') initTbSearchAd();
+                    } else {
+                        adSlot.style.display = 'none';
+                    }
+                }
+            };

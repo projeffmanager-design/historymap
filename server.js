@@ -12,9 +12,23 @@ const path = require('path');
 const fs = require('fs');
 const { connectToDatabase, reconnectDatabase, collections } = require('./db'); // 🚩 [추가] DB 연결 모듈
 const { put: blobPut, del: blobDel } = require('@vercel/blob'); // 🎙️ [추가] Vercel Blob SDK
+const multer = require('multer'); // 🦸 [추가] Hero 이미지 업로드용 Multer
 
 const app = express();
 const port = 3000;
+const BLOCKED_FLAG_URL = [
+    'https://png.pngtree.com',
+    '/png-clipart/20250215/original/',
+    'pngtree-hungary-flag-waving-with-pole-png-image_19645511.png'
+].join('');
+const HERO_TYPE_LABELS = {
+    emperor: '황제',
+    king: '왕',
+    general: '장군',
+    civilian: '문관',
+    brigand: '도적'
+};
+const HERO_TYPE_ORDER = ['emperor', 'king', 'general', 'civilian', 'brigand'];
 // 💡 [추가] JWT 시크릿 키 환경 변수 확인
 const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret) {
@@ -29,6 +43,311 @@ const toObjectId = (id) => {
     }
     return null;
 }
+
+const normalizeRouteId = (id) => {
+    try {
+        return decodeURIComponent(String(id || ''));
+    } catch (_) {
+        return String(id || '');
+    }
+};
+
+const parseKingHeroId = (id) => {
+    const match = normalizeRouteId(id).match(/^king:([^:]+):(.+)$/);
+    if (!match) return null;
+    return { countryId: match[1], sourceRefId: match[2] };
+};
+
+const heroIdStorageValue = (id) => toObjectId(normalizeRouteId(id)) || normalizeRouteId(id);
+
+const sanitizeCountryFlag = (country) => {
+    if (!country || country.flag !== BLOCKED_FLAG_URL) return country;
+    return { ...country, flag: null };
+};
+
+const normalizeHeroType = (value, fallbackText = '') => {
+    const raw = String(value || '').trim().toLowerCase();
+    if (HERO_TYPE_LABELS[raw]) return raw;
+
+    const hint = `${value || ''} ${fallbackText || ''}`.replace(/\s+/g, ' ').trim();
+    if (/황제|천자|대제/.test(hint)) return 'emperor';
+    if (/왕/.test(hint)) return 'king';
+    if (/장군|대장군|총관/.test(hint)) return 'general';
+    if (/문관|재상|상서|대신|승상|관리/.test(hint)) return 'civilian';
+    if (/도적|적벽|강도|유민/.test(hint)) return 'brigand';
+    return 'general';
+};
+
+const normalizeKingHeroType = (king = {}) => {
+    const raw = String(king.hero_type || king.type || king.role_type || '').trim().toLowerCase();
+    if (HERO_TYPE_LABELS[raw]) return raw;
+    const hint = `${king.name || ''} ${king.summary || ''} ${king.title || ''}`.replace(/\s+/g, ' ').trim();
+    if (/장군|대장군|총관/.test(hint)) return 'general';
+    if (/문관|재상|상서|대신|승상|관리/.test(hint)) return 'civilian';
+    if (/도적|적벽|강도|유민/.test(hint)) return 'brigand';
+    if (/황제|천자|대제/.test(hint)) return 'emperor';
+    return 'king';
+};
+
+const normalizeMonthValue = (value, fallback = 1) => {
+    const month = parseInt(value);
+    return month >= 1 && month <= 12 ? month : fallback;
+};
+
+const heroTypeLabel = (value) => HERO_TYPE_LABELS[normalizeHeroType(value)] || '장군';
+const isRoyalHeroType = (value) => {
+    const type = normalizeHeroType(value);
+    return type === 'emperor' || type === 'king';
+};
+const normalizeKingSchema = (king = {}, country = null, countryId = '') => {
+    const startYear = parseInt(king.start);
+    const endYear = king.end == null || king.end === '' ? null : parseInt(king.end);
+    const startMonth = normalizeMonthValue(king.start_month, 1);
+    const endMonth = normalizeMonthValue(king.end_month, 12);
+    const heroType = normalizeKingHeroType(king);
+    return {
+        name_ko: king.name_ko || king.name || country?.name || '',
+        name_zh: king.name_zh || '',
+        title: king.title || king.summary || '',
+        description: king.description || king.summary || '',
+        avatar_url: king.avatar_url || '',
+        illustration_url: king.illustration_url || '',
+        birth_year: Number.isNaN(startYear) ? null : startYear,
+        death_year: endYear == null || Number.isNaN(endYear) ? null : endYear,
+        faction: king.faction || country?.name || '',
+        faction_color: king.faction_color || country?.color || '#c8860a',
+        hero_type: heroType,
+        source_kind: king.source_kind || 'king',
+        source_ref_id: king.source_ref_id || String(king._id || ''),
+        source_country_id: king.source_country_id || countryId || '',
+        start_year: Number.isNaN(startYear) ? null : startYear,
+        end_year: endYear == null || Number.isNaN(endYear) ? null : endYear,
+        start_month: startMonth,
+        end_month: endMonth
+    };
+};
+const totalMonthsFromKing = (king = {}) => (
+    (parseInt(king.start) || 0) * 12 + (normalizeMonthValue(king.start_month, 1) - 1)
+);
+const isKingActiveAtYearMonth = (king = {}, year = 0, month = 1) => {
+    const startCombined = totalMonthsFromKing(king);
+    const endCombined = (king.end === null || king.end === undefined || king.end === '')
+        ? Infinity
+        : ((parseInt(king.end) || 0) * 12) + (normalizeMonthValue(king.end_month, 12) - 1);
+    const currentCombined = (parseInt(year) || 0) * 12 + ((parseInt(month) || 1) - 1);
+    return startCombined <= currentCombined && currentCombined < endCombined;
+};
+const isHeroPositionActiveAtYearMonth = (pos = {}, year = 0, month = 1) => {
+    const startYear = parseInt(pos.start_year ?? pos.year);
+    const endYearRaw = pos.end_year;
+    const startMonth = normalizeMonthValue(pos.start_month, 1);
+    const endMonth = normalizeMonthValue(pos.end_month, 12);
+    if (Number.isNaN(startYear)) return false;
+    const startCombined = startYear * 12 + (startMonth - 1);
+    const endCombined = (endYearRaw === null || endYearRaw === undefined || endYearRaw === '')
+        ? Infinity
+        : ((parseInt(endYearRaw) || 0) * 12) + (endMonth - 1);
+    const currentCombined = (parseInt(year) || 0) * 12 + ((parseInt(month) || 1) - 1);
+    return startCombined <= currentCombined && currentCombined <= endCombined;
+};
+const compareKingReignStart = (a = {}, b = {}) => (
+    totalMonthsFromKing(a) - totalMonthsFromKing(b) ||
+    (String(a._id || '')).localeCompare(String(b._id || ''))
+);
+const kingHeroId = (countryId, refId) => `king:${String(countryId)}:${String(refId)}`;
+const findKingFigure = async (countryId, sourceRefId) => {
+    const countryObjectId = toObjectId(countryId);
+    const kingDoc = await collections.kings.findOne({ country_id: countryObjectId || countryId });
+    const kings = Array.isArray(kingDoc?.kings) ? kingDoc.kings : [];
+    const index = kings.findIndex((k, i) => (
+        String(k._id) === String(sourceRefId) ||
+        String(k._id?.toString?.() || k._id) === String(sourceRefId) ||
+        (!k._id && String(i) === String(sourceRefId))
+    ));
+    if (index < 0) return null;
+    const country = await collections.countries.findOne({ _id: countryObjectId || countryId });
+    return { kingDoc, country, king: kings[index], index, countryId: String(countryId), sourceRefId: String(sourceRefId) };
+};
+const resolveCountryForFigure = async ({ country_id, source_country_id, faction } = {}) => {
+    const rawId = country_id || source_country_id;
+    if (rawId) {
+        const country = await collections.countries.findOne({ _id: toObjectId(rawId) || rawId });
+        if (country) return country;
+    }
+    const name = String(faction || '').trim();
+    if (!name) return null;
+    return collections.countries.findOne({ name });
+};
+const buildFigureFromBody = (body = {}, uploads = {}, existing = {}) => {
+    const startYear = parseInt(body.birth_year ?? body.start_year ?? body.start);
+    const endRaw = body.death_year ?? body.end_year ?? body.end;
+    const endYear = endRaw === null || endRaw === undefined || endRaw === '' ? null : parseInt(endRaw);
+    const nameKo = String(body.name_ko || body.name || existing.name_ko || existing.name || '').trim();
+    const title = body.title !== undefined ? String(body.title || '').trim() : (existing.title || '');
+    const summary = body.description !== undefined ? String(body.description || '').trim() : (existing.description || existing.summary || '');
+    const heroType = normalizeHeroType(body.hero_type || body.type || existing.hero_type || existing.type || '', `${nameKo} ${title}`);
+    return {
+        ...existing,
+        _id: existing._id || new ObjectId(),
+        name: nameKo,
+        name_ko: nameKo,
+        name_zh: body.name_zh !== undefined ? String(body.name_zh || '').trim() : (existing.name_zh || ''),
+        start: Number.isNaN(startYear) ? existing.start : startYear,
+        start_month: normalizeMonthValue(body.start_month ?? existing.start_month, 1),
+        end: Number.isNaN(endYear) ? (endRaw === '' || endRaw == null ? null : existing.end) : endYear,
+        end_month: normalizeMonthValue(body.end_month ?? existing.end_month, 12),
+        title,
+        summary,
+        description: summary,
+        hero_type: heroType,
+        type: heroType,
+        faction: body.faction !== undefined ? String(body.faction || '').trim() : (existing.faction || ''),
+        faction_color: body.faction_color || existing.faction_color || '#c8860a',
+        avatar_url: uploads.avatar_url !== undefined ? uploads.avatar_url : (existing.avatar_url || ''),
+        illustration_url: uploads.illustration_url !== undefined ? uploads.illustration_url : (existing.illustration_url || ''),
+        vote_count: parseInt(existing.vote_count || 0),
+        updatedAt: new Date()
+    };
+};
+const cleanKingNamePart = (value = '') => String(value || '')
+    .replace(/^\s*\d+대\s*/u, '')
+    .replace(/[（(][^）)]*[）)]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+const kingNameCandidates = (king = {}) => {
+    const candidates = new Set();
+    [king.name_ko, king.name, king.title, king.summary].filter(Boolean).forEach((raw) => {
+        const text = String(raw);
+        candidates.add(text.trim());
+        candidates.add(cleanKingNamePart(text));
+        text.split('/').forEach(part => candidates.add(cleanKingNamePart(part)));
+    });
+    return Array.from(candidates).filter(Boolean);
+};
+const isLegacyGeneratedKingHero = (hero = {}, kingDocs = []) => {
+    if (!hero || hero.source_kind === 'manual') return false;
+    if (hero.source_kind === 'king' || hero.source_kind === 'kings_collection' || hero.source_ref_id) return true;
+
+    const heroStart = parseInt(hero.birth_year ?? hero.start_year);
+    const heroEnd = parseInt(hero.death_year ?? hero.end_year);
+    const heroNames = [
+        hero.name_ko,
+        hero.name,
+        hero.title
+    ].map(cleanKingNamePart).filter(Boolean);
+    if (!heroNames.length || Number.isNaN(heroStart)) return false;
+
+    return kingDocs.some(doc => (Array.isArray(doc.kings) ? doc.kings : []).some((king) => {
+        const kingStart = parseInt(king.start);
+        const kingEnd = king.end == null || king.end === '' ? null : parseInt(king.end);
+        if (Number.isNaN(kingStart) || kingStart !== heroStart) return false;
+        if (kingEnd != null && !Number.isNaN(heroEnd) && kingEnd !== heroEnd) return false;
+        const candidates = kingNameCandidates(king);
+        return heroNames.some(name => candidates.includes(name));
+    }));
+};
+const isCapitalLikeCastle = (castle) => {
+    if (!castle) return false;
+    if (castle.is_capital === true) return true;
+    if (castle.place_type === 'capital' || castle.place_type === 'hwangseong') return true;
+    return Array.isArray(castle.history) && castle.history.some(h => (
+        h && (h.is_capital === true || h.place_type === 'capital' || h.place_type === 'hwangseong')
+    ));
+};
+const isCapitalHistoryRecord = (record = {}) => (
+    record.is_capital === true || record.place_type === 'capital' || record.place_type === 'hwangseong'
+);
+const yearMonthToTotalMonthsSafe = (year, month = 1) => (
+    (parseInt(year) || 0) * 12 + (normalizeMonthValue(month, 1) - 1)
+);
+const isYearMonthRangeActive = (startYear, startMonth, endYear, endMonth, year, month) => {
+    const parsedStart = parseInt(startYear);
+    if (Number.isNaN(parsedStart)) return false;
+    const startCombined = yearMonthToTotalMonthsSafe(parsedStart, startMonth || 1);
+    const endCombined = (endYear === null || endYear === undefined || endYear === '')
+        ? Infinity
+        : yearMonthToTotalMonthsSafe(endYear, endMonth || 12);
+    const currentCombined = yearMonthToTotalMonthsSafe(year, month || 1);
+    return startCombined <= currentCombined && currentCombined <= endCombined;
+};
+const castleCountryIdValue = (value) => {
+    if (!value) return '';
+    if (typeof value === 'object') return String(value.$oid || value);
+    return String(value);
+};
+const currentCapitalEntryForCastle = (castle, year, month, targetCountryId = '') => {
+    if (!castle) return null;
+    const target = targetCountryId ? String(targetCountryId) : '';
+    const history = Array.isArray(castle.history) ? castle.history : [];
+    const candidates = history
+        .filter(record => isCapitalHistoryRecord(record))
+        .map(record => {
+            const countryId = castleCountryIdValue(record.country_id || castle.country_id);
+            return { record, countryId };
+        })
+        .filter(({ record, countryId }) => (
+            countryId &&
+            (!target || countryId === target) &&
+            isYearMonthRangeActive(record.start_year, record.start_month, record.end_year, record.end_month, year, month)
+        ))
+        .sort((a, b) => (
+            yearMonthToTotalMonthsSafe(a.record.start_year, a.record.start_month || 1) -
+            yearMonthToTotalMonthsSafe(b.record.start_year, b.record.start_month || 1)
+        ));
+    const current = candidates.pop();
+    if (current) {
+        return {
+            castle,
+            record: current.record,
+            countryId: current.countryId,
+            rank: yearMonthToTotalMonthsSafe(current.record.start_year, current.record.start_month || 1)
+        };
+    }
+
+    const topLevelCountryId = castleCountryIdValue(castle.country_id);
+    if (
+        !history.length &&
+        topLevelCountryId &&
+        (!target || topLevelCountryId === target) &&
+        isCapitalLikeCastle(castle) &&
+        isYearMonthRangeActive(castle.built_year, castle.built_month, castle.destroyed_year, castle.destroyed_month, year, month)
+    ) {
+        return {
+            castle,
+            record: null,
+            countryId: topLevelCountryId,
+            rank: yearMonthToTotalMonthsSafe(castle.built_year ?? -999999, castle.built_month || 1)
+        };
+    }
+    return null;
+};
+const isCastleActiveAtYear = (castle, year, month = 1) => (
+    !!currentCapitalEntryForCastle(castle, year, month)
+);
+const HERO_BASE_CACHE_TTL_MS = 5 * 60 * 1000;
+const HERO_RESULT_CACHE_TTL_MS = 5 * 60 * 1000;
+let heroBaseCache = null;
+const heroResultCache = new Map();
+const invalidateHeroCaches = () => {
+    heroBaseCache = null;
+    heroResultCache.clear();
+};
+const getHeroBaseData = async () => {
+    const now = Date.now();
+    if (heroBaseCache && now - heroBaseCache.at < HERO_BASE_CACHE_TTL_MS) {
+        return { ...heroBaseCache.data, cacheHit: true };
+    }
+    const [countryDocs, capitalDocs, kingDocs] = await Promise.all([
+        collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1, flag: 1, sealText: 1 } }).toArray(),
+        collections.castles.find({}, { projection: { _id: 1, name: 1, country_id: 1, lat: 1, lng: 1, built_year: 1, built_month: 1, destroyed_year: 1, destroyed_month: 1, is_capital: 1, place_type: 1, history: 1 } }).toArray(),
+        collections.kings.find({}, { projection: { _id: 1, country_id: 1, country_name: 1, kings: 1 } }).toArray()
+    ]);
+    heroBaseCache = {
+        at: now,
+        data: { countryDocs, capitalDocs, kingDocs }
+    };
+    return { countryDocs, capitalDocs, kingDocs, cacheHit: false };
+};
 
 // ============================================================
 // 📋 RANK_CONFIG — 직급 체계 중앙 설정
@@ -1232,6 +1551,27 @@ async function setupRoutesAndCollections() {
             }
         });
         
+        // GET /api/castle/search?q=검색어&limit=10 — 영웅 위치 지명 검색용
+        app.get('/api/castle/search', async (req, res) => {
+            try {
+                const q = (req.query.q || '').trim();
+                if (!q) return res.json([]);
+                const limit = Math.min(parseInt(req.query.limit) || 10, 30);
+                const regex = new RegExp(q, 'i');
+                const results = await collections.castle.find(
+                    {
+                        $or: [{ deleted: { $exists: false } }, { deleted: false }],
+                        name: regex
+                    },
+                    { projection: { _id: 1, name: 1, name_zh: 1, lat: 1, lng: 1,
+                        'location.coordinates': 1 } }
+                ).limit(limit).toArray();
+                res.json(results);
+            } catch (err) {
+                res.status(500).json({ message: '검색 오류' });
+            }
+        });
+
         // GET: 휴지통의 성 목록 (⚠️ /:id 라우트보다 반드시 앞에 위치해야 함)
         app.get('/api/castle/trash', verifyAdmin, async (req, res) => {
             try {
@@ -1531,6 +1871,521 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
             } catch (error) {
                 res.status(200).json({ ok: false }); // 통계 실패는 조용히 무시 (사용자 경험에 영향 없음)
             }
+        });
+
+        // ── 🦸 영웅(Hero) API ────────────────────────────────────────────────────
+
+        // Multer: 메모리 스토리지 → Vercel Blob 업로드 패턴 (voice와 동일 방식)
+        const heroUpload = multer({
+            storage: multer.memoryStorage(),
+            limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+            fileFilter: (req, file, cb) => {
+                if (/^image\/(jpeg|png|webp|gif)$/.test(file.mimetype)) cb(null, true);
+                else cb(new Error('이미지 파일(jpg/png/webp/gif)만 업로드 가능합니다.'));
+            }
+        }).fields([
+            { name: 'avatar',       maxCount: 1 },
+            { name: 'illustration', maxCount: 1 }
+        ]);
+
+        // 이미지 버퍼를 Vercel Blob에 업로드하고 URL 반환
+        const uploadHeroImage = async (file, prefix) => {
+            if (!file) return null;
+            const ext  = file.originalname.split('.').pop().toLowerCase();
+            const name = `heroes/${prefix}_${Date.now()}.${ext}`;
+            const blob = await blobPut(name, file.buffer, {
+                access: 'public',
+                contentType: file.mimetype,
+                token: process.env.BLOB_READ_WRITE_TOKEN
+            });
+            return blob.url;
+        };
+
+        // 기존 Blob URL 삭제 헬퍼 (에러 무시)
+        const deleteHeroImage = async (url) => {
+            if (!url || !url.startsWith('http')) return;
+            try { await blobDel(url, { token: process.env.BLOB_READ_WRITE_TOKEN }); } catch (_) {}
+        };
+
+        // ── 공개 API ──
+
+        // GET /api/heroes?year=:year — 해당 연도에 활동 중인 영웅들의 위치 목록
+        app.get('/api/heroes', async (req, res) => {
+            try {
+                const startedAt = Date.now();
+                const year = parseInt(req.query.year) || 0;
+                const month = parseInt(req.query.month) || 1;
+                const cacheKey = `${year}:${month}`;
+                const cached = heroResultCache.get(cacheKey);
+                if (cached && Date.now() - cached.at < HERO_RESULT_CACHE_TTL_MS) {
+                    res.set('Cache-Control', 'public, max-age=300');
+                    res.set('X-Hero-Cache', 'result-hit');
+                    return res.json(cached.result);
+                }
+
+                const { countryDocs, capitalDocs, kingDocs, cacheHit } = await getHeroBaseData();
+
+                const countryMap = new Map(countryDocs.map(c => [String(c._id), c]));
+                const capitalByCountry = new Map();
+                capitalDocs.forEach(castle => {
+                    const entry = currentCapitalEntryForCastle(castle, year, month);
+                    if (!entry?.countryId) return;
+                    const previous = capitalByCountry.get(entry.countryId);
+                    if (!previous || entry.rank >= previous.rank) {
+                        capitalByCountry.set(entry.countryId, entry);
+                    }
+                });
+
+                const result = [];
+                for (const countryDoc of kingDocs) {
+                    const countryId = String(countryDoc.country_id || '');
+                    const country = countryMap.get(countryId) || null;
+                    const capitalEntry = capitalByCountry.get(countryId) || null;
+                    const capital = capitalEntry?.castle || null;
+                    const capitalRecord = capitalEntry?.record || null;
+                    const kingsList = Array.isArray(countryDoc.kings) ? countryDoc.kings : [];
+                    const activeKings = kingsList.filter(king => isKingActiveAtYearMonth(king, year, month));
+                    if (!activeKings.length) continue;
+
+                    const royalKings = activeKings.filter(king => {
+                        const type = normalizeKingHeroType(king);
+                        return type === 'emperor' || type === 'king';
+                    });
+                    const selectedRoyalKing = royalKings.length ? royalKings.slice().sort(compareKingReignStart).pop() : null;
+
+                    const visibleKings = activeKings.filter(king => {
+                        const type = normalizeKingHeroType(king);
+                        return type !== 'emperor' && type !== 'king';
+                    });
+                    if (selectedRoyalKing) visibleKings.push(selectedRoyalKing);
+
+                    visibleKings.forEach((king, index) => {
+                        const normalized = normalizeKingSchema(king, country, countryId);
+                        const startYear = normalized.start_year;
+                        const endYear = normalized.end_year;
+                        const heroId = `king:${countryId}:${king._id ? String(king._id) : index}`;
+                        const capitalPosition = capital && Number.isFinite(Number(capital.lat)) && Number.isFinite(Number(capital.lng))
+                            ? {
+                                hero_id: heroId,
+                                year: startYear,
+                                start_year: startYear,
+                                end_year: endYear,
+                                start_month: normalized.start_month,
+                                end_month: normalized.end_month,
+                                type: 'STAY',
+                                event_title: normalized.title || normalized.name_ko || (country?.name || '왕'),
+                                location_name: capitalRecord?.name || capital.name || country?.name || '',
+                                geometry: { type: 'Point', coordinates: [Number(capital.lng), Number(capital.lat)] },
+                                source_kind: 'capital'
+                            }
+                            : null;
+
+                        result.push({
+                            _id: heroId,
+                            ...normalized,
+                            birth_year: startYear,
+                            death_year: endYear == null || Number.isNaN(endYear) ? year : endYear,
+                            position: capitalPosition,
+                            vote_count: king.vote_count || 0,
+                            sort_year: startYear,
+                            sort_month: normalized.start_month || 1,
+                            sort_order: index
+                        });
+                    });
+                }
+                const heroIds = result.map(hero => String(hero._id)).filter(Boolean);
+                if (heroIds.length) {
+                    const storedPositions = await collections.heroPositions
+                        .find({ hero_id: { $in: heroIds } }, { projection: { source_text: 0 } })
+                        .sort({ start_year: 1, year: 1, createdAt: 1 })
+                        .toArray();
+                    const positionsByHero = new Map();
+                    storedPositions.forEach((pos) => {
+                        const key = String(pos.hero_id || '');
+                        if (!positionsByHero.has(key)) positionsByHero.set(key, []);
+                        positionsByHero.get(key).push(pos);
+                    });
+                    result.forEach((hero) => {
+                        const savedPositions = positionsByHero.get(String(hero._id)) || [];
+                        const activePosition = savedPositions
+                            .filter(pos => isHeroPositionActiveAtYearMonth(pos, year, month))
+                            .pop();
+                        if (activePosition && !isRoyalHeroType(hero.hero_type)) hero.position = activePosition;
+                    });
+                }
+
+                result.sort((a, b) => (
+                    (a.sort_year ?? 0) - (b.sort_year ?? 0) ||
+                    (a.sort_month ?? 1) - (b.sort_month ?? 1) ||
+                    (a.sort_order ?? 0) - (b.sort_order ?? 0)
+                ));
+
+                heroResultCache.set(cacheKey, {
+                    at: Date.now(),
+                    result
+                });
+                if (heroResultCache.size > 120) {
+                    const firstKey = heroResultCache.keys().next().value;
+                    heroResultCache.delete(firstKey);
+                }
+                res.set('Cache-Control', 'public, max-age=300');
+                res.set('X-Hero-Cache', cacheHit ? 'base-hit' : 'miss');
+                console.log(`[GET /api/heroes] ${year}-${month} result=${result.length} baseCache=${cacheHit ? 'hit' : 'miss'} ${Date.now() - startedAt}ms`);
+                res.json(result);
+            } catch (err) {
+                console.error('[GET /api/heroes] 오류:', err);
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // GET /api/heroes/:id — 영웅 상세 + 연도 히스토리 + 댓글
+        app.get('/api/heroes/:id', async (req, res) => {
+            try {
+                const id = normalizeRouteId(req.params.id);
+                const kingMatch = parseKingHeroId(id);
+                if (kingMatch) {
+                    const { countryId, sourceRefId } = kingMatch;
+                    const found = await findKingFigure(countryId, sourceRefId);
+                    if (!found) return res.status(404).json({ message: '영웅을 찾을 수 없습니다.' });
+                    const { country, king } = found;
+                    const normalized = normalizeKingSchema(king, country, countryId);
+                    const startYear = normalized.start_year;
+                    const endYear = normalized.end_year;
+                    const heroId = kingHeroId(countryId, sourceRefId);
+                    const countryIdObject = toObjectId(countryId);
+                    const capitalCountryIds = countryIdObject ? [countryIdObject, countryId] : [countryId];
+                    const capitalCandidates = await collections.castles.find({
+                        country_id: { $in: capitalCountryIds }
+                    }, { projection: { _id: 1, name: 1, country_id: 1, lat: 1, lng: 1, built_year: 1, built_month: 1, destroyed_year: 1, destroyed_month: 1, is_capital: 1, place_type: 1, history: 1 } }).toArray();
+                    const capitalEntry = capitalCandidates
+                        .map(c => currentCapitalEntryForCastle(c, startYear, normalized.start_month || 1, countryId))
+                        .filter(Boolean)
+                        .sort((a, b) => a.rank - b.rank)
+                        .pop() || null;
+                    const capital = capitalEntry?.castle || null;
+                    const capitalRecord = capitalEntry?.record || null;
+                    const hero = {
+                        _id: heroId,
+                        ...normalized,
+                        birth_year: startYear,
+                        death_year: endYear,
+                        source_ref_id: sourceRefId,
+                        vote_count: king.vote_count || 0
+                    };
+                    const savedPositions = await collections.heroPositions
+                        .find({ hero_id: heroId }, { projection: { source_text: 0 } })
+                        .sort({ start_year: 1, year: 1 }).toArray();
+                    const positions = savedPositions.slice();
+                    if (!positions.length && capital && Number.isFinite(Number(capital.lat)) && Number.isFinite(Number(capital.lng))) {
+                        positions.push({
+                            hero_id: hero._id,
+                            year: startYear,
+                            start_year: startYear,
+                            end_year: endYear,
+                            start_month: normalized.start_month,
+                            end_month: normalized.end_month,
+                            type: 'STAY',
+                            event_title: normalized.title || normalized.name_ko || hero.faction || '',
+                            location_name: capitalRecord?.name || capital.name || hero.faction || '',
+                            geometry: { type: 'Point', coordinates: [Number(capital.lng), Number(capital.lat)] }
+                        });
+                    }
+                    const comments = await collections.heroComments
+                        .find({ hero_id: heroId })
+                        .sort({ createdAt: -1 }).limit(50).toArray();
+                    return res.json({ hero, positions, comments });
+                }
+                res.status(410).json({ message: 'heroes 컬렉션 기반 영웅은 kings 기반 인물 데이터로 대체되었습니다.' });
+            } catch (err) {
+                console.error('[GET /api/heroes/:id] 오류:', err);
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // POST /api/heroes/:id/vote — 인기투표 +1 (로그인 필요)
+        app.post('/api/heroes/:id/vote', verifyToken, async (req, res) => {
+            try {
+                const id = normalizeRouteId(req.params.id);
+                const kingMatch = parseKingHeroId(id);
+                if (!kingMatch) return res.status(410).json({ message: 'heroes 컬렉션 기반 투표는 더 이상 사용하지 않습니다.' });
+                const found = await findKingFigure(kingMatch.countryId, kingMatch.sourceRefId);
+                if (!found) return res.status(404).json({ message: '영웅 없음' });
+                const nextVoteCount = parseInt(found.king.vote_count || 0) + 1;
+                await collections.kings.updateOne(
+                    { _id: found.kingDoc._id },
+                    { $set: { [`kings.${found.index}.vote_count`]: nextVoteCount, updatedAt: new Date() } }
+                );
+                invalidateHeroCaches();
+                res.json({ vote_count: nextVoteCount });
+            } catch (err) {
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // POST /api/heroes/:id/comments — 사관 댓글 작성 (로그인 필요)
+        app.post('/api/heroes/:id/comments', verifyToken, async (req, res) => {
+            try {
+                const id = normalizeRouteId(req.params.id);
+                const kingMatch = parseKingHeroId(id);
+                if (!kingMatch) return res.status(410).json({ message: 'heroes 컬렉션 기반 댓글은 더 이상 사용하지 않습니다.' });
+                const { content } = req.body;
+                if (!content || !content.trim()) return res.status(400).json({ message: '댓글 내용을 입력하세요.' });
+                const found = await findKingFigure(kingMatch.countryId, kingMatch.sourceRefId);
+                if (!found) return res.status(404).json({ message: '영웅 없음' });
+                const comment = {
+                    hero_id: id,
+                    author: req.user.username,
+                    content: content.trim().slice(0, 500),
+                    createdAt: new Date()
+                };
+                const inserted = await collections.heroComments.insertOne(comment);
+                res.status(201).json({ ...comment, _id: inserted.insertedId });
+            } catch (err) {
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // ── 관리자 CRUD ──
+
+        // POST /api/admin/heroes — 영웅 생성 (이미지 업로드 포함)
+        app.post('/api/admin/heroes', verifyAdmin, (req, res) => {
+            heroUpload(req, res, async (err) => {
+                if (err) return res.status(400).json({ message: err.message });
+                try {
+                    const { name_ko, name_zh, birth_year, death_year, title, description } = req.body;
+                    if (!name_ko || !birth_year || !death_year)
+                        return res.status(400).json({ message: 'name_ko, birth_year, death_year는 필수입니다.' });
+                    const country = await resolveCountryForFigure(req.body);
+                    if (!country) return res.status(400).json({ message: '소속 국가/세력을 먼저 선택하세요.' });
+                    const avatarFile = req.files?.avatar?.[0];
+                    const illFile   = req.files?.illustration?.[0];
+                    const [avatar_url, illustration_url] = await Promise.all([
+                        uploadHeroImage(avatarFile, 'avatar'),
+                        uploadHeroImage(illFile,    'illust')
+                    ]);
+                    const now = new Date();
+                    const figure = buildFigureFromBody(
+                        { ...req.body, name_ko, name_zh, birth_year, death_year, title, description, faction: country.name, faction_color: req.body.faction_color || country.color },
+                        { avatar_url: avatar_url || '', illustration_url: illustration_url || '' },
+                        { createdAt: now }
+                    );
+                    const result = await collections.kings.updateOne(
+                        { country_id: country._id },
+                        { $push: { kings: figure }, $set: { updatedAt: now }, $setOnInsert: { country_id: country._id } },
+                        { upsert: true }
+                    );
+                    invalidateHeroCaches();
+                    res.status(201).json({
+                        message: '인물 생성 성공',
+                        hero: {
+                            _id: kingHeroId(country._id, figure._id),
+                            ...normalizeKingSchema(figure, country, String(country._id))
+                        }
+                    });
+                } catch (e) {
+                    console.error('[POST /api/admin/heroes] 오류:', e);
+                    res.status(500).json({ message: '서버 오류' });
+                }
+            });
+        });
+
+        // PUT /api/admin/heroes/:id — 영웅 수정 (이미지 재업로드 가능)
+        app.put('/api/admin/heroes/:id', verifyAdmin, (req, res) => {
+            heroUpload(req, res, async (err) => {
+                if (err) return res.status(400).json({ message: err.message });
+                try {
+                    const id = normalizeRouteId(req.params.id);
+                    const kingMatch = parseKingHeroId(id);
+                    if (!kingMatch) return res.status(410).json({ message: 'heroes 컬렉션 기반 영웅 수정은 더 이상 사용하지 않습니다.' });
+                    const found = await findKingFigure(kingMatch.countryId, kingMatch.sourceRefId);
+                    if (!found) return res.status(404).json({ message: '영웅 없음' });
+
+                    const { name_ko, name_zh, birth_year, death_year, title, description } = req.body;
+                    const uploads = {};
+
+                    // 새 이미지가 업로드된 경우 기존 삭제 후 교체
+                    if (req.files?.avatar?.[0]) {
+                        await deleteHeroImage(found.king.avatar_url);
+                        uploads.avatar_url = await uploadHeroImage(req.files.avatar[0], 'avatar');
+                    }
+                    if (req.files?.illustration?.[0]) {
+                        await deleteHeroImage(found.king.illustration_url);
+                        uploads.illustration_url = await uploadHeroImage(req.files.illustration[0], 'illust');
+                    }
+
+                    const updatedFigure = buildFigureFromBody(
+                        { ...req.body, name_ko, name_zh, birth_year, death_year, title, description },
+                        uploads,
+                        found.king
+                    );
+                    await collections.kings.updateOne(
+                        { _id: found.kingDoc._id },
+                        { $set: { [`kings.${found.index}`]: updatedFigure, updatedAt: new Date() } }
+                    );
+                    invalidateHeroCaches();
+                    res.json({
+                        message: '인물 수정 성공',
+                        hero: {
+                            _id: id,
+                            ...normalizeKingSchema(updatedFigure, found.country, found.countryId)
+                        }
+                    });
+                } catch (e) {
+                    console.error('[PUT /api/admin/heroes/:id] 오류:', e);
+                    res.status(500).json({ message: '서버 오류' });
+                }
+            });
+        });
+
+        // DELETE /api/admin/heroes/:id — 영웅 및 연관 데이터 완전 삭제
+        app.delete('/api/admin/heroes/:id', verifyAdmin, async (req, res) => {
+            try {
+                const id = normalizeRouteId(req.params.id);
+                const kingMatch = parseKingHeroId(id);
+                if (!kingMatch) return res.status(410).json({ message: 'heroes 컬렉션 기반 영웅 삭제는 더 이상 사용하지 않습니다.' });
+                const found = await findKingFigure(kingMatch.countryId, kingMatch.sourceRefId);
+                if (!found) return res.status(404).json({ message: '영웅 없음' });
+                // 이미지 파일 삭제
+                await Promise.all([
+                    deleteHeroImage(found.king.avatar_url),
+                    deleteHeroImage(found.king.illustration_url)
+                ]);
+                // 연관 데이터 삭제
+                await Promise.all([
+                    collections.kings.updateOne({ _id: found.kingDoc._id }, { $pull: { kings: { _id: found.king._id } }, $set: { updatedAt: new Date() } }),
+                    collections.heroPositions.deleteMany({ hero_id: id }),
+                    collections.heroComments.deleteMany({ hero_id: id })
+                ]);
+                invalidateHeroCaches();
+                res.json({ message: '인물 및 연관 데이터 삭제 완료' });
+            } catch (err) {
+                console.error('[DELETE /api/admin/heroes/:id] 오류:', err);
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // ── 영웅 위치(Position) CRUD ──
+
+        // GET /api/admin/heroes/:id/positions — 특정 영웅 전체 위치 히스토리
+        app.get('/api/admin/heroes/:id/positions', verifyAdmin, async (req, res) => {
+            try {
+                const hero_id = heroIdStorageValue(req.params.id);
+                if (!hero_id) return res.status(400).json({ message: '잘못된 ID' });
+                const positions = await collections.heroPositions
+                    .find({ hero_id }).sort({ start_year: 1, year: 1 }).toArray();
+                res.json(positions);
+            } catch (err) {
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // POST /api/admin/heroes/:id/positions — 위치 이벤트 추가
+        app.post('/api/admin/heroes/:id/positions', verifyAdmin, async (req, res) => {
+            try {
+                const hero_id = heroIdStorageValue(req.params.id);
+                if (!hero_id) return res.status(400).json({ message: '잘못된 ID' });
+                const { year, start_year, end_year, type, event_title, location_name, lat, lng, source_text } = req.body;
+                const sYear = parseInt(start_year || year);
+                const eYear = end_year ? parseInt(end_year) : null;
+                if (!sYear || !lat || !lng) return res.status(400).json({ message: 'start_year(year), lat, lng 필수' });
+                const pos = {
+                    hero_id,
+                    start_year: sYear,
+                    end_year:   eYear,
+                    year:       sYear, // 하위 호환 유지
+                    type: type || 'STAY',
+                    event_title: event_title || '',
+                    location_name: location_name || '',
+                    geometry: { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] },
+                    source_text: source_text || '',
+                    createdAt: new Date()
+                };
+                const result = await collections.heroPositions.insertOne(pos);
+                invalidateHeroCaches();
+                res.status(201).json({ ...pos, _id: result.insertedId });
+            } catch (err) {
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // DELETE /api/admin/positions/:posId — 위치 이벤트 단건 삭제
+        app.delete('/api/admin/positions/:posId', verifyAdmin, async (req, res) => {
+            try {
+                const _id = toObjectId(req.params.posId);
+                if (!_id) return res.status(400).json({ message: '잘못된 ID' });
+                await collections.heroPositions.deleteOne({ _id });
+                invalidateHeroCaches();
+                res.json({ message: '위치 삭제 완료' });
+            } catch (err) {
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // PUT /api/admin/positions/:posId — 위치 이벤트 단건 수정
+        app.put('/api/admin/positions/:posId', verifyAdmin, async (req, res) => {
+            try {
+                const _id = toObjectId(req.params.posId);
+                if (!_id) return res.status(400).json({ message: '잘못된 ID' });
+                const { start_year, end_year, lat, lng, type, location_name, event_title, source_text } = req.body;
+                if (!start_year || !lat || !lng) return res.status(400).json({ message: 'start_year, lat, lng 필수' });
+                const update = {
+                    start_year: parseInt(start_year),
+                    end_year:   end_year ? parseInt(end_year) : null,
+                    year:       parseInt(start_year),
+                    type:       type || 'STAY',
+                    location_name: location_name || '',
+                    event_title:   event_title || '',
+                    geometry: { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] },
+                    updatedAt: new Date()
+                };
+                if (source_text !== undefined) update.source_text = source_text;
+                await collections.heroPositions.updateOne({ _id }, { $set: update });
+                invalidateHeroCaches();
+                res.json({ message: '위치 수정 완료' });
+            } catch (err) {
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // GET /api/admin/heroes — 관리자용 전체 영웅 목록
+        app.get('/api/admin/heroes', verifyAdmin, async (req, res) => {
+            try {
+                const [kingDocs, countryDocs] = await Promise.all([
+                    collections.kings.find({}).toArray(),
+                    collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1 } }).toArray()
+                ]);
+                const countryMap = new Map(countryDocs.map(c => [String(c._id), c]));
+                const visibleHeroes = [];
+                kingDocs.forEach(doc => {
+                    const countryId = String(doc.country_id || '');
+                    const country = countryMap.get(countryId) || null;
+                    (Array.isArray(doc.kings) ? doc.kings : []).forEach((king, index) => {
+                        const refId = king._id ? String(king._id) : String(index);
+                        const normalized = normalizeKingSchema(king, country, countryId);
+                        visibleHeroes.push({
+                            _id: kingHeroId(countryId, refId),
+                            ...normalized,
+                            birth_year: normalized.start_year,
+                            death_year: normalized.end_year,
+                            sort_year: normalized.start_year ?? 0,
+                            sort_month: normalized.start_month ?? 1
+                        });
+                    });
+                });
+                visibleHeroes.sort((a, b) => (
+                    (a.sort_year ?? 0) - (b.sort_year ?? 0) ||
+                    (a.sort_month ?? 1) - (b.sort_month ?? 1) ||
+                    String(a.name_ko || '').localeCompare(String(b.name_ko || ''))
+                ));
+                res.set('Cache-Control', 'no-store');
+                res.json(visibleHeroes);
+            } catch (err) {
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        app.get('/api/admin/heroes/all', verifyAdmin, async (req, res) => {
+            res.status(410).json({ message: '/api/admin/heroes/all은 더 이상 사용하지 않습니다. /api/admin/heroes를 사용하세요.' });
         });
 
         // ── 음성 API (realhistory.voice) ─────────────────────────────────────────
@@ -1988,7 +2843,7 @@ app.delete('/api/crops/:id', verifyAdmin, async (req, res) => {
         app.get('/api/countries', async (req, res) => {
     try {
         const countries = await collections.countries.find({}).toArray();
-        res.json(countries);
+        res.json(countries.map(sanitizeCountryFlag));
     } catch (error) {
         console.error("Country 조회 중 오류:", error);
         res.status(500).json({ message: "Country 조회 실패", error: error.message });
@@ -2006,6 +2861,7 @@ app.post('/api/countries', verifyAdmin, async (req, res) => {
         newCountry.ethnicity = newCountry.ethnicity || null;
         // ✨ NEW: description 필드 추가
         newCountry.description = newCountry.description || null;
+        if (newCountry.flag === BLOCKED_FLAG_URL) newCountry.flag = null;
 
         const result = await collections.countries.insertOne(newCountry);
         // 클라이언트에서 countryOriginalName 필드를 사용하여 신규 여부를 확인하므로, 
@@ -2038,7 +2894,7 @@ app.get('/api/countries/:name', async (req, res) => {
             return res.status(404).json({ message: "국가를 찾을 수 없습니다." });
         }
         
-        res.json(country);
+        res.json(sanitizeCountryFlag(country));
     } catch (error) {
         console.error("Country 조회 중 오류:", error);
         res.status(500).json({ message: "Country 조회 실패", error: error.message });
@@ -2057,6 +2913,7 @@ app.put('/api/countries/:name', verifyAdmin, async (req, res) => {
         updatedCountry.ethnicity = updatedCountry.ethnicity || null;
         // ✨ NEW: description 필드 추가
         updatedCountry.description = updatedCountry.description || null;
+        if (updatedCountry.flag === BLOCKED_FLAG_URL) updatedCountry.flag = null;
         
         // 🚩 [수정] _id 또는 name으로 검색 (이름 변경 시에도 안전)
         let query;
@@ -2243,8 +3100,21 @@ app.get('/api/nearby', async (req, res) => {
 // GET: 모든 왕 정보 반환 (변경 없음)
 app.get('/api/kings', async (req, res) => {
      try {
+        const countries = await collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1 } }).toArray();
+        const countryMap = new Map(countries.map(c => [String(c._id), c]));
         const kings = await collections.kings.find({}).toArray();
-        res.json(kings);
+        res.json(kings.map(doc => ({
+            ...doc,
+            kings: (Array.isArray(doc.kings) ? doc.kings : [])
+                .filter(king => {
+                    const type = normalizeKingHeroType(king);
+                    return type === 'king' || type === 'emperor';
+                })
+                .map(king => ({
+                ...king,
+                ...normalizeKingSchema(king, countryMap.get(String(doc.country_id || '')) || null, String(doc.country_id || ''))
+            }))
+        })));
      } catch (error) {
          res.status(500).json({ message: "Kings 조회 실패" });
      }
@@ -2301,9 +3171,17 @@ app.get('/api/kings/:id', async (req, res) => {
         }
         
         // 1) 최상위 문서 _id로 조회
+        const countryDocs = await collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1 } }).toArray();
+        const countryMap = new Map(countryDocs.map(c => [String(c._id), c]));
         let doc = await collections.kings.findOne({ _id: objectId });
         if (doc) {
-            return res.json(doc);
+            return res.json({
+                ...doc,
+                kings: (Array.isArray(doc.kings) ? doc.kings : []).map(king => ({
+                    ...king,
+                    ...normalizeKingSchema(king, countryMap.get(String(doc.country_id || '')) || null, String(doc.country_id || ''))
+                }))
+            });
         }
 
         // 2) kings 배열 내 개별 왕 _id로 조회 → 해당 왕 객체만 반환
@@ -2316,7 +3194,11 @@ app.get('/api/kings/:id', async (req, res) => {
             return res.status(404).json({ message: "왕 정보를 찾을 수 없습니다." });
         }
         // 클라이언트 동기화에 필요한 country_id도 함께 반환
-        return res.json({ ...king, country_id: doc.country_id.toString() });
+        return res.json({
+            ...king,
+            ...normalizeKingSchema(king, countryMap.get(String(doc.country_id || '')) || null, String(doc.country_id || '')),
+            country_id: doc.country_id.toString()
+        });
     } catch (error) {
         console.error("King 조회 중 오류:", error);
         res.status(500).json({ message: "King 조회 실패", error: error.message });

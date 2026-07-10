@@ -60,6 +60,8 @@ async function connectToDatabase() {
             collections.quizzes = db.collection("quizzes"); // 🚩 [추가] 사관 역사 퀴즈 컬렉션
             collections.cards = db.collection("cards");     // 🚩 [추가] 사관 보감(카드 도감) 컬렉션
             collections.adMarkers = db.collection("ad_markers"); // 📢 [추가] 관리자 생성 지도 광고 마커 컬렉션
+            collections.heroPositions = db.collection("hero_positions"); // 🦸 [추가] 영웅 연도별 위치 컬렉션
+            collections.heroComments = db.collection("hero_comments");   // 🦸 [추가] 영웅 사관 댓글 컬렉션
 
             // 🚩 [추가] 지리 공간 인덱스 생성
             try {
@@ -74,6 +76,11 @@ async function connectToDatabase() {
                 // castle 컬렉션에 2dsphere 인덱스 생성 (location 필드)
                 await collections.castle.createIndex({ "location": "2dsphere" });
                 console.log("✅ Castle collection 2dsphere index created");
+
+                // hero_positions 컬렉션에 2dsphere + 연도 복합 인덱스
+                await collections.heroPositions.createIndex({ "geometry": "2dsphere" });
+                await collections.heroPositions.createIndex({ hero_id: 1, year: 1 });
+                console.log("✅ Hero position indexes created");
             } catch (indexError) {
                 console.warn("⚠️ Index creation warning (may already exist):", indexError.message);
             }
