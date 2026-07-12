@@ -1,5 +1,5 @@
 const HERO_LOG_LIMIT = 200;
-const HERO_CLIENT_CACHE_TTL_MS = 5 * 60 * 1000;
+const HERO_CLIENT_CACHE_TTL_MS = 15 * 60 * 1000;
 const HERO_TYPE_IMAGE_URLS = {
   emperor: 'https://github.com/projeffmanager-design/img/blob/main/emp.png?raw=true',
   king: 'https://github.com/projeffmanager-design/img/blob/main/king.png?raw=true',
@@ -294,7 +294,7 @@ function getCachedHeroData(key) {
 
 function setCachedHeroData(key, data) {
   heroClientCache.set(key, { at: Date.now(), data });
-  if (heroClientCache.size > 120) {
+  if (heroClientCache.size > 240) {
     const firstKey = heroClientCache.keys().next().value;
     heroClientCache.delete(firstKey);
   }
@@ -306,7 +306,6 @@ async function fetchHeroData(year, month, signal) {
   if (cached) return { data: cached, cacheHit: true };
   const url = `/api/heroes?year=${parseInt(year, 10) || 0}&month=${parseInt(month, 10) || 1}`;
   const data = await fetch(url, {
-    cache: 'no-cache',
     signal,
   }).then(r => r.json());
   setCachedHeroData(key, data);
@@ -389,7 +388,7 @@ function shiftYearMonth(year, month, delta) {
 }
 
 function prefetchAdjacentHeroData(year, month) {
-  [-1, 1].forEach((delta) => {
+  [-12, -1, 1, 12].forEach((delta) => {
     const next = shiftYearMonth(year, month, delta);
     const key = heroCacheKey(next.year, next.month);
     if (getCachedHeroData(key) || heroPrefetchingKeys.has(key)) return;

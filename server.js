@@ -410,13 +410,17 @@ const currentCapitalEntryForCastle = (castle, year, month, targetCountryId = '')
 const isCastleActiveAtYear = (castle, year, month = 1) => (
     !!currentCapitalEntryForCastle(castle, year, month)
 );
-const HERO_BASE_CACHE_TTL_MS = 5 * 60 * 1000;
-const HERO_RESULT_CACHE_TTL_MS = 5 * 60 * 1000;
+const HERO_BASE_CACHE_TTL_MS = 10 * 60 * 1000;
+const HERO_RESULT_CACHE_TTL_MS = 15 * 60 * 1000;
 let heroBaseCache = null;
 const heroResultCache = new Map();
 const invalidateHeroCaches = () => {
     heroBaseCache = null;
     heroResultCache.clear();
+};
+const setHeroPublicCacheHeaders = (res, cacheState) => {
+    res.set('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=1800');
+    res.set('X-Hero-Cache', cacheState);
 };
 const getHeroBaseData = async () => {
     const now = Date.now();
@@ -2004,10 +2008,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                 const cacheKey = `${year}:${month}`;
                 const cached = heroResultCache.get(cacheKey);
                 if (cached && Date.now() - cached.at < HERO_RESULT_CACHE_TTL_MS) {
-                    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
-                    res.set('Pragma', 'no-cache');
-                    res.set('Expires', '0');
-                    res.set('X-Hero-Cache', 'result-hit');
+                    setHeroPublicCacheHeaders(res, 'result-hit');
                     return res.json(cached.result);
                 }
 
@@ -2116,10 +2117,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     const firstKey = heroResultCache.keys().next().value;
                     heroResultCache.delete(firstKey);
                 }
-                res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
-                res.set('Pragma', 'no-cache');
-                res.set('Expires', '0');
-                res.set('X-Hero-Cache', cacheHit ? 'base-hit' : 'miss');
+                setHeroPublicCacheHeaders(res, cacheHit ? 'base-hit' : 'miss');
                 console.log(`[GET /api/heroes] ${year}-${month} result=${result.length} baseCache=${cacheHit ? 'hit' : 'miss'} ${Date.now() - startedAt}ms`);
                 res.json(result);
             } catch (err) {
@@ -2836,7 +2834,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
 
 // GET: 앱 버전 반환 (login.html 등 외부 페이지용)
 app.get('/api/app-version', (req, res) => {
-    res.json({ version: '3.7.14' });
+    res.json({ version: '3.7.15' });
 });
 
 // GET: 모든 장수 정보 반환
