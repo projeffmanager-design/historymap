@@ -288,7 +288,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.7.8',           // [v3.7.8] Vercel 영웅 렌더 모듈 번들 포함
+        APP_VERSION: '3.7.9',           // [v3.7.9] 영웅 타입/기본 이미지 확장
         DATA_SCHEMA_VERSION: '2.1.2'    // city territory absorption fix — 캐시 강제 갱신
     };
     // 세션 캐시에서 schema version 을 참조할 수 있도록 전역 노출
@@ -7124,7 +7124,7 @@ body.force-mobile .marker-type-selector button {
       color: rgba(212, 175, 55, 0.45);
       font-family: monospace;
       letter-spacing: 0.05em;
-    ">v<span id="loading-screen-version-text">3.7.8</span></div>
+    ">v<span id="loading-screen-version-text">3.7.9</span></div>
   </div>
 
   
@@ -8012,6 +8012,8 @@ body.force-mobile .marker-type-selector button {
                         <option value="emperor">황제</option>
                         <option value="general">장군</option>
                         <option value="civilian">문관</option>
+                        <option value="hojok">호족</option>
+                        <option value="khan">칸</option>
                         <option value="brigand">도적</option>
                     </select>
                 </div>
@@ -25889,7 +25891,18 @@ kingSelect.addEventListener('change', () => {
     // =========================================================================
     const heroSystem = (() => {
         const API = '/api';
-        const DEFAULT_HERO_IMAGE_URL = 'https://github.com/projeffmanager-design/img/blob/main/minister.png?raw=true';
+        const HERO_TYPE_IMAGE_URLS = {
+            emperor: 'https://github.com/projeffmanager-design/img/blob/main/emp.png?raw=true',
+            king: 'https://github.com/projeffmanager-design/img/blob/main/king.png?raw=true',
+            general: 'https://github.com/projeffmanager-design/img/blob/main/general.png?raw=true',
+            civilian: 'https://github.com/projeffmanager-design/img/blob/main/mini.png?raw=true',
+            brigand: 'https://github.com/projeffmanager-design/img/blob/main/thief.png?raw=true',
+            khan: 'https://github.com/projeffmanager-design/img/blob/main/khan.png?raw=true',
+            hojok: 'https://github.com/projeffmanager-design/img/blob/main/hojok.png?raw=true'
+        };
+        const DEFAULT_HERO_IMAGE_URL = HERO_TYPE_IMAGE_URLS.general;
+        const HERO_PANEL_DEFAULT_IMAGE_URL = 'https://github.com/projeffmanager-design/img/blob/main/minister.png?raw=true';
+        const KNOWN_HERO_TYPES = new Set(['emperor', 'king', 'general', 'civilian', 'brigand', 'khan', 'hojok']);
         const _votedSet = new Set(JSON.parse(localStorage.getItem('_heroVoted') || '[]'));
         let _layer = null;       // Leaflet LayerGroup
         let _visible = true;
@@ -25957,6 +25970,23 @@ kingSelect.addEventListener('change', () => {
             return [result.lat, result.lng];
         }
 
+        function normalizeHeroTypeForImage(hero) {
+            const raw = String(hero?.hero_type || hero?.type || hero?.role_type || '').trim().toLowerCase();
+            if (KNOWN_HERO_TYPES.has(raw)) return raw;
+            const hint = `${raw} ${hero?.name_ko || ''} ${hero?.name || ''} ${hero?.title || ''}`.replace(/\s+/g, ' ');
+            if (/황제|천자|대제/.test(hint)) return 'emperor';
+            if (/칸|카간|可汗|汗/.test(hint)) return 'khan';
+            if (/왕/.test(hint)) return 'king';
+            if (/문관|재상|상서|대신|승상|관리/.test(hint)) return 'civilian';
+            if (/호족|족장|수장|토호|豪族/.test(hint)) return 'hojok';
+            if (/도적|적벽|강도|유민/.test(hint)) return 'brigand';
+            return 'general';
+        }
+
+        function getHeroTypeImageUrl(hero) {
+            return HERO_TYPE_IMAGE_URLS[normalizeHeroTypeForImage(hero)] || DEFAULT_HERO_IMAGE_URL;
+        }
+
         // ── 물방울 핀 HTML 생성 (SVG teardrop + faction_color) ──
         function buildPinIcon(hero) {
             // faction_color 없으면 기본 금색
@@ -25973,11 +26003,12 @@ kingSelect.addEventListener('change', () => {
             }
             const darkColor = darken(baseColor, 55);
             const uid = (hero._id || Math.random()).toString().replace(/[^a-z0-9]/gi,'').slice(-6);
+            const defaultImageUrl = getHeroTypeImageUrl(hero);
 
             // 아바타를 SVG foreignObject로 렌더링 (z-index 문제 없음)
             const avatarInner = hero.avatar_url
-                ? `<img src="${hero.avatar_url}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;object-position:top center;border:2px solid rgba(255,255,255,.85);display:block;" onerror="this.onerror=null;this.src='${DEFAULT_HERO_IMAGE_URL}'">`
-                : `<img src="${DEFAULT_HERO_IMAGE_URL}" alt="" style="width:34px;height:34px;border-radius:50%;object-fit:cover;object-position:top center;border:2px solid rgba(255,255,255,.85);display:block;">`;
+                ? `<img src="${hero.avatar_url}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;object-position:top center;border:2px solid rgba(255,255,255,.85);display:block;" onerror="this.onerror=null;this.src='${defaultImageUrl}'">`
+                : `<img src="${defaultImageUrl}" alt="" style="width:34px;height:34px;border-radius:50%;object-fit:cover;object-position:top center;border:2px solid rgba(255,255,255,.85);display:block;">`;
 
             return L.divIcon({
                 className: '',
@@ -26101,13 +26132,14 @@ kingSelect.addEventListener('change', () => {
                 // 일러스트
                 const illImg = document.getElementById('heroIllustImg');
                 const illPh  = document.getElementById('heroIllustPlaceholder');
-                if (hero.illustration_url) {
-                    illImg.onerror = () => { illImg.onerror = null; illImg.src = DEFAULT_HERO_IMAGE_URL; };
-                    illImg.src = hero.illustration_url; illImg.style.display = '';
+                const panelImageUrl = hero.illustration_url || hero.avatar_url || '';
+                if (panelImageUrl) {
+                    illImg.onerror = () => { illImg.onerror = null; illImg.src = HERO_PANEL_DEFAULT_IMAGE_URL; };
+                    illImg.src = panelImageUrl; illImg.style.display = '';
                     illPh.style.display = 'none';
                 } else {
                     illImg.onerror = null;
-                    illImg.src = DEFAULT_HERO_IMAGE_URL;
+                    illImg.src = HERO_PANEL_DEFAULT_IMAGE_URL;
                     illImg.style.display = '';
                     illPh.style.display = 'none';
                 }
@@ -29670,8 +29702,36 @@ kingSelect.addEventListener('change', () => {
                 }[ch]));
             }
 
+            const _3dHeroTypeImageUrls = {
+                emperor: 'https://github.com/projeffmanager-design/img/blob/main/emp.png?raw=true',
+                king: 'https://github.com/projeffmanager-design/img/blob/main/king.png?raw=true',
+                general: 'https://github.com/projeffmanager-design/img/blob/main/general.png?raw=true',
+                civilian: 'https://github.com/projeffmanager-design/img/blob/main/mini.png?raw=true',
+                brigand: 'https://github.com/projeffmanager-design/img/blob/main/thief.png?raw=true',
+                khan: 'https://github.com/projeffmanager-design/img/blob/main/khan.png?raw=true',
+                hojok: 'https://github.com/projeffmanager-design/img/blob/main/hojok.png?raw=true'
+            };
+            const _3dKnownHeroTypes = new Set(Object.keys(_3dHeroTypeImageUrls));
+
+            function _3dNormalizeHeroType(hero) {
+                const raw = String(hero?.hero_type || hero?.type || hero?.role_type || '').trim().toLowerCase();
+                if (_3dKnownHeroTypes.has(raw)) return raw;
+                const hint = `${raw} ${hero?.name_ko || ''} ${hero?.name || ''} ${hero?.title || ''}`.replace(/\s+/g, ' ');
+                if (/황제|천자|대제/.test(hint)) return 'emperor';
+                if (/칸|카간|可汗|汗/.test(hint)) return 'khan';
+                if (/왕/.test(hint)) return 'king';
+                if (/문관|재상|상서|대신|승상|관리/.test(hint)) return 'civilian';
+                if (/호족|족장|수장|토호|豪族/.test(hint)) return 'hojok';
+                if (/도적|적벽|강도|유민/.test(hint)) return 'brigand';
+                return 'general';
+            }
+
+            function _3dHeroTypeImageUrl(hero) {
+                return _3dHeroTypeImageUrls[_3dNormalizeHeroType(hero)] || _3dHeroTypeImageUrls.general;
+            }
+
             function _build3dHeroPinHtml(hero) {
-                const defaultImg = 'https://github.com/projeffmanager-design/img/blob/main/minister.png?raw=true';
+                const defaultImg = _3dHeroTypeImageUrl(hero);
                 const baseColor = hero.faction_color && hero.faction_color !== '#c8860a' ? hero.faction_color : '#c8860a';
                 const darkColor = _3dHeroDarken(baseColor, 55);
                 const uid = String(hero._id || Math.random()).replace(/[^a-z0-9]/gi, '').slice(-8);
@@ -40004,6 +40064,6 @@ window.toggleResourceBar = function(btn, forceState) {
 </script>
 
 
-  <script type="module" src="./src/core/bootstrap.js?v=20260711-hero-layer-sync"></script>
+  <script type="module" src="./src/core/bootstrap.js?v=20260712-hero-type-images"></script>
 </body>
 </html>

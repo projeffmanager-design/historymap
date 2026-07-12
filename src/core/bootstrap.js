@@ -1,7 +1,17 @@
 const HERO_LOG_LIMIT = 200;
 const HERO_CLIENT_CACHE_TTL_MS = 5 * 60 * 1000;
-const DEFAULT_HERO_IMAGE_URL = 'https://github.com/projeffmanager-design/img/blob/main/minister.png?raw=true';
-const royalTypes = new Set(['emperor', 'king']);
+const HERO_TYPE_IMAGE_URLS = {
+  emperor: 'https://github.com/projeffmanager-design/img/blob/main/emp.png?raw=true',
+  king: 'https://github.com/projeffmanager-design/img/blob/main/king.png?raw=true',
+  general: 'https://github.com/projeffmanager-design/img/blob/main/general.png?raw=true',
+  civilian: 'https://github.com/projeffmanager-design/img/blob/main/mini.png?raw=true',
+  brigand: 'https://github.com/projeffmanager-design/img/blob/main/thief.png?raw=true',
+  khan: 'https://github.com/projeffmanager-design/img/blob/main/khan.png?raw=true',
+  hojok: 'https://github.com/projeffmanager-design/img/blob/main/hojok.png?raw=true',
+};
+const DEFAULT_HERO_IMAGE_URL = HERO_TYPE_IMAGE_URLS.general;
+const royalTypes = new Set(['emperor', 'king', 'khan']);
+const knownHeroTypes = new Set([...royalTypes, 'general', 'civilian', 'brigand', 'hojok']);
 let heroLayer = null;
 let heroLayerVisible = true;
 let heroRenderTimer = null;
@@ -49,12 +59,14 @@ function normalizeMonth(value, fallback = 1) {
 
 function normalizeType(value, fallbackText = '') {
   const raw = String(value || '').trim().toLowerCase();
-  if (royalTypes.has(raw) || raw === 'general' || raw === 'civilian' || raw === 'brigand') return raw;
+  if (knownHeroTypes.has(raw)) return raw;
   const hint = `${value || ''} ${fallbackText || ''}`;
   if (/황제|천자|대제/.test(hint)) return 'emperor';
+  if (/칸|카간|可汗|汗/.test(hint)) return 'khan';
   if (/왕/.test(hint)) return 'king';
   if (/장군|대장군|총관/.test(hint)) return 'general';
   if (/문관|재상|상서|대신|승상|관리/.test(hint)) return 'civilian';
+  if (/호족|족장|수장|토호|豪族/.test(hint)) return 'hojok';
   if (/도적|적벽|강도|유민/.test(hint)) return 'brigand';
   return 'general';
 }
@@ -63,8 +75,13 @@ function isRoyalHero(king) {
   const raw = String(king && (king.hero_type || king.type || king.role_type) || '').trim().toLowerCase();
   if (raw) return royalTypes.has(normalizeType(raw, king && (king.name || king.summary || king.title || '')));
   const hint = king && (king.name || king.summary || king.title || '');
-  if (/장군|대장군|총관|문관|재상|상서|대신|승상|관리|도적|적벽|강도|유민/.test(hint)) return false;
+  if (/장군|대장군|총관|문관|재상|상서|대신|승상|관리|호족|족장|수장|토호|豪族|도적|적벽|강도|유민/.test(hint)) return false;
   return true;
+}
+
+function getHeroTypeImageUrl(hero) {
+  const type = normalizeType(hero && (hero.hero_type || hero.type || hero.role_type), hero && (hero.name_ko || hero.name || hero.title || ''));
+  return HERO_TYPE_IMAGE_URLS[type] || DEFAULT_HERO_IMAGE_URL;
 }
 
 function installHeroStyle() {
@@ -210,9 +227,10 @@ function buildHeroIcon(hero) {
     : '#c8860a';
   const darkColor = darken(baseColor, 55);
   const uid = String(hero._id || Math.random()).replace(/[^a-z0-9]/gi, '').slice(-8);
+  const defaultImageUrl = getHeroTypeImageUrl(hero);
   const avatarInner = hero.avatar_url
-    ? `<img src="${hero.avatar_url}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;object-position:top center;border:2px solid rgba(255,255,255,.85);display:block;" onerror="this.onerror=null;this.src='${DEFAULT_HERO_IMAGE_URL}'">`
-    : `<img src="${DEFAULT_HERO_IMAGE_URL}" alt="" style="width:34px;height:34px;border-radius:50%;object-fit:cover;object-position:top center;border:2px solid rgba(255,255,255,.85);display:block;">`;
+    ? `<img src="${hero.avatar_url}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;object-position:top center;border:2px solid rgba(255,255,255,.85);display:block;" onerror="this.onerror=null;this.src='${defaultImageUrl}'">`
+    : `<img src="${defaultImageUrl}" alt="" style="width:34px;height:34px;border-radius:50%;object-fit:cover;object-position:top center;border:2px solid rgba(255,255,255,.85);display:block;">`;
 
   return leaflet.divIcon({
     className: 'codex-direct-hero-icon',

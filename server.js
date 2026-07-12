@@ -26,9 +26,11 @@ const HERO_TYPE_LABELS = {
     king: '왕',
     general: '장군',
     civilian: '문관',
+    hojok: '호족',
+    khan: '칸',
     brigand: '도적'
 };
-const HERO_TYPE_ORDER = ['emperor', 'king', 'general', 'civilian', 'brigand'];
+const HERO_TYPE_ORDER = ['emperor', 'king', 'general', 'civilian', 'hojok', 'khan', 'brigand'];
 // 💡 [추가] JWT 시크릿 키 환경 변수 확인
 const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret) {
@@ -71,9 +73,11 @@ const normalizeHeroType = (value, fallbackText = '') => {
 
     const hint = `${value || ''} ${fallbackText || ''}`.replace(/\s+/g, ' ').trim();
     if (/황제|천자|대제/.test(hint)) return 'emperor';
+    if (/칸|카간|可汗|汗/.test(hint)) return 'khan';
     if (/왕/.test(hint)) return 'king';
     if (/장군|대장군|총관/.test(hint)) return 'general';
     if (/문관|재상|상서|대신|승상|관리/.test(hint)) return 'civilian';
+    if (/호족|족장|수장|토호|豪族/.test(hint)) return 'hojok';
     if (/도적|적벽|강도|유민/.test(hint)) return 'brigand';
     return 'general';
 };
@@ -84,8 +88,10 @@ const normalizeKingHeroType = (king = {}) => {
     const hint = `${king.name || ''} ${king.summary || ''} ${king.title || ''}`.replace(/\s+/g, ' ').trim();
     if (/장군|대장군|총관/.test(hint)) return 'general';
     if (/문관|재상|상서|대신|승상|관리/.test(hint)) return 'civilian';
+    if (/호족|족장|수장|토호|豪族/.test(hint)) return 'hojok';
     if (/도적|적벽|강도|유민/.test(hint)) return 'brigand';
     if (/황제|천자|대제/.test(hint)) return 'emperor';
+    if (/칸|카간|可汗|汗/.test(hint)) return 'khan';
     return 'king';
 };
 
@@ -97,7 +103,7 @@ const normalizeMonthValue = (value, fallback = 1) => {
 const heroTypeLabel = (value) => HERO_TYPE_LABELS[normalizeHeroType(value)] || '장군';
 const isRoyalHeroType = (value) => {
     const type = normalizeHeroType(value);
-    return type === 'emperor' || type === 'king';
+    return type === 'emperor' || type === 'king' || type === 'khan';
 };
 const normalizeKingSchema = (king = {}, country = null, countryId = '') => {
     const startYear = parseInt(king.start);
@@ -1951,13 +1957,13 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
 
                     const royalKings = activeKings.filter(king => {
                         const type = normalizeKingHeroType(king);
-                        return type === 'emperor' || type === 'king';
+                        return type === 'emperor' || type === 'king' || type === 'khan';
                     });
                     const selectedRoyalKing = royalKings.length ? royalKings.slice().sort(compareKingReignStart).pop() : null;
 
                     const visibleKings = activeKings.filter(king => {
                         const type = normalizeKingHeroType(king);
-                        return type !== 'emperor' && type !== 'king';
+                        return type !== 'emperor' && type !== 'king' && type !== 'khan';
                     });
                     if (selectedRoyalKing) visibleKings.push(selectedRoyalKing);
 
@@ -2613,7 +2619,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
 
 // GET: 앱 버전 반환 (login.html 등 외부 페이지용)
 app.get('/api/app-version', (req, res) => {
-    res.json({ version: '3.7.8' });
+    res.json({ version: '3.7.9' });
 });
 
 // GET: 모든 장수 정보 반환
@@ -3112,7 +3118,7 @@ app.get('/api/kings', async (req, res) => {
             kings: (Array.isArray(doc.kings) ? doc.kings : [])
                 .filter(king => {
                     const type = normalizeKingHeroType(king);
-                    return type === 'king' || type === 'emperor';
+                    return type === 'king' || type === 'emperor' || type === 'khan';
                 })
                 .map(king => ({
                 ...king,
