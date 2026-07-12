@@ -20,7 +20,10 @@ let activeHeroRenderKey = null;
 let pendingHeroRenderKey = null;
 let renderedHeroKey = null;
 let heroFetchController = null;
+let heroViewportTimer = null;
+let heroViewportRefreshBound = false;
 const heroClientCache = new Map();
+const heroPrefetchingKeys = new Set();
 
 function heroLog(phase, detail = {}) {
   const entry = {
@@ -82,6 +85,14 @@ function isRoyalHero(king) {
 function getHeroTypeImageUrl(hero) {
   const type = normalizeType(hero && (hero.hero_type || hero.type || hero.role_type), hero && (hero.name_ko || hero.name || hero.title || ''));
   return HERO_TYPE_IMAGE_URLS[type] || DEFAULT_HERO_IMAGE_URL;
+}
+
+function primeHeroTypeImages() {
+  Object.values(HERO_TYPE_IMAGE_URLS).forEach((url) => {
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = url;
+  });
 }
 
 function installHeroStyle() {
@@ -211,6 +222,18 @@ function getShiftedHeroLatLng(lat, lng) {
   return [result.lat, result.lng];
 }
 
+function isHeroInCurrentView(lat, lng) {
+  const leafletMap = getMap();
+  if (!leafletMap || typeof leafletMap.getBounds !== 'function') return true;
+  try {
+    const bounds = leafletMap.getBounds();
+    const padded = typeof bounds.pad === 'function' ? bounds.pad(0.22) : bounds;
+    return padded.contains([lat, lng]);
+  } catch (_) {
+    return true;
+  }
+}
+
 function darken(hex, amount) {
   const safeHex = /^#[0-9a-f]{6}$/i.test(hex) ? hex : '#c8860a';
   const n = parseInt(safeHex.replace('#', ''), 16);
@@ -259,10 +282,135 @@ function buildHeroIcon(hero) {
   });
 }
 
+function heroCacheKey(year, month) {
+  return `${parseInt(year, 10) || 0}:${parseInt(month, 10) || 1}`;
+}
+
+function getCachedHeroData(key) {
+  const cached = heroClientCache.get(key);
+  if (!cached || Date.now() - cached.at >= HERO_CLIENT_CACHE_TTL_MS) return null;
+  return cached.data;
+}
+
+function setCachedHeroData(key, data) {
+  heroClientCache.set(key, { at: Date.now(), data });
+  if (heroClientCache.size > 120) {
+    const firstKey = heroClientCache.keys().next().value;
+    heroClientCache.delete(firstKey);
+  }
+}
+
+async function fetchHeroData(year, month, signal) {
+  const key = heroCacheKey(year, month);
+  const cached = getCachedHeroData(key);
+  if (cached) return { data: cached, cacheHit: true };
+  const url = `/api/heroes?year=${parseInt(year, 10) || 0}&month=${parseInt(month, 10) || 1}`;
+  const data = await fetch(url, {
+    cache: 'no-cache',
+    signal,
+  }).then(r => r.json());
+  setCachedHeroData(key, data);
+  return { data, cacheHit: false };
+}
+
+function renderHeroDataToLayer(data, layer, leaflet, normalizedYear, normalizedMonth, seq, renderKey) {
+  let added = 0;
+  const skipped = { noCoords: 0, invalidCoords: 0, outOfView: 0 };
+  const markers = [];
+  data.forEach((hero) => {
+    const coords = hero?.position?.geometry?.coordinates;
+    if (!Array.isArray(coords) || coords.length < 2) {
+      skipped.noCoords += 1;
+      return;
+    }
+    const lng = Number(coords[0]);
+    const lat = Number(coords[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      skipped.invalidCoords += 1;
+      return;
+    }
+    if (!isHeroInCurrentView(lat, lng)) {
+      skipped.outOfView += 1;
+      return;
+    }
+    const marker = leaflet.marker(getShiftedHeroLatLng(lat, lng), {
+      icon: buildHeroIcon(hero),
+      zIndexOffset: 10000,
+    });
+    marker.on('click', () => {
+      if (window.heroSystem && typeof window.heroSystem.openSidebar === 'function') {
+        window.heroSystem.openSidebar(hero._id);
+      }
+    });
+    markers.push(marker);
+  });
+
+  layer.clearLayers();
+  const chunkSize = window.innerWidth < 768 ? 18 : 36;
+  const addChunk = (index = 0) => {
+    if (seq !== heroRenderSeq || renderKey !== activeHeroRenderKey || !heroLayerVisible) {
+      heroLog('render-chunk-stale-discarded', { seq, renderKey, index });
+      return;
+    }
+    markers.slice(index, index + chunkSize).forEach(marker => {
+      layer.addLayer(marker);
+      added += 1;
+    });
+    if (index + chunkSize < markers.length) {
+      requestAnimationFrame(() => addChunk(index + chunkSize));
+      return;
+    }
+    heroLog('render-complete', {
+      year: normalizedYear,
+      month: normalizedMonth,
+      received: Array.isArray(data) ? data.length : 0,
+      added,
+      skipped,
+      layerCount: typeof layer.getLayers === 'function' ? layer.getLayers().length : null,
+      domCount: document.querySelectorAll('.codex-direct-hero-icon').length,
+      seq,
+      renderKey,
+      chunkSize,
+    });
+    renderedHeroKey = renderKey;
+    pendingHeroRenderKey = null;
+    prefetchAdjacentHeroData(normalizedYear, normalizedMonth);
+  };
+  addChunk(0);
+}
+
+function shiftYearMonth(year, month, delta) {
+  let y = parseInt(year, 10) || 0;
+  let m = parseInt(month, 10) || 1;
+  m += delta;
+  while (m > 12) { m -= 12; y += 1; }
+  while (m < 1) { m += 12; y -= 1; }
+  return { year: y, month: m };
+}
+
+function prefetchAdjacentHeroData(year, month) {
+  [-1, 1].forEach((delta) => {
+    const next = shiftYearMonth(year, month, delta);
+    const key = heroCacheKey(next.year, next.month);
+    if (getCachedHeroData(key) || heroPrefetchingKeys.has(key)) return;
+    heroPrefetchingKeys.add(key);
+    fetchHeroData(next.year, next.month)
+      .then(({ data, cacheHit }) => {
+        heroLog('prefetch-done', { key, count: Array.isArray(data) ? data.length : 0, cacheHit });
+      })
+      .catch((err) => {
+        heroLog('prefetch-error', { key, message: err?.message || String(err) });
+      })
+      .finally(() => {
+        heroPrefetchingKeys.delete(key);
+      });
+  });
+}
+
 async function renderHeroPins(year, month) {
   const normalizedYear = parseInt(year, 10) || 0;
   const normalizedMonth = parseInt(month, 10) || 1;
-  const renderKey = `${normalizedYear}:${normalizedMonth}`;
+  const renderKey = heroCacheKey(normalizedYear, normalizedMonth);
   const leaflet = getLeaflet();
   heroLog('render-start', {
     year: normalizedYear,
@@ -295,30 +443,19 @@ async function renderHeroPins(year, month) {
   activeHeroRenderKey = renderKey;
   pendingHeroRenderKey = renderKey;
   const previousCount = typeof layer.getLayers === 'function' ? layer.getLayers().length : null;
-  layer.clearLayers();
-  heroLog('layer-cleared', { year: normalizedYear, month: normalizedMonth, previousCount, seq });
+  heroLog('render-layer-ready', { year: normalizedYear, month: normalizedMonth, previousCount, seq });
 
   try {
-    const url = `/api/heroes?year=${normalizedYear}&month=${normalizedMonth}`;
-    const cached = heroClientCache.get(renderKey);
-    let data;
-    if (cached && Date.now() - cached.at < HERO_CLIENT_CACHE_TTL_MS) {
-      data = cached.data;
+    const cachedData = getCachedHeroData(renderKey);
+    let data = cachedData;
+    if (cachedData) {
       heroLog('fetch-cache-hit', { year: normalizedYear, month: normalizedMonth, count: Array.isArray(data) ? data.length : 0, seq });
     } else {
-      heroLog('fetch-start', { year: normalizedYear, month: normalizedMonth, url, seq });
+      heroLog('fetch-start', { year: normalizedYear, month: normalizedMonth, seq });
       heroFetchController = new AbortController();
       const currentController = heroFetchController;
-      data = await fetch(url, {
-        cache: 'no-cache',
-        signal: currentController.signal,
-      }).then(r => r.json());
+      ({ data } = await fetchHeroData(normalizedYear, normalizedMonth, currentController.signal));
       if (heroFetchController === currentController) heroFetchController = null;
-      heroClientCache.set(renderKey, { at: Date.now(), data });
-      if (heroClientCache.size > 80) {
-        const firstKey = heroClientCache.keys().next().value;
-        heroClientCache.delete(firstKey);
-      }
     }
     heroLog('fetch-done', {
       year: normalizedYear,
@@ -341,45 +478,7 @@ async function renderHeroPins(year, month) {
       return;
     }
 
-    let added = 0;
-    const skipped = { noCoords: 0, invalidCoords: 0 };
-    data.forEach((hero) => {
-      const coords = hero?.position?.geometry?.coordinates;
-      if (!Array.isArray(coords) || coords.length < 2) {
-        skipped.noCoords += 1;
-        return;
-      }
-      const lng = Number(coords[0]);
-      const lat = Number(coords[1]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        skipped.invalidCoords += 1;
-        return;
-      }
-      const marker = leaflet.marker(getShiftedHeroLatLng(lat, lng), {
-        icon: buildHeroIcon(hero),
-        zIndexOffset: 10000,
-      });
-      marker.on('click', () => {
-        if (window.heroSystem && typeof window.heroSystem.openSidebar === 'function') {
-          window.heroSystem.openSidebar(hero._id);
-        }
-      });
-      layer.addLayer(marker);
-      added += 1;
-    });
-
-    heroLog('render-complete', {
-      year: normalizedYear,
-      month: normalizedMonth,
-      received: Array.isArray(data) ? data.length : 0,
-      added,
-      skipped,
-      layerCount: typeof layer.getLayers === 'function' ? layer.getLayers().length : null,
-      domCount: document.querySelectorAll('.codex-direct-hero-icon').length,
-      seq,
-    });
-    renderedHeroKey = renderKey;
-    pendingHeroRenderKey = null;
+    renderHeroDataToLayer(data, layer, leaflet, normalizedYear, normalizedMonth, seq, renderKey);
   } catch (err) {
     if (err?.name === 'AbortError') {
       heroLog('fetch-aborted', { year: normalizedYear, month: normalizedMonth, key: renderKey, seq });
@@ -423,11 +522,12 @@ function scheduleHeroPins(year, month, cacheOnly) {
   pendingHeroRenderKey = key;
   heroLog('schedule', { year: normalizedYear, month: normalizedMonth, key, cacheOnly: !!cacheOnly });
   clearTimeout(heroRenderTimer);
+  const delay = getCachedHeroData(key) ? 0 : 70;
   heroRenderTimer = setTimeout(() => {
     heroRenderTimer = null;
     heroLog('schedule-fire', { year: normalizedYear, month: normalizedMonth, key });
     renderHeroPins(normalizedYear, normalizedMonth);
-  }, 120);
+  }, delay);
 }
 
 function patchGetKingByYear() {
@@ -479,10 +579,36 @@ function bindTimelineFallback() {
   heroLog('timeline-fallback-bound');
 }
 
+function scheduleHeroViewportRefresh(reason) {
+  if (!heroLayerVisible) return;
+  clearTimeout(heroViewportTimer);
+  heroViewportTimer = setTimeout(() => {
+    const { year, month } = getCurrentYearMonth();
+    renderedHeroKey = null;
+    heroLog('viewport-refresh', { reason, year, month });
+    scheduleHeroPins(year, month, false);
+  }, 90);
+}
+
+function bindMapViewportRefresh() {
+  if (heroViewportRefreshBound) return;
+  const leafletMap = getMap();
+  if (!leafletMap || typeof leafletMap.on !== 'function') {
+    setTimeout(bindMapViewportRefresh, 300);
+    return;
+  }
+  leafletMap.on('moveend', () => scheduleHeroViewportRefresh('moveend'));
+  leafletMap.on('zoomend', () => scheduleHeroViewportRefresh('zoomend'));
+  heroViewportRefreshBound = true;
+  heroLog('viewport-refresh-bound');
+}
+
 function bootHeroRenderer() {
   installHeroStyle();
+  primeHeroTypeImages();
   window.__codexClearHeroCache = () => {
     heroClientCache.clear();
+    heroPrefetchingKeys.clear();
     renderedHeroKey = null;
     pendingHeroRenderKey = null;
     activeHeroRenderKey = null;
@@ -494,6 +620,7 @@ function bootHeroRenderer() {
   syncInitialHeroLayerVisibility();
   patchGetKingByYear();
   bindTimelineFallback();
+  bindMapViewportRefresh();
   const { year, month } = getCurrentYearMonth();
   scheduleHeroPins(year, month, false);
 }

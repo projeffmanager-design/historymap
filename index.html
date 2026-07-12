@@ -288,7 +288,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.7.13',          // [v3.7.13] 영웅 테이블 DB 저장 검증
+        APP_VERSION: '3.7.14',          // [v3.7.14] 영웅 물방울 렌더 속도 개선
         DATA_SCHEMA_VERSION: '2.1.2'    // city territory absorption fix — 캐시 강제 갱신
     };
     // 세션 캐시에서 schema version 을 참조할 수 있도록 전역 노출
@@ -7124,7 +7124,7 @@ body.force-mobile .marker-type-selector button {
       color: rgba(212, 175, 55, 0.45);
       font-family: monospace;
       letter-spacing: 0.05em;
-    ">v<span id="loading-screen-version-text">3.7.13</span></div>
+    ">v<span id="loading-screen-version-text">3.7.14</span></div>
   </div>
 
   
@@ -8743,7 +8743,17 @@ body.force-mobile .marker-type-selector button {
           applyOffset(0);
           return;
       }
-      try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch(e) { console.warn('⚠️ [AdSense] 하단 광고 로드 실패:', e); }
+      var bottomIns = bar.querySelector('ins.adsbygoogle');
+      if (bottomIns && bottomIns.offsetWidth > 0) {
+          try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch(e) { console.warn('⚠️ [AdSense] 하단 광고 로드 실패:', e); }
+      } else {
+          setTimeout(function() {
+              var retryIns = bar.querySelector('ins.adsbygoogle');
+              if (isBarActive() && retryIns && retryIns.offsetWidth > 0) {
+                  try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch(e) { console.warn('⚠️ [AdSense] 하단 광고 재시도 실패:', e); }
+              }
+          }, 300);
+      }
 
       // AdSense가 비동기로 <ins>를 채우고 data-ad-status(filled/unfilled)를 부여함 — 최대 ~3.2초 대기
       var checks = 0;
@@ -8858,10 +8868,17 @@ body.force-mobile .marker-type-selector button {
                 <script>
                     function initOdpAd() {
                         if (window._odpAdPushed) return;
-                        window._odpAdPushed = true;
-                        try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) {}
                         const slot = document.getElementById('odp-ad-slot');
                         if (!slot) return;
+                        const ins0 = slot.querySelector('ins.adsbygoogle');
+                        if (!ins0 || ins0.offsetWidth <= 0) {
+                            window._odpAdInitTries = (window._odpAdInitTries || 0) + 1;
+                            if (window._odpAdInitTries < 8) setTimeout(initOdpAd, 250);
+                            return;
+                        }
+                        window._odpAdInitTries = 0;
+                        window._odpAdPushed = true;
+                        try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) {}
                         let tries = 0;
                         const timer = setInterval(() => {
                             tries++;
@@ -29646,21 +29663,30 @@ kingSelect.addEventListener('change', () => {
         }
         
         // 🍔 메뉴 내 민족 필터 연결
+        const runWhenIdle = (fn, timeout = 1200) => {
+            if ('requestIdleCallback' in window) {
+                window.requestIdleCallback(fn, { timeout });
+            } else {
+                setTimeout(fn, Math.min(timeout, 250));
+            }
+        };
         const menuEthnicitySelect = document.getElementById('menu-ethnicity-select');
         if (menuEthnicitySelect) {
             // 민족 옵션 채우기 - countries 로드 후 실행되도록 보장
-            setTimeout(() => {
+            setTimeout(() => runWhenIdle(() => {
                 if (countries && countries.length > 0) {
                     const ethnicities = [...new Set(countries.map(c => c.ethnicity).filter(e => e))].sort((a, b) => a.localeCompare(b, 'ko'));
                     console.log('🍔 민족 필터 채우기:', ethnicities);
+                    const frag = document.createDocumentFragment();
                     ethnicities.forEach(eth => {
                         const option = document.createElement('option');
                         option.value = eth;
                         option.textContent = eth;
-                        menuEthnicitySelect.appendChild(option);
+                        frag.appendChild(option);
                     });
+                    menuEthnicitySelect.appendChild(frag);
                 }
-            }, 1000);
+            }), 1000);
             
             menuEthnicitySelect.addEventListener('change', () => {
                 selectedEthnicity = menuEthnicitySelect.value;
@@ -29685,17 +29711,19 @@ kingSelect.addEventListener('change', () => {
             while (menuCountrySelect.options.length > 1) menuCountrySelect.remove(1);
             console.log('🍔 국가 필터 채우기:', countries.length);
             const sorted = [...countries].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'));
+            const frag = document.createDocumentFragment();
             sorted.forEach(country => {
                 const option = document.createElement('option');
                 option.value = country._id;
                 option.textContent = country.name;
-                menuCountrySelect.appendChild(option);
+                frag.appendChild(option);
             });
+            menuCountrySelect.appendChild(frag);
         };
         if (menuCountrySelect) {
             // 국가 옵션 채우기 - 1회만 실행 (3초 재시도는 countries가 바뀐 경우만)
-            setTimeout(() => window._fillCountryFilterSelect(), 1000);
-            setTimeout(() => window._fillCountryFilterSelect(), 3000); // hash 가드로 이미 채워졌으면 스킵
+            setTimeout(() => runWhenIdle(() => window._fillCountryFilterSelect()), 1000);
+            setTimeout(() => runWhenIdle(() => window._fillCountryFilterSelect()), 3000); // hash 가드로 이미 채워졌으면 스킵
             
             menuCountrySelect.addEventListener('change', () => {
                 selectedCountryId = menuCountrySelect.value;
@@ -40479,6 +40507,6 @@ window.toggleResourceBar = function(btn, forceState) {
 </script>
 
 
-  <script type="module" src="./src/core/bootstrap.js?v=20260712-hero-bulk-db-save"></script>
+  <script type="module" src="./src/core/bootstrap.js?v=20260712-hero-render-fast"></script>
 </body>
 </html>
