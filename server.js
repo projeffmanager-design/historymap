@@ -182,7 +182,10 @@ const resolveCountryForFigure = async ({ country_id, source_country_id, faction 
     }
     const name = String(faction || '').trim();
     if (!name) return null;
-    return collections.countries.findOne({ name });
+    const exact = await collections.countries.findOne({ name });
+    if (exact) return exact;
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return collections.countries.findOne({ name: { $regex: escaped, $options: 'i' } });
 };
 const buildFigureFromBody = (body = {}, uploads = {}, existing = {}) => {
     const startYear = parseInt(body.birth_year ?? body.start_year ?? body.start);
@@ -214,6 +217,83 @@ const buildFigureFromBody = (body = {}, uploads = {}, existing = {}) => {
         vote_count: parseInt(existing.vote_count || 0),
         updatedAt: new Date()
     };
+};
+const updateKingFigureFields = async (id, fields = {}) => {
+    const kingMatch = parseKingHeroId(id);
+    if (!kingMatch) return { ok: false, id, message: '지원하지 않는 영웅 ID' };
+    const found = await findKingFigure(kingMatch.countryId, kingMatch.sourceRefId);
+    if (!found) return { ok: false, id, message: '영웅 없음' };
+
+    const allowedFields = new Set([
+        'name_ko', 'name', 'name_zh',
+        'birth_year', 'start_year', 'start', 'start_month',
+        'death_year', 'end_year', 'end', 'end_month',
+        'title', 'description', 'hero_type', 'type',
+        'faction', 'faction_color', 'country_id', 'source_country_id'
+    ]);
+    const body = {};
+    Object.entries(fields || {}).forEach(([key, value]) => {
+        if (allowedFields.has(key)) body[key] = value;
+    });
+    if (body.faction_color && !/^#[0-9a-f]{6}$/i.test(String(body.faction_color).trim())) {
+        delete body.faction_color;
+    }
+
+    const targetCountry = await resolveCountryForFigure(body);
+    const shouldMoveCountry = !!targetCountry && (
+        body.country_id || body.source_country_id || body.faction
+    );
+    if (targetCountry) {
+        body.faction = targetCountry.name;
+        if (!body.faction_color && targetCountry.color) body.faction_color = targetCountry.color;
+    }
+
+    const figure = buildFigureFromBody(body, {}, found.king);
+    const now = new Date();
+    figure.updatedAt = now;
+    const sameCountry = !shouldMoveCountry || String(targetCountry._id) === String(found.countryId);
+    if (sameCountry) {
+        const hasKingObjectId = !!found.king._id;
+        const result = hasKingObjectId
+            ? await collections.kings.updateOne(
+                { _id: found.kingDoc._id, 'kings._id': found.king._id },
+                { $set: { 'kings.$': figure, updatedAt: now } }
+            )
+            : await collections.kings.updateOne(
+                { _id: found.kingDoc._id },
+                { $set: { [`kings.${found.index}`]: figure, updatedAt: now } }
+            );
+        if (result.matchedCount === 0) {
+            return { ok: false, id, message: 'DB 수정 대상 매칭 실패' };
+        }
+        return { ok: true, id, moved: false, modified: result.modifiedCount };
+    }
+
+    const oldHeroId = kingHeroId(found.countryId, found.sourceRefId);
+    const newHeroId = kingHeroId(targetCountry._id, figure._id);
+    if (!found.king._id) {
+        return { ok: false, id, message: '이 영웅은 내부 _id가 없어 국가 이동을 할 수 없습니다.' };
+    }
+    const pullResult = await collections.kings.updateOne(
+        { _id: found.kingDoc._id },
+        { $pull: { kings: { _id: found.king._id } }, $set: { updatedAt: now } }
+    );
+    if (pullResult.matchedCount === 0 || pullResult.modifiedCount === 0) {
+        return { ok: false, id, message: '기존 국가에서 영웅 이동 제거 실패' };
+    }
+    const pushResult = await collections.kings.updateOne(
+        { country_id: targetCountry._id },
+        { $push: { kings: figure }, $set: { updatedAt: now }, $setOnInsert: { country_id: targetCountry._id } },
+        { upsert: true }
+    );
+    if (pushResult.matchedCount === 0 && pushResult.upsertedCount === 0) {
+        return { ok: false, id, message: '대상 국가로 영웅 이동 추가 실패' };
+    }
+    await Promise.all([
+        collections.heroPositions.updateMany({ hero_id: oldHeroId }, { $set: { hero_id: newHeroId, updatedAt: now } }),
+        collections.heroComments.updateMany({ hero_id: oldHeroId }, { $set: { hero_id: newHeroId } })
+    ]);
+    return { ok: true, id, moved: true, new_id: newHeroId };
 };
 const cleanKingNamePart = (value = '') => String(value || '')
     .replace(/^\s*\d+대\s*/u, '')
@@ -2247,6 +2327,143 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
             });
         });
 
+        // PATCH /api/admin/heroes/bulk — 여러 영웅 공통 필드 일괄 수정
+        app.patch('/api/admin/heroes/bulk', verifyAdmin, async (req, res) => {
+            try {
+                const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+                if (rows.length) {
+                    let updated = 0;
+                    let moved = 0;
+                    const failed = [];
+                    for (const row of rows) {
+                        const id = normalizeRouteId(row?.id || row?._id || '');
+                        const fields = row?.fields && typeof row.fields === 'object' ? row.fields : {};
+                        if (!id) {
+                            failed.push({ id: '', message: 'ID 없음' });
+                            continue;
+                        }
+                        const result = await updateKingFigureFields(id, fields);
+                        if (!result.ok) {
+                            failed.push({ id, message: result.message || '수정 실패' });
+                            continue;
+                        }
+                        updated += 1;
+                        if (result.moved) moved += 1;
+                    }
+                    invalidateHeroCaches();
+                    return res.json({
+                        message: `${updated}명 테이블 일괄 수정 완료${moved ? ` (${moved}명 국가 이동)` : ''}`,
+                        updated,
+                        moved,
+                        failed
+                    });
+                }
+
+                const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(normalizeRouteId).filter(Boolean) : [];
+                const fields = req.body?.fields && typeof req.body.fields === 'object' ? req.body.fields : {};
+                if (!ids.length) return res.status(400).json({ message: '수정할 영웅을 선택하세요.' });
+
+                const allowedFields = new Set(['hero_type', 'title', 'description', 'faction_color']);
+                const setFields = {};
+                Object.keys(fields).forEach((key) => {
+                    if (!allowedFields.has(key)) return;
+                    if (key === 'hero_type') {
+                        setFields.hero_type = normalizeHeroType(fields.hero_type);
+                        setFields.type = setFields.hero_type;
+                        return;
+                    }
+                    if (key === 'description') {
+                        const value = String(fields.description || '').trim();
+                        setFields.description = value;
+                        setFields.summary = value;
+                        return;
+                    }
+                    if (key === 'title') {
+                        setFields.title = String(fields.title || '').trim();
+                        return;
+                    }
+                    if (key === 'faction_color') {
+                        const color = String(fields.faction_color || '').trim();
+                        if (/^#[0-9a-f]{6}$/i.test(color)) setFields.faction_color = color;
+                        return;
+                    }
+                });
+
+                const targetCountry = await resolveCountryForFigure(fields);
+                const shouldMoveCountry = !!targetCountry && (
+                    fields.country_id || fields.source_country_id || fields.faction
+                );
+                if (targetCountry) {
+                    setFields.faction = targetCountry.name;
+                    if (!setFields.faction_color && targetCountry.color) setFields.faction_color = targetCountry.color;
+                }
+                if (!Object.keys(setFields).length && !shouldMoveCountry) {
+                    return res.status(400).json({ message: '적용할 필드를 선택하세요.' });
+                }
+
+                let updated = 0;
+                let moved = 0;
+                const failed = [];
+                const now = new Date();
+
+                for (const id of ids) {
+                    const kingMatch = parseKingHeroId(id);
+                    if (!kingMatch) {
+                        failed.push({ id, message: '지원하지 않는 영웅 ID' });
+                        continue;
+                    }
+                    const found = await findKingFigure(kingMatch.countryId, kingMatch.sourceRefId);
+                    if (!found) {
+                        failed.push({ id, message: '영웅 없음' });
+                        continue;
+                    }
+
+                    const figure = {
+                        ...found.king,
+                        _id: found.king._id || new ObjectId(),
+                        ...setFields,
+                        updatedAt: now
+                    };
+                    const sameCountry = !shouldMoveCountry || String(targetCountry._id) === String(found.countryId);
+                    if (sameCountry) {
+                        await collections.kings.updateOne(
+                            { _id: found.kingDoc._id },
+                            { $set: { [`kings.${found.index}`]: figure, updatedAt: now } }
+                        );
+                    } else {
+                        const oldHeroId = kingHeroId(found.countryId, found.sourceRefId);
+                        const newHeroId = kingHeroId(targetCountry._id, figure._id);
+                        await collections.kings.updateOne(
+                            { _id: found.kingDoc._id },
+                            { $pull: { kings: { _id: found.king._id } }, $set: { updatedAt: now } }
+                        );
+                        await collections.kings.updateOne(
+                            { country_id: targetCountry._id },
+                            { $push: { kings: figure }, $set: { updatedAt: now }, $setOnInsert: { country_id: targetCountry._id } },
+                            { upsert: true }
+                        );
+                        await Promise.all([
+                            collections.heroPositions.updateMany({ hero_id: oldHeroId }, { $set: { hero_id: newHeroId, updatedAt: now } }),
+                            collections.heroComments.updateMany({ hero_id: oldHeroId }, { $set: { hero_id: newHeroId } })
+                        ]);
+                        moved += 1;
+                    }
+                    updated += 1;
+                }
+
+                invalidateHeroCaches();
+                res.json({
+                    message: `${updated}명 일괄 수정 완료${moved ? ` (${moved}명 국가 이동)` : ''}`,
+                    updated,
+                    moved,
+                    failed
+                });
+            } catch (err) {
+                console.error('[PATCH /api/admin/heroes/bulk] 오류:', err);
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
         // DELETE /api/admin/heroes/:id — 영웅 및 연관 데이터 완전 삭제
         app.delete('/api/admin/heroes/:id', verifyAdmin, async (req, res) => {
             try {
@@ -2619,7 +2836,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
 
 // GET: 앱 버전 반환 (login.html 등 외부 페이지용)
 app.get('/api/app-version', (req, res) => {
-    res.json({ version: '3.7.9' });
+    res.json({ version: '3.7.13' });
 });
 
 // GET: 모든 장수 정보 반환
