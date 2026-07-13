@@ -24,6 +24,7 @@ let heroViewportTimer = null;
 let heroViewportRefreshBound = false;
 const heroClientCache = new Map();
 const heroPrefetchingKeys = new Set();
+let heroCacheBust = 0;
 
 function heroLog(phase, detail = {}) {
   const entry = {
@@ -305,8 +306,10 @@ async function fetchHeroData(year, month, signal) {
   const cached = getCachedHeroData(key);
   if (cached) return { data: cached, cacheHit: true };
   const url = `/api/heroes?year=${parseInt(year, 10) || 0}&month=${parseInt(month, 10) || 1}`;
-  const data = await fetch(url, {
+  const requestUrl = heroCacheBust ? `${url}&v=${heroCacheBust}` : url;
+  const data = await fetch(requestUrl, {
     signal,
+    cache: heroCacheBust ? 'no-store' : 'default',
   }).then(r => r.json());
   setCachedHeroData(key, data);
   return { data, cacheHit: false };
@@ -606,6 +609,7 @@ function bootHeroRenderer() {
   installHeroStyle();
   primeHeroTypeImages();
   window.__codexClearHeroCache = () => {
+    heroCacheBust = Date.now();
     heroClientCache.clear();
     heroPrefetchingKeys.clear();
     renderedHeroKey = null;

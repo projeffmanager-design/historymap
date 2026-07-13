@@ -2509,7 +2509,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
             try {
                 const hero_id = heroIdStorageValue(req.params.id);
                 if (!hero_id) return res.status(400).json({ message: '잘못된 ID' });
-                const { year, start_year, end_year, type, event_title, location_name, lat, lng, source_text } = req.body;
+                const { year, start_year, end_year, start_month, end_month, type, event_title, location_name, lat, lng, source_text } = req.body;
                 const sYear = parseInt(start_year || year);
                 const eYear = end_year ? parseInt(end_year) : null;
                 if (!sYear || !lat || !lng) return res.status(400).json({ message: 'start_year(year), lat, lng 필수' });
@@ -2517,6 +2517,8 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     hero_id,
                     start_year: sYear,
                     end_year:   eYear,
+                    start_month: normalizeMonthValue(start_month, 1),
+                    end_month: normalizeMonthValue(end_month, 12),
                     year:       sYear, // 하위 호환 유지
                     type: type || 'STAY',
                     event_title: event_title || '',
@@ -2551,11 +2553,13 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
             try {
                 const _id = toObjectId(req.params.posId);
                 if (!_id) return res.status(400).json({ message: '잘못된 ID' });
-                const { start_year, end_year, lat, lng, type, location_name, event_title, source_text } = req.body;
+                const { start_year, end_year, start_month, end_month, lat, lng, type, location_name, event_title, source_text } = req.body;
                 if (!start_year || !lat || !lng) return res.status(400).json({ message: 'start_year, lat, lng 필수' });
                 const update = {
                     start_year: parseInt(start_year),
                     end_year:   end_year ? parseInt(end_year) : null,
+                    start_month: normalizeMonthValue(start_month, 1),
+                    end_month: normalizeMonthValue(end_month, 12),
                     year:       parseInt(start_year),
                     type:       type || 'STAY',
                     location_name: location_name || '',
