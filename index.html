@@ -1926,8 +1926,12 @@ body.force-mobile .marker-type-selector button {
         bottom: calc(56px + var(--ad-bottom-h, 0px));
         left: 50%;
         transform: translateX(-50%);
-        width: min(900px, 97vw);
-        max-height: 48vh;
+        width: min(1180px, calc(100vw - 32px));
+        height: min(62vh, 720px);
+        min-width: 560px;
+        min-height: 260px;
+        max-width: calc(100vw - 18px);
+        max-height: calc(100vh - 88px - var(--ad-bottom-h, 0px));
         background: rgba(6, 10, 18, 0.96);
         backdrop-filter: blur(14px) saturate(1.6);
         -webkit-backdrop-filter: blur(14px) saturate(1.6);
@@ -1939,6 +1943,15 @@ body.force-mobile .marker-type-selector button {
         box-shadow: 0 -6px 32px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,210,80,0.06) inset;
         overflow: hidden;
     }
+    #timeline-sidebar.tl-free-positioned {
+        bottom: auto;
+        right: auto;
+        transform: none;
+    }
+    #timeline-sidebar.tl-moving {
+        user-select: none;
+        box-shadow: 0 10px 42px rgba(0,0,0,0.78), 0 0 0 1px rgba(255,210,80,0.1) inset;
+    }
 
     /* 헤더 */
     #timeline-sidebar-header {
@@ -1949,8 +1962,9 @@ body.force-mobile .marker-type-selector button {
         border-bottom: 1px solid rgba(210,175,80,0.12);
         flex-shrink: 0;
         background: linear-gradient(180deg, rgba(255,210,80,0.05) 0%, transparent 100%);
-        cursor: default;
+        cursor: move;
         user-select: none;
+        touch-action: none;
     }
     #timeline-sidebar-header h3 {
         margin: 0;
@@ -1979,8 +1993,13 @@ body.force-mobile .marker-type-selector button {
         font-size: 10px;
         color: rgba(180,180,180,0.4);
         font-style: italic;
+        flex: 1;
+        text-align: right;
+        margin: 0 8px;
     }
     #close-timeline-sidebar {
+        position: relative;
+        z-index: 95;
         background: transparent;
         border: 1px solid rgba(220,80,70,0.25);
         color: rgba(255,140,120,0.7);
@@ -2001,6 +2020,29 @@ body.force-mobile .marker-type-selector button {
         color: #fff;
         border-color: rgba(220,80,70,0.7);
     }
+    #timeline-resize-handle,
+    #timeline-resize-handle-ne {
+        position: absolute;
+        right: 0;
+        width: 18px;
+        height: 18px;
+        z-index: 80;
+        pointer-events: auto;
+    }
+    #timeline-resize-handle {
+        bottom: 0;
+        cursor: nwse-resize;
+        background:
+            linear-gradient(135deg, transparent 0 48%, rgba(240,205,110,0.32) 49% 54%, transparent 55%),
+            linear-gradient(135deg, transparent 0 68%, rgba(240,205,110,0.45) 69% 74%, transparent 75%);
+    }
+    #timeline-resize-handle-ne {
+        top: 0;
+        cursor: nesw-resize;
+        background:
+            linear-gradient(45deg, transparent 0 48%, rgba(240,205,110,0.24) 49% 54%, transparent 55%),
+            linear-gradient(45deg, transparent 0 68%, rgba(240,205,110,0.36) 69% 74%, transparent 75%);
+    }
 
     /* 좌측 민족 라벨 고정 컬럼 + 우측 스크롤 레이아웃 */
     #tl-body {
@@ -2013,31 +2055,52 @@ body.force-mobile .marker-type-selector button {
     /* 왼쪽 민족 이름 고정 컬럼 — 가로스크롤 시 sticky */
     #tl-label-col {
         flex-shrink: 0;
-        width: 68px;
+        width: 218px;
         position: sticky;
         left: 0;
-        z-index: 20;
+        z-index: 35;
         background: rgba(6,10,18,0.97);
         border-right: 1px solid rgba(210,175,80,0.12);
         display: flex;
         flex-direction: column;
+        box-shadow: 8px 0 16px rgba(0,0,0,0.24);
     }
     .tl-label-row {
-        font-size: 9px;
-        font-family: 'Noto Serif KR', serif;
-        font-weight: 700;
-        color: rgba(255,210,100,0.85);
-        white-space: nowrap;
+        gap: 8px;
+        font-family: 'Noto Serif KR', 'Apple SD Gothic Neo', sans-serif;
+        color: rgba(235,224,190,0.92);
         overflow: hidden;
-        text-overflow: ellipsis;
-        padding: 0 5px;
+        padding: 0 8px;
         box-sizing: border-box;
         display: flex;
         align-items: center;
         border-bottom: 1px solid rgba(255,255,255,0.04);
-        background: rgba(255,210,80,0.04);
+        background: linear-gradient(90deg, rgba(255,210,80,0.06), rgba(255,255,255,0.015));
     }
     .tl-label-row:last-child { border-bottom: none; }
+    .tl-label-row .tl-ethnic-name {
+        width: 76px;
+        flex-shrink: 0;
+        color: rgba(255,210,100,0.9);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        white-space: normal;
+        line-height: 1.12;
+    }
+    .tl-label-row .tl-ethnic-name.is-continuation {
+        opacity: 0.28;
+    }
+    .tl-label-row .tl-country-names {
+        min-width: 0;
+        flex: 1;
+        color: rgba(230,230,220,0.84);
+        font-size: 10px;
+        line-height: 1.12;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
 
     /* 스크롤 영역: 가로+세로 모두 스크롤 */
     #timeline-sidebar-scroll {
@@ -2127,16 +2190,16 @@ body.force-mobile .marker-type-selector button {
     /* 연대표 막대 */
     .timeline-bar {
         position: absolute;
-        height: 13px;
-        border-radius: 3px;
+        height: 16px;
+        border-radius: 4px;
         cursor: pointer;
         pointer-events: auto;
         color: rgba(255,255,255,0.95);
-        font-size: 9px;
+        font-size: 10px;
         font-family: 'Noto Serif KR', sans-serif;
         text-shadow: 0 1px 3px rgba(0,0,0,1);
-        line-height: 13px;
-        padding-left: 5px;
+        line-height: 16px;
+        padding-left: 7px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -2158,15 +2221,39 @@ body.force-mobile .marker-type-selector button {
         transform: scaleY(1.15);
     }
     .timeline-bar.main-dynasty {
-        height: 13px;
-        line-height: 13px;
+        height: 16px;
+        line-height: 16px;
         z-index: 10;
     }
     .timeline-bar.minor-dynasty {
-        height: 10px;
-        line-height: 10px;
+        height: 13px;
+        line-height: 13px;
         z-index: 5;
         opacity: 0.78;
+    }
+    @media (max-width: 700px) {
+        #timeline-sidebar {
+            width: calc(100vw - 14px);
+            height: min(58vh, 430px);
+            min-width: 0;
+            min-height: 220px;
+            left: 7px;
+            transform: none;
+        }
+        #tl-label-col {
+            width: 148px;
+        }
+        .tl-label-row {
+            padding: 0 6px;
+            gap: 5px;
+        }
+        .tl-label-row .tl-ethnic-name {
+            width: 54px;
+            font-size: 9px;
+        }
+        .tl-label-row .tl-country-names {
+            font-size: 9px;
+        }
     }
 
     /* 행 구분선 (홀짝 줄 배경) */
@@ -20756,7 +20843,14 @@ const loadingMessages = [
         });
 
         // ── 레이아웃 계산 ──
-        const ROW_H = 15;
+        const ROW_H = 24;
+        const tlEsc = (value) => String(value ?? '').replace(/[&<>"']/g, ch => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[ch]));
         const groups = []; // { ethnicity, startRow, rowCount, countries: [...] }
         let currentRow = 0;
 
@@ -20803,13 +20897,22 @@ const loadingMessages = [
         if (tlLabelCol) {
             tlLabelCol.innerHTML = '';
             groups.forEach(g => {
-                const labelEl = document.createElement('div');
-                labelEl.className = 'tl-label-row';
-                labelEl.style.height = `${g.rowCount * ROW_H}px`;
-                labelEl.style.minHeight = `${g.rowCount * ROW_H}px`;
-                labelEl.textContent = g.ethnicity;
-                labelEl.title = g.ethnicity;
-                tlLabelCol.appendChild(labelEl);
+                for (let row = 0; row < g.rowCount; row++) {
+                    const labelEl = document.createElement('div');
+                    const rowCountries = g.bars
+                        .filter(item => item.laneIndex === row)
+                        .map(item => item.country.name)
+                        .filter(Boolean);
+                    labelEl.className = 'tl-label-row';
+                    labelEl.style.height = `${ROW_H}px`;
+                    labelEl.style.minHeight = `${ROW_H}px`;
+                    labelEl.title = `${g.ethnicity}${rowCountries.length ? ` · ${rowCountries.join(', ')}` : ''}`;
+                    labelEl.innerHTML = `
+                        <span class="tl-ethnic-name${row > 0 ? ' is-continuation' : ''}">${row === 0 ? tlEsc(g.ethnicity) : '·'}</span>
+                        <span class="tl-country-names">${tlEsc(rowCountries.join(' · ') || '-')}</span>
+                    `;
+                    tlLabelCol.appendChild(labelEl);
+                }
             });
         }
 
@@ -20865,7 +20968,7 @@ const loadingMessages = [
                 bar.className = 'timeline-bar ' + (country.is_main_dynasty ? 'main-dynasty' : 'minor-dynasty');
                 bar.style.left = `${clampedLeft}%`;
                 bar.style.width = `${clampedWidth}%`;
-                bar.style.top = `${(g.startRow + laneIndex) * ROW_H + 1}px`;
+                bar.style.top = `${(g.startRow + laneIndex) * ROW_H + 4}px`;
                 bar.style.backgroundColor = country.color || '#7f8c8d';
                 bar.textContent = country.name;
                 const endYearText = country.end ? `${country.end}년` : '현재';
@@ -21076,8 +21179,9 @@ const loadingMessages = [
     // 🚩 [추가] timeline-sidebar 내 가로 드래그 스크롤
     function initTimelineSidebarDrag() {
         const sidebar = document.getElementById('timeline-sidebar');
+        const scrollArea = document.getElementById('timeline-sidebar-scroll');
         const content = document.getElementById('timeline-content');
-        if (!sidebar || !content) return;
+        if (!sidebar || !scrollArea || !content) return;
 
         let isDragging = false;
         let isHorizontal = null; // null: 방향 미결정
@@ -21131,13 +21235,168 @@ const loadingMessages = [
             updateTime(year, month, false);
         };
 
-        sidebar.addEventListener('mousedown', (e) => { onStart(e.clientX, e.clientY); e.preventDefault(); });
+        scrollArea.addEventListener('mousedown', (e) => {
+            if (e.target.closest('#tl-label-col, .timeline-bar, #timeline-resize-handle, #timeline-resize-handle-ne, button')) return;
+            onStart(e.clientX, e.clientY);
+            e.preventDefault();
+        });
         document.addEventListener('mousemove', (e) => { if (isDragging) { onMove(e.clientX, e.clientY, e); } });
         document.addEventListener('mouseup', () => onEnd());
 
-        sidebar.addEventListener('touchstart', (e) => { onStart(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
-        sidebar.addEventListener('touchmove', (e) => { if (isDragging) { onMove(e.touches[0].clientX, e.touches[0].clientY, e); } }, { passive: false });
-        sidebar.addEventListener('touchend', () => onEnd());
+        scrollArea.addEventListener('touchstart', (e) => {
+            if (e.target.closest('#tl-label-col, .timeline-bar, #timeline-resize-handle, #timeline-resize-handle-ne, button')) return;
+            onStart(e.touches[0].clientX, e.touches[0].clientY);
+        }, { passive: true });
+        scrollArea.addEventListener('touchmove', (e) => { if (isDragging) { onMove(e.touches[0].clientX, e.touches[0].clientY, e); } }, { passive: false });
+        scrollArea.addEventListener('touchend', () => onEnd());
+    }
+
+    function initTimelinePanelInteractions() {
+        const sidebar = document.getElementById('timeline-sidebar');
+        const header = document.getElementById('timeline-sidebar-header');
+        const resizeHandle = document.getElementById('timeline-resize-handle');
+        const resizeHandleNe = document.getElementById('timeline-resize-handle-ne');
+        if (!sidebar || !header || sidebar.dataset.panelInteractionsBound === '1') return;
+        sidebar.dataset.panelInteractionsBound = '1';
+
+        const storageKey = 'kh_timeline_panel_bounds_v1';
+        const margin = 9;
+
+        const clampPanel = (left, top, width, height) => {
+            const minW = Math.min(560, Math.max(280, window.innerWidth - margin * 2));
+            const minH = Math.min(260, Math.max(220, window.innerHeight - margin * 2));
+            const maxW = Math.max(minW, window.innerWidth - margin * 2);
+            const maxH = Math.max(minH, window.innerHeight - margin * 2);
+            const nextW = Math.min(Math.max(width, minW), maxW);
+            const nextH = Math.min(Math.max(height, minH), maxH);
+            return {
+                left: Math.min(Math.max(left, margin), window.innerWidth - nextW - margin),
+                top: Math.min(Math.max(top, margin), window.innerHeight - nextH - margin),
+                width: nextW,
+                height: nextH,
+            };
+        };
+
+        const applyBounds = (bounds, persist = false) => {
+            const safe = clampPanel(bounds.left, bounds.top, bounds.width, bounds.height);
+            sidebar.classList.add('tl-free-positioned');
+            sidebar.style.left = `${safe.left}px`;
+            sidebar.style.top = `${safe.top}px`;
+            sidebar.style.width = `${safe.width}px`;
+            sidebar.style.height = `${safe.height}px`;
+            if (persist) {
+                try { localStorage.setItem(storageKey, JSON.stringify(safe)); } catch (_) {}
+            }
+            return safe;
+        };
+
+        try {
+            const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+            if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
+                applyBounds(saved, false);
+            }
+        } catch (_) {}
+
+        let dragState = null;
+        header.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0 || e.target.closest('#close-timeline-sidebar')) return;
+            const rect = sidebar.getBoundingClientRect();
+            dragState = {
+                mode: 'move',
+                startX: e.clientX,
+                startY: e.clientY,
+                left: rect.left,
+                top: rect.top,
+                width: rect.width,
+                height: rect.height,
+            };
+            sidebar.classList.add('tl-moving');
+            header.setPointerCapture?.(e.pointerId);
+            e.preventDefault();
+        });
+
+        if (resizeHandle) {
+            resizeHandle.addEventListener('pointerdown', (e) => {
+                if (e.button !== 0) return;
+                const rect = sidebar.getBoundingClientRect();
+                dragState = {
+                    mode: 'resize',
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    left: rect.left,
+                    top: rect.top,
+                    width: rect.width,
+                    height: rect.height,
+                };
+                resizeHandle.setPointerCapture?.(e.pointerId);
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        }
+        if (resizeHandleNe) {
+            resizeHandleNe.addEventListener('pointerdown', (e) => {
+                if (e.button !== 0) return;
+                const rect = sidebar.getBoundingClientRect();
+                dragState = {
+                    mode: 'resize-ne',
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    left: rect.left,
+                    top: rect.top,
+                    width: rect.width,
+                    height: rect.height,
+                };
+                resizeHandleNe.setPointerCapture?.(e.pointerId);
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        }
+
+        window.addEventListener('pointermove', (e) => {
+            if (!dragState) return;
+            if (dragState.mode === 'move') {
+                applyBounds({
+                    left: dragState.left + e.clientX - dragState.startX,
+                    top: dragState.top + e.clientY - dragState.startY,
+                    width: dragState.width,
+                    height: dragState.height,
+                });
+            } else if (dragState.mode === 'resize') {
+                applyBounds({
+                    left: dragState.left,
+                    top: dragState.top,
+                    width: dragState.width + e.clientX - dragState.startX,
+                    height: dragState.height + e.clientY - dragState.startY,
+                });
+            } else {
+                const deltaY = e.clientY - dragState.startY;
+                applyBounds({
+                    left: dragState.left,
+                    top: dragState.top + deltaY,
+                    width: dragState.width + e.clientX - dragState.startX,
+                    height: dragState.height - deltaY,
+                });
+            }
+            updateTimelineScroll(true);
+            e.preventDefault();
+        }, { passive: false });
+
+        window.addEventListener('pointerup', () => {
+            if (!dragState) return;
+            const rect = sidebar.getBoundingClientRect();
+            applyBounds({ left: rect.left, top: rect.top, width: rect.width, height: rect.height }, true);
+            sidebar.classList.remove('tl-moving');
+            if ((dragState.mode === 'resize' || dragState.mode === 'resize-ne') && typeof createDynastyTimeline === 'function') {
+                createDynastyTimeline();
+            }
+            dragState = null;
+        });
+
+        window.addEventListener('resize', () => {
+            const rect = sidebar.getBoundingClientRect();
+            applyBounds({ left: rect.left, top: rect.top, width: rect.width, height: rect.height }, true);
+            updateTimelineScroll(true);
+        });
     }
 
 
@@ -28471,6 +28730,7 @@ kingSelect.addEventListener('change', () => {
         
         const checkTimelineDragged = initTimelineDrag(); // 🚩 [수정] 드래그 상태 체크 함수를 저장
         initTimelineSidebarDrag(); // 🚩 [추가] 연대표 사이드바 드래그 스크롤
+        initTimelinePanelInteractions(); // 연대표 패널 이동/크기 조절
 
         // 🚩 [추가] 연대표 X 버튼 → 연대표 레이어 끄기
         (function() {
@@ -36600,6 +36860,8 @@ kingSelect.addEventListener('change', () => {
             <button id="activity-notice-send">공지</button>
         </div>
     </div>
+    <div id="timeline-resize-handle-ne" title="오른쪽 위에서 크기 조절"></div>
+    <div id="timeline-resize-handle" title="오른쪽 아래에서 크기 조절"></div>
 </div>
 
 <style>
