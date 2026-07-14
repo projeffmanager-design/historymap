@@ -90,6 +90,12 @@ const parseKingHeroId = (id) => {
 };
 
 const heroIdStorageValue = (id) => toObjectId(normalizeRouteId(id)) || normalizeRouteId(id);
+const countryIdQueryValues = (countryId) => {
+    const values = [String(countryId || '')].filter(Boolean);
+    const objectId = toObjectId(countryId);
+    if (objectId) values.push(objectId);
+    return values;
+};
 
 const sanitizeCountryFlag = (country) => {
     if (!country || country.flag !== BLOCKED_FLAG_URL) return country;
@@ -192,7 +198,9 @@ const compareKingReignStart = (a = {}, b = {}) => (
 const kingHeroId = (countryId, refId) => `king:${String(countryId)}:${String(refId)}`;
 const findKingFigure = async (countryId, sourceRefId) => {
     const countryObjectId = toObjectId(countryId);
-    const kingDoc = await collections.kings.findOne({ country_id: countryObjectId || countryId });
+    const kingDoc = await collections.kings.findOne({
+        country_id: { $in: countryIdQueryValues(countryId) }
+    });
     const kings = Array.isArray(kingDoc?.kings) ? kingDoc.kings : [];
     const index = kings.findIndex((k, i) => (
         String(k._id) === String(sourceRefId) ||
@@ -2210,7 +2218,8 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                         const startYear = normalized.start_year;
                         const endYear = normalized.end_year;
                         const heroId = `king:${countryId}:${king._id ? String(king._id) : index}`;
-                        const capitalPosition = capital && Number.isFinite(Number(capital.lat)) && Number.isFinite(Number(capital.lng))
+                        const heroType = normalizeKingHeroType(king);
+                        const capitalPosition = isRoyalHeroType(heroType) && capital && Number.isFinite(Number(capital.lat)) && Number.isFinite(Number(capital.lng))
                             ? {
                                 hero_id: heroId,
                                 year: startYear,
@@ -2256,7 +2265,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                         const activePosition = savedPositions
                             .filter(pos => isHeroPositionActiveAtYearMonth(pos, year, month))
                             .pop();
-                        if (activePosition && !isRoyalHeroType(hero.hero_type)) hero.position = activePosition;
+                            if (activePosition && !isRoyalHeroType(hero.hero_type)) hero.position = activePosition;
                     });
                 }
 

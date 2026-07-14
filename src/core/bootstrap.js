@@ -589,7 +589,7 @@ function buildHeroesFromBaseDataset(base, year, month) {
       const type = hero.__heroType || normalizeType(hero.hero_type || hero.type, hero.name_ko || hero.name || hero.title || '');
       const nextHero = { ...hero };
       const capital = capitalEntry?.castle;
-      if (capital && Number.isFinite(Number(capital.lat)) && Number.isFinite(Number(capital.lng))) {
+      if (royalTypes.has(type) && capital && Number.isFinite(Number(capital.lat)) && Number.isFinite(Number(capital.lng))) {
         nextHero.position = {
           hero_id: nextHero._id,
           year: nextHero.start_year,
