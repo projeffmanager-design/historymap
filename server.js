@@ -191,6 +191,32 @@ const isHeroPositionActiveAtYearMonth = (pos = {}, year = 0, month = 1) => {
     const currentCombined = (parseInt(year) || 0) * 12 + ((parseInt(month) || 1) - 1);
     return startCombined <= currentCombined && currentCombined <= endCombined;
 };
+const heroPositionStartTotal = (pos = {}) => {
+    const startYear = parseInt(pos.start_year ?? pos.year);
+    if (Number.isNaN(startYear)) return -Infinity;
+    return startYear * 12 + (normalizeMonthValue(pos.start_month, 1) - 1);
+};
+const heroPositionEndTotal = (pos = {}) => {
+    const endYearRaw = pos.end_year;
+    if (endYearRaw === null || endYearRaw === undefined || endYearRaw === '') return Infinity;
+    const endYear = parseInt(endYearRaw);
+    if (Number.isNaN(endYear)) return Infinity;
+    return endYear * 12 + (normalizeMonthValue(pos.end_month, 12) - 1);
+};
+const heroPositionSpanMonths = (pos = {}) => {
+    const start = heroPositionStartTotal(pos);
+    const end = heroPositionEndTotal(pos);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return Infinity;
+    return Math.max(0, end - start);
+};
+const compareHeroPositionSpecificity = (a = {}, b = {}) => (
+    heroPositionSpanMonths(a) - heroPositionSpanMonths(b) ||
+    heroPositionStartTotal(b) - heroPositionStartTotal(a) ||
+    String(b.createdAt || b.updatedAt || '').localeCompare(String(a.createdAt || a.updatedAt || ''))
+);
+const selectActiveHeroPosition = (positions = [], year = 0, month = 1) => positions
+    .filter(pos => isHeroPositionActiveAtYearMonth(pos, year, month))
+    .sort(compareHeroPositionSpecificity)[0] || null;
 const compareKingReignStart = (a = {}, b = {}) => (
     totalMonthsFromKing(a) - totalMonthsFromKing(b) ||
     (String(a._id || '')).localeCompare(String(b._id || ''))
@@ -2262,10 +2288,8 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     });
                     result.forEach((hero) => {
                         const savedPositions = positionsByHero.get(String(hero._id)) || [];
-                        const activePosition = savedPositions
-                            .filter(pos => isHeroPositionActiveAtYearMonth(pos, year, month))
-                            .pop();
-                            if (activePosition && !isRoyalHeroType(hero.hero_type)) hero.position = activePosition;
+                        const activePosition = selectActiveHeroPosition(savedPositions, year, month);
+                        if (activePosition && !isRoyalHeroType(hero.hero_type)) hero.position = activePosition;
                     });
                 }
 

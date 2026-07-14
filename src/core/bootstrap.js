@@ -495,6 +495,39 @@ function isHeroPositionActiveAt(pos, year, month) {
   return start <= current && current <= end;
 }
 
+function heroPositionTotalStart(pos = {}) {
+  if (Number.isFinite(pos.__startTotal)) return pos.__startTotal;
+  const startYear = parseInt(pos?.start_year ?? pos?.year, 10);
+  if (Number.isNaN(startYear)) return -Infinity;
+  return heroTotalMonths(startYear, pos?.start_month || 1);
+}
+
+function heroPositionTotalEnd(pos = {}) {
+  if (pos.__endTotal === Infinity || Number.isFinite(pos.__endTotal)) return pos.__endTotal;
+  const endRaw = pos?.end_year;
+  if (endRaw === null || endRaw === undefined || endRaw === '') return Infinity;
+  return heroTotalMonths(endRaw, pos?.end_month || 12);
+}
+
+function heroPositionSpan(pos = {}) {
+  const start = heroPositionTotalStart(pos);
+  const end = heroPositionTotalEnd(pos);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return Infinity;
+  return Math.max(0, end - start);
+}
+
+function compareHeroPositionSpecificity(a = {}, b = {}) {
+  return heroPositionSpan(a) - heroPositionSpan(b) ||
+    heroPositionTotalStart(b) - heroPositionTotalStart(a) ||
+    String(b.createdAt || b.updatedAt || '').localeCompare(String(a.createdAt || a.updatedAt || ''));
+}
+
+function selectActiveHeroPosition(positions = [], year, month) {
+  return positions
+    .filter(pos => isHeroPositionActiveAt(pos, year, month))
+    .sort(compareHeroPositionSpecificity)[0] || null;
+}
+
 function isCapitalHistoryRecord(record = {}) {
   return record.is_capital === true || record.place_type === 'capital' || record.place_type === 'hwangseong';
 }
@@ -605,14 +638,7 @@ function buildHeroesFromBaseDataset(base, year, month) {
         };
       }
       const savedPositions = prepared?.positionsByHero.get(idToString(nextHero._id)) || [];
-      let savedPosition = null;
-      for (let i = 0; i < savedPositions.length; i += 1) {
-        const pos = savedPositions[i];
-        const isActive = (Number.isFinite(pos.__startTotal) || pos.__endTotal === Infinity)
-          ? pos.__startTotal <= current && current <= pos.__endTotal
-          : isHeroPositionActiveAt(pos, year, month);
-        if (isActive) savedPosition = pos;
-      }
+      const savedPosition = selectActiveHeroPosition(savedPositions, year, month);
       if (savedPosition && !royalTypes.has(type)) nextHero.position = savedPosition;
       result.push(nextHero);
     });
