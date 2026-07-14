@@ -30780,12 +30780,22 @@ kingSelect.addEventListener('change', () => {
                     const el = document.createElement('div');
                     el.className = 'codex-direct-hero-icon ml3d-hero-marker ml3d-scale-marker';
                     el.dataset.ml3dPriority = '4';
-                    el.style.cssText = 'cursor:pointer;overflow:visible;';
+                    el.style.cssText = 'cursor:pointer;overflow:visible;pointer-events:auto;';
                     el.innerHTML = _build3dHeroPinHtml(hero);
-                    el.addEventListener('click', () => {
+                    ['pointerdown', 'mousedown', 'touchstart'].forEach(type => {
+                        el.addEventListener(type, (ev) => {
+                            ev.stopPropagation();
+                        }, { passive: true });
+                    });
+                    el.addEventListener('click', (ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
                         window._closeSharedPopup && window._closeSharedPopup(0);
-                        if (window.heroSystem && typeof window.heroSystem.openSidebar === 'function') {
-                            window.heroSystem.openSidebar(hero._id);
+                        const heroId = hero?._id;
+                        if (heroId && window.heroSystem && typeof window.heroSystem.openSidebar === 'function') {
+                            window.heroSystem.openSidebar(String(heroId));
+                        } else if (window.heroSystem && typeof window.heroSystem._showHeroToast === 'function') {
+                            window.heroSystem._showHeroToast('영웅 상세 정보를 찾을 수 없습니다.');
                         }
                     });
                     const mk = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, 0], occludedOpacity: 1.0 })

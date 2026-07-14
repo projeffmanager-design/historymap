@@ -46,6 +46,35 @@ const toObjectId = (id) => {
     return null;
 }
 
+const normalizeCastleDuplicateName = (value) => String(value || '')
+    .normalize('NFKC')
+    .replace(/\([^)]*\)|（[^）]*）|\[[^\]]*\]|【[^】]*】/g, '')
+    .replace(/[ㆍ·\s_-]+/g, '')
+    .trim()
+    .toLowerCase();
+
+const castleDuplicateNameSet = (castle = {}) => {
+    const names = new Set();
+    const add = (value) => {
+        const normalized = normalizeCastleDuplicateName(value);
+        if (normalized) names.add(normalized);
+    };
+    add(castle.name);
+    if (Array.isArray(castle.history)) {
+        castle.history.forEach(h => add(h && h.name));
+    }
+    return names;
+};
+
+const hasOverlappingCastleName = (a, b) => {
+    const aNames = castleDuplicateNameSet(a);
+    const bNames = castleDuplicateNameSet(b);
+    for (const name of aNames) {
+        if (bNames.has(name)) return true;
+    }
+    return false;
+};
+
 const normalizeRouteId = (id) => {
     try {
         return decodeURIComponent(String(id || ''));
@@ -979,6 +1008,7 @@ async function setupRoutesAndCollections() {
         let _castleCacheTime = 0;
         const CASTLE_CACHE_TTL = 6 * 60 * 60 * 1000; // 6시간
         const CASTLE_STATIC_FILE = path.join(__dirname, 'public', 'castles.json');
+        let _castleStaticWriteTimer = null;
 
         // 🔔 [v3.9] 마지막 castle 데이터 변경 시각 — 클라이언트 캐시 무효화용
         // 서버 재시작 시엔 castles.json mtime 기반으로 초기화
@@ -1034,6 +1064,22 @@ async function setupRoutesAndCollections() {
             _castleCacheTime = 0;
         }
 
+        function scheduleCastleStaticFileWrite(reason = 'castle patch') {
+            if (!_castleCache) return;
+            if (_castleStaticWriteTimer) clearTimeout(_castleStaticWriteTimer);
+            _castleStaticWriteTimer = setTimeout(() => {
+                _castleStaticWriteTimer = null;
+                const snapshot = _castleCache;
+                fs.writeFile(CASTLE_STATIC_FILE, JSON.stringify(snapshot), (err) => {
+                    if (err) {
+                        console.warn(`⚠️ castles.json 자동 갱신 실패 (${reason}):`, err.message);
+                        return;
+                    }
+                    console.log(`💾 castles.json 자동 갱신 완료 (${reason}, ${snapshot.length}개)`);
+                });
+            }, 1200);
+        }
+
         // ✏️ [v4.0] castle 즉시 패치 — _castleCache 메모리만 업데이트 (castles.json 파일 의존 제거)
         function patchCastleInStaticFile(op, doc) {
             // op: 'upsert' | 'delete'
@@ -1054,10 +1100,33 @@ async function setupRoutesAndCollections() {
                     }
                 }
                 _castleLastModified = Date.now();
+                scheduleCastleStaticFileWrite(op);
                 console.log(`✏️ [메모리 패치] castle ${op} — ID: ${idStr}`);
             } catch (e) {
                 console.warn('⚠️ castle 메모리 패치 실패 (무시):', e.message);
             }
+        }
+
+        async function findDuplicateCastleCandidate(candidate, excludeId = null) {
+            const lat = Number(candidate && candidate.lat);
+            const lng = Number(candidate && candidate.lng);
+            const names = castleDuplicateNameSet(candidate);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng) || names.size === 0) return null;
+
+            const coordTolerance = 0.01;
+            const query = {
+                lat: { $gte: lat - coordTolerance, $lte: lat + coordTolerance },
+                lng: { $gte: lng - coordTolerance, $lte: lng + coordTolerance },
+                $or: [{ deleted: { $exists: false } }, { deleted: false }]
+            };
+            if (excludeId) {
+                const oid = toObjectId(excludeId);
+                if (oid) query._id = { $ne: oid };
+            }
+            const nearby = await collections.castle.find(query, {
+                projection: { _id: 1, name: 1, lat: 1, lng: 1, history: 1 }
+            }).limit(25).toArray();
+            return nearby.find(existing => hasOverlappingCastleName(candidate, existing)) || null;
         }
 
         // 📦 [v4.1] castle 캐시 재빌드 — MongoDB 조회 → _castleCache 갱신 + castles.json 동기 업데이트
@@ -1589,22 +1658,15 @@ async function setupRoutesAndCollections() {
                     console.log(`🎯 [군대 마커 신규 연도] built=${newCastle.built_year}, destroyed=${newCastle.destroyed_year}`);
                 }
 
-                // 🚩 [중복 방지] 같은 이름 + 유사 좌표(±0.001도 이내)의 castle이 이미 존재하면 추가 차단
-                if (newCastle.name && newCastle.lat != null && newCastle.lng != null) {
-                    const COORD_TOLERANCE = 0.001;
-                    const duplicateCastle = await collections.castle.findOne({
-                        name: newCastle.name,
-                        lat: { $gte: newCastle.lat - COORD_TOLERANCE, $lte: newCastle.lat + COORD_TOLERANCE },
-                        lng: { $gte: newCastle.lng - COORD_TOLERANCE, $lte: newCastle.lng + COORD_TOLERANCE },
-                        $or: [{ deleted: { $exists: false } }, { deleted: false }]
+                // 🚩 [중복 방지] 괄호 한자/공백 차이가 있는 이름 + 근접 좌표도 같은 마커로 판단
+                const duplicateCastle = await findDuplicateCastleCandidate(newCastle);
+                if (duplicateCastle) {
+                    console.warn(`⚠️ [중복 Castle 차단] '${newCastle.name}' 근접 이름+좌표 castle 이미 존재 (ID: ${duplicateCastle._id}). 기존 castle을 편집해주세요.`);
+                    return res.status(409).json({
+                        message: `'${newCastle.name}' 이름의 마커가 같은 위치 근처에 이미 있습니다. 기존 항목을 편집해주세요.`,
+                        existingId: duplicateCastle._id.toString(),
+                        existingName: duplicateCastle.name
                     });
-                    if (duplicateCastle) {
-                        console.warn(`⚠️ [중복 Castle 차단] '${newCastle.name}' 동일 이름+좌표 castle 이미 존재 (ID: ${duplicateCastle._id}). 기존 castle을 편집해주세요.`);
-                        return res.status(409).json({
-                            message: `'${newCastle.name}' 이름의 castle이 같은 위치에 이미 존재합니다. 기존 항목을 편집해주세요.`,
-                            existingId: duplicateCastle._id.toString()
-                        });
-                    }
                 }
 
                 // timestamp for incremental/changed-only detection
@@ -1688,6 +1750,17 @@ async function setupRoutesAndCollections() {
                     if (hasCapitalHistory) {
                         updatedCastle.is_capital = true;
                     }
+                }
+
+                // 🚩 [중복 방지] 수정으로 다른 근접 마커와 충돌하는 경우 저장 차단
+                const duplicateCastle = await findDuplicateCastleCandidate(updatedCastle, id);
+                if (duplicateCastle) {
+                    console.warn(`⚠️ [중복 Castle 수정 차단] '${updatedCastle.name}'이 기존 castle과 충돌 (ID: ${duplicateCastle._id}).`);
+                    return res.status(409).json({
+                        message: `'${updatedCastle.name || '이 마커'}'와 같은 이름/위치의 기존 마커가 있습니다. 기존 항목을 병합하거나 휴지통으로 이동한 뒤 저장해주세요.`,
+                        existingId: duplicateCastle._id.toString(),
+                        existingName: duplicateCastle.name
+                    });
                 }
                 
                 // mark update time for incremental updates
