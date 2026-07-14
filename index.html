@@ -288,7 +288,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.7.15',          // [v3.7.15] 영웅 시대 전환 캐시 개선
+        APP_VERSION: '3.7.18',          // [v3.7.18] 영웅 마커 즉시 렌더링
         DATA_SCHEMA_VERSION: '2.1.2'    // city territory absorption fix — 캐시 강제 갱신
     };
     // 세션 캐시에서 schema version 을 참조할 수 있도록 전역 노출
@@ -7124,7 +7124,7 @@ body.force-mobile .marker-type-selector button {
       color: rgba(212, 175, 55, 0.45);
       font-family: monospace;
       letter-spacing: 0.05em;
-    ">v<span id="loading-screen-version-text">3.7.15</span></div>
+    ">v<span id="loading-screen-version-text">3.7.18</span></div>
   </div>
 
   
@@ -19320,10 +19320,14 @@ const loadingMessages = [
               }
               
               const { year, month } = getCurrentYearMonth();
-              if (typeof window.__codexClearHeroCache === 'function') window.__codexClearHeroCache();
               updateMap(year, month);
               updateKingLabel(year, month);
-              if (typeof window.__codexScheduleHeroPins === 'function') window.__codexScheduleHeroPins(year, month, false);
+              if (typeof window._3dClearHeroCache === 'function') window._3dClearHeroCache();
+              if (typeof window.__codexRefreshHeroPinsNow === 'function') {
+                  window.__codexRefreshHeroPinsNow();
+              } else if (typeof window.__codexScheduleHeroPins === 'function') {
+                  window.__codexScheduleHeroPins(year, month, false);
+              }
               if (window._is3dMode && typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
           } catch (error) {
               console.error(`❌ 왕 동기화 실패: ${kingId}`, error);
@@ -19340,10 +19344,14 @@ const loadingMessages = [
               console.error("❌ 왕 메모리 추가 실패: 국가 ID 없음", newKing);
           }
           const { year, month } = getCurrentYearMonth();
-          if (typeof window.__codexClearHeroCache === 'function') window.__codexClearHeroCache();
           updateMap(year, month);
           updateKingLabel(year, month);
-          if (typeof window.__codexScheduleHeroPins === 'function') window.__codexScheduleHeroPins(year, month, false);
+          if (typeof window._3dClearHeroCache === 'function') window._3dClearHeroCache();
+          if (typeof window.__codexRefreshHeroPinsNow === 'function') {
+              window.__codexRefreshHeroPinsNow();
+          } else if (typeof window.__codexScheduleHeroPins === 'function') {
+              window.__codexScheduleHeroPins(year, month, false);
+          }
           if (window._is3dMode && typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
       };
       
@@ -19362,10 +19370,14 @@ const loadingMessages = [
           
           if (found) {
               const { year, month } = getCurrentYearMonth();
-              if (typeof window.__codexClearHeroCache === 'function') window.__codexClearHeroCache();
               updateMap(year, month);
               updateKingLabel(year, month);
-              if (typeof window.__codexScheduleHeroPins === 'function') window.__codexScheduleHeroPins(year, month, false);
+              if (typeof window._3dClearHeroCache === 'function') window._3dClearHeroCache();
+              if (typeof window.__codexRefreshHeroPinsNow === 'function') {
+                  window.__codexRefreshHeroPinsNow();
+              } else if (typeof window.__codexScheduleHeroPins === 'function') {
+                  window.__codexScheduleHeroPins(year, month, false);
+              }
               if (window._is3dMode && typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
           } else {
               console.warn(`⚠️ 삭제할 왕을 찾을 수 없음: ${kingId}`);
@@ -21424,9 +21436,7 @@ const loadingMessages = [
         } 
         
         updateMap(year, month, cacheOnly); // 🚩 cacheOnly 매개변수 전달
-        if (window.__codexScheduleHeroPins) {
-            window.__codexScheduleHeroPins(year, month, cacheOnly);
-        }
+        refreshHeroPinsForTime(year, month, cacheOnly);
         updateUI(year, month);
         checkAndDisplayEvent(year, month);
         // createHistoricalEventMarkers(); // 🚩 [제거] 연도 변경 시 사건 마커 업데이트 - 제거됨
@@ -21436,6 +21446,14 @@ const loadingMessages = [
     }
 
     function refreshHeroPinsForTime(year, month, cacheOnly = false) {
+        if (!cacheOnly && typeof window.__codexRenderHeroPinsImmediate === 'function') {
+            if (window.__codexRenderHeroPinsImmediate(year, month)) {
+                if (window._is3dMode && typeof window._3dRefreshHeroPins === 'function') {
+                    window._3dRefreshHeroPins();
+                }
+                return;
+            }
+        }
         if (typeof window.__codexScheduleHeroPins === 'function') {
             window.__codexScheduleHeroPins(year, month, cacheOnly);
         }
@@ -26738,9 +26756,8 @@ kingSelect.addEventListener('change', () => {
                             if (!res.ok) throw new Error((await res.json()).message);
                             await loadPosList(heroId);
                             _cachedYear = null;
-                            if (typeof window.__codexClearHeroCache === 'function') window.__codexClearHeroCache();
+                            await refreshHeroAdminDerivedState();
                             renderByYear(_currentYear, _currentMonth);
-                            if (typeof window.__codexForceHeroPins === 'function') window.__codexForceHeroPins(_currentYear, _currentMonth);
                         } catch(e) { alert('수정 실패: ' + e.message); }
                     };
                     // 삭제
@@ -26751,9 +26768,8 @@ kingSelect.addEventListener('change', () => {
                         });
                         await loadPosList(heroId);
                         _cachedYear = null;
-                        if (typeof window.__codexClearHeroCache === 'function') window.__codexClearHeroCache();
+                        await refreshHeroAdminDerivedState();
                         renderByYear(_currentYear, _currentMonth);
-                        if (typeof window.__codexForceHeroPins === 'function') window.__codexForceHeroPins(_currentYear, _currentMonth);
                     };
                     list.appendChild(el);
                 });
@@ -26761,11 +26777,11 @@ kingSelect.addEventListener('change', () => {
         }
 
         async function refreshHeroAdminDerivedState() {
+            if (typeof window._3dClearHeroCache === 'function') {
+                window._3dClearHeroCache();
+            }
             if (typeof window.__codexClearHeroCache === 'function') {
                 window.__codexClearHeroCache();
-            }
-            if (typeof window._3dRefreshHeroPins === 'function') {
-                window._3dRefreshHeroPins();
             }
             try {
                 const kingsRes = await fetch(`${API}/kings`, {
@@ -26789,8 +26805,15 @@ kingSelect.addEventListener('change', () => {
             const { year, month } = getCurrentYearMonth();
             if (typeof updateKingLabel === 'function') updateKingLabel(year, month);
             if (typeof updateMap === 'function') updateMap(year, month, false, true);
-            if (window.__codexScheduleHeroPins) window.__codexScheduleHeroPins(year, month, false);
+            if (typeof window.__codexRefreshHeroPinsNow === 'function') {
+                await window.__codexRefreshHeroPinsNow();
+            } else if (window.__codexForceHeroPins) {
+                window.__codexForceHeroPins(year, month);
+            } else if (window.__codexScheduleHeroPins) {
+                window.__codexScheduleHeroPins(year, month, false);
+            }
             if (window._is3dMode && typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
+            if (typeof window._3dRefreshHeroPins === 'function') window._3dRefreshHeroPins();
         }
 
         // ── 이벤트 바인딩 ──
@@ -26968,9 +26991,8 @@ kingSelect.addEventListener('change', () => {
                     document.getElementById('hpPlaceResults').style.display = 'none';
                     await loadPosList(currentAdminHeroId);
                     _cachedYear = null;
-                    if (typeof window.__codexClearHeroCache === 'function') window.__codexClearHeroCache();
+                    await refreshHeroAdminDerivedState();
                     renderByYear(_currentYear, _currentMonth);
-                    if (typeof window.__codexForceHeroPins === 'function') window.__codexForceHeroPins(_currentYear, _currentMonth);
                 } catch (e) { alert('위치 추가 실패: ' + e.message); }
             };
 
@@ -30108,6 +30130,11 @@ kingSelect.addEventListener('change', () => {
             let orbitOn   = false;
             let orbitTimer = null;
 
+            window._3dClearHeroCache = () => {
+                _3dHeroCache.clear();
+                _3dHeroRenderKey = null;
+            };
+
             function _is3dHeroLayerVisible() {
                 if (typeof window.__codexIsHeroLayerVisible === 'function') {
                     return window.__codexIsHeroLayerVisible();
@@ -30231,12 +30258,21 @@ kingSelect.addEventListener('change', () => {
                 let heroes = _3dHeroCache.get(key);
                 if (!heroes) {
                     try {
-                        heroes = await fetch(`/api/heroes?year=${year}&month=${month}`).then(r => r.json());
+                        if (typeof window.__codexGetHeroDataForTime === 'function') {
+                            heroes = await window.__codexGetHeroDataForTime(year, month);
+                        } else {
+                            heroes = await fetch(`/api/heroes?year=${year}&month=${month}`).then(r => r.json());
+                        }
                         _3dHeroCache.set(key, heroes);
                         if (_3dHeroCache.size > 120) _3dHeroCache.delete(_3dHeroCache.keys().next().value);
                     } catch (e) {
-                        console.warn('[3D 영웅] 로드 실패:', e);
-                        return;
+                        try {
+                            heroes = await fetch(`/api/heroes?year=${year}&month=${month}`).then(r => r.json());
+                            _3dHeroCache.set(key, heroes);
+                        } catch (fallbackError) {
+                            console.warn('[3D 영웅] 로드 실패:', fallbackError);
+                            return;
+                        }
                     }
                 }
                 if (seq !== _3dHeroRenderSeq || !window._is3dMode || !_is3dHeroLayerVisible()) return;
@@ -40507,6 +40543,6 @@ window.toggleResourceBar = function(btn, forceState) {
 </script>
 
 
-  <script type="module" src="./src/core/bootstrap.js?v=20260712-hero-cache-fast"></script>
+  <script type="module" src="./src/core/bootstrap.js?v=20260714-hero-instant-base"></script>
 </body>
 </html>

@@ -413,9 +413,11 @@ const isCastleActiveAtYear = (castle, year, month = 1) => (
 const HERO_BASE_CACHE_TTL_MS = 10 * 60 * 1000;
 const HERO_RESULT_CACHE_TTL_MS = 15 * 60 * 1000;
 let heroBaseCache = null;
+let heroBasePayloadCache = null;
 const heroResultCache = new Map();
 const invalidateHeroCaches = () => {
     heroBaseCache = null;
+    heroBasePayloadCache = null;
     heroResultCache.clear();
 };
 const setHeroPublicCacheHeaders = (res, cacheState) => {
@@ -427,9 +429,17 @@ const getHeroBaseData = async () => {
     if (heroBaseCache && now - heroBaseCache.at < HERO_BASE_CACHE_TTL_MS) {
         return { ...heroBaseCache.data, cacheHit: true };
     }
+    const capitalQuery = {
+        $or: [
+            { is_capital: true },
+            { place_type: { $in: ['capital', 'hwangseong'] } },
+            { 'history.is_capital': true },
+            { 'history.place_type': { $in: ['capital', 'hwangseong'] } }
+        ]
+    };
     const [countryDocs, capitalDocs, kingDocs] = await Promise.all([
         collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1, flag: 1, sealText: 1 } }).toArray(),
-        collections.castles.find({}, { projection: { _id: 1, name: 1, country_id: 1, lat: 1, lng: 1, built_year: 1, built_month: 1, destroyed_year: 1, destroyed_month: 1, is_capital: 1, place_type: 1, history: 1 } }).toArray(),
+        collections.castles.find(capitalQuery, { projection: { _id: 1, name: 1, country_id: 1, lat: 1, lng: 1, built_year: 1, built_month: 1, destroyed_year: 1, destroyed_month: 1, is_capital: 1, place_type: 1, history: 1 } }).toArray(),
         collections.kings.find({}, { projection: { _id: 1, country_id: 1, country_name: 1, kings: 1 } }).toArray()
     ]);
     heroBaseCache = {
@@ -437,6 +447,80 @@ const getHeroBaseData = async () => {
         data: { countryDocs, capitalDocs, kingDocs }
     };
     return { countryDocs, capitalDocs, kingDocs, cacheHit: false };
+};
+const buildHeroBasePayload = async () => {
+    const now = Date.now();
+    if (heroBasePayloadCache && now - heroBasePayloadCache.at < HERO_BASE_CACHE_TTL_MS) {
+        return { ...heroBasePayloadCache.payload, cacheHit: true };
+    }
+    const { countryDocs, capitalDocs, kingDocs, cacheHit } = await getHeroBaseData();
+    const countryMap = new Map(countryDocs.map(c => [String(c._id), c]));
+    const figures = [];
+    kingDocs.forEach((countryDoc) => {
+        const countryId = String(countryDoc.country_id || '');
+        const country = countryMap.get(countryId) || null;
+        const kingsList = Array.isArray(countryDoc.kings) ? countryDoc.kings : [];
+        kingsList.forEach((king, index) => {
+            const normalized = normalizeKingSchema(king, country, countryId);
+            figures.push({
+                _id: kingHeroId(countryId, king._id ? String(king._id) : index),
+                ...normalized,
+                birth_year: normalized.start_year,
+                death_year: normalized.end_year,
+                vote_count: king.vote_count || 0,
+                sort_year: normalized.start_year,
+                sort_month: normalized.start_month || 1,
+                sort_order: index,
+                source_ref_id: king._id ? String(king._id) : String(index),
+                source_country_id: countryId
+            });
+        });
+    });
+    const positions = await collections.heroPositions
+        .find({}, {
+            projection: {
+                _id: 1,
+                hero_id: 1,
+                year: 1,
+                start_year: 1,
+                start_month: 1,
+                end_year: 1,
+                end_month: 1,
+                type: 1,
+                event_title: 1,
+                location_name: 1,
+                geometry: 1
+            }
+        })
+        .sort({ start_year: 1, year: 1, createdAt: 1 })
+        .toArray();
+    const payload = {
+        generatedAt: new Date().toISOString(),
+        cacheHit,
+        countries: countryDocs.map(c => ({
+            _id: String(c._id),
+            name: c.name || '',
+            color: c.color || '#c8860a'
+        })),
+        capitals: capitalDocs.map(c => ({
+            _id: String(c._id),
+            name: c.name || '',
+            country_id: c.country_id ? String(c.country_id) : '',
+            lat: c.lat,
+            lng: c.lng,
+            built_year: c.built_year,
+            built_month: c.built_month,
+            destroyed_year: c.destroyed_year,
+            destroyed_month: c.destroyed_month,
+            is_capital: c.is_capital,
+            place_type: c.place_type,
+            history: Array.isArray(c.history) ? c.history : []
+        })),
+        figures,
+        positions
+    };
+    heroBasePayloadCache = { at: now, payload };
+    return payload;
 };
 
 // ============================================================
@@ -2126,6 +2210,20 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
             }
         });
 
+        // GET /api/heroes/base — 영웅 렌더링용 전체 베이스 데이터
+        app.get('/api/heroes/base', async (req, res) => {
+            try {
+                const startedAt = Date.now();
+                const payload = await buildHeroBasePayload();
+                setHeroPublicCacheHeaders(res, payload.cacheHit ? 'base-dataset-hit' : 'base-dataset-miss');
+                console.log(`[GET /api/heroes/base] figures=${payload.figures.length} positions=${payload.positions.length} capitals=${payload.capitals.length} ${Date.now() - startedAt}ms`);
+                res.json(payload);
+            } catch (err) {
+                console.error('[GET /api/heroes/base] 오류:', err);
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
         // GET /api/heroes/:id — 영웅 상세 + 연도 히스토리 + 댓글
         app.get('/api/heroes/:id', async (req, res) => {
             try {
@@ -2838,7 +2936,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
 
 // GET: 앱 버전 반환 (login.html 등 외부 페이지용)
 app.get('/api/app-version', (req, res) => {
-    res.json({ version: '3.7.15' });
+    res.json({ version: '3.7.18' });
 });
 
 // GET: 모든 장수 정보 반환

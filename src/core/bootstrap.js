@@ -1,5 +1,7 @@
 const HERO_LOG_LIMIT = 200;
 const HERO_CLIENT_CACHE_TTL_MS = 15 * 60 * 1000;
+const HERO_BASE_STORAGE_KEY = 'codex_hero_base_dataset_v3';
+const HERO_BASE_STORAGE_TTL_MS = 15 * 60 * 1000;
 const HERO_TYPE_IMAGE_URLS = {
   emperor: 'https://github.com/projeffmanager-design/img/blob/main/emp.png?raw=true',
   king: 'https://github.com/projeffmanager-design/img/blob/main/king.png?raw=true',
@@ -25,6 +27,9 @@ let heroViewportRefreshBound = false;
 const heroClientCache = new Map();
 const heroPrefetchingKeys = new Set();
 let heroCacheBust = 0;
+let heroBaseDataset = null;
+let heroBaseDatasetPromise = null;
+let heroCapitalCoordinateCache = { source: null, length: 0, set: new Set() };
 
 function heroLog(phase, detail = {}) {
   const entry = {
@@ -204,14 +209,8 @@ function getShiftedHeroLatLng(lat, lng) {
   const castleList = Array.isArray(window.castles)
     ? window.castles
     : (typeof castles !== 'undefined' && Array.isArray(castles) ? castles : []);
-  const overlapsCapital = castleList.some((castle) => {
-    if (!isCapitalLikeCastle(castle)) return false;
-    const castleLat = Number(castle.lat);
-    const castleLng = Number(castle.lng);
-    return Number.isFinite(castleLat) && Number.isFinite(castleLng)
-      && Math.abs(castleLat - lat) < 1e-7
-      && Math.abs(castleLng - lng) < 1e-7;
-  });
+  const capitalCoordinates = getCapitalCoordinateSet(castleList);
+  const overlapsCapital = capitalCoordinates.has(heroCoordinateKey(lat, lng));
 
   if (!overlapsCapital || !leaflet || !leafletMap || typeof leafletMap.project !== 'function') {
     return [lat, lng];
@@ -221,6 +220,31 @@ function getShiftedHeroLatLng(lat, lng) {
   const shifted = leaflet.point(projected.x + getOverlapShiftPx(), projected.y);
   const result = leafletMap.unproject(shifted);
   return [result.lat, result.lng];
+}
+
+function heroCoordinateKey(lat, lng) {
+  return `${Number(lat).toFixed(7)}:${Number(lng).toFixed(7)}`;
+}
+
+function getCapitalCoordinateSet(castleList) {
+  if (
+    heroCapitalCoordinateCache.source === castleList &&
+    heroCapitalCoordinateCache.length === castleList.length
+  ) {
+    return heroCapitalCoordinateCache.set;
+  }
+
+  const set = new Set();
+  castleList.forEach((castle) => {
+    if (!isCapitalLikeCastle(castle)) return;
+    const castleLat = Number(castle.lat);
+    const castleLng = Number(castle.lng);
+    if (Number.isFinite(castleLat) && Number.isFinite(castleLng)) {
+      set.add(heroCoordinateKey(castleLat, castleLng));
+    }
+  });
+  heroCapitalCoordinateCache = { source: castleList, length: castleList.length, set };
+  return set;
 }
 
 function isHeroInCurrentView(lat, lng) {
@@ -287,6 +311,320 @@ function heroCacheKey(year, month) {
   return `${parseInt(year, 10) || 0}:${parseInt(month, 10) || 1}`;
 }
 
+function heroTotalMonths(year, month = 1) {
+  return (parseInt(year, 10) || 0) * 12 + (normalizeMonth(month, 1) - 1);
+}
+
+function idToString(value) {
+  if (!value) return '';
+  if (typeof value === 'object') return String(value.$oid || value._id || value);
+  return String(value);
+}
+
+function getStoredHeroBaseDataset() {
+  try {
+    const raw = localStorage.getItem(HERO_BASE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || Date.now() - parsed.at >= HERO_BASE_STORAGE_TTL_MS) return null;
+    return parsed.data || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function storeHeroBaseDataset(data) {
+  try {
+    localStorage.setItem(HERO_BASE_STORAGE_KEY, JSON.stringify({ at: Date.now(), data }));
+  } catch (_) {}
+}
+
+function prepareHeroBaseDataset(base) {
+  if (!base || base.__heroPrepared) return base;
+
+  const figures = Array.isArray(base.figures) ? base.figures : [];
+  const positions = Array.isArray(base.positions) ? base.positions : [];
+  const capitals = Array.isArray(base.capitals) ? base.capitals : [];
+  const figuresByCountry = new Map();
+  const positionsByHero = new Map();
+  const capitalEntriesByCountry = new Map();
+
+  figures.forEach((hero) => {
+    const countryId = idToString(hero.source_country_id || hero.country_id);
+    const type = normalizeType(hero.hero_type || hero.type, hero.name_ko || hero.name || hero.title || '');
+    const startYear = parseInt(hero?.start_year ?? hero?.birth_year ?? hero?.start, 10);
+    const endRaw = hero?.end_year ?? hero?.death_year ?? hero?.end;
+    hero.__countryId = countryId;
+    hero.__heroType = type;
+    hero.__startTotal = Number.isNaN(startYear) ? NaN : heroTotalMonths(startYear, hero.start_month || 1);
+    hero.__endTotal = endRaw === null || endRaw === undefined || endRaw === ''
+      ? Infinity
+      : heroTotalMonths(endRaw, hero.end_month || 12);
+    if (!countryId) return;
+    if (!figuresByCountry.has(countryId)) figuresByCountry.set(countryId, []);
+    figuresByCountry.get(countryId).push(hero);
+  });
+
+  positions.forEach((pos) => {
+    const id = idToString(pos?.hero_id);
+    const startYear = parseInt(pos?.start_year ?? pos?.year, 10);
+    const endRaw = pos?.end_year;
+    pos.__startTotal = Number.isNaN(startYear) ? NaN : heroTotalMonths(startYear, pos.start_month || 1);
+    pos.__endTotal = endRaw === null || endRaw === undefined || endRaw === ''
+      ? Infinity
+      : heroTotalMonths(endRaw, pos.end_month || 12);
+    if (!id) return;
+    if (!positionsByHero.has(id)) positionsByHero.set(id, []);
+    positionsByHero.get(id).push(pos);
+  });
+
+  const addCapitalEntry = (countryId, castle, record, rank) => {
+    if (!countryId) return;
+    const entry = {
+      castle,
+      record,
+      rank,
+      startTotal: rank,
+      endTotal: record
+        ? (record.end_year === null || record.end_year === undefined || record.end_year === ''
+          ? Infinity
+          : heroTotalMonths(record.end_year, record.end_month || 12))
+        : (castle.destroyed_year === null || castle.destroyed_year === undefined || castle.destroyed_year === ''
+          ? Infinity
+          : heroTotalMonths(castle.destroyed_year, castle.destroyed_month || 12)),
+    };
+    if (!capitalEntriesByCountry.has(countryId)) capitalEntriesByCountry.set(countryId, []);
+    capitalEntriesByCountry.get(countryId).push(entry);
+  };
+
+  capitals.forEach((castle) => {
+    const history = Array.isArray(castle?.history) ? castle.history : [];
+    history.forEach((record) => {
+      if (!isCapitalHistoryRecord(record)) return;
+      const countryId = idToString(record?.country_id || castle?.country_id);
+      const startYear = parseInt(record.start_year, 10);
+      if (Number.isNaN(startYear)) return;
+      addCapitalEntry(countryId, castle, record, heroTotalMonths(startYear, record.start_month || 1));
+    });
+    if (!history.length && isCapitalLikeCastle(castle)) {
+      const countryId = idToString(castle?.country_id);
+      const startYear = parseInt(castle.built_year, 10);
+      if (!Number.isNaN(startYear)) {
+        addCapitalEntry(countryId, castle, null, heroTotalMonths(startYear, castle.built_month || 1));
+      }
+    }
+  });
+
+  Object.defineProperty(base, '__heroPrepared', {
+    value: { figuresByCountry, positionsByHero, capitalEntriesByCountry },
+    enumerable: false,
+    configurable: true,
+  });
+  return base;
+}
+
+async function loadHeroBaseDataset(force = false) {
+  if (!force && heroBaseDataset) return heroBaseDataset;
+  if (!force) {
+    const stored = getStoredHeroBaseDataset();
+    if (stored) {
+      heroBaseDataset = prepareHeroBaseDataset(stored);
+      heroLog('base-storage-hit', {
+        figures: Array.isArray(stored.figures) ? stored.figures.length : 0,
+        positions: Array.isArray(stored.positions) ? stored.positions.length : 0,
+      });
+      return heroBaseDataset;
+    }
+  }
+  if (!heroBaseDatasetPromise || force) {
+    const bust = force || heroCacheBust ? `?v=${heroCacheBust || Date.now()}` : '';
+    heroBaseDatasetPromise = fetch(`/api/heroes/base${bust}`, {
+      cache: force || heroCacheBust ? 'no-store' : 'default',
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error(`heroes/base ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        heroClientCache.clear();
+        storeHeroBaseDataset(data);
+        heroBaseDataset = prepareHeroBaseDataset(data);
+        heroLog('base-loaded', {
+          figures: Array.isArray(data?.figures) ? data.figures.length : 0,
+          positions: Array.isArray(data?.positions) ? data.positions.length : 0,
+          capitals: Array.isArray(data?.capitals) ? data.capitals.length : 0,
+        });
+        return heroBaseDataset;
+      })
+      .finally(() => {
+        heroBaseDatasetPromise = null;
+      });
+  }
+  return heroBaseDatasetPromise;
+}
+
+function isFigureActiveAt(hero, year, month) {
+  if (Number.isFinite(hero?.__startTotal) || hero?.__endTotal === Infinity) {
+    const currentPrepared = heroTotalMonths(year, month);
+    return hero.__startTotal <= currentPrepared && currentPrepared < hero.__endTotal;
+  }
+  const startYear = parseInt(hero?.start_year ?? hero?.birth_year ?? hero?.start, 10);
+  if (Number.isNaN(startYear)) return false;
+  const endRaw = hero?.end_year ?? hero?.death_year ?? hero?.end;
+  const current = heroTotalMonths(year, month);
+  const start = heroTotalMonths(startYear, hero?.start_month || 1);
+  const end = endRaw === null || endRaw === undefined || endRaw === ''
+    ? Infinity
+    : heroTotalMonths(endRaw, hero?.end_month || 12);
+  return start <= current && current < end;
+}
+
+function isHeroPositionActiveAt(pos, year, month) {
+  if (Number.isFinite(pos?.__startTotal) || pos?.__endTotal === Infinity) {
+    const currentPrepared = heroTotalMonths(year, month);
+    return pos.__startTotal <= currentPrepared && currentPrepared <= pos.__endTotal;
+  }
+  const startYear = parseInt(pos?.start_year ?? pos?.year, 10);
+  if (Number.isNaN(startYear)) return false;
+  const endRaw = pos?.end_year;
+  const current = heroTotalMonths(year, month);
+  const start = heroTotalMonths(startYear, pos?.start_month || 1);
+  const end = endRaw === null || endRaw === undefined || endRaw === ''
+    ? Infinity
+    : heroTotalMonths(endRaw, pos?.end_month || 12);
+  return start <= current && current <= end;
+}
+
+function isCapitalHistoryRecord(record = {}) {
+  return record.is_capital === true || record.place_type === 'capital' || record.place_type === 'hwangseong';
+}
+
+function isYearMonthRangeActive(startYear, startMonth, endYear, endMonth, year, month) {
+  const parsedStart = parseInt(startYear, 10);
+  if (Number.isNaN(parsedStart)) return false;
+  const current = heroTotalMonths(year, month);
+  const start = heroTotalMonths(parsedStart, startMonth || 1);
+  const end = endYear === null || endYear === undefined || endYear === ''
+    ? Infinity
+    : heroTotalMonths(endYear, endMonth || 12);
+  return start <= current && current <= end;
+}
+
+function getCurrentCapitalEntry(capitals, countryId, year, month) {
+  const target = idToString(countryId);
+  if (capitals && capitals.__entriesByCountry) {
+    const current = heroTotalMonths(year, month);
+    let best = null;
+    (capitals.__entriesByCountry.get(target) || []).forEach((entry) => {
+      if (entry.startTotal <= current && current <= entry.endTotal && (!best || entry.rank >= best.rank)) {
+        best = entry;
+      }
+    });
+    return best;
+  }
+  let best = null;
+  (Array.isArray(capitals) ? capitals : []).forEach((castle) => {
+    const history = Array.isArray(castle?.history) ? castle.history : [];
+    history.forEach((record) => {
+      const recordCountryId = idToString(record?.country_id || castle?.country_id);
+      if (!recordCountryId || recordCountryId !== target || !isCapitalHistoryRecord(record)) return;
+      if (!isYearMonthRangeActive(record.start_year, record.start_month, record.end_year, record.end_month, year, month)) return;
+      const rank = heroTotalMonths(record.start_year, record.start_month || 1);
+      if (!best || rank >= best.rank) best = { castle, record, rank };
+    });
+    if (!history.length && idToString(castle?.country_id) === target && isCapitalLikeCastle(castle)
+      && isYearMonthRangeActive(castle.built_year, castle.built_month, castle.destroyed_year, castle.destroyed_month, year, month)) {
+      const rank = heroTotalMonths(castle.built_year ?? -999999, castle.built_month || 1);
+      if (!best || rank >= best.rank) best = { castle, record: null, rank };
+    }
+  });
+  return best;
+}
+
+function buildHeroesFromBaseDataset(base, year, month) {
+  prepareHeroBaseDataset(base);
+  const prepared = base?.__heroPrepared || null;
+  const figures = Array.isArray(base?.figures) ? base.figures : [];
+  const capitals = Array.isArray(base?.capitals) ? base.capitals : [];
+  const current = heroTotalMonths(year, month);
+  const activeByCountry = new Map();
+  figures.forEach((hero) => {
+    const countryId = hero.__countryId || idToString(hero.source_country_id || hero.country_id);
+    if (!countryId) return;
+    if ((Number.isFinite(hero.__startTotal) || hero.__endTotal === Infinity)
+      ? !(hero.__startTotal <= current && current < hero.__endTotal)
+      : !isFigureActiveAt(hero, year, month)) return;
+    if (!activeByCountry.has(countryId)) activeByCountry.set(countryId, []);
+    activeByCountry.get(countryId).push(hero);
+  });
+
+  const result = [];
+  activeByCountry.forEach((activeHeroes, countryId) => {
+    let selectedRoyal = null;
+    const visibleHeroes = [];
+    activeHeroes.forEach((hero) => {
+      const type = hero.__heroType || normalizeType(hero.hero_type || hero.type, hero.name_ko || hero.name || hero.title || '');
+      if (!royalTypes.has(type)) {
+        visibleHeroes.push(hero);
+        return;
+      }
+      if (!selectedRoyal) {
+        selectedRoyal = hero;
+        return;
+      }
+      const heroStart = hero.__startTotal ?? heroTotalMonths(hero.start_year, hero.start_month || 1);
+      const selectedStart = selectedRoyal.__startTotal ?? heroTotalMonths(selectedRoyal.start_year, selectedRoyal.start_month || 1);
+      if (
+        heroStart > selectedStart ||
+        (heroStart === selectedStart && idToString(hero.source_ref_id || hero._id).localeCompare(idToString(selectedRoyal.source_ref_id || selectedRoyal._id)) > 0)
+      ) {
+        selectedRoyal = hero;
+      }
+    });
+    if (selectedRoyal) visibleHeroes.push(selectedRoyal);
+
+    const indexedCapitals = prepared ? { __entriesByCountry: prepared.capitalEntriesByCountry } : capitals;
+    const capitalEntry = getCurrentCapitalEntry(indexedCapitals, countryId, year, month);
+    visibleHeroes.forEach((hero) => {
+      const type = hero.__heroType || normalizeType(hero.hero_type || hero.type, hero.name_ko || hero.name || hero.title || '');
+      const nextHero = { ...hero };
+      const capital = capitalEntry?.castle;
+      if (capital && Number.isFinite(Number(capital.lat)) && Number.isFinite(Number(capital.lng))) {
+        nextHero.position = {
+          hero_id: nextHero._id,
+          year: nextHero.start_year,
+          start_year: nextHero.start_year,
+          end_year: nextHero.end_year,
+          start_month: nextHero.start_month,
+          end_month: nextHero.end_month,
+          type: 'STAY',
+          event_title: nextHero.title || nextHero.name_ko || '왕',
+          location_name: capitalEntry?.record?.name || capital.name || nextHero.faction || '',
+          geometry: { type: 'Point', coordinates: [Number(capital.lng), Number(capital.lat)] },
+          source_kind: 'capital',
+        };
+      }
+      const savedPositions = prepared?.positionsByHero.get(idToString(nextHero._id)) || [];
+      let savedPosition = null;
+      for (let i = 0; i < savedPositions.length; i += 1) {
+        const pos = savedPositions[i];
+        const isActive = (Number.isFinite(pos.__startTotal) || pos.__endTotal === Infinity)
+          ? pos.__startTotal <= current && current <= pos.__endTotal
+          : isHeroPositionActiveAt(pos, year, month);
+        if (isActive) savedPosition = pos;
+      }
+      if (savedPosition && !royalTypes.has(type)) nextHero.position = savedPosition;
+      result.push(nextHero);
+    });
+  });
+
+  return result.sort((a, b) => (
+    (a.sort_year ?? a.start_year ?? 0) - (b.sort_year ?? b.start_year ?? 0) ||
+    (a.sort_month ?? a.start_month ?? 1) - (b.sort_month ?? b.start_month ?? 1) ||
+    (a.sort_order ?? 0) - (b.sort_order ?? 0)
+  ));
+}
+
 function getCachedHeroData(key) {
   const cached = heroClientCache.get(key);
   if (!cached || Date.now() - cached.at >= HERO_CLIENT_CACHE_TTL_MS) return null;
@@ -305,6 +643,16 @@ async function fetchHeroData(year, month, signal) {
   const key = heroCacheKey(year, month);
   const cached = getCachedHeroData(key);
   if (cached) return { data: cached, cacheHit: true };
+  const base = heroBaseDataset || getStoredHeroBaseDataset();
+  if (base) {
+    heroBaseDataset = prepareHeroBaseDataset(base);
+    const data = buildHeroesFromBaseDataset(base, year, month);
+    setCachedHeroData(key, data);
+    return { data, cacheHit: true, localBase: true };
+  }
+  loadHeroBaseDataset().catch((err) => {
+    heroLog('base-preload-error', { message: err?.message || String(err) });
+  });
   const url = `/api/heroes?year=${parseInt(year, 10) || 0}&month=${parseInt(month, 10) || 1}`;
   const requestUrl = heroCacheBust ? `${url}&v=${heroCacheBust}` : url;
   const data = await fetch(requestUrl, {
@@ -315,7 +663,42 @@ async function fetchHeroData(year, month, signal) {
   return { data, cacheHit: false };
 }
 
-function renderHeroDataToLayer(data, layer, leaflet, normalizedYear, normalizedMonth, seq, renderKey) {
+function renderHeroPinsImmediate(year, month) {
+  if (!heroLayerVisible) return false;
+  const normalizedYear = parseInt(year, 10) || 0;
+  const normalizedMonth = parseInt(month, 10) || 1;
+  const renderKey = heroCacheKey(normalizedYear, normalizedMonth);
+  const leaflet = getLeaflet();
+  const layer = getHeroLayer();
+  if (!leaflet || !layer) return false;
+  let data = getCachedHeroData(renderKey);
+  if (!data) {
+    const base = heroBaseDataset || getStoredHeroBaseDataset();
+    if (!base) return false;
+    heroBaseDataset = prepareHeroBaseDataset(base);
+    data = buildHeroesFromBaseDataset(base, normalizedYear, normalizedMonth);
+    setCachedHeroData(renderKey, data);
+  }
+  clearTimeout(heroRenderTimer);
+  heroRenderTimer = null;
+  const seq = ++heroRenderSeq;
+  activeHeroRenderKey = renderKey;
+  pendingHeroRenderKey = renderKey;
+  clearLegacyHeroLayer();
+  renderHeroDataToLayer(data, layer, leaflet, normalizedYear, normalizedMonth, seq, renderKey, {
+    immediate: true,
+    skipPrefetch: true,
+  });
+  heroLog('render-immediate', {
+    year: normalizedYear,
+    month: normalizedMonth,
+    count: Array.isArray(data) ? data.length : 0,
+    seq,
+  });
+  return true;
+}
+
+function renderHeroDataToLayer(data, layer, leaflet, normalizedYear, normalizedMonth, seq, renderKey, options = {}) {
   let added = 0;
   const skipped = { noCoords: 0, invalidCoords: 0, outOfView: 0 };
   const markers = [];
@@ -348,7 +731,7 @@ function renderHeroDataToLayer(data, layer, leaflet, normalizedYear, normalizedM
   });
 
   layer.clearLayers();
-  const chunkSize = window.innerWidth < 768 ? 18 : 36;
+  const chunkSize = options.immediate ? (markers.length || 1) : (window.innerWidth < 768 ? 18 : 36);
   const addChunk = (index = 0) => {
     if (seq !== heroRenderSeq || renderKey !== activeHeroRenderKey || !heroLayerVisible) {
       heroLog('render-chunk-stale-discarded', { seq, renderKey, index });
@@ -373,10 +756,11 @@ function renderHeroDataToLayer(data, layer, leaflet, normalizedYear, normalizedM
       seq,
       renderKey,
       chunkSize,
+      immediate: !!options.immediate,
     });
     renderedHeroKey = renderKey;
     pendingHeroRenderKey = null;
-    prefetchAdjacentHeroData(normalizedYear, normalizedMonth);
+    if (!options.skipPrefetch) prefetchAdjacentHeroData(normalizedYear, normalizedMonth);
   };
   addChunk(0);
 }
@@ -524,7 +908,7 @@ function scheduleHeroPins(year, month, cacheOnly) {
   pendingHeroRenderKey = key;
   heroLog('schedule', { year: normalizedYear, month: normalizedMonth, key, cacheOnly: !!cacheOnly });
   clearTimeout(heroRenderTimer);
-  const delay = getCachedHeroData(key) ? 0 : 70;
+  const delay = getCachedHeroData(key) || heroBaseDataset || getStoredHeroBaseDataset() ? 0 : 70;
   heroRenderTimer = setTimeout(() => {
     heroRenderTimer = null;
     heroLog('schedule-fire', { year: normalizedYear, month: normalizedMonth, key });
@@ -612,18 +996,45 @@ function bootHeroRenderer() {
     heroCacheBust = Date.now();
     heroClientCache.clear();
     heroPrefetchingKeys.clear();
+    heroBaseDataset = null;
+    heroBaseDatasetPromise = null;
+    try { localStorage.removeItem(HERO_BASE_STORAGE_KEY); } catch (_) {}
     renderedHeroKey = null;
     pendingHeroRenderKey = null;
     activeHeroRenderKey = null;
   };
+  window.__codexRefreshHeroPinsNow = async () => {
+    window.__codexClearHeroCache();
+    const { year, month } = getCurrentYearMonth();
+    try {
+      await loadHeroBaseDataset(true);
+      if (!renderHeroPinsImmediate(year, month)) {
+        await renderHeroPins(year, month);
+      }
+    } catch (err) {
+      heroLog('refresh-now-base-error', { message: err?.message || String(err) });
+      await renderHeroPins(year, month);
+    }
+  };
   window.__codexScheduleHeroPins = scheduleHeroPins;
   window.__codexForceHeroPins = renderHeroPins;
+  window.__codexRenderHeroPinsImmediate = renderHeroPinsImmediate;
+  window.__codexGetHeroDataForTime = async (year, month) => {
+    const { data } = await fetchHeroData(year, month);
+    return data;
+  };
   window.__codexSetHeroLayerVisible = setHeroLayerVisible;
   window.__codexIsHeroLayerVisible = () => heroLayerVisible;
   syncInitialHeroLayerVisibility();
   patchGetKingByYear();
   bindTimelineFallback();
   bindMapViewportRefresh();
+  loadHeroBaseDataset()
+    .then(() => {
+      const current = getCurrentYearMonth();
+      renderHeroPinsImmediate(current.year, current.month) || scheduleHeroPins(current.year, current.month, false);
+    })
+    .catch((err) => heroLog('base-initial-load-error', { message: err?.message || String(err) }));
   const { year, month } = getCurrentYearMonth();
   scheduleHeroPins(year, month, false);
 }
