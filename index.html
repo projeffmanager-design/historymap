@@ -29430,6 +29430,89 @@ kingSelect.addEventListener('change', () => {
         const topbarSearchInput = document.getElementById('topbarSearchInput');
         const topbarSearchBtn = document.getElementById('topbarSearchBtn');
         const topbarSearchResults = document.getElementById('topbarSearchResults');
+        let _heroSearchBasePromise = null;
+        const _tbEscapeAttr = (value) => String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const _tbEscapeHtml = (value) => String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const _tbHeroYearLabel = (year) => {
+            if (year === null || year === undefined || year === '' || Number.isNaN(Number(year))) return '연대 미상';
+            const y = Number(year);
+            return y < 0 ? `BC ${Math.abs(y)}년` : `${y}년`;
+        };
+        const _tbLoadHeroSearchBase = async () => {
+            if (!_heroSearchBasePromise) {
+                _heroSearchBasePromise = fetch(`${API_BASE_URL}/heroes/base`, { cache: 'force-cache' })
+                    .then(r => {
+                        if (!r.ok) throw new Error(`heroes/base ${r.status}`);
+                        return r.json();
+                    })
+                    .catch(async () => {
+                        const r = await fetch('/api/heroes/base', { cache: 'force-cache' });
+                        if (!r.ok) throw new Error(`heroes/base ${r.status}`);
+                        return r.json();
+                    });
+            }
+            return _heroSearchBasePromise;
+        };
+        const _tbFindHeroHits = async (query, limit = 8) => {
+            const q = String(query || '').trim().toLowerCase();
+            if (!q) return [];
+            const base = await _tbLoadHeroSearchBase();
+            const figures = Array.isArray(base?.figures) ? base.figures : [];
+            const hits = [];
+            for (const hero of figures) {
+                const haystack = [
+                    hero.name_ko,
+                    hero.name,
+                    hero.name_zh,
+                    hero.title,
+                    hero.description,
+                    hero.faction
+                ].filter(Boolean).join(' ').toLowerCase();
+                if (!haystack.includes(q)) continue;
+                hits.push(hero);
+                if (hits.length >= limit) break;
+            }
+            return hits;
+        };
+        const _tbHeroItem = (hero, closeMobile = false) => {
+            const label = hero.name_ko || hero.name || '영웅';
+            const safeLabel = _tbEscapeAttr(label);
+            const safeId = _tbEscapeAttr(hero._id);
+            const year = parseInt(hero.start_year ?? hero.birth_year ?? hero.start, 10);
+            const month = parseInt(hero.start_month, 10) || 1;
+            const end = hero.end_year ?? hero.death_year ?? hero.end;
+            const period = `${_tbHeroYearLabel(year)} ~ ${_tbHeroYearLabel(end)}`;
+            const sub = [hero.faction, hero.title, period].filter(Boolean).join(' · ');
+            const closeCode = closeMobile ? "var _mso=document.getElementById('mobile-search-overlay');if(_mso)_mso.classList.remove('open');" : '';
+            return `<div class="topbar-result-item" onclick="_tbGoToHero('${safeId}','${safeLabel}',${Number.isNaN(year) ? 'null' : year},${month});${closeCode}" style="display:flex;flex-direction:column;gap:2px;">
+                <span>🦸 ${_tbEscapeHtml(label)}</span>
+                ${sub ? `<span style="font-size:10px;color:#d0a862;">${_tbEscapeHtml(sub)}</span>` : ''}
+            </div>`;
+        };
+        window._tbGoToHero = (heroId, label, year, month) => {
+            const input = document.getElementById('topbarSearchInput');
+            const results = document.getElementById('topbarSearchResults');
+            if (input) input.value = label || '';
+            if (results) results.style.display = 'none';
+            const y = parseInt(year, 10);
+            const m = Math.min(12, Math.max(1, parseInt(month, 10) || 1));
+            if (!Number.isNaN(y) && typeof yearMonthToTotalMonths === 'function') {
+                const totalMonths = yearMonthToTotalMonths(y, m);
+                const sMin = parseInt(combinedSlider.min);
+                const sMax = parseInt(combinedSlider.max);
+                const clamped = Math.min(sMax, Math.max(sMin, totalMonths));
+                combinedSlider.value = clamped;
+                const mapped = totalMonthsToYearMonth(clamped);
+                document.getElementById('yearInput').value = mapped.year;
+                document.getElementById('monthInput').value = mapped.month;
+                updateTime(mapped.year, mapped.month);
+                updateUI(mapped.year, mapped.month);
+                if (typeof updateSliderTooltip === 'function') updateSliderTooltip(mapped.year, mapped.month);
+            }
+            if (window.heroSystem && typeof window.heroSystem.openSidebar === 'function') {
+                window.heroSystem.openSidebar(String(heroId));
+            }
+        };
         if (topbarSearchInput && topbarSearchBtn) {
 
             // 선택 항목으로 지도 이동
@@ -29689,8 +29772,9 @@ kingSelect.addEventListener('change', () => {
                 const urlBounded = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&accept-language=ko&viewbox=${viewbox}&bounded=1`;
                 const urlGlobal  = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&accept-language=ko&viewbox=${viewbox}&bounded=0`;
 
-                const [hRes, nomBounded, nomGlobal] = await Promise.allSettled([
+                const [hRes, heroRes, nomBounded, nomGlobal] = await Promise.allSettled([
                     fetch(`${API_BASE_URL}/history/search?q=${encodeURIComponent(query)}&limit=8`),
+                    _tbFindHeroHits(query, 8),
                     fetch(urlBounded, { headers: { 'Accept-Language': 'ko' } }),
                     fetch(urlGlobal,  { headers: { 'Accept-Language': 'ko' } }),
                 ]);
@@ -29709,6 +29793,7 @@ kingSelect.addEventListener('change', () => {
                         type: h.type || 'history'
                     }));
                 }
+                const heroHits = heroRes.status === 'fulfilled' && Array.isArray(heroRes.value) ? heroRes.value : [];
 
                 // Nominatim 파싱
                 let mapHits = [], mapHitsGlobal = [];
@@ -29745,6 +29830,10 @@ kingSelect.addEventListener('change', () => {
                 if (dbHits.length) {
                     dbHtml += _tbSectionTitle('● 역사 DB', '#7ab8cc');
                     dbHtml += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
+                }
+                if (heroHits.length) {
+                    dbHtml += _tbSectionTitle('🦸 영웅', '#d0a862');
+                    dbHtml += heroHits.map(h => _tbHeroItem(h)).join('');
                 }
                 if (historyHits.length) {
                     dbHtml += _tbSectionTitle('● 역사 기록 / 원전 사료', '#a888d4');
@@ -29795,6 +29884,7 @@ kingSelect.addEventListener('change', () => {
 
                 // DB 결과 즉시 표시 (인덱스 포함)
                 const dbHits = [];
+                const heroHitsPromise = _tbFindHeroHits(query, 8).catch(() => []);
                 for (let _i = 0; _i < castles.length; _i++) {
                     const c = castles[_i];
                     const nameMatch =
@@ -29823,6 +29913,22 @@ kingSelect.addEventListener('change', () => {
                     _tbRenderSearchSections(html, '');
                     topbarSearchResults.style.display = 'block';
                 }
+                heroHitsPromise.then((heroHits) => {
+                    if (topbarSearchInput.value.trim().toLowerCase() !== ql) return;
+                    let dbOnlyHtml = '';
+                    if (dbHits.length) {
+                        dbOnlyHtml += _tbSectionTitle('● 역사 DB', '#7ab8cc');
+                        dbOnlyHtml += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
+                    }
+                    if (heroHits.length) {
+                        dbOnlyHtml += _tbSectionTitle('🦸 영웅', '#d0a862');
+                        dbOnlyHtml += heroHits.map(h => _tbHeroItem(h)).join('');
+                    }
+                    if (dbOnlyHtml) {
+                        _tbRenderSearchSections(dbOnlyHtml, '');
+                        topbarSearchResults.style.display = 'block';
+                    }
+                });
 
                 // Nominatim 400ms 디바운스
                 _tbNominatimTimer = setTimeout(async () => {
@@ -29841,12 +29947,17 @@ kingSelect.addEventListener('change', () => {
 
                     // 현재 입력값이 바뀌었으면 무시
                     if (topbarSearchInput.value.trim().toLowerCase() !== ql) return;
+                    const heroHits = await heroHitsPromise;
 
                     // DB 결과 재렌더 + Nominatim 추가 (역사DB / 실지도 사이에 광고 삽입)
                     let dbOnlyHtml = '';
                     if (dbHits.length) {
                         dbOnlyHtml += _tbSectionTitle('● 역사 DB', '#7ab8cc');
                         dbOnlyHtml += dbHits.map(h => _tbItem(h.label, h.sub, h.lat, h.lng, h.idx)).join('');
+                    }
+                    if (heroHits.length) {
+                        dbOnlyHtml += _tbSectionTitle('🦸 영웅', '#d0a862');
+                        dbOnlyHtml += heroHits.map(h => _tbHeroItem(h)).join('');
                     }
                     let mapOnlyHtml = '';
                     if (mapHits.length) {
@@ -29981,12 +30092,13 @@ kingSelect.addEventListener('change', () => {
                 }
 
                 // Nominatim + 역사기록 병렬
-                const [hRes, nomRes] = await Promise.allSettled([
+                const [hRes, heroRes, nomRes] = await Promise.allSettled([
                     fetch(`${API_BASE_URL}/history/search?q=${encodeURIComponent(query)}&limit=6`),
+                    _tbFindHeroHits(query, 8),
                     fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&accept-language=ko`, { headers: { 'Accept-Language': 'ko' } })
                 ]);
 
-                let histHits = [], mapHits = [];
+                let histHits = [], heroHits = [], mapHits = [];
                 try {
                     if (hRes.status === 'fulfilled' && hRes.value.ok) {
                         const hd = await hRes.value.json();
@@ -29997,6 +30109,9 @@ kingSelect.addEventListener('change', () => {
                         }));
                     }
                 } catch(e) {}
+                if (heroRes.status === 'fulfilled' && Array.isArray(heroRes.value)) {
+                    heroHits = heroRes.value;
+                }
                 try {
                     if (nomRes.status === 'fulfilled' && nomRes.value.ok) {
                         const items = await nomRes.value.json();
@@ -30013,6 +30128,7 @@ kingSelect.addEventListener('change', () => {
                 let dbHtml = '';
                 if (milHits.length) { dbHtml += _mbTitle('⚔️ 군대 마커','#e0a050'); dbHtml += milHits.map(h=>_mbItem(h.label,h.sub,h.lat,h.lng,h.idx)).join(''); }
                 if (dbHits.length)  { dbHtml += _mbTitle('● 역사 DB','#7ab8cc');    dbHtml += dbHits.map(h=>_mbItem(h.label,h.sub,h.lat,h.lng,h.idx)).join(''); }
+                if (heroHits.length){ dbHtml += _mbTitle('🦸 영웅','#d0a862');      dbHtml += heroHits.map(h=>_tbHeroItem(h, true)).join(''); }
                 if (histHits.length){ dbHtml += _mbTitle('● 역사 기록','#a888d4');
                     dbHtml += histHits.map(h => {
                         const safeLabel = (h.label||'').replace(/'/g,"\\'");
