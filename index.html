@@ -29489,7 +29489,56 @@ kingSelect.addEventListener('change', () => {
                 ${sub ? `<span style="font-size:10px;color:#d0a862;">${_tbEscapeHtml(sub)}</span>` : ''}
             </div>`;
         };
-        window._tbGoToHero = (heroId, label, year, month) => {
+        const _tbHeroPositionTotal = (pos, fallbackYear, fallbackMonth, isEnd = false) => {
+            const yearValue = isEnd ? pos?.end_year : (pos?.start_year ?? pos?.year);
+            if (yearValue === null || yearValue === undefined || yearValue === '') return isEnd ? Infinity : -Infinity;
+            const y = parseInt(yearValue, 10);
+            if (Number.isNaN(y)) return isEnd ? Infinity : -Infinity;
+            const m = parseInt(isEnd ? pos?.end_month : pos?.start_month, 10)
+                || (isEnd ? 12 : 1)
+                || fallbackMonth
+                || 1;
+            return yearMonthToTotalMonths(y, Math.min(12, Math.max(1, m)));
+        };
+        const _tbSelectHeroPosition = (positions, year, month) => {
+            const list = Array.isArray(positions) ? positions.filter(p => p?.geometry?.coordinates?.length >= 2) : [];
+            if (!list.length) return null;
+            const current = Number.isNaN(parseInt(year, 10)) ? null : yearMonthToTotalMonths(parseInt(year, 10), parseInt(month, 10) || 1);
+            const active = current === null ? list : list.filter((pos) => {
+                const start = _tbHeroPositionTotal(pos, year, month, false);
+                const end = _tbHeroPositionTotal(pos, year, month, true);
+                return start <= current && current <= end;
+            });
+            const candidates = active.length ? active : list;
+            return candidates.slice().sort((a, b) => {
+                const aStart = _tbHeroPositionTotal(a, year, month, false);
+                const aEnd = _tbHeroPositionTotal(a, year, month, true);
+                const bStart = _tbHeroPositionTotal(b, year, month, false);
+                const bEnd = _tbHeroPositionTotal(b, year, month, true);
+                const aSpan = Number.isFinite(aStart) && Number.isFinite(aEnd) ? aEnd - aStart : Infinity;
+                const bSpan = Number.isFinite(bStart) && Number.isFinite(bEnd) ? bEnd - bStart : Infinity;
+                return aSpan - bSpan || bStart - aStart;
+            })[0] || null;
+        };
+        const _tbFlyToHeroPosition = async (heroId, year, month) => {
+            try {
+                const r = await fetch(`${API_BASE_URL}/heroes/${encodeURIComponent(heroId)}`).catch(() => fetch(`/api/heroes/${encodeURIComponent(heroId)}`));
+                if (!r || !r.ok) return;
+                const data = await r.json();
+                const pos = _tbSelectHeroPosition(data.positions || [], year, month);
+                const coords = pos?.geometry?.coordinates || [];
+                const lng = Number(coords[0]);
+                const lat = Number(coords[1]);
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                if (window._is3dMode && window.mlMap3d) {
+                    window.mlMap3d.flyTo({ center: [lng, lat], zoom: Math.max(window.mlMap3d.getZoom(), 12), duration: 1200, essential: true });
+                }
+                map.flyTo([lat, lng], Math.max(map.getZoom(), 12), { animate: true, duration: 1.0 });
+            } catch (e) {
+                console.warn('[topbar hero search] 위치 클로즈업 실패:', e);
+            }
+        };
+        window._tbGoToHero = async (heroId, label, year, month) => {
             const input = document.getElementById('topbarSearchInput');
             const results = document.getElementById('topbarSearchResults');
             if (input) input.value = label || '';
@@ -29512,6 +29561,7 @@ kingSelect.addEventListener('change', () => {
             if (window.heroSystem && typeof window.heroSystem.openSidebar === 'function') {
                 window.heroSystem.openSidebar(String(heroId));
             }
+            await _tbFlyToHeroPosition(String(heroId), y, m);
         };
         if (topbarSearchInput && topbarSearchBtn) {
 
