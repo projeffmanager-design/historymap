@@ -194,6 +194,29 @@ function getOverlapShiftPx() {
   return window.innerWidth < 768 ? 22 : 28;
 }
 
+function getHeroClusterDistancePx() {
+  return window.innerWidth < 768 ? 34 : 42;
+}
+
+function getHeroSpreadOffsetPx(index, count) {
+  if (count <= 1) return { x: 0, y: 0 };
+  const base = window.innerWidth < 768 ? 24 : 30;
+  if (count === 2) {
+    return { x: index === 0 ? -base * 0.55 : base * 0.55, y: 0 };
+  }
+
+  const perRing = 6;
+  const ring = Math.floor(index / perRing);
+  const ringIndex = index % perRing;
+  const inRing = Math.min(perRing, count - ring * perRing);
+  const radius = base + ring * 14;
+  const angle = -Math.PI / 2 + (Math.PI * 2 * ringIndex / inRing) + ring * 0.34;
+  return {
+    x: Math.cos(angle) * radius,
+    y: Math.sin(angle) * radius,
+  };
+}
+
 function isCapitalLikeCastle(castle) {
   if (!castle) return false;
   if (castle.is_capital === true) return true;
@@ -220,6 +243,51 @@ function getShiftedHeroLatLng(lat, lng) {
   const shifted = leaflet.point(projected.x + getOverlapShiftPx(), projected.y);
   const result = leafletMap.unproject(shifted);
   return [result.lat, result.lng];
+}
+
+function resolveOverlappingHeroLatLngs(entries) {
+  const leaflet = getLeaflet();
+  const leafletMap = getMap();
+  if (!leaflet || !leafletMap || typeof leafletMap.project !== 'function' || typeof leafletMap.unproject !== 'function') {
+    return entries.map(entry => entry.baseLatLng);
+  }
+
+  const threshold = getHeroClusterDistancePx();
+  const groups = [];
+  entries.forEach((entry, index) => {
+    const point = leafletMap.project(entry.baseLatLng);
+    const match = groups.find(group => {
+      const dx = point.x - group.center.x;
+      const dy = point.y - group.center.y;
+      return Math.sqrt(dx * dx + dy * dy) <= threshold;
+    });
+
+    const packed = { ...entry, index, point };
+    if (match) {
+      match.entries.push(packed);
+      const size = match.entries.length;
+      match.center = leaflet.point(
+        match.center.x + (point.x - match.center.x) / size,
+        match.center.y + (point.y - match.center.y) / size
+      );
+    } else {
+      groups.push({ center: point, entries: [packed] });
+    }
+  });
+
+  const resolved = new Array(entries.length);
+  groups.forEach((group) => {
+    const sorted = [...group.entries].sort((a, b) => (
+      String(a.hero?._id || '').localeCompare(String(b.hero?._id || ''))
+    ));
+    sorted.forEach((entry, sortedIndex) => {
+      const offset = getHeroSpreadOffsetPx(sortedIndex, sorted.length);
+      const shiftedPoint = leaflet.point(entry.point.x + offset.x, entry.point.y + offset.y);
+      const shiftedLatLng = leafletMap.unproject(shiftedPoint);
+      resolved[entry.index] = [shiftedLatLng.lat, shiftedLatLng.lng];
+    });
+  });
+  return resolved;
 }
 
 function heroCoordinateKey(lat, lng) {
@@ -728,6 +796,7 @@ function renderHeroDataToLayer(data, layer, leaflet, normalizedYear, normalizedM
   let added = 0;
   const skipped = { noCoords: 0, invalidCoords: 0, outOfView: 0 };
   const markers = [];
+  const renderEntries = [];
   data.forEach((hero) => {
     const coords = hero?.position?.geometry?.coordinates;
     if (!Array.isArray(coords) || coords.length < 2) {
@@ -744,13 +813,23 @@ function renderHeroDataToLayer(data, layer, leaflet, normalizedYear, normalizedM
       skipped.outOfView += 1;
       return;
     }
-    const marker = leaflet.marker(getShiftedHeroLatLng(lat, lng), {
-      icon: buildHeroIcon(hero),
+    renderEntries.push({
+      hero,
+      lat,
+      lng,
+      baseLatLng: getShiftedHeroLatLng(lat, lng),
+    });
+  });
+
+  const resolvedLatLngs = resolveOverlappingHeroLatLngs(renderEntries);
+  renderEntries.forEach((entry, index) => {
+    const marker = leaflet.marker(resolvedLatLngs[index] || entry.baseLatLng, {
+      icon: buildHeroIcon(entry.hero),
       zIndexOffset: 10000,
     });
     marker.on('click', () => {
       if (window.heroSystem && typeof window.heroSystem.openSidebar === 'function') {
-        window.heroSystem.openSidebar(hero._id);
+        window.heroSystem.openSidebar(entry.hero._id);
       }
     });
     markers.push(marker);

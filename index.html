@@ -288,7 +288,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.7.18',          // [v3.7.18] 영웅 마커 즉시 렌더링
+        APP_VERSION: '3.7.19',          // [v3.7.19] 영웅 마커 겹침 완화
         DATA_SCHEMA_VERSION: '2.1.2'    // city territory absorption fix — 캐시 강제 갱신
     };
     // 세션 캐시에서 schema version 을 참조할 수 있도록 전역 노출
@@ -7310,7 +7310,7 @@ body.force-mobile .marker-type-selector button {
       color: rgba(212, 175, 55, 0.45);
       font-family: monospace;
       letter-spacing: 0.05em;
-    ">v<span id="loading-screen-version-text">3.7.18</span></div>
+    ">v<span id="loading-screen-version-text">3.7.19</span></div>
   </div>
 
   
@@ -26596,6 +26596,68 @@ kingSelect.addEventListener('change', () => {
             return [result.lat, result.lng];
         }
 
+        function getHeroClusterDistancePx() {
+            return window.innerWidth < 768 ? 34 : 42;
+        }
+
+        function getHeroSpreadOffsetPx(index, count) {
+            if (count <= 1) return { x: 0, y: 0 };
+            const base = window.innerWidth < 768 ? 24 : 30;
+            if (count === 2) {
+                return { x: index === 0 ? -base * 0.55 : base * 0.55, y: 0 };
+            }
+            const perRing = 6;
+            const ring = Math.floor(index / perRing);
+            const ringIndex = index % perRing;
+            const inRing = Math.min(perRing, count - ring * perRing);
+            const radius = base + ring * 14;
+            const angle = -Math.PI / 2 + (Math.PI * 2 * ringIndex / inRing) + ring * 0.34;
+            return {
+                x: Math.cos(angle) * radius,
+                y: Math.sin(angle) * radius
+            };
+        }
+
+        function resolveOverlappingHeroLatLngs(entries) {
+            if (!map || typeof map.project !== 'function' || typeof map.unproject !== 'function') {
+                return entries.map(entry => entry.baseLatLng);
+            }
+            const threshold = getHeroClusterDistancePx();
+            const groups = [];
+            entries.forEach((entry, index) => {
+                const point = map.project(entry.baseLatLng);
+                const match = groups.find(group => {
+                    const dx = point.x - group.center.x;
+                    const dy = point.y - group.center.y;
+                    return Math.sqrt(dx * dx + dy * dy) <= threshold;
+                });
+                const packed = { ...entry, index, point };
+                if (match) {
+                    match.entries.push(packed);
+                    const size = match.entries.length;
+                    match.center = L.point(
+                        match.center.x + (point.x - match.center.x) / size,
+                        match.center.y + (point.y - match.center.y) / size
+                    );
+                } else {
+                    groups.push({ center: point, entries: [packed] });
+                }
+            });
+            const resolved = new Array(entries.length);
+            groups.forEach(group => {
+                const sorted = [...group.entries].sort((a, b) => (
+                    String(a.hero?._id || '').localeCompare(String(b.hero?._id || ''))
+                ));
+                sorted.forEach((entry, sortedIndex) => {
+                    const offset = getHeroSpreadOffsetPx(sortedIndex, sorted.length);
+                    const shifted = L.point(entry.point.x + offset.x, entry.point.y + offset.y);
+                    const result = map.unproject(shifted);
+                    resolved[entry.index] = [result.lat, result.lng];
+                });
+            });
+            return resolved;
+        }
+
         function normalizeHeroTypeForImage(hero) {
             const raw = String(hero?.hero_type || hero?.type || hero?.role_type || '').trim().toLowerCase();
             if (KNOWN_HERO_TYPES.has(raw)) return raw;
@@ -26694,12 +26756,22 @@ kingSelect.addEventListener('change', () => {
                 const data = await fetch(`${API}/heroes?year=${year}&month=${month}`).then(r => r.json());
                 _cachedYear = year;
                 _cachedMonth = month;
+                const entries = [];
                 data.forEach(hero => {
                     if (!hero.position?.geometry?.coordinates) return;
                     const [lng, lat] = hero.position.geometry.coordinates;
-                    const [shiftedLat, shiftedLng] = getShiftedHeroLatLng(hero, lat, lng);
-                    const marker = L.marker([shiftedLat, shiftedLng], { icon: buildPinIcon(hero) });
-                    marker.on('click', () => openSidebar(hero._id));
+                    const heroLat = Number(lat);
+                    const heroLng = Number(lng);
+                    if (!Number.isFinite(heroLat) || !Number.isFinite(heroLng)) return;
+                    entries.push({
+                        hero,
+                        baseLatLng: getShiftedHeroLatLng(hero, heroLat, heroLng)
+                    });
+                });
+                const resolvedLatLngs = resolveOverlappingHeroLatLngs(entries);
+                entries.forEach((entry, index) => {
+                    const marker = L.marker(resolvedLatLngs[index] || entry.baseLatLng, { icon: buildPinIcon(entry.hero) });
+                    marker.on('click', () => openSidebar(entry.hero._id));
                     _layer.addLayer(marker);
                 });
                 if (!map.hasLayer(_layer)) map.addLayer(_layer);
@@ -30907,6 +30979,67 @@ kingSelect.addEventListener('change', () => {
                 return [shifted.lng, shifted.lat];
             }
 
+            function _3dHeroClusterDistancePx() {
+                return window.innerWidth < 768 ? 34 : 42;
+            }
+
+            function _3dHeroSpreadOffsetPx(index, count) {
+                if (count <= 1) return { x: 0, y: 0 };
+                const base = window.innerWidth < 768 ? 24 : 30;
+                if (count === 2) {
+                    return { x: index === 0 ? -base * 0.55 : base * 0.55, y: 0 };
+                }
+                const perRing = 6;
+                const ring = Math.floor(index / perRing);
+                const ringIndex = index % perRing;
+                const inRing = Math.min(perRing, count - ring * perRing);
+                const radius = base + ring * 14;
+                const angle = -Math.PI / 2 + (Math.PI * 2 * ringIndex / inRing) + ring * 0.34;
+                return {
+                    x: Math.cos(angle) * radius,
+                    y: Math.sin(angle) * radius
+                };
+            }
+
+            function _resolve3dHeroLngLats(entries) {
+                if (!mlMap || typeof mlMap.project !== 'function' || typeof mlMap.unproject !== 'function') {
+                    return entries.map(entry => entry.baseLngLat);
+                }
+                const threshold = _3dHeroClusterDistancePx();
+                const groups = [];
+                entries.forEach((entry, index) => {
+                    const point = mlMap.project(entry.baseLngLat);
+                    const match = groups.find(group => {
+                        const dx = point.x - group.center.x;
+                        const dy = point.y - group.center.y;
+                        return Math.sqrt(dx * dx + dy * dy) <= threshold;
+                    });
+                    const packed = { ...entry, index, point };
+                    if (match) {
+                        match.entries.push(packed);
+                        const size = match.entries.length;
+                        match.center = {
+                            x: match.center.x + (point.x - match.center.x) / size,
+                            y: match.center.y + (point.y - match.center.y) / size
+                        };
+                    } else {
+                        groups.push({ center: point, entries: [packed] });
+                    }
+                });
+                const resolved = new Array(entries.length);
+                groups.forEach(group => {
+                    const sorted = [...group.entries].sort((a, b) => (
+                        String(a.hero?._id || '').localeCompare(String(b.hero?._id || ''))
+                    ));
+                    sorted.forEach((entry, sortedIndex) => {
+                        const offset = _3dHeroSpreadOffsetPx(sortedIndex, sorted.length);
+                        const shifted = mlMap.unproject([entry.point.x + offset.x, entry.point.y + offset.y]);
+                        resolved[entry.index] = [shifted.lng, shifted.lat];
+                    });
+                });
+                return resolved;
+            }
+
             async function _render3dHeroPins(force = false) {
                 if (!mlMap || !window._is3dMode || !window.maplibregl || !_is3dHeroLayerVisible()) {
                     _clear3dHeroMarkers();
@@ -30939,12 +31072,21 @@ kingSelect.addEventListener('change', () => {
                 if (seq !== _3dHeroRenderSeq || !window._is3dMode || !_is3dHeroLayerVisible()) return;
                 _clear3dHeroMarkers();
                 _3dHeroRenderKey = key;
+                const heroEntries = [];
                 (Array.isArray(heroes) ? heroes : []).forEach(hero => {
                     const coords = hero?.position?.geometry?.coordinates;
                     if (!Array.isArray(coords) || coords.length < 2) return;
                     const lng = Number(coords[0]);
                     const lat = Number(coords[1]);
                     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                    heroEntries.push({
+                        hero,
+                        baseLngLat: _shift3dHeroLngLat(lat, lng)
+                    });
+                });
+                const resolvedLngLats = _resolve3dHeroLngLats(heroEntries);
+                heroEntries.forEach((entry, index) => {
+                    const hero = entry.hero;
                     const el = document.createElement('div');
                     el.className = 'codex-direct-hero-icon ml3d-hero-marker ml3d-scale-marker';
                     el.dataset.ml3dPriority = '4';
@@ -30967,7 +31109,7 @@ kingSelect.addEventListener('change', () => {
                         }
                     });
                     const mk = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, 0], occludedOpacity: 1.0 })
-                        .setLngLat(_shift3dHeroLngLat(lat, lng))
+                        .setLngLat(resolvedLngLats[index] || entry.baseLngLat)
                         .addTo(mlMap);
                     _3dHeroMarkers.push(mk);
                     _3dMarkers.push(mk);
@@ -41149,6 +41291,6 @@ window.toggleResourceBar = function(btn, forceState) {
 </script>
 
 
-  <script type="module" src="./src/core/bootstrap.js?v=20260714-hero-instant-base"></script>
+  <script type="module" src="./src/core/bootstrap.js?v=20260716-hero-overlap-spread"></script>
 </body>
 </html>
