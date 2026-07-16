@@ -113,6 +113,31 @@
         transition: none;
     }
 
+    .water-level-status {
+        position: fixed;
+        left: 14px;
+        bottom: 96px;
+        z-index: 1200;
+        display: none;
+        max-width: min(320px, calc(100vw - 28px));
+        padding: 8px 10px;
+        border: 1px solid rgba(90, 170, 210, 0.42);
+        border-radius: 6px;
+        background: rgba(12, 26, 38, 0.88);
+        color: #d9eef8;
+        font-size: 11px;
+        line-height: 1.35;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+        pointer-events: none;
+    }
+
+    .water-level-status strong {
+        display: block;
+        color: #87d7ff;
+        font-size: 12px;
+        margin-bottom: 2px;
+    }
+
     /* 🚩 [추가] 지도 변경 스위치(레이어 컨트롤) 빈티지 스타일 - 전체 분위기에 맞춤 */
     .leaflet-control-layers {
         border: 1px solid rgba(139, 69, 19, 0.6) !important;
@@ -2020,6 +2045,7 @@ body.force-mobile .marker-type-selector button {
     #close-timeline-sidebar {
         position: relative;
         z-index: 160;
+        margin-left: auto;
         background: transparent;
         border: 1px solid rgba(220,80,70,0.25);
         color: rgba(255,140,120,0.7);
@@ -2040,12 +2066,11 @@ body.force-mobile .marker-type-selector button {
         color: #fff;
         border-color: rgba(220,80,70,0.7);
     }
-    #timeline-resize-handle,
-    #timeline-resize-handle-ne {
+    #timeline-resize-handle {
         position: absolute;
         right: 0;
-        width: 34px;
-        height: 34px;
+        width: 42px;
+        height: 42px;
         z-index: 170;
         pointer-events: auto;
         touch-action: none;
@@ -2062,19 +2087,8 @@ body.force-mobile .marker-type-selector button {
                     rgba(20,16,8,0.42);
         box-shadow: -1px -1px 0 rgba(240,205,110,0.32) inset;
     }
-    #timeline-resize-handle-ne {
-        top: 0;
-        cursor: nesw-resize;
-        border-radius: 0 0 0 8px;
-        background: radial-gradient(circle at 74% 26%, rgba(245,210,100,0.95) 0 2px, transparent 2.5px),
-                    radial-gradient(circle at 55% 26%, rgba(245,210,100,0.78) 0 2px, transparent 2.5px),
-                    radial-gradient(circle at 74% 45%, rgba(245,210,100,0.78) 0 2px, transparent 2.5px),
-                    linear-gradient(45deg, transparent 0 48%, rgba(240,205,110,0.65) 49% 54%, transparent 55%),
-                    rgba(20,16,8,0.42);
-        box-shadow: -1px 1px 0 rgba(240,205,110,0.32) inset;
-    }
     #timeline-resize-handle:hover,
-    #timeline-resize-handle-ne:hover {
+    #timeline-resize-handle:active {
         opacity: 1;
         filter: brightness(1.35);
     }
@@ -7495,6 +7509,7 @@ body.force-mobile .marker-type-selector button {
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px;">
           <label><input type="checkbox" id="menu-layer-city" checked> 성/도시</label>
           <label><input type="checkbox" id="menu-layer-territory" checked> 영토</label>
+          <label><input type="checkbox" id="menu-layer-water-level"> 수위</label>
           <label><input type="checkbox" id="menu-layer-country-label" checked> 국가명</label>
           <label><input type="checkbox" id="menu-layer-admin-label" checked> 행정구역명</label>
           <label><input type="checkbox" id="menu-layer-place-label"> 지명</label>
@@ -7760,6 +7775,9 @@ body.force-mobile .marker-type-selector button {
                             <input type="checkbox" class="mobile-layer-checkbox" data-layer="rivers" style="margin-right: 6px;"> 강
                         </label>
                         <label style="display: flex; align-items: center; padding: 4px 0; cursor: pointer; font-size: 11px;">
+                            <input type="checkbox" class="mobile-layer-checkbox" data-layer="waterLevel" style="margin-right: 6px;"> 수위
+                        </label>
+                        <label style="display: flex; align-items: center; padding: 4px 0; cursor: pointer; font-size: 11px;">
                             <input type="checkbox" class="mobile-layer-checkbox" data-layer="timeline" checked style="margin-right: 6px;"> 연대표
                         </label>
                         <hr style="border: 0; border-top: 1px solid #5d7185; margin: 4px 0;">
@@ -7821,6 +7839,7 @@ body.force-mobile .marker-type-selector button {
                 <button type="button" class="layer-toggle-btn" data-layer="event" style="padding: 2px 4px; font-size: 10px;">이벤트</button>
                 <button type="button" class="layer-toggle-btn" data-layer="territoryPolygon" style="padding: 2px 4px; font-size: 10px;">영토</button>
                 <button type="button" class="layer-toggle-btn" data-layer="rivers" style="padding: 2px 4px; font-size: 10px;">강</button>
+                <button type="button" class="layer-toggle-btn" data-layer="waterLevel" style="padding: 2px 4px; font-size: 10px;">수위</button>
                 <button type="button" class="layer-toggle-btn" data-layer="timeline" style="padding: 2px 4px; font-size: 10px;">연대표</button>
                 <button type="button" class="layer-toggle-btn" data-layer="eventSidebar" style="padding: 2px 4px; font-size: 10px;">사건목록</button>
                 <button id="btn-pop-heat" type="button" class="layer-toggle-btn" onclick="togglePopHeat(this)" style="padding: 2px 4px; font-size: 10px;">👥 호구수</button>
@@ -10627,6 +10646,7 @@ body.force-mobile .marker-type-selector button {
         relic: true,       // 🏛️ [신규] 유적 레이어 (고분군·건설·사냥터·성곽 그리기 등)
         territoryPolygon: true, // 🔄 [변경] 영토 초기 ON (자동 로딩)
         rivers: true,     // 🌊 [수정] 강 레이어 기본값 ON — drawings river 타입 포함
+        waterLevel: false, // 🌊 연대별 수위 오버레이 (기본 OFF)
         event: true,       // 📖 이벤트 알림 기본 ON
         timeline: false,   // 🚩 [수정] 연대표 가시성 - 옵셔널로 기본 숨김
         kingPanel: false,  // 🚩 [수정] 왕목록 패널 초기값 OFF
@@ -11204,6 +11224,12 @@ body.force-mobile .marker-type-selector button {
         map.getPane('territoryPane').style.pointerEvents = 'none';
     }
 
+    if (!map.getPane('waterLevelPane')) {
+        map.createPane('waterLevelPane');
+        map.getPane('waterLevelPane').style.zIndex = 395;
+        map.getPane('waterLevelPane').style.pointerEvents = 'auto';
+    }
+
     if (!map.getPane('territoryEditPane')) {
         map.createPane('territoryEditPane');
         map.getPane('territoryEditPane').style.zIndex = 420; // Geoman markerPane(600) 아래
@@ -11215,9 +11241,140 @@ body.force-mobile .marker-type-selector button {
     let territoryLayerGroup = L.layerGroup({ pane: 'territoryPane' }).addTo(map); // 🗺️ 영토 전용 pane�️ 영토 전용 pane
     let territoryEditLayerGroup = L.layerGroup({ pane: 'territoryEditPane' }).addTo(map);
     window.territoryEditLayerGroup = territoryEditLayerGroup; // 🧭 경계편집 IIFE에서 접근
+    let waterLevelLayerGroup = L.layerGroup({ pane: 'waterLevelPane' }).addTo(map);
     let riverLayerGroup = L.layerGroup().addTo(map);     // 🌊 강 레이어 그룹 (별도 분리)
     let contributionLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 기여 레이어 그룹
     let labelLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 라벨 레이어 그룹
+
+    const WATER_LEVEL_DATA_URL = '/public/water-levels-by-era.json';
+    let waterLevelDataset = null;
+    let waterLevelDatasetPromise = null;
+
+    function getWaterLevelStatusEl() {
+        let el = document.getElementById('water-level-status');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'water-level-status';
+            el.className = 'water-level-status';
+            document.body.appendChild(el);
+        }
+        return el;
+    }
+
+    function formatWaterLevelValue(value) {
+        if (typeof value !== 'number' || !isFinite(value)) return '수위값 없음';
+        const sign = value > 0 ? '+' : '';
+        return `${sign}${value.toFixed(1)}m`;
+    }
+
+    async function loadWaterLevelDataset() {
+        if (waterLevelDataset) return waterLevelDataset;
+        if (!waterLevelDatasetPromise) {
+            waterLevelDatasetPromise = fetch(WATER_LEVEL_DATA_URL, { cache: 'no-store' })
+                .then(res => {
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    return res.json();
+                })
+                .then(data => {
+                    waterLevelDataset = {
+                        source: data.source || {},
+                        records: Array.isArray(data.records) ? data.records : []
+                    };
+                    return waterLevelDataset;
+                })
+                .catch(err => {
+                    console.warn('[water-level] dataset load failed:', err);
+                    waterLevelDatasetPromise = null;
+                    return { source: {}, records: [] };
+                });
+        }
+        return waterLevelDatasetPromise;
+    }
+
+    function getWaterLevelRecordForYear(year, dataset) {
+        const records = dataset?.records || [];
+        const direct = records.find(r => Number(r.start_year) <= year && year <= Number(r.end_year));
+        if (direct) return direct;
+        return records
+            .map(r => {
+                const start = Number(r.start_year);
+                const end = Number(r.end_year);
+                const midpoint = (start + end) / 2;
+                return { record: r, distance: Math.abs(year - midpoint) };
+            })
+            .sort((a, b) => a.distance - b.distance)[0]?.record || null;
+    }
+
+    function clearWaterLevelOverlay() {
+        if (waterLevelLayerGroup) waterLevelLayerGroup.clearLayers();
+        const status = document.getElementById('water-level-status');
+        if (status) status.style.display = 'none';
+    }
+
+    function getWaterLevelStyle(record) {
+        const level = Number(record?.relative_level_m || 0);
+        const rising = level >= 0;
+        const magnitude = Math.min(Math.abs(level), 8);
+        return {
+            color: rising ? '#4bc3ff' : '#d8b468',
+            weight: rising ? 1.2 : 1,
+            opacity: 0.62,
+            fillColor: rising ? '#1ba8e8' : '#d8b468',
+            fillOpacity: 0.20 + magnitude * 0.035,
+            dashArray: rising ? null : '5,4',
+            pane: 'waterLevelPane'
+        };
+    }
+
+    async function refreshWaterLevelOverlay(year, force = false) {
+        if (!waterLevelLayerGroup) return;
+        if (!layerVisibility.waterLevel) {
+            clearWaterLevelOverlay();
+            return;
+        }
+
+        const dataset = await loadWaterLevelDataset();
+        if (!layerVisibility.waterLevel && !force) return;
+        const record = getWaterLevelRecordForYear(year, dataset);
+        waterLevelLayerGroup.clearLayers();
+
+        const status = getWaterLevelStatusEl();
+        if (!record) {
+            status.innerHTML = '<strong>연대별 수위</strong>현재 연도에 맞는 수위 데이터가 없습니다.';
+            status.style.display = 'block';
+            return;
+        }
+
+        const areas = Array.isArray(record.areas) ? record.areas : [];
+        areas.forEach(area => {
+            if (!area || !area.geometry) return;
+            const feature = {
+                type: 'Feature',
+                geometry: area.geometry,
+                properties: {
+                    name: area.name || record.label || '수위 영향권',
+                    note: area.note || record.note || ''
+                }
+            };
+            const layer = L.geoJSON(feature, {
+                pane: 'waterLevelPane',
+                style: getWaterLevelStyle(record),
+                onEachFeature: (f, lyr) => {
+                    const name = f.properties?.name || '수위 영향권';
+                    const note = f.properties?.note ? `<br>${f.properties.note}` : '';
+                    lyr.bindPopup(`<b>${name}</b><br>${record.label || ''}<br>상대 수위 ${formatWaterLevelValue(Number(record.relative_level_m))}${note}`);
+                }
+            });
+            waterLevelLayerGroup.addLayer(layer);
+        });
+
+        const sourceLabel = dataset.source?.name ? `<br>${dataset.source.name}` : '';
+        status.innerHTML = `<strong>연대별 수위 ${formatWaterLevelValue(Number(record.relative_level_m))}</strong>${record.label || `${record.start_year}~${record.end_year}`} · ${record.confidence || 'confidence n/a'}${sourceLabel}`;
+        status.style.display = 'block';
+    }
+
+    window.refreshWaterLevelOverlay = refreshWaterLevelOverlay;
+    window.clearWaterLevelOverlay = clearWaterLevelOverlay;
 
     // -------------------------
     // Marker comment badge helpers
@@ -14213,6 +14370,10 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             return;
         }
 
+        if (typeof refreshWaterLevelOverlay === 'function') {
+            refreshWaterLevelOverlay(year);
+        }
+
         // 🚩 [수정] 그리기 레이어 초기화를 다른 레이어 초기화와 함께 처리
         // 🔧 [textpath 에러 수정] clearLayers() 전에 setText(null)로 textpath 요소를 먼저 해제 (재귀)
         if (drawnItems) {
@@ -16967,6 +17128,7 @@ function invalidateCountryLookupCache() {
                 'menu-layer-natural': 'natural',
                 'menu-layer-relic': 'relic',
                 'menu-layer-rivers': 'rivers',
+                'menu-layer-water-level': 'waterLevel',
                 'menu-layer-event': 'event',
                 'menu-layer-timeline': 'timeline',
                 'menu-layer-king': 'kingPanel',
@@ -17051,28 +17213,7 @@ function invalidateCountryLookupCache() {
 
                 // UI 전용 레이어 처리 (버튼 유무와 무관)
                 if (layerKey === 'timeline') {
-                    const timelineWrapper = document.getElementById('timeline-control');
-                    if (timelineWrapper) {
-                        timelineWrapper.style.display = isEnabled ? 'block' : 'none';
-                    }
-                    const timelineContainer = document.getElementById('timeline-container');
-                    if (timelineContainer) {
-                        timelineContainer.style.pointerEvents = isEnabled ? 'auto' : 'none';
-                    }
-                    const timelineSidebar = document.getElementById('timeline-sidebar');
-                    if (timelineSidebar) {
-                        if (isEnabled) {
-                            timelineSidebar.classList.add('open');
-                            timelineSidebar.style.display = 'flex';
-                            timelineSidebar.style.pointerEvents = 'auto';
-                            timelineSidebar.style.opacity = '1';
-                        } else {
-                            timelineSidebar.classList.remove('open');
-                            timelineSidebar.style.display = 'none';
-                            timelineSidebar.style.pointerEvents = 'none';
-                            timelineSidebar.style.opacity = '0';
-                        }
-                    }
+                    setTimelineLayerVisible(isEnabled, { rebuild: isEnabled });
                 } else if (layerKey === 'kingPanel') {
                     const kingPanel = document.getElementById('map-king-panel');
                     if (kingPanel) kingPanel.style.display = isEnabled ? 'block' : 'none';
@@ -20352,6 +20493,7 @@ const loadingMessages = [
 
           // ⑥ 국가명 라벨 갱신
           if (layerVisibility.countryLabel) renderMacroCountryNames();
+          if (typeof refreshWaterLevelOverlay === 'function') refreshWaterLevelOverlay(year);
       }
 
       // 🗺️ [추가] 연도 변경 시 렌더링된 영토 추적 초기화
@@ -20862,6 +21004,54 @@ const loadingMessages = [
         }[ch]));
     }
 
+    function setTimelinePanelVisibility(isVisible, options = {}) {
+        const { syncControl = true, rebuild = false } = options;
+        const timelineSidebar = document.getElementById('timeline-sidebar');
+        const timelineControl = document.getElementById('timeline-control');
+        const timelineContainer = document.getElementById('timeline-container');
+
+        if (timelineSidebar) {
+            timelineSidebar.classList.toggle('open', !!isVisible);
+            timelineSidebar.style.display = isVisible ? 'flex' : 'none';
+            timelineSidebar.style.opacity = isVisible ? '1' : '0';
+            timelineSidebar.style.pointerEvents = isVisible ? 'auto' : 'none';
+            timelineSidebar.setAttribute('aria-hidden', isVisible ? 'false' : 'true');
+        }
+        if (syncControl && timelineControl) {
+            timelineControl.style.display = isVisible ? 'block' : 'none';
+        }
+        if (timelineContainer) {
+            timelineContainer.style.pointerEvents = isVisible ? 'auto' : 'none';
+        }
+        if (isVisible) {
+            requestAnimationFrame(() => {
+                if (rebuild && typeof createDynastyTimeline === 'function') {
+                    createDynastyTimeline();
+                }
+                if (typeof updateTimelineScroll === 'function') {
+                    updateTimelineScroll(true);
+                }
+                if (typeof syncTimelineFixedLabels === 'function') {
+                    syncTimelineFixedLabels();
+                }
+            });
+        }
+    }
+
+    function setTimelineLayerVisible(isVisible, options = {}) {
+        if (typeof layerVisibility !== 'undefined') {
+            layerVisibility.timeline = !!isVisible;
+        }
+        setTimelinePanelVisibility(!!isVisible, options);
+        document.querySelectorAll('[data-layer="timeline"]').forEach(btn => {
+            btn.classList.toggle('active', !!isVisible);
+        });
+        const cb = document.getElementById('menu-layer-timeline');
+        if (cb) cb.checked = !!isVisible;
+        const cbMobile = document.querySelector('.mobile-layer-checkbox[data-layer="timeline"]');
+        if (cbMobile) cbMobile.checked = !!isVisible;
+    }
+
     function createDynastyTimeline() {
         const timelineContainer = document.getElementById('timeline-container');
         const timelineContent = document.getElementById('timeline-content');
@@ -20874,14 +21064,11 @@ const loadingMessages = [
 
         // 가시성 체크
         if (!layerVisibility.timeline) {
-            if (timelineSidebarEl) timelineSidebarEl.style.display = 'none';
+            setTimelinePanelVisibility(false);
             return;
         }
 
-        if (timelineSidebarEl) {
-            timelineSidebarEl.style.display = 'flex';
-            timelineSidebarEl.style.opacity = '1';
-        }
+        setTimelinePanelVisibility(true, { syncControl: false });
         timelineContainer.style.display = 'block';
 
         // 유효 국가 필터링
@@ -21378,7 +21565,7 @@ const loadingMessages = [
         };
 
         const shouldIgnoreTimelineBodyDrag = (target) => {
-            return !!target.closest('#timeline-resize-handle, #timeline-resize-handle-ne, button, input, select, textarea, a');
+            return !!target.closest('#timeline-resize-handle, button, input, select, textarea, a');
         };
 
         dragSurface.addEventListener('mousedown', (e) => {
@@ -21447,10 +21634,16 @@ const loadingMessages = [
     function initTimelinePanelInteractions() {
         const sidebar = document.getElementById('timeline-sidebar');
         const header = document.getElementById('timeline-sidebar-header');
-        const resizeHandle = document.getElementById('timeline-resize-handle');
-        const resizeHandleNe = document.getElementById('timeline-resize-handle-ne');
         if (!sidebar || !header || sidebar.dataset.panelInteractionsBound === '1') return;
         sidebar.dataset.panelInteractionsBound = '1';
+        let resizeHandle = document.getElementById('timeline-resize-handle');
+        if (!resizeHandle) {
+            resizeHandle = document.createElement('div');
+            resizeHandle.id = 'timeline-resize-handle';
+            resizeHandle.setAttribute('aria-label', '연대표 크기 조절');
+            resizeHandle.title = '크기 조절';
+            sidebar.appendChild(resizeHandle);
+        }
         ['click', 'dblclick', 'mousedown', 'mouseup', 'mousemove', 'pointerdown', 'pointerup', 'touchstart', 'touchend', 'wheel', 'contextmenu'].forEach(type => {
             sidebar.addEventListener(type, (e) => {
                 e.stopPropagation();
@@ -21507,13 +21700,13 @@ const loadingMessages = [
             try {
                 finishedState.captureTarget?.releasePointerCapture?.(finishedState.pointerId);
             } catch (_) {}
-            if ((finishedState.mode === 'resize' || finishedState.mode === 'resize-ne') && typeof createDynastyTimeline === 'function') {
+            if (finishedState.mode === 'resize' && typeof createDynastyTimeline === 'function') {
                 createDynastyTimeline();
             }
         };
 
         header.addEventListener('pointerdown', (e) => {
-            if (e.button !== 0 || e.target.closest('#close-timeline-sidebar, #timeline-country-search, datalist')) return;
+            if (e.button !== 0 || e.detail > 1 || e.target.closest('#close-timeline-sidebar, #timeline-country-search, datalist')) return;
             const rect = sidebar.getBoundingClientRect();
             dragState = {
                 mode: 'move',
@@ -21530,6 +21723,11 @@ const loadingMessages = [
             document.body.style.cursor = 'move';
             header.setPointerCapture?.(e.pointerId);
             e.preventDefault();
+        });
+        header.addEventListener('dblclick', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (dragState) endPanelDrag();
         });
 
         if (resizeHandle) {
@@ -21553,28 +21751,6 @@ const loadingMessages = [
                 e.stopPropagation();
             });
         }
-        if (resizeHandleNe) {
-            resizeHandleNe.addEventListener('pointerdown', (e) => {
-                if (e.button !== 0) return;
-                const rect = sidebar.getBoundingClientRect();
-                dragState = {
-                    mode: 'resize-ne',
-                    pointerId: e.pointerId,
-                    captureTarget: resizeHandleNe,
-                    startX: e.clientX,
-                    startY: e.clientY,
-                    left: rect.left,
-                    top: rect.top,
-                    width: rect.width,
-                    height: rect.height,
-                };
-                document.body.style.cursor = 'nesw-resize';
-                resizeHandleNe.setPointerCapture?.(e.pointerId);
-                e.preventDefault();
-                e.stopPropagation();
-            });
-        }
-
         window.addEventListener('pointermove', (e) => {
             if (!dragState) return;
             if (dragState.pointerId !== e.pointerId) return;
@@ -21596,14 +21772,6 @@ const loadingMessages = [
                     width: dragState.width + e.clientX - dragState.startX,
                     height: dragState.height + e.clientY - dragState.startY,
                 });
-            } else {
-                const deltaY = e.clientY - dragState.startY;
-                applyBounds({
-                    left: dragState.left,
-                    top: dragState.top + deltaY,
-                    width: dragState.width + e.clientX - dragState.startX,
-                    height: dragState.height - deltaY,
-                });
             }
             updateTimelineScroll(true);
             e.preventDefault();
@@ -21622,7 +21790,7 @@ const loadingMessages = [
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) endPanelDrag();
         });
-        [header, resizeHandle, resizeHandleNe].filter(Boolean).forEach(el => {
+        [header, resizeHandle].filter(Boolean).forEach(el => {
             el.addEventListener('lostpointercapture', endPanelDrag);
         });
 
@@ -21929,6 +22097,7 @@ const loadingMessages = [
         } 
         
         updateMap(year, month, cacheOnly); // 🚩 cacheOnly 매개변수 전달
+        if (typeof refreshWaterLevelOverlay === 'function') refreshWaterLevelOverlay(year);
         refreshHeroPinsForTime(year, month, cacheOnly);
         updateUI(year, month);
         checkAndDisplayEvent(year, month);
@@ -28920,6 +29089,7 @@ kingSelect.addEventListener('change', () => {
                     _sliderLastMapYear = _sliderPendingYear;
                     _sliderLastMapMonth = _sliderPendingMonth;
                     updateMap(_sliderLastMapYear, _sliderLastMapMonth);
+                    if (typeof refreshWaterLevelOverlay === 'function') refreshWaterLevelOverlay(_sliderLastMapYear);
                     refreshHeroPinsForTime(_sliderLastMapYear, _sliderLastMapMonth, false);
                 });
             }
@@ -28932,6 +29102,7 @@ kingSelect.addEventListener('change', () => {
             if (_sliderRAF) { cancelAnimationFrame(_sliderRAF); _sliderRAF = null; }
             if (_sliderPendingYear !== null) {
                 updateMap(_sliderPendingYear, _sliderPendingMonth, false, true);
+                if (typeof refreshWaterLevelOverlay === 'function') refreshWaterLevelOverlay(_sliderPendingYear, true);
                 refreshHeroPinsForTime(_sliderPendingYear, _sliderPendingMonth, false);
                 checkAndDisplayEvent(_sliderPendingYear, _sliderPendingMonth);
                 scheduleHistoryPanelUpdate(_sliderPendingYear);
@@ -29025,13 +29196,7 @@ kingSelect.addEventListener('change', () => {
         // 🚩 [수정] timeline-sidebar 초기 상태 설정 (layerVisibility에 따라)
         const timelineSidebar = document.getElementById('timeline-sidebar');
         if (timelineSidebar) {
-            if (layerVisibility && layerVisibility.timeline) {
-                timelineSidebar.style.display = 'flex';
-                timelineSidebar.style.opacity = '1';
-            } else {
-                timelineSidebar.style.display = 'none';
-                timelineSidebar.style.opacity = '0';
-            }
+            setTimelinePanelVisibility(!!(layerVisibility && layerVisibility.timeline), { syncControl: false });
         }
         
         const checkTimelineDragged = initTimelineDrag(); // 🚩 [수정] 드래그 상태 체크 함수를 저장
@@ -29045,23 +29210,7 @@ kingSelect.addEventListener('change', () => {
             if (!closeBtn) return;
             closeBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
-                // layerVisibility 업데이트
-                if (typeof layerVisibility !== 'undefined') layerVisibility.timeline = false;
-                // sidebar 숨김
-                const sb = document.getElementById('timeline-sidebar');
-                if (sb) { sb.classList.remove('open'); sb.style.display = 'none'; sb.style.opacity = '0'; sb.style.pointerEvents = 'none'; }
-                // timeline-control 숨김
-                const tc = document.getElementById('timeline-control');
-                if (tc) tc.style.display = 'none';
-                // 버튼 active 해제
-                document.querySelectorAll('[data-layer="timeline"]').forEach(function(btn) {
-                    btn.classList.remove('active');
-                });
-                // 체크박스 해제
-                const cb = document.getElementById('menu-layer-timeline');
-                if (cb) cb.checked = false;
-                const cbMobile = document.querySelector('.mobile-layer-checkbox[data-layer="timeline"]');
-                if (cbMobile) cbMobile.checked = false;
+                setTimelineLayerVisible(false);
             });
         })();
 
@@ -30343,6 +30492,7 @@ kingSelect.addEventListener('change', () => {
             'menu-layer-natural': 'natural',
             'menu-layer-relic': 'relic',
             'menu-layer-rivers': 'rivers',
+            'menu-layer-water-level': 'waterLevel',
             'menu-layer-event': 'event',
             'menu-layer-timeline': 'timeline',
             'menu-layer-king': 'kingPanel',
@@ -30360,16 +30510,7 @@ kingSelect.addEventListener('change', () => {
                 checkbox.addEventListener('change', () => {
                     layerVisibility[layerName] = checkbox.checked;
                     if (layerName === 'timeline') {
-                        // 🚩 [수정] 연대표 토글 시 timeline-sidebar 표시/숨김
-                        const timelineSidebar = document.getElementById('timeline-sidebar');
-                        if (timelineSidebar) {
-                            timelineSidebar.style.display = checkbox.checked ? 'flex' : 'none';
-                            timelineSidebar.style.opacity = checkbox.checked ? '1' : '0';
-                        }
-                        // 연대표 재생성 또는 업데이트
-                        if (checkbox.checked) {
-                            createDynastyTimeline();
-                        }
+                        setTimelineLayerVisible(checkbox.checked, { rebuild: checkbox.checked });
                     } else if (layerName === 'kingPanel' || layerName === 'historyPanel') {
                         const panelMap = {
                             'kingPanel': document.getElementById('map-king-panel'),
@@ -33565,25 +33706,7 @@ kingSelect.addEventListener('change', () => {
                     
                     // 레이어 표시/숨김 (기존 토글 버튼과 동일한 로직)
                     if (layerName === 'timeline') {
-                        const timelineWrapper = document.getElementById('timeline-control');
-                        if (timelineWrapper) {
-                            timelineWrapper.style.display = isChecked ? 'block' : 'none';
-                        }
-                        // 🚩 [수정] 연대표 사이드바 토글 - display와 pointer-events도 함께 제어
-                        const timelineSidebar = document.getElementById('timeline-sidebar');
-                        if (timelineSidebar) {
-                            if (isChecked) {
-                                timelineSidebar.classList.add('open');
-                                timelineSidebar.style.display = 'flex';
-                                timelineSidebar.style.pointerEvents = 'auto';
-                                timelineSidebar.style.opacity = '1';
-                            } else {
-                                timelineSidebar.classList.remove('open');
-                                timelineSidebar.style.display = 'none';
-                                timelineSidebar.style.pointerEvents = 'none';
-                                timelineSidebar.style.opacity = '0';
-                            }
-                        }
+                        setTimelineLayerVisible(isChecked, { rebuild: isChecked });
                     } else if (layerName === 'kingPanel') {
                         // 🚩 [추가] 왕목록 패널 토글
                         const kingPanel = document.getElementById('map-king-panel');
@@ -34031,16 +34154,7 @@ kingSelect.addEventListener('change', () => {
                 
                 // 🚩 [수정] 연대표 토글 시에는 timeline-sidebar만 토글 (슬라이더는 항상 표시)
                 if (layerType === 'timeline') {
-                    const timelineSidebar = document.getElementById('timeline-sidebar');
-                    if (timelineSidebar) {
-                        if (layerVisibility.timeline) {
-                            timelineSidebar.style.display = 'flex';
-                            timelineSidebar.style.opacity = '1';
-                        } else {
-                            timelineSidebar.style.display = 'none';
-                            timelineSidebar.style.opacity = '0';
-                        }
-                    }
+                    setTimelinePanelVisibility(layerVisibility.timeline, { rebuild: layerVisibility.timeline });
                 } else if (layerType === 'kingPanel') {
                     // 🚩 [추가] 왕목록 패널 토글
                     const kingPanel = document.getElementById('map-king-panel');
@@ -38750,6 +38864,7 @@ async function castleFormDeleteVoice() {
             </div>
         </div>
     </div>
+    <div id="timeline-resize-handle" title="크기 조절" aria-label="연대표 크기 조절"></div>
 </div>
 
 <!-- =====================================================================
