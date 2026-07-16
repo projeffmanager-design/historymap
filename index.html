@@ -37248,8 +37248,6 @@ kingSelect.addEventListener('change', () => {
      📜 사관 활동 소식 피드 (랭킹 왼쪽, 완전투명, 스크롤 5줄)
      ============================================================ -->
 <div id="activity-feed-panel">
-    <!-- 상단 리사이즈 핸들 -->
-    <div id="activity-feed-resize-handle"></div>
     <div id="activity-feed-header">
         <span>📜 사관 활동 소식</span>
         <button id="activity-feed-close" title="닫기">&times;</button>
@@ -37271,8 +37269,6 @@ kingSelect.addEventListener('change', () => {
             <button id="activity-notice-send">공지</button>
         </div>
     </div>
-    <div id="timeline-resize-handle-ne" title="오른쪽 위에서 크기 조절"></div>
-    <div id="timeline-resize-handle" title="오른쪽 아래에서 크기 조절"></div>
 </div>
 
 <style>
@@ -37381,21 +37377,6 @@ body.guest-mode #activity-feed-panel { display: none !important; }
 #activity-feed-panel:hover {
     background: rgba(26, 26, 26, 0.95);
     box-shadow: 0 2px 12px rgba(0,0,0,0.45);
-}
-/* 상단 리사이즈 핸들 */
-#activity-feed-resize-handle {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 6px;
-    cursor: ns-resize;
-    z-index: 1;
-    background: transparent;
-    border-radius: 8px 8px 0 0;
-}
-#activity-feed-resize-handle:hover {
-    background: rgba(235,196,100,0.25);
 }
 #activity-feed-header {
     position: relative;
@@ -38049,64 +38030,6 @@ body.guest-mode #activity-feed-panel { display: none !important; }
             });
         }
 
-        // ── 상단 핸들로 패널 높이 리사이즈 ──────────────────────────
-        (function() {
-            const handle = document.getElementById('activity-feed-resize-handle');
-            const panel  = document.getElementById('activity-feed-panel');
-            if (!handle || !panel) return;
-
-            let startY = 0, startH = 0, dragging = false;
-
-            handle.addEventListener('mousedown', function(ev) {
-                ev.preventDefault();
-                dragging = true;
-                startY = ev.clientY;
-                startH = panel.offsetHeight;
-                document.body.style.userSelect = 'none';
-            });
-
-            document.addEventListener('mousemove', function(ev) {
-                if (!dragging) return;
-                // 위로 드래그 → 높이 증가, 아래로 드래그 → 높이 감소
-                const delta = startY - ev.clientY;
-                const minH = parseInt(getComputedStyle(panel).minHeight) || 120;
-                const maxH = window.innerHeight - 150;
-                const newH = Math.max(minH, Math.min(maxH, startH + delta));
-                panel.style.height = newH + 'px';
-                // 리사이즈 후 스크롤을 최신(맨 아래)으로 유지
-                const scroll = document.getElementById('activity-feed-scroll');
-                if (scroll) scroll.scrollTop = scroll.scrollHeight;
-            });
-
-            document.addEventListener('mouseup', function() {
-                if (dragging) {
-                    dragging = false;
-                    document.body.style.userSelect = '';
-                }
-            });
-
-            // 터치 지원
-            handle.addEventListener('touchstart', function(ev) {
-                const t = ev.touches[0];
-                dragging = true;
-                startY = t.clientY;
-                startH = panel.offsetHeight;
-            }, { passive: true });
-
-            document.addEventListener('touchmove', function(ev) {
-                if (!dragging) return;
-                const t = ev.touches[0];
-                const delta = startY - t.clientY;
-                const minH = parseInt(getComputedStyle(panel).minHeight) || 120;
-                const maxH = window.innerHeight - 150;
-                const newH = Math.max(minH, Math.min(maxH, startH + delta));
-                panel.style.height = newH + 'px';
-                const scroll = document.getElementById('activity-feed-scroll');
-                if (scroll) scroll.scrollTop = scroll.scrollHeight;
-            }, { passive: true });
-
-            document.addEventListener('touchend', function() { dragging = false; });
-        })();
     });
 
     window.refreshActivityFeed = function() { fetchLogs(); };
