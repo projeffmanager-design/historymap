@@ -281,6 +281,94 @@ const buildFigureFromBody = (body = {}, uploads = {}, existing = {}) => {
         updatedAt: new Date()
     };
 };
+
+const createHeroFromResearchContribution = async (contribution = {}) => {
+    const research = contribution.heroResearch || contribution.hero_research || {};
+    if (!research.create_new_hero) return null;
+
+    const nameKo = String(research.name_ko || research.name || contribution.name || '').trim();
+    const factionName = String(research.faction || '').trim();
+    const startYear = parseInt(research.start_year ?? contribution.year);
+    if (!nameKo || !factionName || Number.isNaN(startYear)) {
+        throw new Error('신규 영웅 생성에는 이름, 소속/국가, 활동 시작 연도가 필요합니다.');
+    }
+
+    let country = await resolveCountryForFigure({ faction: factionName });
+    if (!country) {
+        const countryResult = await collections.countries.insertOne({
+            name: factionName,
+            color: '#c8860a',
+            start: startYear,
+            end: research.end_year ?? null,
+            is_main_dynasty: false,
+            auto_created: true,
+            createdFrom: contribution._id?.toString?.() || String(contribution._id || ''),
+            createdAt: new Date()
+        });
+        country = await collections.countries.findOne({ _id: countryResult.insertedId });
+    }
+
+    const existingDoc = await collections.kings.findOne({
+        country_id: country._id,
+        kings: {
+            $elemMatch: {
+                $or: [
+                    { name: nameKo },
+                    { name_ko: nameKo }
+                ]
+            }
+        }
+    });
+    if (existingDoc) {
+        const existingHero = (existingDoc.kings || []).find(hero => hero.name === nameKo || hero.name_ko === nameKo);
+        return {
+            skipped: true,
+            reason: 'already_exists',
+            hero_id: existingHero?._id ? kingHeroId(country._id, existingHero._id) : null
+        };
+    }
+
+    const figure = buildFigureFromBody({
+        name_ko: nameKo,
+        name_zh: research.name_zh || '',
+        hero_type: research.hero_type || 'general',
+        faction: country.name,
+        faction_color: country.color || '#c8860a',
+        start_year: startYear,
+        end_year: research.end_year ?? null,
+        title: research.title || contribution.name || '',
+        description: contribution.content || research.description || contribution.name || ''
+    });
+    figure.source_kind = 'hero_research';
+    figure.source_ref_id = contribution._id?.toString?.() || String(contribution._id || '');
+    figure.source_country_id = String(country._id);
+    figure.originContributionId = figure.source_ref_id;
+    figure.createdBy = contribution.username || 'unknown';
+    figure.createdAt = new Date();
+    figure.worst_vote_count = parseInt(figure.worst_vote_count || 0);
+    figure.voted_by = [];
+    figure.worst_voted_by = [];
+
+    const result = await collections.kings.updateOne(
+        { country_id: country._id },
+        {
+            $push: { kings: figure },
+            $set: { updatedAt: new Date() },
+            $setOnInsert: { country_id: country._id, country_name: country.name }
+        },
+        { upsert: true }
+    );
+    if (result.matchedCount === 0 && result.upsertedCount === 0) {
+        throw new Error('영웅 데이터 생성에 실패했습니다.');
+    }
+    invalidateHeroCaches();
+    return {
+        skipped: false,
+        hero_id: kingHeroId(country._id, figure._id),
+        name: figure.name_ko,
+        country_id: String(country._id)
+    };
+};
 const updateKingFigureFields = async (id, fields = {}) => {
     const kingMatch = parseKingHeroId(id);
     if (!kingMatch) return { ok: false, id, message: '지원하지 않는 영웅 ID' };
@@ -6159,9 +6247,10 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     return res.status(403).json({ message: '송나라 사신은 사관 기록을 제출할 수 없습니다.' });
                 }
 
-                const { name, lat, lng, description, category, evidence, year, source, content,
+                const { name, lat, lng, description, category, evidence, year, source, content, heroResearch,
                         placeType, is_natural_feature, natural_feature_type, country_id, start_year, end_year, is_capital, new_country_name,
                         _forceUsername, _forceUserId } = req.body;
+                const recordCategories = new Set(['historical_record', 'hero_research']);
 
                 // 🚩 [추가] 관리자가 대신 기여자 이름/ID를 지정할 수 있음
                 const isAdmin = req.user.position === 'admin';
@@ -6176,7 +6265,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 }
                 
                 // 🚩 [검증] 성/도시인 경우 연도와 국가 필수
-                if (!is_natural_feature && category !== 'historical_record') {
+                if (!is_natural_feature && !recordCategories.has(category)) {
                     if (!start_year && start_year !== 0) {
                         return res.status(400).json({ message: "성/도시의 경우 시작 연도를 입력해야 합니다." });
                     }
@@ -6187,11 +6276,25 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 
                 // 🚩 [추가] 사관 기록의 경우 다른 필드 구조 사용
                 let newContribution;
-                if (category === 'historical_record') {
+                if (recordCategories.has(category)) {
+                    const sanitizedHeroResearch = category === 'hero_research' && heroResearch ? {
+                        create_new_hero: !!heroResearch.create_new_hero,
+                        name_ko: String(heroResearch.name_ko || '').trim(),
+                        name_zh: String(heroResearch.name_zh || '').trim(),
+                        hero_type: String(heroResearch.hero_type || 'general').trim(),
+                        faction: String(heroResearch.faction || '').trim(),
+                        start_year: heroResearch.start_year != null && !Number.isNaN(parseInt(heroResearch.start_year)) ? parseInt(heroResearch.start_year) : null,
+                        end_year: heroResearch.end_year != null && !Number.isNaN(parseInt(heroResearch.end_year)) ? parseInt(heroResearch.end_year) : null,
+                        title: String(heroResearch.title || '').trim()
+                    } : null;
+                    if (sanitizedHeroResearch?.create_new_hero && (!sanitizedHeroResearch.name_ko || !sanitizedHeroResearch.faction || sanitizedHeroResearch.start_year == null || Number.isNaN(sanitizedHeroResearch.start_year))) {
+                        return res.status(400).json({ message: "신규 영웅 생성에는 이름, 소속/국가, 활동 시작 연도가 필요합니다." });
+                    }
                     newContribution = {
                         userId: toObjectId(effectiveUserId),
                         username: effectiveUsername,
                         name, year, source, content, category, evidence,
+                        heroResearch: sanitizedHeroResearch,
                         status: 'pending',
                         votes: 0,
                         votedBy: [],
@@ -6244,7 +6347,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 await logActivity('submit', effectiveUsername, req.user.position || '', newContribution.name || '사관 기록', { category }, req.user.userId);
                 
                 res.status(201).json({ 
-                    message: category === 'historical_record' ? "사관 기록이 접수되었습니다. 검토 후 반영됩니다." : "역사 복원 제안이 접수되었습니다. 검토 후 지도에 반영됩니다.",
+                    message: recordCategories.has(category) ? "사관 기록이 접수되었습니다. 검토 후 반영됩니다." : "역사 복원 제안이 접수되었습니다. 검토 후 지도에 반영됩니다.",
                     contribution: createdContribution 
                 });
             } catch (error) {
@@ -7516,6 +7619,7 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
 
         // 🚩 [핵심] 승인된 기여를 Castle로 자동 변환
         let insertedCastle = null;
+        let insertedHero = null;
         if (contribution.category !== 'historical_record' && contribution.lat && contribution.lng) {
             try {
                 const isNatural = !!contribution.is_natural_feature;
@@ -7632,6 +7736,20 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
             console.log(`ℹ️ [Castle 변환 스킵] 사관 기록이거나 좌표 없음: category=${contribution.category}, lat=${contribution.lat}, lng=${contribution.lng}`);
         }
 
+        if (contribution.category === 'hero_research' && contribution.heroResearch?.create_new_hero) {
+            try {
+                insertedHero = await createHeroFromResearchContribution(contribution);
+                await collections.contributions.updateOne(
+                    { _id: toObjectId(id) },
+                    { $set: { generatedHero: insertedHero } }
+                );
+                console.log(`✅ [영웅 생성] 연구 기록 "${contribution.name}" 처리 완료:`, insertedHero);
+            } catch (heroError) {
+                console.error('❌ [영웅 생성 실패]', heroError);
+                return res.status(500).json({ message: '승인은 완료되었지만 영웅 생성에 실패했습니다.', error: heroError.message });
+            }
+        }
+
         // 🚩 [추가] 동일 이름의 다른 pending/reviewed 중복 기여 자동 거부
         if (contribution.name) {
             const dupResult = await collections.contributions.updateMany(
@@ -7656,10 +7774,16 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
         // 🚩 [추가] 최종 승인 액티비티 로그
         await logActivity('approve', user.username, user.position || '', contribution.name || '사관 기록', {
             category: contribution.category || null, isNew: true,
-            castle_id: insertedCastle ? insertedCastle._id.toString() : undefined
+            castle_id: insertedCastle ? insertedCastle._id.toString() : undefined,
+            hero_id: insertedHero?.hero_id
         }, userId);
 
-        res.json({ message: "기여가 최종 승인되었습니다. 성 마커로 변환되었습니다.", castle: insertedCastle });
+        const approvalMessage = insertedHero && !insertedHero.skipped
+            ? "기여가 최종 승인되었고 신규 영웅이 생성되었습니다."
+            : insertedHero?.skipped
+                ? "기여가 최종 승인되었습니다. 같은 이름의 영웅이 있어 신규 생성은 건너뛰었습니다."
+                : "기여가 최종 승인되었습니다.";
+        res.json({ message: approvalMessage, castle: insertedCastle, hero: insertedHero });
     } catch (error) {
         res.status(500).json({ message: "승인 실패", error: error.message });
     }
