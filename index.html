@@ -13057,6 +13057,7 @@ function getKingByYear(countryName, year, month) {
     };
 
     function buildCastlePopupActions(castleId, castleName) {
+        if (!castleId) return '';
         const detailBtn = `<button onclick="openCastleDetailFromPopup('${castleId}', event)" style="padding:3px 8px;font-size:11px;border-radius:4px;cursor:pointer;line-height:1.2;white-space:nowrap;background:rgba(44,62,80,0.92);color:#d8cfc4;border:1px solid rgba(180,140,80,0.42);">📄 상세</button>`;
         const editBtn = (editMode && canEditObjects())
             ? `<button onclick="event.stopPropagation(); openCastleForm('${castleId}')" style="padding:3px 8px;font-size:11px;border-radius:4px;cursor:pointer;line-height:1.2;white-space:nowrap;background:rgba(52,152,219,0.18);color:#7eb8e8;border:1px solid rgba(82,172,229,0.46);">✏️ 편집</button>`
@@ -13689,11 +13690,13 @@ function getKingByYear(countryName, year, month) {
         }
         
         // 팝업 추가
-        const editorInfoHtml = newCastle.createdBy
-            ? `<br><small style="font-size:11px; color:#9aabbd;">사관: ${newCastle.createdBy}</small>`
-            : '';
-        
-        const popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${stripImgTags(newCastle.desc)}</span>` : ''}${editorInfoHtml}${buildCommentBtn(newCastle._id, castleName)}</div>`;
+        const popupHtml = buildCastleIndexPopup({
+            titleHtml: castleName,
+            desc: newCastle.desc || '',
+            metaHtml: newCastle.createdBy ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>사관:</span><span style="color:#d8cfc4;text-align:right;">${newCastle.createdBy}</span></div>` : '',
+            castleId: newCastle._id,
+            castleName
+        });
         
         marker.bindPopup(popupHtml, {
             className: 'compact-popup',
@@ -14007,11 +14010,13 @@ function getKingByYear(countryName, year, month) {
         
         // 팝업 설정 — 생성자(사료 제출자) 우선 표시
         const creatorName = newCastle.createdBy || null;
-        const creatorInfoHtml = creatorName
-            ? `<br><small style="font-size:11px; color:#9aabbd;">사관: ${creatorName}</small>`
-            : '';
-        
-        const popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${newCastle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${stripImgTags(newCastle.desc)}</span>` : ''}${creatorInfoHtml}${buildCommentBtn(newCastle._id, castleName)}</div>`;
+        const popupHtml = buildCastleIndexPopup({
+            titleHtml: castleName,
+            desc: newCastle.desc || '',
+            metaHtml: creatorName ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>사관:</span><span style="color:#d8cfc4;text-align:right;">${creatorName}</span></div>` : '',
+            castleId: newCastle._id,
+            castleName
+        });
         
         marker.bindPopup(popupHtml, {
             className: 'compact-popup',
@@ -15854,9 +15859,14 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     marker = L.marker([castle.lat, castle.lng], { icon: labelIcon, pane: 'labelPane' });
                 }
                 
-                const editorInfoHtml = castle.createdBy ? `<br><small>사관: ${castle.createdBy}</small>` : '';
-                
-                popupHtml = `<b>지역명: ${castleName}</b><br>기간: ${builtText} ~ ${destroyedText}<br>설명: ${stripImgTags(castle.desc ?? '')}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
+                popupHtml = buildCastleIndexPopup({
+                    titleHtml: `지역명: ${castleName}`,
+                    periodText: `${builtText} ~ ${destroyedText}`,
+                    desc: castle.desc || '',
+                    metaHtml: castle.createdBy ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>사관:</span><span style="color:#d8cfc4;text-align:right;">${castle.createdBy}</span></div>` : '',
+                    castleId: castle._id,
+                    castleName
+                });
                 
                 marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false, offset: L.point(0, -5), autoPan: false });
                 
@@ -16094,13 +16104,14 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     marker = L.marker([castle.lat, castle.lng], { icon: featureIcon });
                 }
                 
-                // 생성자(사료 제출자) 우선 표시
-                const _naturalCreatorHtml = castle.createdBy
-                    ? `<br><small style="font-size:11px; color:#9aabbd;">사관: ${castle.createdBy}</small>`
-                    : '';
-                
                 // 🚩 [v2.0.6] 콤팩트 팝업
-                popupHtml = `<div style="padding:0;margin:0;line-height:1.5;"><b style="font-size:13px;">${castleName}</b>${castle.desc ? `<br><span style="font-size:12px;color:#b8c8d4;">${stripImgTags(castle.desc)}</span>` : ''}${_naturalCreatorHtml}${buildCommentBtn(castle._id, castleName)}</div>`;
+                popupHtml = buildCastleIndexPopup({
+                    titleHtml: castleName,
+                    desc: castle.desc || '',
+                    metaHtml: castle.createdBy ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>사관:</span><span style="color:#d8cfc4;text-align:right;">${castle.createdBy}</span></div>` : '',
+                    castleId: castle._id,
+                    castleName
+                });
                                 
                 marker.bindPopup(popupHtml, {
                     className: 'compact-popup',
@@ -16187,12 +16198,15 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     marker = L.marker([markerLat, markerLng], { icon: flagIcon });
                     
                     const flagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" class="country-flag-img" style="width: 25px; height: auto; vertical-align: middle; margin-right: 5px;">` : '';
-                    const descriptionHtml = castle.desc ? `<br>설명: ${stripImgTags(castle.desc)}` : '';
-                    const metaInfo = [];
-                    if (castle.createdBy) metaInfo.push(`사관: ${castle.createdBy}`);
-                    const editorInfoHtml = metaInfo.length ? `<br><small>${metaInfo.join('<br>')}</small>` : '';
-                    
-                    popupHtml = `${flagHtml}<b>${countryName}</b>${countryInfo?.ethnicity ? `<br>민족: ${countryInfo.ethnicity}` : ''}<br>${castle.general_name ? `장수: ${castle.general_name}<br>` : ''}${castle.troop_count ? `병력: ${Number(castle.troop_count).toLocaleString()}<br>` : ''}${castle.general_photo ? `<br><img src="${castle.general_photo}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}${descriptionHtml}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
+                    const armyMetaHtml = `${countryInfo?.ethnicity ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>민족:</span><span style="color:#d8cfc4;text-align:right;">${countryInfo.ethnicity}</span></div>` : ''}${castle.general_name ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>장수:</span><span style="color:#d8cfc4;text-align:right;">${castle.general_name}</span></div>` : ''}${castle.troop_count ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>병력:</span><span style="color:#d8cfc4;text-align:right;">${Number(castle.troop_count).toLocaleString()}</span></div>` : ''}${castle.createdBy ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>사관:</span><span style="color:#d8cfc4;text-align:right;">${castle.createdBy}</span></div>` : ''}`;
+                    popupHtml = buildCastleIndexPopup({
+                        titleHtml: `${flagHtml}${countryName}`,
+                        desc: castle.desc || '',
+                        photo: castle.general_photo || '',
+                        metaHtml: armyMetaHtml,
+                        castleId: castle._id,
+                        castleName
+                    });
                     
                     marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
                     
@@ -16298,12 +16312,16 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 
                 const flagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" class="country-flag-img" style="width: 20px; height: auto; vertical-align: middle; margin-right: 5px;">` : '';
 
-                const descriptionHtml = castle.desc ? `<br>설명: ${stripImgTags(castle.desc)}` : '';
-                const metaInfo = [];
-                if (castle.createdBy) metaInfo.push(`사관: ${castle.createdBy}`);
-                const editorInfoHtml = metaInfo.length ? `<br><small>${metaInfo.join('<br>')}</small>` : '';
+                const armyMetaHtml = `${countryInfo?.ethnicity ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>민족:</span><span style="color:#d8cfc4;text-align:right;">${countryInfo.ethnicity}</span></div>` : ''}<div style="display:flex;justify-content:space-between;gap:14px;"><span>장수:</span><span style="color:#d8cfc4;text-align:right;">${general}</span></div><div style="display:flex;justify-content:space-between;gap:14px;"><span>병력:</span><span style="color:#d8cfc4;text-align:right;">${troops}</span></div>${castle.createdBy ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>사관:</span><span style="color:#d8cfc4;text-align:right;">${castle.createdBy}</span></div>` : ''}`;
 
-                popupHtml = `${flagHtml}<b>${countryName}</b>${countryInfo?.ethnicity ? `<br>민족: ${countryInfo.ethnicity}` : ''}<br>장수: ${general}<br>병력: ${troops}<br>${generalPhotoUrl ? `<br><img src="${generalPhotoUrl}" style="max-width:150px; max-height:100px; object-fit:cover;">` : ''}${descriptionHtml}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}`;
+                popupHtml = buildCastleIndexPopup({
+                    titleHtml: `${flagHtml}${countryName}`,
+                    desc: castle.desc || '',
+                    photo: generalPhotoUrl || '',
+                    metaHtml: armyMetaHtml,
+                    castleId: castle._id,
+                    castleName
+                });
                 
                 marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
                 
