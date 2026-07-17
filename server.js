@@ -596,6 +596,7 @@ const RANK_CONFIG = {
         submitCount:   3,   // 제출 1건당 획득 점수
         approvedCount: 10,  // 승인 1건당 획득 점수
         votes:         1,   // 추천 1회당 획득 점수 (계수)
+        voteParticipation: 1, // 투표 참여 1회당 획득 점수
         review:        1,   // reviewScore 그대로 반영
         approval:      1,   // approvalScore 그대로 반영
         attendance:    1,   // attendancePoints 그대로 반영
@@ -2402,13 +2403,51 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                 if (!kingMatch) return res.status(410).json({ message: 'heroes 컬렉션 기반 투표는 더 이상 사용하지 않습니다.' });
                 const found = await findKingFigure(kingMatch.countryId, kingMatch.sourceRefId);
                 if (!found) return res.status(404).json({ message: '영웅 없음' });
+                const userId = String(req.user.userId || req.user.id || req.user._id || '');
+                const votedBy = Array.isArray(found.king.voted_by) ? found.king.voted_by.map(String) : [];
+                if (userId && votedBy.includes(userId)) {
+                    return res.json({ vote_count: parseInt(found.king.vote_count || 0), already_voted: true });
+                }
                 const nextVoteCount = parseInt(found.king.vote_count || 0) + 1;
                 await collections.kings.updateOne(
                     { _id: found.kingDoc._id },
-                    { $set: { [`kings.${found.index}.vote_count`]: nextVoteCount, updatedAt: new Date() } }
+                    {
+                        $set: { [`kings.${found.index}.vote_count`]: nextVoteCount, updatedAt: new Date() },
+                        $addToSet: { [`kings.${found.index}.voted_by`]: userId }
+                    }
                 );
                 invalidateHeroCaches();
+                invalidateRankingsCache();
                 res.json({ vote_count: nextVoteCount });
+            } catch (err) {
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // POST /api/heroes/:id/worst-vote — 최악의 인물 투표 +1 (로그인 필요)
+        app.post('/api/heroes/:id/worst-vote', verifyToken, async (req, res) => {
+            try {
+                const id = normalizeRouteId(req.params.id);
+                const kingMatch = parseKingHeroId(id);
+                if (!kingMatch) return res.status(410).json({ message: 'heroes 컬렉션 기반 투표는 더 이상 사용하지 않습니다.' });
+                const found = await findKingFigure(kingMatch.countryId, kingMatch.sourceRefId);
+                if (!found) return res.status(404).json({ message: '영웅 없음' });
+                const userId = String(req.user.userId || req.user.id || req.user._id || '');
+                const votedBy = Array.isArray(found.king.worst_voted_by) ? found.king.worst_voted_by.map(String) : [];
+                if (userId && votedBy.includes(userId)) {
+                    return res.json({ worst_vote_count: parseInt(found.king.worst_vote_count || 0), already_voted: true });
+                }
+                const nextVoteCount = parseInt(found.king.worst_vote_count || 0) + 1;
+                await collections.kings.updateOne(
+                    { _id: found.kingDoc._id },
+                    {
+                        $set: { [`kings.${found.index}.worst_vote_count`]: nextVoteCount, updatedAt: new Date() },
+                        $addToSet: { [`kings.${found.index}.worst_voted_by`]: userId }
+                    }
+                );
+                invalidateHeroCaches();
+                invalidateRankingsCache();
+                res.json({ worst_vote_count: nextVoteCount });
             } catch (err) {
                 res.status(500).json({ message: '서버 오류' });
             }
@@ -6280,6 +6319,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
 
                 // 최신 데이터 조회
                 const updatedContribution = await collections.contributions.findOne({ _id });
+                invalidateRankingsCache();
                 res.json({ 
                     message: "추천하였습니다.", 
                     votes: updatedContribution.votes || 0, 
@@ -6648,6 +6688,48 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     // { $limit: 100 }  // 제한 제거 - 모든 사용자 표시
                 ]).toArray();
 
+                const rankingUserIds = new Set(rankings.map(user => String(user._id)));
+                const voteParticipationByUser = new Map();
+                const addVoteParticipation = (rawUserId) => {
+                    const userId = String(rawUserId || '');
+                    if (!userId || !rankingUserIds.has(userId)) return;
+                    voteParticipationByUser.set(userId, (voteParticipationByUser.get(userId) || 0) + 1);
+                };
+
+                const [contributionVoteDocs, kingVoteDocs] = await Promise.all([
+                    collections.contributions.find(
+                        { votedBy: { $exists: true, $ne: [] } },
+                        { projection: { votedBy: 1 } }
+                    ).toArray(),
+                    collections.kings.find(
+                        {},
+                        { projection: { 'kings.voted_by': 1, 'kings.worst_voted_by': 1 } }
+                    ).toArray()
+                ]);
+
+                contributionVoteDocs.forEach((contribution) => {
+                    if (!Array.isArray(contribution.votedBy)) return;
+                    contribution.votedBy.forEach(addVoteParticipation);
+                });
+
+                kingVoteDocs.forEach((doc) => {
+                    const kingsList = Array.isArray(doc.kings) ? doc.kings : [];
+                    kingsList.forEach((king) => {
+                        if (Array.isArray(king.voted_by)) king.voted_by.forEach(addVoteParticipation);
+                        if (Array.isArray(king.worst_voted_by)) king.worst_voted_by.forEach(addVoteParticipation);
+                    });
+                });
+
+                rankings.forEach((user) => {
+                    const participationCount = voteParticipationByUser.get(String(user._id)) || 0;
+                    const participationScore = participationCount * RANK_CONFIG.scoreWeights.voteParticipation;
+                    user.voteParticipationCount = participationCount;
+                    user.voteParticipationScore = participationScore;
+                    user.score = (user.score || 0) + participationScore;
+                });
+
+                rankings.sort((a, b) => (b.score || 0) - (a.score || 0));
+
                 console.log(`🏆 [랭킹 조회] ${rankings.length}명 조회 완료`);
                 if (rankings.length > 0) {
                     console.log('🏆 [랭킹 첫 번째 사용자 샘플]:', {
@@ -6655,6 +6737,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         totalCount: rankings[0].totalCount,
                         approvedCount: rankings[0].approvedCount,
                         totalVotes: rankings[0].totalVotes,
+                        voteParticipationCount: rankings[0].voteParticipationCount,
                         reviewScore: rankings[0].reviewScore,
                         approvalScore: rankings[0].approvalScore,
                         score: rankings[0].score
@@ -6755,6 +6838,56 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 res.json(rankings);
             } catch (error) {
                 res.status(500).json({ message: "랭킹 조회 실패", error: error.message });
+            }
+        });
+
+        app.get('/api/hero-rankings', async (req, res) => {
+            try {
+                const [countryDocs, kingDocs] = await Promise.all([
+                    collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1 } }).toArray(),
+                    collections.kings.find({}, { projection: { country_id: 1, kings: 1 } }).toArray()
+                ]);
+                const countryMap = new Map(countryDocs.map(country => [String(country._id), country]));
+                const heroes = [];
+
+                kingDocs.forEach((doc) => {
+                    const countryId = String(doc.country_id || '');
+                    const country = countryMap.get(countryId) || null;
+                    const kingsList = Array.isArray(doc.kings) ? doc.kings : [];
+                    kingsList.forEach((king, index) => {
+                        const normalized = normalizeKingSchema(king, country, countryId);
+                        const sourceRefId = king._id ? String(king._id) : String(index);
+                        const voteCount = parseInt(king.vote_count || 0);
+                        const worstVoteCount = parseInt(king.worst_vote_count || 0);
+                        heroes.push({
+                            _id: kingHeroId(countryId, sourceRefId),
+                            name_ko: normalized.name_ko || king.name || '이름 미상',
+                            name_zh: normalized.name_zh || '',
+                            title: normalized.title || '',
+                            faction: normalized.faction || country?.name || '',
+                            faction_color: normalized.faction_color || country?.color || '#c8860a',
+                            hero_type: normalized.hero_type,
+                            birth_year: normalized.birth_year,
+                            death_year: normalized.death_year,
+                            avatar_url: normalized.avatar_url || '',
+                            vote_count: Number.isFinite(voteCount) ? voteCount : 0,
+                            worst_vote_count: Number.isFinite(worstVoteCount) ? worstVoteCount : 0
+                        });
+                    });
+                });
+
+                heroes.sort((a, b) => (
+                    (b.vote_count || 0) - (a.vote_count || 0) ||
+                    String(a.name_ko || '').localeCompare(String(b.name_ko || ''), 'ko') ||
+                    (a.birth_year ?? 999999) - (b.birth_year ?? 999999)
+                ));
+                heroes.forEach((hero, index) => { hero.rank = index + 1; });
+
+                res.set('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=1800');
+                res.json(heroes);
+            } catch (error) {
+                console.error('[GET /api/hero-rankings] 오류:', error);
+                res.status(500).json({ message: '영웅 지지율 랭킹 조회 실패', error: error.message });
             }
         });
 
