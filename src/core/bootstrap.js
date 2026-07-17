@@ -107,6 +107,7 @@ function installHeroStyle() {
   style.id = 'codex-hero-pin-style';
   style.textContent = [
     '.codex-direct-hero-icon { overflow: visible !important; z-index: 10000 !important; }',
+    '.codex-direct-hero-icon .hero-pin-wrapper { width: 34px !important; height: 41px !important; }',
     '.hero-pin-inner { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.38)) !important; }',
     '.hero-pin-wrapper .hero-pin-svg > ellipse:nth-of-type(1) { fill: rgba(0, 0, 0, 0.18) !important; }',
     '.hero-pin-wrapper .hero-pin-svg > path { stroke-width: 1px !important; }',
@@ -369,9 +370,9 @@ function buildHeroIcon(hero) {
       </svg>
       <span class="hero-pin-name">${hero.name_ko || ''}</span>
     </div></div>`,
-    iconSize: [34, 44],
-    iconAnchor: [17, 43],
-    popupAnchor: [0, -44],
+    iconSize: [34, 41],
+    iconAnchor: [17, 41],
+    popupAnchor: [0, -41],
   });
 }
 
