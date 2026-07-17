@@ -13025,14 +13025,63 @@ function getKingByYear(countryName, year, month) {
     }
 
     // 💬 마커 의견 버튼 HTML 생성 헬퍼
-    function buildCommentBtn(castleId, castleName) {
+    function buildCommentActionBtn(castleId, castleName) {
         const safeName = (castleName || '').replace(/'/g, "\\'");
         const count = (window._commentCounts && window._commentCounts[String(castleId)]) || 0;
         const badgeHtml = count > 0
             ? `<span id="mc-btn-badge-${castleId}" style="display:inline-block;background:#e74c3c;color:#fff;font-size:10px;font-weight:bold;border-radius:8px;padding:0 5px;margin-left:4px;line-height:16px;vertical-align:middle;">${count > 99 ? '99+' : count}</span>`
             : `<span id="mc-btn-badge-${castleId}" style="display:none;background:#e74c3c;color:#fff;font-size:10px;font-weight:bold;border-radius:8px;padding:0 5px;margin-left:4px;line-height:16px;vertical-align:middle;"></span>`;
+        return `<button onclick="openMarkerCommentModal('${castleId}','${safeName}')" style="padding:3px 8px;font-size:11px;border-radius:4px;cursor:pointer;line-height:1.2;white-space:nowrap;background:rgba(180,140,80,0.14);color:#d4a843;border:1px solid rgba(180,140,80,0.42);">💬 의견${badgeHtml}</button>`;
+    }
+
+    function buildCommentBtn(castleId, castleName) {
         return `<div style="margin-top:8px; text-align:right;">
-            <button onclick="openMarkerCommentModal('${castleId}','${safeName}')" style="background:rgba(44,62,80,0.85); border:1px solid rgba(180,140,80,0.4); border-radius:3px; color:#c8b87a; font-size:11px; padding:3px 8px; cursor:pointer;">💬 의견 남기기${badgeHtml}</button>
+            ${buildCommentActionBtn(castleId, castleName)}
+        </div>`;
+    }
+
+    window.openCastleDetailFromPopup = function(castleId, ev) {
+        if (ev) {
+            ev.stopPropagation();
+            if (ev.preventDefault) ev.preventDefault();
+        }
+        const marker = (allCastleMarkers || []).find(m => m && m._castleData && String(m._castleData._id) === String(castleId));
+        const castle = marker?._castleData || (castles || []).find(c => String(c._id) === String(castleId));
+        if (!castle) return;
+        const { year: cy, month: cm } = getCurrentYearMonth();
+        const activeInfo = getActiveHistoryInfo(castle.history || [], yearMonthToTotalMonths(cy, cm));
+        const activeRecord = activeInfo?.record || null;
+        const countryId = activeRecord?.country_id || castle.country_id || castle.countryId;
+        const countryInfo = getCountryInfoById(countryId);
+        openDetailPanel(castle, activeRecord, countryInfo);
+    };
+
+    function buildCastlePopupActions(castleId, castleName) {
+        const detailBtn = `<button onclick="openCastleDetailFromPopup('${castleId}', event)" style="padding:3px 8px;font-size:11px;border-radius:4px;cursor:pointer;line-height:1.2;white-space:nowrap;background:rgba(44,62,80,0.92);color:#d8cfc4;border:1px solid rgba(180,140,80,0.42);">📄 상세</button>`;
+        const editBtn = (editMode && canEditObjects())
+            ? `<button onclick="event.stopPropagation(); openCastleForm('${castleId}')" style="padding:3px 8px;font-size:11px;border-radius:4px;cursor:pointer;line-height:1.2;white-space:nowrap;background:rgba(52,152,219,0.18);color:#7eb8e8;border:1px solid rgba(82,172,229,0.46);">✏️ 편집</button>`
+            : '';
+        return `<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin:7px 0 7px 0;padding:6px 0;border-top:1px solid rgba(180,140,80,0.18);border-bottom:1px solid rgba(180,140,80,0.18);">
+            ${buildCommentActionBtn(castleId, castleName)}
+            ${detailBtn}
+            ${editBtn}
+        </div>`;
+    }
+
+    function buildCastleIndexPopup({ titleHtml, countryHtml = '', periodText = '', desc = '', photo = '', metaHtml = '', extraHtml = '', castleId, castleName }) {
+        const descHtml = desc ? `<p style="margin:0 0 7px 0;font-size:12px;color:#b8c8d4;white-space:pre-wrap;word-wrap:break-word;max-height:108px;overflow-y:auto;">${stripImgTags(desc)}</p>` : '';
+        const photoHtml = photo ? `<img src="${toRawImageUrl(photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin:2px 0 7px 0;display:block;">` : '';
+        return `<div style="min-width:230px;max-width:310px;line-height:1.5;font-size:12px;white-space:normal;">
+            <h4 style="margin:0 0 6px 0;color:#f0e2c0;font-size:13px;border-bottom:1px solid rgba(180,140,80,0.3);padding-bottom:4px;">${titleHtml}</h4>
+            ${descHtml}
+            ${photoHtml}
+            ${buildCastlePopupActions(castleId, castleName)}
+            <div style="font-size:11px;color:#9aabbd;display:flex;flex-direction:column;gap:3px;border-top:1px solid rgba(180,140,80,0.2);padding-top:6px;">
+                ${countryHtml}
+                ${periodText ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>기간:</span><span style="color:#d8cfc4;text-align:right;">${periodText}</span></div>` : ''}
+                ${metaHtml}
+                ${extraHtml}
+            </div>
         </div>`;
     }
 
@@ -15176,14 +15225,6 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     }
                 }
 
-                // 🚩 [수정] 팝업 콘텐츠 레이아웃 개선
-                const categoryText = {
-                    'literature': '문헌 증거',
-                    'geography': '지형/기후 증거',
-                    'oldmap': '고지도 증거',
-                    'other': '기타 추론'
-                }[contrib.category] || '기타';
-
                 // 🚩 [추가] 상태별 텍스트 및 색상
                 const statusInfo = {
                     'pending': { text: '검토 대기', color: '#f39c12', icon: '⏳' },
@@ -15201,23 +15242,31 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     reviewerInfo += `<div style="display: flex; justify-content: space-between;"><span>최종 승인자:</span> <span style="color: #27ae60;">${contrib.approverUsername}</span></div>`;
                 }
 
-                const popupContent = `<div style="min-width: 200px; line-height: 1.5; font-size: 12px; white-space: normal;">
+                const canVoteContribution = currentUser && !currentUser.isGuest && !isMyContribution && !(contrib.votedBy && contrib.votedBy.includes(currentUser.userId));
+                const popupButtonBase = 'padding: 3px 8px; font-size: 11px; border-radius: 4px; cursor: pointer; line-height: 1.2; white-space: nowrap;';
+                const popupPrimaryBtn = `${popupButtonBase} background: rgba(52,152,219,0.92); color: #fff; border: 1px solid rgba(120,190,240,0.45);`;
+                const popupSubtleBtn = `${popupButtonBase} background: rgba(44,62,80,0.92); color: #d8cfc4; border: 1px solid rgba(180,140,80,0.42);`;
+                const popupCommentBtn = `${popupButtonBase} background: rgba(180,140,80,0.14); color: #d4a843; border: 1px solid rgba(180,140,80,0.42);`;
+                const popupDeleteBtn = `${popupButtonBase} background: rgba(180,40,40,0.82); color: #fff; border: 1px solid rgba(220,90,80,0.5);`;
+
+                const popupContent = `<div style="min-width: 230px; max-width: 310px; line-height: 1.5; font-size: 12px; white-space: normal;">
                         <h4 style="margin: 0 0 6px 0; color: #f0e2c0; font-size:13px; border-bottom: 1px solid rgba(180,140,80,0.3); padding-bottom: 4px;">📜 ${contrib.name}${isMyContribution ? ' 👤' : ''}</h4>
-                        <p style="margin: 0 0 8px 0; font-size: 12px; color:#b8c8d4; white-space: pre-wrap; word-wrap: break-word; max-height: 150px; overflow-y: auto;">${contrib.description}</p>
+                        <p style="margin: 0 0 7px 0; font-size: 12px; color:#b8c8d4; white-space: pre-wrap; word-wrap: break-word; max-height: 108px; overflow-y: auto;">${contrib.description}</p>
+                        <div style="display: flex; gap: 5px; flex-wrap: wrap; align-items: center; margin: 0 0 8px 0; padding: 6px 0; border-top: 1px solid rgba(180,140,80,0.18); border-bottom: 1px solid rgba(180,140,80,0.18);">
+                            ${canVoteContribution ? `<button onclick="voteContribution('${contrib._id}')" class="button-style" style="${popupPrimaryBtn}">👍 추천</button>` : ''}
+                            <button onclick="openContribComments('${contrib._id}', '${contrib.name.replace(/'/g,"\\'")}', event)" style="${popupCommentBtn}">💬 의견 ${contrib.commentCount || 0}</button>
+                            <button onclick="openContribDetail('${contrib._id}')" class="button-style" style="${popupSubtleBtn}">📄 상세</button>
+                            ${isMyContribution && contrib.status !== 'approved' ? `<button onclick="deleteMyContribution('${contrib._id}')" class="button-style" style="${popupDeleteBtn}">🗑️ 삭제</button>` : ''}
+                        </div>
                         <div style="font-size: 11px; color: #9aabbd; display: flex; flex-direction: column; gap: 3px; border-top: 1px solid rgba(180,140,80,0.2); padding-top: 6px;">
                             <div style="display: flex; justify-content: space-between;"><span>복원자:</span> <b style="color:#d8cfc4;">${contrib.username}${isMyContribution ? ' (나)' : ''}</b></div>
-                            <div style="display: flex; justify-content: space-between;"><span>증거 유형:</span> <span style="color:#d8cfc4;">${categoryText}</span></div>
                             <div style="display: flex; justify-content: space-between;"><span>상태:</span> <span style="color: ${statusInfo.color};">${statusInfo.icon} ${statusInfo.text}</span></div>
                             ${reviewerInfo}
                             <div style="display: flex; justify-content: space-between;"><span>추천수:</span> <span id="vote-count-${contrib._id}" style="color:#d8cfc4;">${contrib.votes || 0}</span></div>
-                            <div style="display: flex; justify-content: space-between; align-items:center;"><span>의견:</span> <button onclick="openContribComments('${contrib._id}', '${contrib.name.replace(/'/g,"\\'")}', event)" style="background:rgba(180,140,80,0.12); border:1px solid rgba(180,140,80,0.35); color:#d4a843; font-size:11px; padding:2px 8px; border-radius:4px; cursor:pointer;">💬 ${contrib.commentCount || 0}개 보기</button></div>
                         </div>
-                        <div style="margin-top: 8px; text-align: right; display: flex; justify-content: flex-end; gap: 5px; flex-wrap: wrap;">
-                            <button onclick="openContribDetail('${contrib._id}')" class="button-style" style="padding: 2px 6px; font-size: 11px; background-color: rgba(44,62,80,0.9); color: #d8cfc4; border: 1px solid rgba(180,140,80,0.4); border-radius: 3px;">📄 상세보기</button>
-                            ${isMyContribution && contrib.status !== 'approved' ? `<button onclick="deleteMyContribution('${contrib._id}')" class="button-style" style="padding: 2px 6px; font-size: 11px; background-color: rgba(180,40,40,0.8); color: #fff; border-radius:3px;">🗑️ 삭제</button>` : ''}
-                            ${currentUser && !currentUser.isGuest && !isMyContribution && !(contrib.votedBy && contrib.votedBy.includes(currentUser.userId)) ? `<button onclick="voteContribution('${contrib._id}')" class="button-style" style="padding: 2px 6px; font-size: 11px;">👍 추천</button>` : ''}
+                        ${adminControls ? `<div style="margin-top: 8px; display: flex; justify-content: flex-end; gap: 5px; flex-wrap: wrap;">
                             ${adminControls}
-                        </div>
+                        </div>` : ''}
                     </div>`;
                 
                 marker.bindPopup(popupContent, { autoClose: false, closeOnClick: false });
@@ -16383,8 +16432,17 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
             const editorInfoHtml = castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">사관: ${castle.createdBy}</small>` : '';
             const _capFlagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" style="height:11px;vertical-align:middle;margin-right:3px;">` : '';
-            const _capCountryHtml = countryName && countryName !== '알 수 없음' ? `<br>${_capFlagHtml}<span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;">${countryName}</span>` : '';
-            popupHtml = `<b>🏯 ${castleName}</b>${_capCountryHtml}<br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${stripImgTags(castle.desc)}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}${buildNearbyBtn(castle.lat, castle.lng, castleName)}`;
+            const _capCountryHtml = countryName && countryName !== '알 수 없음' ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>국가:</span><span>${_capFlagHtml}<span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;">${countryName}</span></span></div>` : '';
+            popupHtml = buildCastleIndexPopup({
+                titleHtml: `🏯 ${castleName}`,
+                countryHtml: _capCountryHtml,
+                periodText: `${builtText} ~ ${destroyedText}`,
+                desc: castle.desc || '',
+                photo: castle.photo || '',
+                metaHtml: editorInfoHtml ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>사관:</span><span style="color:#d8cfc4;text-align:right;">${castle.createdBy}</span></div>` : '',
+                castleId: castle._id,
+                castleName
+            });
             marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
             let capTimeout;
             marker.on('mouseover', function() { clearTimeout(capTimeout); if (currentOpenPopup && currentOpenPopup !== this) currentOpenPopup.closePopup(); this.openPopup(); currentOpenPopup = this; });
@@ -16491,8 +16549,17 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
             const editorInfoHtml = castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">사관: ${castle.createdBy}</small>` : '';
             const _sptFlagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" style="height:11px;vertical-align:middle;margin-right:3px;">` : '';
-            const _sptCountryHtml = countryName && countryName !== '알 수 없음' ? `<br>${_sptFlagHtml}<span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;">${countryName}</span>` : '';
-            popupHtml = `<b>${ptCfg.hanja} ${castleName}</b>${_sptCountryHtml}<br><span style="color:#9aabbd;font-size:11px;">기간: ${builtText} ~ ${destroyedText}</span>${castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${stripImgTags(castle.desc)}</span>` : ''}${castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin-top:4px;">` : ''}${editorInfoHtml}${buildCommentBtn(castle._id, castleName)}${buildNearbyBtn(castle.lat, castle.lng, castleName)}`;
+            const _sptCountryHtml = countryName && countryName !== '알 수 없음' ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>국가:</span><span>${_sptFlagHtml}<span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;">${countryName}</span></span></div>` : '';
+            popupHtml = buildCastleIndexPopup({
+                titleHtml: `${ptCfg.hanja} ${castleName}`,
+                countryHtml: _sptCountryHtml,
+                periodText: `${builtText} ~ ${destroyedText}`,
+                desc: castle.desc || '',
+                photo: castle.photo || '',
+                metaHtml: editorInfoHtml ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>사관:</span><span style="color:#d8cfc4;text-align:right;">${castle.createdBy}</span></div>` : '',
+                castleId: castle._id,
+                castleName
+            });
             marker.bindPopup(popupHtml, { autoClose: false, closeOnClick: false });
 
             let sptTimeout;
@@ -16572,17 +16639,22 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         const flagHtml = currentCountry.flag
             ? `<img src="${currentCountry.flag}" class="country-flag-img" style="width: 25px; height: auto; margin-right: 5px; vertical-align: middle;">`
             : (()=>{ const _tc=(typeof getContrastColor==='function')?getContrastColor(_sealColor):(()=>{ try{ const h=(_sealColor||'').replace(/^#/,''); const hx=h.length===3?h.split('').map(c=>c+c).join(''):h; if(hx.length!==6)return'#fff'; const lum=0.2126*parseInt(hx.slice(0,2),16)+0.7152*parseInt(hx.slice(2,4),16)+0.0722*parseInt(hx.slice(4,6),16); return lum>160?'#1a1a1a':'#fff'; }catch(e){return'#fff';} })(); return `<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:${_sealColor};border-radius:2px;font-size:10px;color:${_tc};font-family:'Noto Serif KR',serif;transform:rotate(-3deg);box-shadow:1px 1px 3px rgba(0,0,0,0.5);margin-right:5px;vertical-align:middle;filter:brightness(0.85);">${_sealChar}</span>`; })();
-        const countryEthnicity = currentCountry.ethnicity ? `<br><span style="color:#9aabbd;font-size:11px;">민족: ${currentCountry.ethnicity}</span>` : '';
+        const countryEthnicity = currentCountry.ethnicity ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>민족:</span><span style="color:#d8cfc4;text-align:right;">${currentCountry.ethnicity}</span></div>` : '';
         const editorInfoHtml = castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">사관: ${castle.createdBy}</small>` : '';
         
         const _capitalImgHtml = '';
-        popupHtml = _capitalImgHtml
-                + `<b>${castleName}</b><br>${flagHtml} <span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8; cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px;">${countryName}</span>${countryEthnicity}<br><span style="color:#9aabbd;font-size:11px;">존속: ${builtText} ~ ${destroyedText}</span>` 
-                + (castle.desc ? `<br><span style="color:#b8c8d4;font-size:12px;">${stripImgTags(castle.desc)}</span>` : "") 
-                + (castle.photo ? `<br><img src="${toRawImageUrl(castle.photo)}" style="max-width:150px; max-height:100px; object-fit:cover; border-radius:4px; border:1px solid rgba(180,140,80,0.3); margin-top:4px;">` : "") 
-                + kingHtml
-                + editorInfoHtml
-                + buildCommentBtn(castle._id, castleName);
+        const castleCountryMeta = `<div style="display:flex;justify-content:space-between;gap:14px;"><span>국가:</span><span>${flagHtml}<span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8; cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px;">${countryName}</span></span></div>${countryEthnicity}`;
+        const castleExtraMeta = `${king ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>왕:</span><span style="color:#d8cfc4;text-align:right;">${king.name} (${king.start}년 ${king.start_month||1}월 ~ ${king.end === null ? '현재' : `${king.end}년 ${king.end_month||1}월`})</span></div>` : ''}${editorInfoHtml ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>사관:</span><span style="color:#d8cfc4;text-align:right;">${castle.createdBy}</span></div>` : ''}`;
+        popupHtml = buildCastleIndexPopup({
+            titleHtml: castleName,
+            countryHtml: castleCountryMeta,
+            periodText: `${builtText} ~ ${destroyedText}`,
+            desc: castle.desc || '',
+            photo: castle.photo || '',
+            extraHtml: castleExtraMeta,
+            castleId: castle._id,
+            castleName
+        });
 
 
             // 🚩 [추가] 커스텀 아이콘이 있으면 역삼각형(▼) 자리에 이미지를 표시하고 아래에 텍스트(이름) 유지
@@ -28473,7 +28545,6 @@ kingSelect.addEventListener('change', () => {
                         .catch(error => console.error('Failed to update voters list:', error));
                 }
                 
-                alert(data.message);
             } else {
                 alert(data.message || '추천 실패');
             }
@@ -35108,7 +35179,6 @@ kingSelect.addEventListener('change', () => {
                             .catch(error => console.error('Failed to update voters list:', error));
                     }
                     
-                    alert(data.message);
                 } else {
                     alert(data.message || '추천 실패');
                 }
