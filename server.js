@@ -10,6 +10,7 @@ const cors = require('cors');
 const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { connectToDatabase, reconnectDatabase, collections } = require('./db'); // 🚩 [추가] DB 연결 모듈
 const { put: blobPut, del: blobDel } = require('@vercel/blob'); // 🎙️ [추가] Vercel Blob SDK
 const multer = require('multer'); // 🦸 [추가] Hero 이미지 업로드용 Multer
@@ -921,6 +922,39 @@ const verifyToken = (req, res, next) => { // (전역으로 이동)
         req.user = user;
         next();
     });
+};
+
+const getOptionalAuthUser = (req) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) return null;
+    try {
+        return jwt.verify(token, jwtSecret);
+    } catch (_) {
+        return null;
+    }
+};
+
+const getHeroVoteVoterId = (req) => {
+    const user = getOptionalAuthUser(req);
+    const loggedInUserId = user && String(user.userId || user.id || user._id || '').trim();
+    if (loggedInUserId) return loggedInUserId;
+
+    const rawAnonymousId = String(
+        req.body?.anonymousVoterId ||
+        req.headers['x-anonymous-voter-id'] ||
+        ''
+    ).trim();
+    if (/^[a-zA-Z0-9_-]{12,96}$/.test(rawAnonymousId)) {
+        return `anon:${rawAnonymousId}`;
+    }
+
+    const fallback = crypto
+        .createHash('sha256')
+        .update(`${req.ip || ''}|${req.headers['user-agent'] || ''}`)
+        .digest('hex')
+        .slice(0, 32);
+    return `anon:${fallback}`;
 };
 
 const verifyAdmin = (req, res, next) => { // (전역으로 이동)
@@ -2483,15 +2517,15 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
             }
         });
 
-        // POST /api/heroes/:id/vote — 인기투표 +1 (로그인 필요)
-        app.post('/api/heroes/:id/vote', verifyToken, async (req, res) => {
+        // POST /api/heroes/:id/vote — 인기투표 +1 (비로그인 가능, 중복 방지)
+        app.post('/api/heroes/:id/vote', async (req, res) => {
             try {
                 const id = normalizeRouteId(req.params.id);
                 const kingMatch = parseKingHeroId(id);
                 if (!kingMatch) return res.status(410).json({ message: 'heroes 컬렉션 기반 투표는 더 이상 사용하지 않습니다.' });
                 const found = await findKingFigure(kingMatch.countryId, kingMatch.sourceRefId);
                 if (!found) return res.status(404).json({ message: '영웅 없음' });
-                const userId = String(req.user.userId || req.user.id || req.user._id || '');
+                const userId = getHeroVoteVoterId(req);
                 const votedBy = Array.isArray(found.king.voted_by) ? found.king.voted_by.map(String) : [];
                 if (userId && votedBy.includes(userId)) {
                     return res.json({ vote_count: parseInt(found.king.vote_count || 0), already_voted: true });
@@ -2512,15 +2546,15 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
             }
         });
 
-        // POST /api/heroes/:id/worst-vote — 최악의 인물 투표 +1 (로그인 필요)
-        app.post('/api/heroes/:id/worst-vote', verifyToken, async (req, res) => {
+        // POST /api/heroes/:id/worst-vote — 최악의 인물 투표 +1 (비로그인 가능, 중복 방지)
+        app.post('/api/heroes/:id/worst-vote', async (req, res) => {
             try {
                 const id = normalizeRouteId(req.params.id);
                 const kingMatch = parseKingHeroId(id);
                 if (!kingMatch) return res.status(410).json({ message: 'heroes 컬렉션 기반 투표는 더 이상 사용하지 않습니다.' });
                 const found = await findKingFigure(kingMatch.countryId, kingMatch.sourceRefId);
                 if (!found) return res.status(404).json({ message: '영웅 없음' });
-                const userId = String(req.user.userId || req.user.id || req.user._id || '');
+                const userId = getHeroVoteVoterId(req);
                 const votedBy = Array.isArray(found.king.worst_voted_by) ? found.king.worst_voted_by.map(String) : [];
                 if (userId && votedBy.includes(userId)) {
                     return res.json({ worst_vote_count: parseInt(found.king.worst_vote_count || 0), already_voted: true });

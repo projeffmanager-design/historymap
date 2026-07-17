@@ -1804,6 +1804,28 @@
         const CLIENT_CACHE_TTL = 2 * 60 * 1000; // 2분
         const _heroVotedSet = new Set(JSON.parse(localStorage.getItem('_heroVoted') || '[]'));
         const _heroWorstVotedSet = new Set(JSON.parse(localStorage.getItem('_heroWorstVoted') || '[]'));
+        function getAnonymousHeroVoterId() {
+            const storageKey = '_anonymousHeroVoterId';
+            let voterId = localStorage.getItem(storageKey);
+            if (!voterId) {
+                voterId = (window.crypto?.randomUUID?.() || `anon_${Date.now()}_${Math.random().toString(36).slice(2)}`).replace(/[^a-zA-Z0-9_-]/g, '');
+                localStorage.setItem(storageKey, voterId);
+            }
+            return voterId;
+        }
+
+        function buildHeroVoteRequest() {
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            const headers = {
+                'Content-Type': 'application/json',
+                'X-Anonymous-Voter-Id': getAnonymousHeroVoterId()
+            };
+            if (token) headers.Authorization = `Bearer ${token}`;
+            return {
+                headers,
+                body: JSON.stringify({ anonymousVoterId: getAnonymousHeroVoterId() })
+            };
+        }
 
         // 탭 전환
         document.querySelectorAll('.tab-button').forEach(button => {
@@ -2311,20 +2333,17 @@
         async function voteHeroFromRanking(heroId, button) {
             const id = String(heroId || '');
             if (!id || _heroVotedSet.has(id)) return;
-            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-            if (!token) {
-                alert('로그인 후 영웅을 지지할 수 있습니다.');
-                return;
-            }
             const originalText = button ? button.textContent : '';
             if (button) {
                 button.disabled = true;
                 button.textContent = '처리 중';
             }
             try {
+                const voteRequest = buildHeroVoteRequest();
                 const response = await fetch(`${API_BASE_URL}/heroes/${encodeURIComponent(id)}/vote`, {
                     method: 'POST',
-                    headers: { 'Authorization': `Bearer ${token}` }
+                    headers: voteRequest.headers,
+                    body: voteRequest.body
                 });
                 const result = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(result.message || '지지 투표에 실패했습니다.');
@@ -2358,20 +2377,17 @@
         async function voteWorstHeroFromRanking(heroId, button) {
             const id = String(heroId || '');
             if (!id || _heroWorstVotedSet.has(id)) return;
-            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-            if (!token) {
-                alert('로그인 후 최악의 인물에 투표할 수 있습니다.');
-                return;
-            }
             const originalText = button ? button.textContent : '';
             if (button) {
                 button.disabled = true;
                 button.textContent = '처리 중';
             }
             try {
+                const voteRequest = buildHeroVoteRequest();
                 const response = await fetch(`${API_BASE_URL}/heroes/${encodeURIComponent(id)}/worst-vote`, {
                     method: 'POST',
-                    headers: { 'Authorization': `Bearer ${token}` }
+                    headers: voteRequest.headers,
+                    body: voteRequest.body
                 });
                 const result = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(result.message || '최악 투표에 실패했습니다.');
