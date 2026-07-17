@@ -2546,7 +2546,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
             }
         });
 
-        // POST /api/heroes/:id/worst-vote — 최악의 인물 투표 +1 (비로그인 가능, 중복 방지)
+        // POST /api/heroes/:id/worst-vote — 빌런 투표 +1 (비로그인 가능, 중복 방지)
         app.post('/api/heroes/:id/worst-vote', async (req, res) => {
             try {
                 const id = normalizeRouteId(req.params.id);
@@ -7024,7 +7024,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 res.json(heroes);
             } catch (error) {
                 console.error('[GET /api/hero-rankings] 오류:', error);
-                res.status(500).json({ message: '영웅 지지율 랭킹 조회 실패', error: error.message });
+                res.status(500).json({ message: '영웅 & 빌런 투표 조회 실패', error: error.message });
             }
         });
 
