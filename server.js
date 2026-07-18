@@ -1038,7 +1038,7 @@ const verifySuperuser = (req, res, next) => { // (전역으로 이동)
 
 const resolveTrackedPagePath = (req) => {
     if (req.method !== 'GET') return null;
-    if (req.path === '/' || req.path === '') {
+    if (req.path === '/' || req.path === '' || req.path === '/map') {
         return '/index.html';
     }
     if (req.path.endsWith('.html')) {
@@ -1054,11 +1054,14 @@ const incrementPageView = async (pagePath) => {
 
         const now = new Date();
         const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+        // 시간대별 분석은 한국 시간(KST) 기준으로 별도 누적한다.
+        // 기존 일별 count/date 스키마는 그대로 유지해 과거 통계와 호환한다.
+        const kstHour = (now.getUTCHours() + 9) % 24;
 
         await collections.pageViews.updateOne(
             { path: pagePath, date: dayStart },
             {
-                $inc: { count: 1 },
+                $inc: { count: 1, [`hoursKst.${String(kstHour).padStart(2, '0')}`]: 1 },
                 $setOnInsert: {
                     path: pagePath,
                     date: dayStart,
@@ -5537,6 +5540,16 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     );
                 }
 
+                // 게스트 접속도 일반 로그인과 동일하게 영구 통계 로그에 남긴다.
+                // 활동 피드는 표시용으로 개수가 제한되므로 접속 통계의 원본으로 사용할 수 없다.
+                await collections.loginLogs.insertOne({
+                    userId: guestUser._id,
+                    username: guestName,
+                    isGuest: true,
+                    source: 'guest-login',
+                    timestamp: new Date()
+                });
+
                 // 토큰 발급 (24일 유효)
                 const token = jwt.sign(
                     { userId: guestUser._id, username: guestUser.username, role: guestUser.role, isGuest: true },
@@ -5728,11 +5741,79 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // GET: 서긍(게스트) 날짜별 접속 횟수와 최근 접속 시각 (관리자 전용)
+        app.get('/api/stats/guest-logins', verifyAdminOnly, async (req, res) => {
+            try {
+                const daysParam = parseInt(req.query.days, 10);
+                const days = Number.isFinite(daysParam) ? Math.min(Math.max(daysParam, 1), 90) : 30;
+                const guestUser = await collections.users.findOne(
+                    { $or: [{ username: '서긍' }, { isGuest: true }] },
+                    { projection: { _id: 1, username: 1 } }
+                );
+                if (!guestUser) return res.json({ labels: [], counts: [], total: 0, peak: null, recent: [] });
+
+                const now = new Date();
+                const nowKst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+                const todayKstStartUtc = new Date(Date.UTC(
+                    nowKst.getUTCFullYear(), nowKst.getUTCMonth(), nowKst.getUTCDate(), -9
+                ));
+                const startDate = new Date(todayKstStartUtc);
+                startDate.setUTCDate(startDate.getUTCDate() - (days - 1));
+                const guestFilter = {
+                    timestamp: { $gte: startDate },
+                    $or: [
+                        { userId: guestUser._id },
+                        { username: guestUser.username, isGuest: true },
+                        { source: 'guest-login' }
+                    ]
+                };
+
+                const [grouped, recent] = await Promise.all([
+                    collections.loginLogs.aggregate([
+                        { $match: guestFilter },
+                        { $group: {
+                            _id: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp', timezone: '+09:00' } },
+                            count: { $sum: 1 }
+                        } },
+                        { $sort: { _id: 1 } }
+                    ]).toArray(),
+                    collections.loginLogs.find(guestFilter, { projection: { _id: 0, timestamp: 1 } })
+                        .sort({ timestamp: -1 }).limit(30).toArray()
+                ]);
+
+                const labels = Array.from({ length: days }, (_, index) => {
+                    const date = new Date(todayKstStartUtc);
+                    date.setUTCDate(todayKstStartUtc.getUTCDate() - (days - 1) + index);
+                    const labelKst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+                    return labelKst.toISOString().slice(0, 10);
+                });
+                const countMap = new Map(grouped.map(item => [item._id, item.count]));
+                const counts = labels.map(label => countMap.get(label) || 0);
+                const total = counts.reduce((sum, count) => sum + count, 0);
+                const peakCount = Math.max(0, ...counts);
+                const peakIndex = counts.lastIndexOf(peakCount);
+
+                res.json({
+                    labels,
+                    counts,
+                    total,
+                    peak: peakCount > 0 ? { date: labels[peakIndex], count: peakCount } : null,
+                    recent: recent.map(item => item.timestamp),
+                    timezone: 'Asia/Seoul'
+                });
+            } catch (error) {
+                console.error('게스트 접속 통계 조회 중 오류:', error);
+                res.status(500).json({ message: '게스트 접속 통계 조회 실패', error: error.message });
+            }
+        });
+
         // 🚩 [추가] GET: 페이지 뷰 통계 (관리자 전용)
         app.get('/api/stats/page-views', verifyAdminOnly, async (req, res) => {
             try {
                 const daysParam = parseInt(req.query.days, 10);
-                const days = Number.isFinite(daysParam) ? Math.min(Math.max(daysParam, 1), 30) : 7;
+                const days = Number.isFinite(daysParam) ? Math.min(Math.max(daysParam, 1), 90) : 30;
+                const monthsParam = parseInt(req.query.months, 10);
+                const months = Number.isFinite(monthsParam) ? Math.min(Math.max(monthsParam, 1), 24) : 12;
                 const topParam = parseInt(req.query.top, 10);
                 const maxPages = Number.isFinite(topParam) ? Math.min(Math.max(topParam, 1), 10) : 5;
 
@@ -5740,10 +5821,14 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
                 const startDateUtc = new Date(todayUtc);
                 startDateUtc.setUTCDate(startDateUtc.getUTCDate() - (days - 1));
+                const monthStartUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+                const queryStartUtc = monthStartUtc < startDateUtc ? monthStartUtc : startDateUtc;
 
                 const pageViewDocs = await collections.pageViews
-                    .find({ date: { $gte: startDateUtc } })
+                    .find({ date: { $gte: queryStartUtc } })
                     .toArray();
+
+                const dailyDocs = pageViewDocs.filter(doc => doc.date >= startDateUtc);
 
                 const labels = Array.from({ length: days }, (_, index) => {
                     const labelDate = new Date(startDateUtc);
@@ -5752,7 +5837,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 });
 
                 const datasetMap = new Map();
-                pageViewDocs.forEach(doc => {
+                dailyDocs.forEach(doc => {
                     if (!doc || !doc.date || typeof doc.count !== 'number') return;
                     const dateKey = doc.date.toISOString().split('T')[0];
                     const labelIndex = labels.indexOf(dateKey);
@@ -5790,7 +5875,59 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     datasets.push({ path: '기타', counts: otherCounts });
                 }
 
-                res.json({ labels, datasets, totals });
+                // KST 24시간 분포. 이 필드는 배포 이후 기록부터 누적되므로 데이터 유무도 함께 반환한다.
+                const hourlyMap = new Map();
+                dailyDocs.forEach(doc => {
+                    const pathKey = doc.path || 'unknown';
+                    if (!hourlyMap.has(pathKey)) hourlyMap.set(pathKey, Array(24).fill(0));
+                    const counts = hourlyMap.get(pathKey);
+                    const hours = doc.hoursKst || {};
+                    Object.entries(hours).forEach(([hour, count]) => {
+                        const index = parseInt(hour, 10);
+                        if (index >= 0 && index < 24 && Number.isFinite(Number(count))) counts[index] += Number(count);
+                    });
+                });
+                const hourlyDatasets = selectedTotals.map(item => ({
+                    path: item.path,
+                    counts: hourlyMap.get(item.path) || Array(24).fill(0)
+                }));
+                const hourlyRecordedCount = hourlyDatasets.reduce(
+                    (total, dataset) => total + dataset.counts.reduce((sum, count) => sum + count, 0), 0
+                );
+
+                // 최근 N개월 월별 합계. 과거 일별 문서도 즉시 활용할 수 있다.
+                const monthlyLabels = Array.from({ length: months }, (_, index) => {
+                    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1) + index, 1));
+                    return date.toISOString().slice(0, 7);
+                });
+                const monthlyMap = new Map();
+                pageViewDocs.forEach(doc => {
+                    if (!doc?.date || typeof doc.count !== 'number') return;
+                    const monthKey = doc.date.toISOString().slice(0, 7);
+                    const monthIndex = monthlyLabels.indexOf(monthKey);
+                    if (monthIndex < 0) return;
+                    const pathKey = doc.path || 'unknown';
+                    if (!monthlyMap.has(pathKey)) monthlyMap.set(pathKey, Array(months).fill(0));
+                    monthlyMap.get(pathKey)[monthIndex] += doc.count;
+                });
+                const monthlyTotals = Array.from(monthlyMap.entries())
+                    .map(([path, counts]) => ({ path, counts, totalCount: counts.reduce((sum, count) => sum + count, 0) }))
+                    .sort((a, b) => b.totalCount - a.totalCount)
+                    .slice(0, maxPages)
+                    .map(({ path, counts }) => ({ path, counts }));
+
+                res.json({
+                    labels,
+                    datasets,
+                    totals,
+                    hourly: {
+                        labels: Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}시`),
+                        datasets: hourlyDatasets,
+                        recordedCount: hourlyRecordedCount,
+                        timezone: 'Asia/Seoul'
+                    },
+                    monthly: { labels: monthlyLabels, datasets: monthlyTotals }
+                });
             } catch (error) {
                 console.error("페이지 뷰 통계 조회 중 오류:", error);
                 res.status(500).json({ message: "페이지 뷰 통계 조회 실패", error: error.message });

@@ -305,6 +305,9 @@
         .dash-charts-grid.three-col {
             grid-template-columns: 1fr 1fr 1fr;
         }
+        .dash-charts-grid.two-one {
+            grid-template-columns: 2fr 1fr;
+        }
         .chart-card {
             background: #1e2a38;
             border: 1px solid #3a4f63;
@@ -327,6 +330,68 @@
         .chart-card.tall .chart-wrap {
             height: 220px;
         }
+        .analytics-section {
+            margin: 18px 0;
+            padding: 18px;
+            border: 1px solid #35516a;
+            border-radius: 12px;
+            background: linear-gradient(145deg, rgba(22,34,47,.96), rgba(28,43,57,.96));
+        }
+        .analytics-header {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 14px;
+        }
+        .analytics-title { margin: 0; color: #ecf0f1; font-size: 1.05em; }
+        .analytics-caption { margin: 5px 0 0; color: #7890a5; font-size: .76em; }
+        .analytics-section .chart-card { background: rgba(20,31,43,.72); }
+        .analytics-section .chart-wrap { height: 240px; }
+        .pv-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .pv-summary-card {
+            padding: 12px 14px;
+            border-radius: 8px;
+            background: rgba(255,255,255,.04);
+            border: 1px solid rgba(255,255,255,.08);
+        }
+        .pv-summary-card span { display: block; color: #7890a5; font-size: .72em; }
+        .pv-summary-card strong { display: block; color: #f3f7fa; font-size: 1.45em; margin-top: 3px; }
+        .pv-empty-note {
+            display: none;
+            position: absolute;
+            inset: 0;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            color: #7890a5;
+            font-size: .8em;
+            padding: 24px;
+            pointer-events: none;
+        }
+        .guest-login-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            max-height: 240px;
+            overflow-y: auto;
+            font-size: .8em;
+        }
+        .guest-login-list li {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 7px 2px;
+            color: #b8c8d5;
+            border-bottom: 1px solid #2c3a48;
+        }
+        .guest-login-list li:last-child { border-bottom: 0; }
+        .guest-login-list time { color: #ecf0f1; font-variant-numeric: tabular-nums; }
         /* 사관 랭킹 테이블 */
         .contrib-table {
             width: 100%;
@@ -443,6 +508,13 @@
             }
             h1 { font-size: 1.8em; }
             h2 { font-size: 1.4em; }
+            .dash-kpi-grid,
+            .dash-charts-grid,
+            .dash-charts-grid.three-col,
+            .dash-charts-grid.two-one,
+            .pv-summary-grid { grid-template-columns: 1fr; }
+            .analytics-header { align-items: flex-start; flex-direction: column; }
+            .analytics-section { padding: 12px; }
 
             /* 컨트롤들을 세로로 쌓기 */
             #user-controls, #registerForm {
@@ -616,8 +688,8 @@
                 </div>
             </div>
 
-            <!-- 차트 행 3: 직급 분포 + 최근 활동 피드 + 페이지뷰 -->
-            <div class="dash-charts-grid three-col">
+            <!-- 차트 행 3: 직급 분포 + 최근 활동 피드 -->
+            <div class="dash-charts-grid">
                 <div class="chart-card">
                     <h3>🎖️ 사관 직급 분포</h3>
                     <ul class="rank-dist-list" id="rankDistList"></ul>
@@ -626,11 +698,61 @@
                     <h3>🕐 최근 사료 활동</h3>
                     <ul class="activity-feed" id="activityFeed"></ul>
                 </div>
-                <div class="chart-card">
-                    <h3>🌐 페이지뷰 (최근 7일)</h3>
-                    <div class="chart-wrap"><canvas id="pageViewsChart2"></canvas></div>
-                </div>
             </div>
+
+            <!-- 방문 분석: 일별 / 시간대별 / 월별을 한 영역에서 비교 -->
+            <section class="analytics-section" aria-labelledby="page-view-analytics-title">
+                <div class="analytics-header">
+                    <div>
+                        <h2 class="analytics-title" id="page-view-analytics-title">🌐 방문 분석</h2>
+                        <p class="analytics-caption">일별·월별은 기존 누적 데이터, 시간대별은 KST 기준 신규 기록을 사용합니다.</p>
+                    </div>
+                    <span class="analytics-caption">상위 5개 페이지 기준</span>
+                </div>
+                <div class="pv-summary-grid">
+                    <div class="pv-summary-card"><span>최근 30일 페이지뷰</span><strong id="pv-total-30d">—</strong></div>
+                    <div class="pv-summary-card"><span>일평균 페이지뷰</span><strong id="pv-daily-average">—</strong></div>
+                    <div class="pv-summary-card"><span>가장 많이 본 페이지</span><strong id="pv-top-page" style="font-size:1em;line-height:1.4">—</strong></div>
+                </div>
+                <div class="dash-charts-grid two-one">
+                    <div class="chart-card tall">
+                        <h3>📈 최근 30일 일별 페이지뷰</h3>
+                        <div class="chart-wrap"><canvas id="pageViewsDailyChart"></canvas></div>
+                    </div>
+                    <div class="chart-card tall">
+                        <h3>🕒 시간대별 페이지뷰 (KST)</h3>
+                        <div class="chart-wrap">
+                            <canvas id="pageViewsHourlyChart"></canvas>
+                            <div class="pv-empty-note" id="pv-hourly-empty">시간대별 집계는 이번 배포 이후 방문부터 표시됩니다.</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="chart-card tall">
+                    <h3>🗓️ 최근 12개월 월별 페이지뷰</h3>
+                    <div class="chart-wrap"><canvas id="pageViewsMonthlyChart"></canvas></div>
+                </div>
+                <div class="analytics-header" style="margin-top:22px">
+                    <div>
+                        <h2 class="analytics-title">🧳 서긍 게스트 접속</h2>
+                        <p class="analytics-caption">게스트 로그인 요청을 KST 기준으로 집계합니다.</p>
+                    </div>
+                </div>
+                <div class="pv-summary-grid">
+                    <div class="pv-summary-card"><span>최근 30일 접속</span><strong id="guest-login-total">—</strong></div>
+                    <div class="pv-summary-card"><span>가장 많이 접속한 날</span><strong id="guest-login-peak" style="font-size:1em;line-height:1.4">—</strong></div>
+                    <div class="pv-summary-card"><span>최근 접속</span><strong id="guest-login-latest" style="font-size:1em;line-height:1.4">—</strong></div>
+                </div>
+                <div class="dash-charts-grid two-one">
+                    <div class="chart-card tall">
+                        <h3>📅 날짜별 게스트 접속 횟수 (최근 30일)</h3>
+                        <div class="chart-wrap"><canvas id="guestLoginsDailyChart"></canvas></div>
+                    </div>
+                    <div class="chart-card tall">
+                        <h3>🕐 최근 접속 기록</h3>
+                        <ul class="guest-login-list" id="guest-login-recent"></ul>
+                    </div>
+                </div>
+            </section>
 
         </div>
         <!-- ════════════ 대시보드 끝 ════════════ -->
@@ -1113,16 +1235,18 @@
 
         async function loadDashboard() {
             try {
-                const [dashRes, loginRes, pvRes] = await Promise.all([
+                const [dashRes, loginRes, pvRes, guestRes] = await Promise.all([
                     fetch(`${API_BASE_URL}/admin/dashboard`, { headers: { Authorization: `Bearer ${token}` } }),
                     fetch(`${API_BASE_URL}/stats/daily-logins`,  { headers: { Authorization: `Bearer ${token}` } }),
-                    fetch(`${API_BASE_URL}/stats/page-views?days=7`, { headers: { Authorization: `Bearer ${token}` } }),
+                    fetch(`${API_BASE_URL}/stats/page-views?days=30&months=12&top=5`, { headers: { Authorization: `Bearer ${token}` } }),
+                    fetch(`${API_BASE_URL}/stats/guest-logins?days=30`, { headers: { Authorization: `Bearer ${token}` } }),
                 ]);
                 const dash = dashRes.ok ? await dashRes.json() : null;
                 const logins = loginRes.ok ? await loginRes.json() : [];
                 const pvStats = pvRes.ok ? await pvRes.json() : null;
+                const guestStats = guestRes.ok ? await guestRes.json() : null;
 
-                if (dash) renderDashboard(dash, logins, pvStats);
+                if (dash) renderDashboard(dash, logins, pvStats, guestStats);
             } catch (e) {
                 console.warn('대시보드 로딩 오류:', e);
             }
@@ -1136,7 +1260,7 @@
             } catch(e) {}
         }
 
-        function renderDashboard(dash, logins, pvStats) {
+        function renderDashboard(dash, logins, pvStats, guestStats) {
             const s = dash.summary;
 
             // ── KPI 카드 ──
@@ -1178,7 +1302,8 @@
             // 이번 달 사료
             const now = new Date();
             const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-            const lastMonthKey = `${now.getFullYear()}-${String(now.getMonth()).padStart(2,'0')}`;
+            const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const lastMonthKey = `${previousMonth.getFullYear()}-${String(previousMonth.getMonth()+1).padStart(2,'0')}`;
             const thisM = (dash.monthlyTrend || []).find(m => m._id === thisMonthKey);
             const lastM = (dash.monthlyTrend || []).find(m => m._id === lastMonthKey);
             document.getElementById('kpi-thisMonth').textContent = thisM ? thisM.count : 0;
@@ -1295,18 +1420,84 @@
                     }
                 });
 
-            // ── 페이지뷰 라인 차트 ──
-            if (pvStats && Array.isArray(pvStats.labels) && pvStats.labels.length > 0) {
-                const pvLabels = pvStats.labels.map(l => l.slice(5));
-                const pvColors = [CHART_COLORS.blue, CHART_COLORS.green, CHART_COLORS.orange, CHART_COLORS.purple, CHART_COLORS.teal];
-                const pvDatasets = (pvStats.datasets || []).slice(0, 5).map((ds, i) => ({
-                    label: describePagePath(ds.path).label,
-                    data: ds.counts || [],
-                    borderColor: pvColors[i % pvColors.length],
-                    backgroundColor: 'transparent',
-                    borderWidth: 2, tension: 0.3, pointRadius: 2
-                }));
-                makeChart('pageViewsChart2', 'line', { labels: pvLabels, datasets: pvDatasets });
+            // ── 방문 분석: 30일 일별 + 24시간대 + 12개월 월별 ──
+            if (pvStats && Array.isArray(pvStats.labels)) {
+                const pvColors = [CHART_COLORS.blue, CHART_COLORS.green, CHART_COLORS.orange, CHART_COLORS.purple, CHART_COLORS.teal, CHART_COLORS.grey];
+                const buildPvDatasets = (items, { fill = false, points = 2 } = {}) =>
+                    (items || []).map((ds, i) => ({
+                        label: describePagePath(ds.path).label,
+                        data: ds.counts || [],
+                        borderColor: pvColors[i % pvColors.length],
+                        backgroundColor: fill ? hex2rgba(pvColors[i % pvColors.length], 0.14) : 'transparent',
+                        borderWidth: 2,
+                        fill,
+                        tension: 0.28,
+                        pointRadius: points,
+                        pointHoverRadius: 5
+                    }));
+
+                const total30d = (pvStats.totals || []).reduce((sum, item) => sum + (item.totalCount || 0), 0);
+                const topPage = (pvStats.totals || [])[0];
+                document.getElementById('pv-total-30d').textContent = total30d.toLocaleString();
+                document.getElementById('pv-daily-average').textContent = Math.round(total30d / Math.max(1, pvStats.labels.length)).toLocaleString();
+                document.getElementById('pv-top-page').textContent = topPage ? describePagePath(topPage.path).label : '—';
+
+                makeChart('pageViewsDailyChart', 'line', {
+                    labels: pvStats.labels.map(label => label.slice(5).replace('-', '/')),
+                    datasets: buildPvDatasets(pvStats.datasets, { fill: false, points: 2 })
+                }, { interaction: { mode: 'index', intersect: false } });
+
+                const hourly = pvStats.hourly || { labels: [], datasets: [], recordedCount: 0 };
+                const hourlyEmpty = document.getElementById('pv-hourly-empty');
+                hourlyEmpty.style.display = hourly.recordedCount > 0 ? 'none' : 'flex';
+                makeChart('pageViewsHourlyChart', 'bar', {
+                    labels: hourly.labels || [],
+                    datasets: (hourly.datasets || []).map((ds, i) => ({
+                        label: describePagePath(ds.path).label,
+                        data: ds.counts || [],
+                        backgroundColor: hex2rgba(pvColors[i % pvColors.length], 0.65),
+                        borderColor: pvColors[i % pvColors.length],
+                        borderWidth: 1,
+                        borderRadius: 3
+                    }))
+                }, { interaction: { mode: 'index', intersect: false } });
+
+                const monthly = pvStats.monthly || { labels: [], datasets: [] };
+                makeChart('pageViewsMonthlyChart', 'line', {
+                    labels: (monthly.labels || []).map(label => label.replace('-', '.')),
+                    datasets: buildPvDatasets(monthly.datasets, { fill: true, points: 3 })
+                }, { interaction: { mode: 'index', intersect: false } });
+            }
+
+            // ── 서긍 게스트 접속 분석 ──
+            if (guestStats && Array.isArray(guestStats.labels)) {
+                const formatKst = value => new Intl.DateTimeFormat('ko-KR', {
+                    timeZone: 'Asia/Seoul', month: '2-digit', day: '2-digit',
+                    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+                }).format(new Date(value));
+                const recent = guestStats.recent || [];
+                document.getElementById('guest-login-total').textContent = `${(guestStats.total || 0).toLocaleString()}회`;
+                document.getElementById('guest-login-peak').textContent = guestStats.peak
+                    ? `${guestStats.peak.date.slice(5).replace('-', '/')} · ${guestStats.peak.count}회`
+                    : '기록 없음';
+                document.getElementById('guest-login-latest').textContent = recent.length ? formatKst(recent[0]) : '기록 없음';
+
+                makeChart('guestLoginsDailyChart', 'bar', {
+                    labels: guestStats.labels.map(label => label.slice(5).replace('-', '/')),
+                    datasets: [{
+                        label: '게스트 접속',
+                        data: guestStats.counts || [],
+                        backgroundColor: hex2rgba(CHART_COLORS.orange, 0.65),
+                        borderColor: CHART_COLORS.orange,
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                }, { plugins: { legend: { display: false } } });
+
+                const recentList = document.getElementById('guest-login-recent');
+                recentList.innerHTML = recent.length
+                    ? recent.map((timestamp, index) => `<li><span>${index + 1}번째</span><time datetime="${timestamp}">${formatKst(timestamp)}</time></li>`).join('')
+                    : '<li style="color:#7890a5">아직 저장된 게스트 접속 기록이 없습니다.</li>';
             }
         }
 
