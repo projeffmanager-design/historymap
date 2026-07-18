@@ -7832,6 +7832,7 @@ body.force-mobile .marker-type-selector button {
                   <button id="menu-cityEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">🏯 성/도시</button>
                   <button id="menu-countryEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">🏛️ 국가</button>
                   <button id="menu-kingEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">👑 왕</button>
+                  <button id="menu-heroEditBtn" style="background: rgba(245,196,66,0.1); border-color: #f5c442; color: #f5c442;">🦸 영웅</button>
                   <button id="menu-eventEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">📅 이벤트</button>
                   <button id="menu-historyEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">📜 역사 기록</button>
                   <button id="menu-trashBtn" style="background: rgba(243,156,18,0.1); border-color: #f39c12; color: #f39c12;">🗑️ 휴지통</button>
@@ -8657,9 +8658,10 @@ body.force-mobile .marker-type-selector button {
                     </div>
                 </div>
                 <input class="hero-admin-input" id="heroAdminSearch"
-                    placeholder="🔍 영웅 이름 검색..."
+                    placeholder="🔍 이름·한자·국가 검색..."
                     style="width:100%; box-sizing:border-box; margin-bottom:8px;"
                     oninput="heroSystem._filterAdminRows(this.value)">
+                <div id="heroAdminSearchStatus" style="font-size:11px;color:#8a7a5a;margin:-2px 0 7px;min-height:15px;"></div>
                 <div id="heroAdminTableWrap" style="overflow-x:auto; max-height:260px; overflow-y:auto;">
                     <table class="hero-admin-table">
                         <thead>
@@ -27684,8 +27686,14 @@ kingSelect.addEventListener('change', () => {
                 _adminHeroes.forEach(h => {
                     const by = (h.birth_year == null || h.birth_year === '') ? '-' : (h.birth_year < 0 ? `기원전${Math.abs(h.birth_year)}` : h.birth_year);
                     const dy = (h.death_year == null || h.death_year === '') ? '-' : (h.death_year < 0 ? `기원전${Math.abs(h.death_year)}` : h.death_year);
+                    const searchText = normalizeHeroAdminSearchText([
+                        h.name_ko,
+                        h.name_zh,
+                        h.faction,
+                        h.title
+                    ].filter(Boolean).join(' '));
                     tbody.insertAdjacentHTML('beforeend',
-                        `<tr data-hero-id="${escapeHeroAdminText(h._id)}">
+                        `<tr data-hero-id="${escapeHeroAdminText(h._id)}" data-search="${escapeHeroAdminText(searchText)}">
                             <td><input type="checkbox" class="hero-bulk-check" data-hero-id="${escapeHeroAdminText(h._id)}"></td>
                             <td>${escapeHeroAdminText(h.name_ko)}</td>
                             <td>${escapeHeroAdminText(h.faction || '-')}</td>
@@ -27704,7 +27712,8 @@ kingSelect.addEventListener('change', () => {
                 tbody.querySelectorAll('.hero-bulk-check').forEach(cb => {
                     cb.addEventListener('change', updateHeroBulkSelectedCount);
                 });
-                updateHeroBulkSelectedCount();
+                const currentQuery = document.getElementById('heroAdminSearch')?.value || '';
+                _filterAdminRows(currentQuery);
             } catch (e) { console.warn('[heroSystem] loadAdminList 오류:', e); }
         }
 
@@ -28385,11 +28394,30 @@ kingSelect.addEventListener('change', () => {
             });
         }
 
+        function normalizeHeroAdminSearchText(value) {
+            return String(value || '')
+                .normalize('NFKC')
+                .toLocaleLowerCase('ko-KR')
+                .replace(/\s+/g, '');
+        }
+
         function _filterAdminRows(q) {
-            const query = String(q || '').toLowerCase();
-            document.querySelectorAll('#heroAdminTbody tr').forEach(tr => {
-                tr.style.display = tr.textContent.toLowerCase().includes(query) ? '' : 'none';
+            const query = normalizeHeroAdminSearchText(q);
+            const rows = [...document.querySelectorAll('#heroAdminTbody tr')];
+            let visibleCount = 0;
+            rows.forEach(tr => {
+                const searchText = tr.dataset.search || normalizeHeroAdminSearchText(tr.textContent);
+                const visible = !query || searchText.includes(query);
+                tr.style.display = visible ? '' : 'none';
+                if (visible) visibleCount += 1;
             });
+            const status = document.getElementById('heroAdminSearchStatus');
+            if (status) {
+                status.textContent = query
+                    ? `${visibleCount}명 검색됨 / 전체 ${rows.length}명`
+                    : `전체 ${rows.length}명`;
+                status.style.color = query && visibleCount === 0 ? '#e67e22' : '#8a7a5a';
+            }
             updateHeroBulkSelectedCount();
         }
 
@@ -33955,6 +33983,15 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('kingCountrySelect').value = '';
             document.getElementById('kingSelect').innerHTML = '<option value="">--- 새 왕 추가 ---</option>';
             loadKingsForCountry(true);
+        });
+
+        document.getElementById('menu-heroEditBtn')?.addEventListener('click', () => {
+            toggleHamburgerMenu();
+            if (!window.heroSystem?._openAdminPanel) {
+                alert('영웅 편집 화면을 준비하지 못했습니다. 잠시 후 다시 시도해주세요.');
+                return;
+            }
+            window.heroSystem._openAdminPanel();
         });
 
         document.getElementById('menu-eventEditBtn')?.addEventListener('click', () => {
