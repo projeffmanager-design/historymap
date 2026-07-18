@@ -686,6 +686,74 @@
             background: rgba(140,150,160,0.06);
             font-size: 13px;
         }
+        .hero-detail-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin: 16px 0;
+            padding: 12px;
+            border: 1px solid rgba(180,140,80,0.22);
+            border-radius: 9px;
+            background: rgba(180,140,80,0.06);
+        }
+        .hero-detail-actions .hero-support-btn {
+            padding: 9px 16px;
+            font-size: 13px;
+        }
+        .hero-detail-edit-btn {
+            margin-left: auto;
+            padding: 9px 16px;
+            border: 1px solid rgba(90,160,180,0.5);
+            border-radius: 7px;
+            background: rgba(90,160,180,0.18);
+            color: #bfe5ef;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .hero-detail-edit-btn:hover {
+            background: rgba(90,160,180,0.3);
+        }
+        .hero-detail-admin-form {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            margin: 16px 0;
+            padding: 16px;
+            border: 1px solid rgba(90,160,180,0.36);
+            border-radius: 9px;
+            background: rgba(40,90,110,0.12);
+        }
+        .hero-detail-admin-form label {
+            display: grid;
+            gap: 5px;
+            color: #bfe5ef;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .hero-detail-admin-form input,
+        .hero-detail-admin-form select,
+        .hero-detail-admin-form textarea {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 9px 10px;
+            border: 1px solid rgba(90,160,180,0.34);
+            border-radius: 6px;
+            background: rgba(0,0,0,0.28);
+            color: var(--text-main);
+            font: inherit;
+        }
+        .hero-detail-admin-form .full-row { grid-column: 1 / -1; }
+        .hero-detail-admin-form-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+        @media (max-width: 600px) {
+            .hero-detail-admin-form { grid-template-columns: 1fr; }
+            .hero-detail-admin-form .full-row { grid-column: auto; }
+            .hero-detail-edit-btn { margin-left: 0; }
+        }
         .hero-support-btn.worst {
             border-color: rgba(200,80,70,0.45);
             background: rgba(200,80,70,0.14);
@@ -1984,6 +2052,15 @@
             }[ch]));
         }
 
+        function normalizeHeroDetailText(value) {
+            return String(value ?? '').replace(/\s+/g, ' ').trim();
+        }
+
+        function isDuplicateHeroDetailText(value, ...shownValues) {
+            const normalized = normalizeHeroDetailText(value);
+            return !!normalized && shownValues.some(item => normalizeHeroDetailText(item) === normalized);
+        }
+
         function formatHeroYear(year) {
             if (year === null || year === undefined || year === '') return '미상';
             const parsed = parseInt(year, 10);
@@ -2479,10 +2556,13 @@
                     ));
                     _clientHeroRankingsCache.forEach((hero, index) => { hero.rank = index + 1; });
                     renderHeroRankings(_clientHeroRankingsCache);
-                } else if (button) {
+                }
+                if (button) {
                     button.textContent = '영웅 완료';
                     button.disabled = true;
                 }
+                const countEl = document.getElementById(`heroDetailVoteCount-${id}`);
+                if (countEl) countEl.textContent = parseInt(result.vote_count || 0, 10).toLocaleString('ko-KR');
             } catch (error) {
                 console.error('영웅 투표 실패:', error);
                 alert(error.message || '영웅 투표에 실패했습니다.');
@@ -2517,10 +2597,13 @@
                     const target = _clientHeroRankingsCache.find(hero => String(hero._id) === id);
                     if (target) target.worst_vote_count = result.worst_vote_count ?? ((parseInt(target.worst_vote_count, 10) || 0) + 1);
                     renderHeroRankings(_clientHeroRankingsCache);
-                } else if (button) {
+                }
+                if (button) {
                     button.textContent = '빌런 완료';
                     button.disabled = true;
                 }
+                const countEl = document.getElementById(`heroDetailWorstVoteCount-${id}`);
+                if (countEl) countEl.textContent = parseInt(result.worst_vote_count || 0, 10).toLocaleString('ko-KR');
             } catch (error) {
                 console.error('빌런 투표 실패:', error);
                 alert(error.message || '빌런 투표에 실패했습니다.');
@@ -2637,6 +2720,7 @@
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(data.message || '영웅 정보를 불러오지 못했습니다.');
                 const hero = data.hero || {};
+                window._rankingHeroDetailData = hero;
                 const cachedHero = Array.isArray(_clientHeroRankingsCache)
                     ? _clientHeroRankingsCache.find(item => String(item._id) === String(heroId))
                     : null;
@@ -2644,16 +2728,32 @@
                 const comments = Array.isArray(data.comments) ? data.comments : [];
                 const avatar = hero.illustration_url || hero.avatar_url || '';
                 const years = `${formatHeroYear(hero.birth_year)} ~ ${formatHeroYear(hero.death_year)}`;
+                const showHeroTitle = hero.title && !isDuplicateHeroDetailText(hero.title, hero.description);
                 const posHtml = positions.length
                     ? positions.slice(0, 12).map(pos => {
                         const year = formatHeroYear(pos.year ?? pos.start_year);
-                        return `<div class="hero-detail-position"><strong>${year}</strong>${escapeHTML(pos.event_title || pos.type || '행적')}<div style="color:#8fa0b0;font-size:12px;margin-top:3px;">${escapeHTML(pos.location_name || '')}</div></div>`;
+                        const eventTitle = isDuplicateHeroDetailText(pos.event_title, hero.description, hero.title)
+                            ? ''
+                            : (pos.event_title || '');
+                        const fallbackType = !eventTitle && pos.type && pos.type !== 'STAY' ? pos.type : '';
+                        const eventHtml = eventTitle || fallbackType
+                            ? `<span>${escapeHTML(eventTitle || fallbackType)}</span>`
+                            : '';
+                        const locationHtml = pos.location_name
+                            ? `<div style="color:#8fa0b0;font-size:12px;margin-top:3px;">${escapeHTML(pos.location_name)}</div>`
+                            : '';
+                        return `<div class="hero-detail-position"><strong>${year}</strong>${eventHtml}${locationHtml}</div>`;
                     }).join('')
                     : '<div style="color:#8fa0b0;">등록된 행적이 없습니다.</div>';
                 const commentHtml = comments.length
                     ? renderHeroDetailComments(comments)
                     : renderHeroDetailComments([]);
                 const auth = getRankingAuthInfo();
+                const isAdmin = auth.role === 'admin' || auth.role === 'superuser';
+                const voted = _heroVotedSet.has(String(heroId));
+                const worstVoted = _heroWorstVotedSet.has(String(heroId));
+                const heroVoteCount = parseInt(hero.vote_count ?? cachedHero?.vote_count ?? 0, 10) || 0;
+                const worstVoteCount = parseInt(hero.worst_vote_count ?? cachedHero?.worst_vote_count ?? 0, 10) || 0;
                 const commentFormHtml = auth.canCommentAsOfficer
                     ? `
                         <form class="hero-detail-comment-form" data-hero-id="${escapeHTML(heroId)}">
@@ -2676,11 +2776,16 @@
                                 <span class="hero-detail-pill">${escapeHTML(hero.faction || '소속 미상')}</span>
                                 <span class="hero-detail-pill">${escapeHTML(heroTypeLabel(hero.hero_type))}</span>
                                 <span class="hero-detail-pill">${years}</span>
-                                <span class="hero-detail-pill">영웅 ${parseInt(hero.vote_count || 0, 10).toLocaleString('ko-KR')}표</span>
-                                <span class="hero-detail-pill">빌런 ${parseInt(cachedHero?.worst_vote_count || 0, 10).toLocaleString('ko-KR')}표</span>
+                                <span class="hero-detail-pill">영웅 <span id="heroDetailVoteCount-${escapeHTML(heroId)}">${heroVoteCount.toLocaleString('ko-KR')}</span>표</span>
+                                <span class="hero-detail-pill">빌런 <span id="heroDetailWorstVoteCount-${escapeHTML(heroId)}">${worstVoteCount.toLocaleString('ko-KR')}</span>표</span>
                             </div>
-                            ${hero.title ? `<div style="color:#f0d060;">${escapeHTML(hero.title)}</div>` : ''}
+                            ${showHeroTitle ? `<div style="color:#f0d060;">${escapeHTML(hero.title)}</div>` : ''}
                         </div>
+                    </div>
+                    <div class="hero-detail-actions">
+                        <button type="button" class="hero-support-btn hero-detail-vote-btn" data-hero-id="${escapeHTML(heroId)}" ${voted ? 'disabled' : ''}>${voted ? '영웅 투표 완료' : '영웅으로 투표'}</button>
+                        <button type="button" class="hero-support-btn worst hero-detail-worst-vote-btn" data-hero-id="${escapeHTML(heroId)}" ${worstVoted ? 'disabled' : ''}>${worstVoted ? '빌런 투표 완료' : '빌런으로 투표'}</button>
+                        ${isAdmin ? `<button type="button" class="hero-detail-edit-btn" data-hero-id="${escapeHTML(heroId)}">✏️ 바로 편집</button>` : ''}
                     </div>
                     <div class="hero-detail-desc">${escapeHTML(hero.description || '설명이 아직 없습니다.')}</div>
                     <h3 style="color:#f0e2c0;margin:18px 0 8px;">행적</h3>
@@ -2700,6 +2805,101 @@
             if (!form) return;
             event.preventDefault();
             submitHeroDetailComment(form.dataset.heroId, form);
+        });
+
+        function openHeroAdminEditor(heroId) {
+            const auth = getRankingAuthInfo();
+            if (auth.role !== 'admin' && auth.role !== 'superuser') return;
+            const hero = window._rankingHeroDetailData;
+            if (!hero || String(hero._id) !== String(heroId)) return;
+            const actions = document.querySelector('.hero-detail-actions');
+            if (!actions || document.querySelector('.hero-detail-admin-form')) return;
+            const types = [
+                ['king', '왕'], ['emperor', '황제'], ['general', '장군'],
+                ['civilian', '문관'], ['hojok', '호족'], ['khan', '칸'], ['brigand', '도적']
+            ];
+            actions.insertAdjacentHTML('afterend', `
+                <form class="hero-detail-admin-form" data-hero-id="${escapeHTML(heroId)}">
+                    <label>한국어 이름 *<input name="name_ko" value="${escapeHTML(hero.name_ko || '')}" required></label>
+                    <label>한자 이름<input name="name_zh" value="${escapeHTML(hero.name_zh || '')}"></label>
+                    <label>등장 연도 *<input name="birth_year" type="number" value="${escapeHTML(hero.birth_year ?? '')}" required></label>
+                    <label>퇴장 연도 *<input name="death_year" type="number" value="${escapeHTML(hero.death_year ?? '')}" required></label>
+                    <label>직함/칭호<input name="title" value="${escapeHTML(hero.title || '')}"></label>
+                    <label>인물 유형<select name="hero_type">${types.map(([value, label]) => `<option value="${value}" ${hero.hero_type === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+                    <label>소속 국가/세력<input name="faction" value="${escapeHTML(hero.faction || '')}"></label>
+                    <label>세력 색상<input name="faction_color" type="color" value="${/^#[0-9a-f]{6}$/i.test(hero.faction_color || '') ? hero.faction_color : '#c8860a'}"></label>
+                    <label class="full-row">인물 설명<textarea name="description" rows="5">${escapeHTML(hero.description || '')}</textarea></label>
+                    <label>아바타 이미지<input name="avatar" type="file" accept="image/*"></label>
+                    <label>전신 일러스트<input name="illustration" type="file" accept="image/*"></label>
+                    <div class="hero-detail-admin-form-actions full-row">
+                        <button type="button" class="btn-secondary hero-detail-edit-cancel">취소</button>
+                        <button type="submit" class="hero-detail-edit-save btn-primary">저장</button>
+                    </div>
+                </form>
+            `);
+            actions.querySelector('.hero-detail-edit-btn')?.setAttribute('disabled', '');
+        }
+
+        async function saveHeroAdminEdit(form) {
+            const auth = getRankingAuthInfo();
+            if (auth.role !== 'admin' && auth.role !== 'superuser') {
+                alert('관리자 권한이 필요합니다.');
+                return;
+            }
+            const heroId = form.dataset.heroId;
+            const saveButton = form.querySelector('.hero-detail-edit-save');
+            const formData = new FormData(form);
+            saveButton.disabled = true;
+            saveButton.textContent = '저장 중';
+            try {
+                const response = await fetch(`${API_BASE_URL}/admin/heroes/${encodeURIComponent(heroId)}`, {
+                    method: 'PUT',
+                    headers: { Authorization: `Bearer ${auth.token}` },
+                    body: formData
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.message || '영웅 수정에 실패했습니다.');
+                _clientHeroRankingsCache = null;
+                _clientHeroRankingsCacheTime = 0;
+                await loadHeroRankings();
+                await showHeroDetail(heroId);
+                alert('영웅 정보를 수정했습니다.');
+            } catch (error) {
+                console.error('영웅 바로 편집 실패:', error);
+                alert(error.message || '영웅 수정에 실패했습니다.');
+                saveButton.disabled = false;
+                saveButton.textContent = '저장';
+            }
+        }
+
+        document.getElementById('heroDetailContent')?.addEventListener('click', (event) => {
+            const voteButton = event.target.closest('.hero-detail-vote-btn');
+            if (voteButton) {
+                voteHeroFromRanking(voteButton.dataset.heroId, voteButton);
+                return;
+            }
+            const worstVoteButton = event.target.closest('.hero-detail-worst-vote-btn');
+            if (worstVoteButton) {
+                voteWorstHeroFromRanking(worstVoteButton.dataset.heroId, worstVoteButton);
+                return;
+            }
+            const editButton = event.target.closest('.hero-detail-edit-btn');
+            if (editButton) {
+                openHeroAdminEditor(editButton.dataset.heroId);
+                return;
+            }
+            const cancelButton = event.target.closest('.hero-detail-edit-cancel');
+            if (cancelButton) {
+                event.target.closest('.hero-detail-admin-form')?.remove();
+                document.querySelector('.hero-detail-edit-btn')?.removeAttribute('disabled');
+            }
+        });
+
+        document.getElementById('heroDetailContent')?.addEventListener('submit', (event) => {
+            const form = event.target.closest('.hero-detail-admin-form');
+            if (!form) return;
+            event.preventDefault();
+            saveHeroAdminEdit(form);
         });
 
         document.getElementById('heroRankingSearchInput')?.addEventListener('input', () => {
