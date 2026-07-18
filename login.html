@@ -116,6 +116,26 @@
             transform: translateY(-1px);
             box-shadow: 0 4px 12px rgba(5, 155, 230, 0.3);
         }
+        #loginMuteBtn {
+            position: fixed;
+            top: 16px;
+            right: 18px;
+            z-index: 20;
+            width: auto;
+            min-width: 116px;
+            padding: 8px 12px;
+            border: 1px solid rgba(255,255,255,0.24);
+            border-radius: 999px;
+            background: rgba(19,0,0,0.72);
+            color: #e8dfd2;
+            font-size: 12px;
+            backdrop-filter: blur(8px);
+        }
+        #loginMuteBtn[aria-pressed="true"] {
+            border-color: rgba(232,201,122,0.55);
+            background: rgba(90,35,20,0.78);
+            color: #e8c97a;
+        }
         #guestLoginBtn {
             background-color: #27ae60;
             margin-top: 6px;
@@ -186,6 +206,7 @@
     </style>
 </head>
 <body>
+    <button type="button" id="loginMuteBtn" aria-pressed="false" title="지도 배경음과 해설 음소거">🔊 소리 켜짐</button>
     <div class="login-container">
         <h1>고려만리지도 사관청</h1>
         <p class="site-description">
@@ -231,6 +252,25 @@
         const API_BASE_URL = '/api'; // 💡 상대 경로로 변경
 
         let _isLoggingIn = false; // 중복 로그인 요청 방지 플래그
+
+        const loginMuteBtn = document.getElementById('loginMuteBtn');
+        let loginMuted = localStorage.getItem('bgmMuted') === 'true';
+
+        function applyLoginMuteState() {
+            localStorage.setItem('bgmMuted', String(loginMuted));
+            document.querySelectorAll('audio, video').forEach(media => { media.muted = loginMuted; });
+            if (loginMuteBtn) {
+                loginMuteBtn.setAttribute('aria-pressed', String(loginMuted));
+                loginMuteBtn.textContent = loginMuted ? '🔇 음소거됨' : '🔊 소리 켜짐';
+                loginMuteBtn.title = loginMuted ? '지도 소리 켜기' : '지도 배경음과 해설 음소거';
+            }
+        }
+
+        loginMuteBtn?.addEventListener('click', () => {
+            loginMuted = !loginMuted;
+            applyLoginMuteState();
+        });
+        applyLoginMuteState();
 
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
