@@ -7118,7 +7118,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         app.get('/api/hero-rankings', async (req, res) => {
             try {
                 const [countryDocs, kingDocs] = await Promise.all([
-                    collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1 } }).toArray(),
+                    collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1, ethnicity: 1 } }).toArray(),
                     collections.kings.find({}, { projection: { country_id: 1, kings: 1 } }).toArray()
                 ]);
                 const countryMap = new Map(countryDocs.map(country => [String(country._id), country]));
@@ -7140,6 +7140,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                             title: normalized.title || '',
                             faction: normalized.faction || country?.name || '',
                             faction_color: normalized.faction_color || country?.color || '#c8860a',
+                            ethnicity: country?.ethnicity || '',
+                            is_our_ethnicity: /동이|東夷/.test(String(country?.ethnicity || '')),
                             hero_type: normalized.hero_type,
                             birth_year: normalized.birth_year,
                             death_year: normalized.death_year,

@@ -8695,9 +8695,10 @@ body.force-mobile .marker-type-selector button {
                         </thead>
                         <tbody id="heroBulkTableBody"></tbody>
                     </table>
+                    <datalist id="heroBulkCountryOptions"></datalist>
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-top:1px solid #7a5a1a;">
-                    <span style="font-size:11px;color:#8a7a5a;">국가는 정확한 국가명을 입력하면 해당 국가 문서로 이동됩니다.</span>
+                    <span style="font-size:11px;color:#8a7a5a;">국가 칸에 입력하면 DB 국가명이 검색됩니다. 목록에서 선택하면 국가 색상도 자동 적용됩니다.</span>
                     <div style="display:flex;gap:8px;">
                         <button type="button" class="hero-admin-btn cancel" id="heroBulkTableCancel">취소</button>
                         <button type="button" class="hero-admin-btn save" id="heroBulkTableSave">테이블 저장</button>
@@ -27558,7 +27559,15 @@ kingSelect.addEventListener('change', () => {
                 .map(hero => String(hero._id));
         }
 
-        function renderBulkTableRows(heroIds) {
+        function populateBulkCountryOptions(countries) {
+            const datalist = document.getElementById('heroBulkCountryOptions');
+            if (!datalist) return;
+            datalist.innerHTML = (countries || []).map(country => (
+                `<option value="${escapeHeroAdminText(country.name || '')}"></option>`
+            )).join('');
+        }
+
+        function renderBulkTableRows(heroIds, countries = []) {
             const tbody = document.getElementById('heroBulkTableBody');
             const heroesById = new Map(_adminHeroes.map(h => [String(h._id), h]));
             const heroes = heroIds.map(id => heroesById.get(String(id))).filter(Boolean);
@@ -27582,7 +27591,8 @@ kingSelect.addEventListener('change', () => {
                     <td><input class="hero-admin-input hbt-name" value="${escapeHeroAdminText(h.name_ko || '')}" style="width:130px;"></td>
                     <td><input class="hero-admin-input hbt-zh" value="${escapeHeroAdminText(h.name_zh || '')}" style="width:100px;"></td>
                     <td><select class="hero-admin-input hbt-type" style="width:82px;">${typeHtml}</select></td>
-                    <td><input class="hero-admin-input hbt-faction" value="${escapeHeroAdminText(h.faction || '')}" style="width:135px;"></td>
+                    <td><input class="hero-admin-input hbt-faction" value="${escapeHeroAdminText(h.faction || '')}"
+                        list="heroBulkCountryOptions" autocomplete="off" placeholder="국가명 검색..." style="width:170px;"></td>
                     <td>
                         <div style="display:flex;gap:4px;align-items:center;">
                             <input type="color" class="hbt-color-picker" value="${color}" style="width:28px;height:28px;padding:1px;background:none;border:1px solid #7a5a1a;border-radius:4px;">
@@ -27609,17 +27619,40 @@ kingSelect.addEventListener('change', () => {
                     if (picker && /^#[0-9a-f]{6}$/i.test(input.value)) picker.value = input.value;
                 });
             });
+            const countryByName = new Map((countries || []).map(country => [
+                normalizeHeroAdminSearchText(country.name), country
+            ]));
+            tbody.querySelectorAll('.hbt-faction').forEach(input => {
+                const applySelectedCountry = () => {
+                    const selected = countryByName.get(normalizeHeroAdminSearchText(input.value));
+                    input.dataset.countryId = selected?._id || '';
+                    input.style.borderLeft = selected ? `3px solid ${selected.color || '#c8860a'}` : '';
+                    if (!selected) return;
+                    input.value = selected.name;
+                    const row = input.closest('tr');
+                    const color = /^#[0-9a-f]{6}$/i.test(selected.color || '') ? selected.color : '#c8860a';
+                    const colorInput = row?.querySelector('.hbt-color');
+                    const colorPicker = row?.querySelector('.hbt-color-picker');
+                    if (colorInput) colorInput.value = color;
+                    if (colorPicker) colorPicker.value = color;
+                };
+                input.addEventListener('input', applySelectedCountry);
+                input.addEventListener('change', applySelectedCountry);
+                applySelectedCountry();
+            });
             const meta = document.getElementById('heroBulkTableMeta');
             if (meta) meta.textContent = `${heroes.length}명 편집 중`;
         }
 
-        function openBulkTableEditor() {
+        async function openBulkTableEditor() {
             const ids = getBulkTableHeroIds();
             if (!ids.length) {
                 alert('체크된 영웅이 없으면 국가/세력 또는 인물 유형 조건을 먼저 선택하세요.');
                 return;
             }
-            renderBulkTableRows(ids);
+            const countries = await _loadCountries();
+            populateBulkCountryOptions(countries);
+            renderBulkTableRows(ids, countries);
             const modal = document.getElementById('heroBulkTableModal');
             if (modal) modal.style.display = 'flex';
         }
