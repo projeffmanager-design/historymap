@@ -1659,8 +1659,7 @@ body.force-mobile .marker-type-selector button {
         /* 탑바 실제 높이: padding 5px×2 + 버튼 height 36px = 46px
            2D·3D·위성 모든 모드에서 이 값을 단일 기준으로 사용 */
         --topbar-h: 46px;
-        /* 하단 AdFit 광고 바 높이 — JS가 광고 노출 여부에 따라 0px 또는 실제 높이로 갱신.
-           기본값 0px이므로 광고가 없으면 기존 좌표(38px/58px/56px 등)가 그대로 유지됨. */
+        /* 과거 하단 광고 바 오프셋. 지도 오버레이형 광고로 변경되어 항상 0px이다. */
         --ad-bottom-h: 0px;
     }
 
@@ -1692,34 +1691,28 @@ body.force-mobile .marker-type-selector button {
         box-sizing: border-box; /* 패딩을 너비/높이에 포함 */
         min-height: 0; /* flex 아이템의 최소 높이 문제 해결 */
     }
-    /* 하단 AdFit 광고 바 — body의 flex 형제 요소로 두어 지도 영역이 자동으로 줄어들도록 함
-       (지도를 가리지 않고, 광고가 없을 때는 height:0으로 완전히 사라짐) */
-    #bottom-ad-bar {
-        flex: 0 0 auto;
-        width: 100%;
-        min-height: 96px;
+    /* 지도 우하단 AdFit 광고 — 타임슬라이더 바로 위 */
+    #map-adfit {
+        position: fixed;
+        right: 12px;
+        /* 로그인 시 높이 180px인 사관 활동창(bottom:90px) 바로 위에 배치 */
+        bottom: 278px;
+        z-index: 9997;
         display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        background: #101418;
-        border-top: 1px solid rgba(255,255,255,0.08);
-        box-sizing: border-box;
-        overflow: hidden;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 3px;
+        width: 250px;
+        min-height: 250px;
+        pointer-events: auto;
     }
-    #bottom-ad-bar .bottom-ad-label {
-        flex-shrink: 0;
+    #map-adfit .map-adfit-label {
         font-size: 9px;
-        color: #5d7185;
+        line-height: 1;
+        color: rgba(255,255,255,0.58);
         letter-spacing: 1px;
         text-transform: uppercase;
-        writing-mode: vertical-rl;
-    }
-    /* 728px 광고가 들어가지 않는 모바일과 3D 모드에서는 숨김 */
-    body.force-mobile #bottom-ad-bar,
-    body.mode-3d #bottom-ad-bar {
-        display: none !important;
-        height: 0 !important;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.9);
     }
     /* �🚩 우측 패널 및 리사이저 숨김 — 지도가 전체 너비 차지 */
     #resizer,
@@ -9576,32 +9569,60 @@ body.force-mobile .marker-type-selector button {
 
   </div> <!-- mainContainer 종료 -->
 
-  <!-- Kakao AdFit 728×90 하단 광고 — 발급받은 광고단위 정보를 변경하지 않음 -->
-  <div id="bottom-ad-bar">
-      <span class="bottom-ad-label">AD</span>
+  <!-- Kakao AdFit 250×250 지도 우하단 광고 — 타임슬라이더 바로 위 -->
+  <div id="map-adfit">
+      <span class="map-adfit-label">AD</span>
       <ins class="kakao_ad_area" style="display:none;"
            data-ad-unit="DAN-SkENLpHR1j5cWzPA"
-           data-ad-width="728"
-           data-ad-height="90"
+           data-ad-width="250"
+           data-ad-height="250"
            data-ad-onfail="koreamanriAdFitNoAd"></ins>
   </div>
   <script>
   function koreamanriAdFitNoAd(adElement) {
-      var bar = document.getElementById('bottom-ad-bar');
+      var bar = document.getElementById('map-adfit');
       if (adElement) adElement.style.display = 'none';
       if (bar) bar.style.display = 'none';
-      document.documentElement.style.setProperty('--ad-bottom-h', '0px');
   }
-  (function initBottomAdFitBar(){
-      var bar = document.getElementById('bottom-ad-bar');
-      if (!bar) return;
-      function syncAdOffset(){
-          var active = window.getComputedStyle(bar).display !== 'none';
-          document.documentElement.style.setProperty('--ad-bottom-h', active ? (bar.offsetHeight || 96) + 'px' : '0px');
+  /* 로그인 후 나타나는 사관 활동창의 실제 높이를 기준으로 광고를 그 위에 고정한다. */
+  (function positionMapAdFitBetweenRightPanels() {
+      function syncMapAdFitPosition() {
+          var ad = document.getElementById('map-adfit');
+          var activity = document.getElementById('activity-feed-panel');
+          if (!ad) return;
+
+          var activityVisible = activity &&
+              window.getComputedStyle(activity).display !== 'none' &&
+              activity.getBoundingClientRect().height > 0;
+
+          if (activityVisible) {
+              var activityRect = activity.getBoundingClientRect();
+              ad.style.bottom = Math.max(64, window.innerHeight - activityRect.top + 8) + 'px';
+          } else {
+              ad.style.bottom = '64px';
+          }
       }
-      syncAdOffset();
-      window.addEventListener('resize', function(){
-          syncAdOffset();
+
+      window.addEventListener('DOMContentLoaded', function() {
+          var activity = document.getElementById('activity-feed-panel');
+          syncMapAdFitPosition();
+          window.addEventListener('resize', syncMapAdFitPosition);
+
+          if (activity && window.ResizeObserver) {
+              new ResizeObserver(syncMapAdFitPosition).observe(activity);
+          }
+          if (activity && window.MutationObserver) {
+              new MutationObserver(syncMapAdFitPosition).observe(activity, {
+                  attributes: true,
+                  attributeFilter: ['class', 'style']
+              });
+          }
+          if (window.MutationObserver) {
+              new MutationObserver(syncMapAdFitPosition).observe(document.body, {
+                  attributes: true,
+                  attributeFilter: ['class']
+              });
+          }
       });
   })();
   </script>
