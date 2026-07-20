@@ -1117,19 +1117,6 @@ app.use(express.static(__dirname, {
 // 🚩 [추가] public 폴더를 정적 파일로 제공 (타일 파일 접근용)
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
-// � [추가] /ads.txt — Google AdSense 크롤러용 명시적 라우트
-// (Vercel serverless에서 모든 요청이 server.js로 rewrite되므로 확실하게 직접 서빙)
-app.get('/ads.txt', (req, res) => {
-    res.type('text/plain');
-    res.set('Cache-Control', 'public, max-age=86400'); // 24시간 캐시 (Google 권장)
-    try {
-        res.send(fs.readFileSync(path.join(__dirname, 'ads.txt'), 'utf-8'));
-    } catch (e) {
-        // 파일이 번들에 없더라도 내용이 한 줄뿐이므로 하드코딩 폴백
-        res.send('google.com, pub-6821586098117394, DIRECT, f08c47fec0942fa0\n');
-    }
-});
-
 // �🚩 [수정] 루트(/) 요청 시 index.html(지도) 서빙 — 게스트 자동 입장
 app.get('/', (req, res) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
