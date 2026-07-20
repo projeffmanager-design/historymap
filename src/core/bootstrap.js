@@ -3,13 +3,13 @@ const HERO_CLIENT_CACHE_TTL_MS = 15 * 60 * 1000;
 const HERO_BASE_STORAGE_KEY = 'codex_hero_base_dataset_v3';
 const HERO_BASE_STORAGE_TTL_MS = 15 * 60 * 1000;
 const HERO_TYPE_IMAGE_URLS = {
-  emperor: 'https://github.com/projeffmanager-design/img/blob/main/emp.png?raw=true',
-  king: 'https://github.com/projeffmanager-design/img/blob/main/king.png?raw=true',
-  general: 'https://github.com/projeffmanager-design/img/blob/main/general.png?raw=true',
-  civilian: 'https://github.com/projeffmanager-design/img/blob/main/mini.png?raw=true',
-  brigand: 'https://github.com/projeffmanager-design/img/blob/main/thief.png?raw=true',
-  khan: 'https://github.com/projeffmanager-design/img/blob/main/khan.png?raw=true',
-  hojok: 'https://github.com/projeffmanager-design/img/blob/main/hojok.png?raw=true',
+  emperor: '/public/assets/ui/hero-emperor.png',
+  king: '/public/assets/ui/hero-king.png',
+  general: '/public/assets/ui/hero-general.png',
+  civilian: '/public/assets/ui/hero-civilian.png',
+  brigand: '/public/assets/ui/hero-brigand.png',
+  khan: '/public/assets/ui/hero-khan.png',
+  hojok: '/public/assets/ui/hero-hojok.png',
 };
 const DEFAULT_HERO_IMAGE_URL = HERO_TYPE_IMAGE_URLS.general;
 const royalTypes = new Set(['emperor', 'king', 'khan']);

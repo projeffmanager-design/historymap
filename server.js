@@ -1080,6 +1080,13 @@ app.use(express.json({ limit: '50mb' })); // 대용량 GeoJSON 지원 (기본 10
 app.use(express.urlencoded({ limit: '50mb', extended: true })); // URL 인코딩된 데이터도 대용량 지원
 app.use(express.text({ type: 'text/plain' })); // sendBeacon beacon-logout 용
 app.use(compression()); // 응답 압축으로 대용량 전송 최적화
+const NOINDEX_PAGE_PATTERN = /^\/(?:login|register|reset-password|account|admin|territory_manager|territory_overview|test[^/]*)?(?:\.html)?$/i;
+app.use((req, res, next) => {
+    if (req.path !== '/' && NOINDEX_PAGE_PATTERN.test(req.path)) {
+        res.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+    }
+    next();
+});
 app.use(async (req, res, next) => {
     const trackedPath = resolveTrackedPagePath(req);
     if (trackedPath) {
@@ -1092,6 +1099,10 @@ app.use(async (req, res, next) => {
 // 이제 index.html, admin.html 등을 루트 디렉토리에서 직접 서비스할 수 있습니다.
 // index: false → / 요청 시 index.html 자동 서빙 방지 (login.html을 먼저 보여주기 위함)
 // .html 파일은 항상 최신 버전을 받도록 캐시 비활성화
+app.get(['/map', '/map/', '/index.html'], (req, res) => {
+    res.redirect(301, '/');
+});
+
 app.use(express.static(__dirname, {
     index: false,
     setHeaders(res, filePath) {
@@ -1132,7 +1143,7 @@ app.get('/map', (req, res) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
-    res.sendFile(path.join(__dirname, 'index.html'));
+    res.redirect(301, '/');
 });
 
 // 🚩 [추가] .html 확장자 없는 경로도 해당 html 파일로 서빙 (fallback)
@@ -1142,7 +1153,12 @@ app.get('/:page', (req, res, next) => {
     if (page.includes('.') || page === 'api') return next();
     const filePath = path.join(__dirname, `${page}.html`);
     res.sendFile(filePath, (err) => {
-        if (err) next(); // 파일 없으면 다음 핸들러로
+        if (!err) return;
+        if (err.code === 'ENOENT' || err.statusCode === 404) {
+            res.status(404).sendFile(path.join(__dirname, '404.html'));
+            return;
+        }
+        next(err);
     });
 });
 
