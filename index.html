@@ -37344,10 +37344,7 @@ kingSelect.addEventListener('change', () => {
          aria-label="광고"
          style="width:320px;max-width:calc(100% - 32px);min-height:50px;margin:0 auto;padding:24px 0 16px;border-top:1px solid rgba(180,140,80,0.2);overflow:hidden;text-align:center;flex-shrink:0;">
       <div style="margin-bottom:8px;color:#6a7d8e;font-size:9px;line-height:1;letter-spacing:1px;">AD</div>
-      <ins class="kakao_ad_area" style="display:none;"
-           data-ad-unit="DAN-u2wCidPXcHIdR74l"
-           data-ad-width="320"
-           data-ad-height="50"></ins>
+      <div id="marker-comment-adfit-slot"></div>
     </div>
   </div>
 </div>
@@ -38168,6 +38165,29 @@ kingSelect.addEventListener('change', () => {
     };
 
     // 팝업에서 버튼 클릭 시 호출
+    function ensureMarkerCommentAd() {
+        const slot = document.getElementById('marker-comment-adfit-slot');
+        if (!slot || slot.dataset.adInitialized === 'true') return;
+
+        // AdFit이 display:none인 상위 요소 안에서 최초 스캔되면 광고를 만들지 못한다.
+        // 모달이 실제로 열린 다음 광고 태그와 로더를 한 번만 추가한다.
+        slot.dataset.adInitialized = 'true';
+        const ad = document.createElement('ins');
+        ad.className = 'kakao_ad_area';
+        ad.style.display = 'none';
+        ad.dataset.adUnit = 'DAN-u2wCidPXcHIdR74l';
+        ad.dataset.adWidth = '320';
+        ad.dataset.adHeight = '50';
+        slot.appendChild(ad);
+
+        const loader = document.createElement('script');
+        loader.async = true;
+        loader.type = 'text/javascript';
+        loader.charset = 'utf-8';
+        loader.src = 'https://t1.kakaocdn.net/kas/static/ba.min.js';
+        document.head.appendChild(loader);
+    }
+
     window.openMarkerCommentModal = function(castleId, castleName) {
         _mcCurrentCastleId = castleId;
         _mcCurrentCastleName = castleName;
@@ -38192,6 +38212,7 @@ kingSelect.addEventListener('change', () => {
         }
 
         document.getElementById('markerCommentModal').style.display = 'flex';
+        requestAnimationFrame(ensureMarkerCommentAd);
         loadMarkerComments();
     };
 
