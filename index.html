@@ -8094,7 +8094,7 @@ body.force-mobile .marker-type-selector button {
           <label><input type="checkbox" id="menu-layer-timeline"> 연대표</label>
           <label><input type="checkbox" id="menu-layer-king"> 왕 패널</label>
           <label><input type="checkbox" id="menu-layer-history"> 역사 패널</label>
-          <label><input type="checkbox" id="menu-layer-contributions" checked> 사관 사료</label>
+          <label><input type="checkbox" id="menu-layer-contributions"> 사관 사료</label>
           <label><input type="checkbox" id="menu-layer-ranking" checked> 사관 랭킹</label>
           <label><input type="checkbox" id="menu-layer-activity-feed" checked> 활동 소식</label>
           <label><input type="checkbox" id="menu-layer-caption" checked> 🎬 역사 자막</label>
@@ -11832,7 +11832,8 @@ body.force-mobile .marker-type-selector button {
     window.territoryEditLayerGroup = territoryEditLayerGroup; // 🧭 경계편집 IIFE에서 접근
     let waterLevelLayerGroup = L.layerGroup({ pane: 'waterLevelPane' }).addTo(map);
     let riverLayerGroup = L.layerGroup().addTo(map);     // 🌊 강 레이어 그룹 (별도 분리)
-    let contributionLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 기여 레이어 그룹
+    // 기본 OFF 레이어이므로 생성 시 지도에 바로 추가하지 않는다.
+    let contributionLayerGroup = L.layerGroup(); // 🚩 [추가] 기여 레이어 그룹
     let labelLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 라벨 레이어 그룹
 
     const WATER_LEVEL_DATA_URL = '/public/water-levels-by-era.json';
@@ -17811,6 +17812,7 @@ function invalidateCountryLookupCache() {
                 'menu-layer-timeline': 'timeline',
                 'menu-layer-king': 'kingPanel',
                 'menu-layer-history': 'historyPanel',
+                'menu-layer-contributions': 'userContributions',
                 'menu-layer-ranking': 'rankingPanel',
                 'menu-layer-activity-feed': 'activityFeed',
                 'menu-layer-caption': 'captionPanel'
@@ -31509,18 +31511,33 @@ kingSelect.addEventListener('change', () => {
         // 🚩 [추가] 사관 사료 토글 이벤트 리스너
         const menuContributionsToggle = document.getElementById('menu-layer-contributions');
         if (menuContributionsToggle) {
-            menuContributionsToggle.addEventListener('change', () => {
-                if (menuContributionsToggle.checked) {
-                    // 사료 레이어 표시
-                    if (contributionLayerGroup && !map.hasLayer(contributionLayerGroup)) {
-                        contributionLayerGroup.addTo(map);
-                    }
-                } else {
-                    // 사료 레이어 숨김
+            menuContributionsToggle.checked = layerVisibility.userContributions === true;
+            menuContributionsToggle.addEventListener('change', async () => {
+                const isVisible = menuContributionsToggle.checked;
+                layerVisibility.userContributions = isVisible;
+
+                if (!isVisible) {
+                    contributionLayerGroup?.clearLayers();
                     if (contributionLayerGroup && map.hasLayer(contributionLayerGroup)) {
                         map.removeLayer(contributionLayerGroup);
                     }
+                    return;
                 }
+
+                // 초기 OFF 상태에서는 데이터 로딩을 건너뛰므로, 처음 켤 때 로드한다.
+                if (!Array.isArray(contributions) || contributions.length === 0) {
+                    try {
+                        contributions = await fetchData('contributions') || [];
+                        markCacheFresh('contributions');
+                        saveContributionsCache(contributions).catch(() => {});
+                    } catch (error) {
+                        console.error('❌ 사관 사료 로드 실패:', error);
+                        contributions = [];
+                    }
+                }
+
+                const { year, month } = getCurrentYearMonth();
+                updateMap(year, month);
             });
         }
         
