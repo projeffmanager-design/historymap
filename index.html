@@ -6711,6 +6711,34 @@ body.force-mobile .marker-type-selector button {
         font-size: 11px;
         white-space: nowrap;
     }
+    #hamburger-menu-panel .hm-close-btn {
+        display: none;
+        width: 44px;
+        min-width: 44px;
+        height: 44px;
+        min-height: 44px;
+        margin: 0;
+        padding: 0;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(255,255,255,0.16);
+        border-radius: 10px;
+        background: rgba(255,255,255,0.06);
+        color: #eef3f7;
+        font-size: 24px;
+        font-weight: 400;
+        line-height: 1;
+        flex: 0 0 auto;
+        -webkit-tap-highlight-color: transparent;
+    }
+    body.force-mobile #hamburger-menu-panel .hm-close-btn {
+        display: flex;
+    }
+    @media (max-width: 768px) {
+        #hamburger-menu-panel .hm-close-btn {
+            display: flex;
+        }
+    }
     #hamburger-menu-panel h3 {
         display: flex;
         align-items: center;
@@ -6855,6 +6883,67 @@ body.force-mobile .marker-type-selector button {
     
     #hamburger-menu-overlay.active {
         display: block;
+    }
+
+    /* 모바일 지도 이탈 확인 */
+    #mobile-map-exit-dialog {
+        position: fixed;
+        inset: 0;
+        z-index: 20000;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 22px;
+        box-sizing: border-box;
+        background: rgba(0,0,0,0.68);
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+    }
+    #mobile-map-exit-dialog.active {
+        display: flex;
+    }
+    #mobile-map-exit-dialog .map-exit-card {
+        width: min(340px, 100%);
+        padding: 22px 18px 16px;
+        box-sizing: border-box;
+        border: 1px solid rgba(212,168,67,0.35);
+        border-radius: 14px;
+        background: #171b1f;
+        box-shadow: 0 18px 55px rgba(0,0,0,0.65);
+        color: #edf2f5;
+        text-align: center;
+    }
+    #mobile-map-exit-dialog .map-exit-title {
+        margin: 0 0 8px;
+        color: #f1d58c;
+        font-size: 17px;
+    }
+    #mobile-map-exit-dialog .map-exit-message {
+        margin: 0 0 20px;
+        color: #adb8c1;
+        font-size: 13px;
+        line-height: 1.55;
+    }
+    #mobile-map-exit-dialog .map-exit-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 9px;
+    }
+    #mobile-map-exit-dialog button {
+        min-height: 46px;
+        border-radius: 9px;
+        border: 1px solid rgba(255,255,255,0.14);
+        background: rgba(255,255,255,0.07);
+        color: #e8edf1;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+    }
+    #mobile-map-exit-dialog #mobile-map-exit-confirm {
+        border-color: rgba(212,168,67,0.48);
+        background: rgba(212,168,67,0.16);
+        color: #f3d98e;
     }
 
     #territory-geom-edit-bar {
@@ -7909,7 +7998,8 @@ body.force-mobile .marker-type-selector button {
       <!-- 왼쪽 그룹: 햄버거 + 검색창 -->
       <div id="topbar-left-group">
           <!-- Hamburger Menu Button -->
-          <button id="hamburger-menu-btn">
+          <button type="button" id="hamburger-menu-btn" aria-label="지도 메뉴 열기"
+                  aria-controls="hamburger-menu-panel" aria-expanded="false">
               <span></span>
               <span></span>
               <span></span>
@@ -8042,6 +8132,8 @@ body.force-mobile .marker-type-selector button {
           <img src="/public/assets/ui/koreamanri-logo-white-horizontal.png"
                alt="고려만리" class="hm-logo">
           <div class="hm-subtitle">지도 설정</div>
+          <button type="button" id="hamburger-menu-close-btn" class="hm-close-btn"
+                  aria-label="메뉴 닫기" title="메뉴 닫기">×</button>
       </div>
       <section aria-labelledby="site-intro-heading" style="margin:10px 0 16px;padding:12px 13px;border:1px solid rgba(212,168,67,.2);border-radius:8px;background:rgba(212,168,67,.055);">
           <h2 id="site-intro-heading" style="margin:0 0 6px;color:#f5d98b;font:700 13px/1.4 'Noto Serif KR',serif;">시간으로 탐색하는 디지털 역사지도</h2>
@@ -8298,6 +8390,19 @@ body.force-mobile .marker-type-selector button {
                data-ad-height="250"></ins>
       </div>
 
+  </div>
+
+  <!-- 모바일 브라우저 뒤로가기 시 지도 이탈 확인 -->
+  <div id="mobile-map-exit-dialog" role="dialog" aria-modal="true"
+       aria-labelledby="mobile-map-exit-title" aria-hidden="true">
+      <div class="map-exit-card">
+          <h2 id="mobile-map-exit-title" class="map-exit-title">지도를 종료하시겠습니까?</h2>
+          <p class="map-exit-message">현재 지도를 벗어나 이전 페이지로 이동합니다.</p>
+          <div class="map-exit-actions">
+              <button type="button" id="mobile-map-exit-cancel">계속 보기</button>
+              <button type="button" id="mobile-map-exit-confirm">지도 종료</button>
+          </div>
+      </div>
   </div>
 
   <!-- 🚩 [추가] 로그아웃 확인 모달 (2단계 방지) -->
@@ -30496,6 +30601,7 @@ kingSelect.addEventListener('change', () => {
                 hamburgerPanel.classList.remove('active');
                 hamburgerOverlay.classList.remove('active');
                 hamburgerBtn.classList.remove('active');
+                hamburgerBtn.setAttribute('aria-expanded', 'false');
             } else {
                 // 🚩 [수정] 메뉴 열 때 현재 지도의 연월과 연동
                 const { year, month } = getCurrentYearMonth();
@@ -30533,6 +30639,7 @@ kingSelect.addEventListener('change', () => {
                 hamburgerPanel.classList.add('active');
                 hamburgerOverlay.classList.add('active');
                 hamburgerBtn.classList.add('active');
+                hamburgerBtn.setAttribute('aria-expanded', 'true');
 
             }
         }
@@ -30543,6 +30650,15 @@ kingSelect.addEventListener('change', () => {
         
         if (hamburgerOverlay) {
             hamburgerOverlay.addEventListener('click', toggleHamburgerMenu);
+        }
+
+        const hamburgerCloseBtn = document.getElementById('hamburger-menu-close-btn');
+        if (hamburgerCloseBtn) {
+            hamburgerCloseBtn.addEventListener('click', () => {
+                if (hamburgerPanel.classList.contains('active')) {
+                    toggleHamburgerMenu();
+                }
+            });
         }
         
         // 🍔 메뉴 내 검색 기능 연결
@@ -42369,6 +42485,98 @@ window.toggleResourceBar = function(btn, forceState) {
     ? document.addEventListener('DOMContentLoaded',_bind)
     : _bind();
 
+})();
+</script>
+
+<script>
+/* 모바일 뒤로가기: 열린 UI를 먼저 닫고, 마지막에만 지도 이탈을 확인한다. */
+(function initMobileMapBackGuard() {
+    const guardStateKey = '__koreamanriMapBackGuard';
+    let allowMapExit = false;
+    let guardInstalled = false;
+
+    function isMobileMap() {
+        return document.body.classList.contains('force-mobile')
+            || window.matchMedia('(max-width: 768px)').matches;
+    }
+
+    function closeHamburgerMenu() {
+        const panel = document.getElementById('hamburger-menu-panel');
+        if (!panel || !panel.classList.contains('active')) return false;
+        panel.classList.remove('active');
+        document.getElementById('hamburger-menu-overlay')?.classList.remove('active');
+        const button = document.getElementById('hamburger-menu-btn');
+        button?.classList.remove('active');
+        button?.setAttribute('aria-expanded', 'false');
+        return true;
+    }
+
+    function closeMobileSearch() {
+        const search = document.getElementById('mobile-search-overlay');
+        if (!search || !search.classList.contains('open')) return false;
+        search.classList.remove('open');
+        const results = document.getElementById('mobileSearchResults');
+        if (results) results.style.display = 'none';
+        return true;
+    }
+
+    function setExitDialog(open) {
+        const dialog = document.getElementById('mobile-map-exit-dialog');
+        if (!dialog) return;
+        dialog.classList.toggle('active', open);
+        dialog.setAttribute('aria-hidden', open ? 'false' : 'true');
+        if (open) {
+            window.setTimeout(() => document.getElementById('mobile-map-exit-cancel')?.focus(), 0);
+        }
+    }
+
+    function closeExitDialog() {
+        const dialog = document.getElementById('mobile-map-exit-dialog');
+        if (!dialog || !dialog.classList.contains('active')) return false;
+        setExitDialog(false);
+        return true;
+    }
+
+    function restoreGuardEntry() {
+        history.pushState({ [guardStateKey]: true }, '', window.location.href);
+    }
+
+    function installGuard() {
+        if (guardInstalled || !isMobileMap()) return;
+        guardInstalled = true;
+        /* 광고 복귀나 새로고침으로 동일 guard가 남아 있으면 중복 적재하지 않는다. */
+        if (!history.state?.[guardStateKey]) restoreGuardEntry();
+    }
+
+    window.addEventListener('popstate', () => {
+        if (!guardInstalled || allowMapExit || !isMobileMap()) return;
+
+        /* 뒤로가기는 페이지 이탈보다 현재 열린 모바일 UI를 먼저 닫는다. */
+        const closedUi = closeExitDialog() || closeHamburgerMenu() || closeMobileSearch();
+        restoreGuardEntry();
+        if (!closedUi) setExitDialog(true);
+    });
+
+    document.getElementById('mobile-map-exit-cancel')?.addEventListener('click', () => {
+        setExitDialog(false);
+    });
+
+    document.getElementById('mobile-map-exit-confirm')?.addEventListener('click', () => {
+        setExitDialog(false);
+        allowMapExit = true;
+        /*
+         * 현재 guard와 그 아래의 원래 지도 항목을 함께 건너뛰어
+         * 실제로 지도에 들어오기 전 페이지로 돌아간다.
+         */
+        history.go(-2);
+    });
+
+    document.getElementById('mobile-map-exit-dialog')?.addEventListener('click', (event) => {
+        if (event.target.id === 'mobile-map-exit-dialog') setExitDialog(false);
+    });
+
+    installGuard();
+    window.addEventListener('pageshow', installGuard);
 })();
 </script>
 
