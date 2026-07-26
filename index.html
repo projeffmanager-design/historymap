@@ -27601,6 +27601,29 @@ kingSelect.addEventListener('change', () => {
         const KNOWN_HERO_TYPES = new Set(['emperor', 'king', 'general', 'civilian', 'brigand', 'khan', 'hojok']);
         const _votedSet = new Set(JSON.parse(localStorage.getItem('_heroVoted') || '[]'));
         const _worstVotedSet = new Set(JSON.parse(localStorage.getItem('_heroWorstVoted') || '[]'));
+        function getAnonymousHeroVoterId() {
+            const storageKey = '_anonymousHeroVoterId';
+            let voterId = localStorage.getItem(storageKey);
+            if (!voterId) {
+                voterId = (window.crypto?.randomUUID?.()
+                    || `anon_${Date.now()}_${Math.random().toString(36).slice(2)}`)
+                    .replace(/[^a-zA-Z0-9_-]/g, '');
+                localStorage.setItem(storageKey, voterId);
+            }
+            return voterId;
+        }
+        function getHeroVoteRequestOptions() {
+            const anonymousVoterId = getAnonymousHeroVoterId();
+            return {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                    'X-Anonymous-Voter-Id': anonymousVoterId
+                },
+                body: JSON.stringify({ anonymousVoterId })
+            };
+        }
         let _layer = null;       // Leaflet LayerGroup
         let _visible = true;
         let _currentYear = 0;
@@ -28519,9 +28542,10 @@ kingSelect.addEventListener('change', () => {
                 if (_votedSet.has(String(currentHeroId))) return;
                 if (!token) { alert('로그인이 필요합니다.'); return; }
                 try {
-                    const response = await fetch(`${API}/heroes/${encodeURIComponent(currentHeroId)}/vote`, {
-                        method: 'POST', headers: { Authorization: `Bearer ${token}` }
-                    });
+                    const response = await fetch(
+                        `${API}/heroes/${encodeURIComponent(currentHeroId)}/vote`,
+                        getHeroVoteRequestOptions()
+                    );
                     const res = await response.json();
                     if (!response.ok) throw new Error(res.message || '영웅 투표 실패');
                     _votedSet.add(String(currentHeroId));
@@ -28530,6 +28554,9 @@ kingSelect.addEventListener('change', () => {
                     document.getElementById('heroVoteLabel').textContent = '이미 투표했습니다';
                     document.getElementById('heroVoteCount').textContent = `(${res.vote_count}표)`;
                     document.getElementById('heroVoteMeta').textContent = `영웅 ${res.vote_count || 0}표`;
+                    if (res.already_voted) {
+                        alert('이미 영웅으로 투표한 인물입니다. 기존 표 수를 표시합니다.');
+                    }
                 } catch (e) { alert(e.message || '영웅 투표 실패'); }
             };
 
@@ -28538,9 +28565,10 @@ kingSelect.addEventListener('change', () => {
                 if (_worstVotedSet.has(String(currentHeroId))) return;
                 if (!token) { alert('로그인이 필요합니다.'); return; }
                 try {
-                    const response = await fetch(`${API}/heroes/${encodeURIComponent(currentHeroId)}/worst-vote`, {
-                        method: 'POST', headers: { Authorization: `Bearer ${token}` }
-                    });
+                    const response = await fetch(
+                        `${API}/heroes/${encodeURIComponent(currentHeroId)}/worst-vote`,
+                        getHeroVoteRequestOptions()
+                    );
                     const res = await response.json();
                     if (!response.ok) throw new Error(res.message || '빌런 투표 실패');
                     _worstVotedSet.add(String(currentHeroId));
@@ -28549,6 +28577,9 @@ kingSelect.addEventListener('change', () => {
                     document.getElementById('heroWorstVoteLabel').textContent = '이미 투표했습니다';
                     document.getElementById('heroWorstVoteCount').textContent = `(${res.worst_vote_count}표)`;
                     document.getElementById('heroWorstVoteMeta').textContent = `빌런 ${res.worst_vote_count || 0}표`;
+                    if (res.already_voted) {
+                        alert('이미 빌런으로 투표한 인물입니다. 기존 표 수를 표시합니다.');
+                    }
                 } catch (e) { alert(e.message || '빌런 투표 실패'); }
             };
 
@@ -29521,6 +29552,12 @@ kingSelect.addEventListener('change', () => {
                 const guestRes = await fetch('/api/auth/guest-login', { method: 'POST' });
                 if (guestRes.ok) {
                     const guestData = await guestRes.json();
+                    // 일반 계정의 영구 토큰이 남아 있으면 게스트 화면에서도
+                    // API가 이전 계정으로 호출되므로 계정 전환 전에 모두 정리한다.
+                    localStorage.removeItem('token');
+                    sessionStorage.removeItem('token');
+                    localStorage.removeItem('_heroVoted');
+                    localStorage.removeItem('_heroWorstVoted');
                     sessionStorage.setItem('token', guestData.token);
                     token = guestData.token;
                     console.log('✅ 게스트 자동 로그인 성공');

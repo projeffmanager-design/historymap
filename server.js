@@ -937,7 +937,11 @@ const getOptionalAuthUser = (req) => {
 
 const getHeroVoteVoterId = (req) => {
     const user = getOptionalAuthUser(req);
-    const loggedInUserId = user && String(user.userId || user.id || user._id || '').trim();
+    // 서긍은 여러 방문자가 함께 쓰는 공용 게스트 계정이므로 계정 ID로 묶지 않는다.
+    // 일반 회원은 계정당 1표, 게스트는 브라우저별 익명 ID당 1표로 판정한다.
+    const loggedInUserId = user && !user.isGuest
+        ? String(user.userId || user.id || user._id || '').trim()
+        : '';
     if (loggedInUserId) return loggedInUserId;
 
     const rawAnonymousId = String(
