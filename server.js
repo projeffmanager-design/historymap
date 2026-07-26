@@ -2491,7 +2491,8 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                         birth_year: startYear,
                         death_year: endYear,
                         source_ref_id: sourceRefId,
-                        vote_count: king.vote_count || 0
+                        vote_count: parseInt(king.vote_count || 0) || 0,
+                        worst_vote_count: parseInt(king.worst_vote_count || 0) || 0
                     };
                     const savedPositions = await collections.heroPositions
                         .find({ hero_id: heroId }, { projection: { source_text: 0 } })
@@ -2537,13 +2538,16 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     return res.json({ vote_count: parseInt(found.king.vote_count || 0), already_voted: true });
                 }
                 const nextVoteCount = parseInt(found.king.vote_count || 0) + 1;
-                await collections.kings.updateOne(
+                const updateResult = await collections.kings.updateOne(
                     { _id: found.kingDoc._id },
                     {
                         $set: { [`kings.${found.index}.vote_count`]: nextVoteCount, updatedAt: new Date() },
                         $addToSet: { [`kings.${found.index}.voted_by`]: userId }
                     }
                 );
+                if (updateResult.modifiedCount !== 1) {
+                    return res.status(409).json({ message: '투표가 반영되지 않았습니다. 다시 시도해주세요.' });
+                }
                 invalidateHeroCaches();
                 invalidateRankingsCache();
                 res.json({ vote_count: nextVoteCount });
@@ -2566,13 +2570,16 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     return res.json({ worst_vote_count: parseInt(found.king.worst_vote_count || 0), already_voted: true });
                 }
                 const nextVoteCount = parseInt(found.king.worst_vote_count || 0) + 1;
-                await collections.kings.updateOne(
+                const updateResult = await collections.kings.updateOne(
                     { _id: found.kingDoc._id },
                     {
                         $set: { [`kings.${found.index}.worst_vote_count`]: nextVoteCount, updatedAt: new Date() },
                         $addToSet: { [`kings.${found.index}.worst_voted_by`]: userId }
                     }
                 );
+                if (updateResult.modifiedCount !== 1) {
+                    return res.status(409).json({ message: '투표가 반영되지 않았습니다. 다시 시도해주세요.' });
+                }
                 invalidateHeroCaches();
                 invalidateRankingsCache();
                 res.json({ worst_vote_count: nextVoteCount });
@@ -7162,7 +7169,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 ));
                 heroes.forEach((hero, index) => { hero.rank = index + 1; });
 
-                res.set('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=1800');
+                // 투표 직후의 숫자가 CDN/브라우저의 오래된 응답으로 되돌아가지 않게 한다.
+                res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+                res.set('Pragma', 'no-cache');
                 res.json(heroes);
             } catch (error) {
                 console.error('[GET /api/hero-rankings] 오류:', error);
