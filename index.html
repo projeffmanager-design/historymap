@@ -8368,28 +8368,6 @@ body.force-mobile .marker-type-selector button {
           </a>
       </div>
 
-      <!-- Kakao AdFit 320×50 — 모든 메뉴 기능 및 링크와 분리된 최하단 광고 영역 -->
-      <div id="hamburger-footer-adfit"
-           aria-label="광고"
-           style="width:320px;max-width:100%;min-height:50px;margin:32px auto 16px;padding-top:24px;border-top:1px solid rgba(93,113,133,0.4);overflow:hidden;text-align:center;">
-          <div style="margin-bottom:8px;color:#5d7185;font-size:9px;line-height:1;letter-spacing:1px;">AD</div>
-          <ins class="kakao_ad_area" style="display:none;"
-               data-ad-unit="DAN-u2wCidPXcHIdR74l"
-               data-ad-width="320"
-               data-ad-height="50"></ins>
-      </div>
-
-      <!-- 기존 지도용 Kakao AdFit 250×250 — 햄버거 메뉴 최하단으로 이동 -->
-      <div id="hamburger-square-adfit"
-           aria-label="광고"
-           style="width:250px;max-width:100%;min-height:250px;margin:32px auto 20px;padding-top:24px;border-top:1px solid rgba(93,113,133,0.4);overflow:hidden;text-align:center;">
-          <div style="margin-bottom:8px;color:#5d7185;font-size:9px;line-height:1;letter-spacing:1px;">AD</div>
-          <ins class="kakao_ad_area" style="display:none;"
-               data-ad-unit="DAN-SkENLpHR1j5cWzPA"
-               data-ad-width="250"
-               data-ad-height="250"></ins>
-      </div>
-
   </div>
 
   <!-- 모바일 브라우저 뒤로가기 시 지도 이탈 확인 -->
@@ -37130,6 +37108,10 @@ kingSelect.addEventListener('change', () => {
             <li style="padding: 8px 0; padding-left: 20px; position: relative; font-size: 0.95em; color: #cccccc;"><span style="position: absolute; left: 0; color: #5aacf0;">▸</span>다른 사관의 연구 검토 및 추천</li>
             <li style="padding: 8px 0; padding-left: 20px; position: relative; font-size: 0.95em; color: #cccccc;"><span style="position: absolute; left: 0; color: #f39c12;">▸</span><strong style="color: #f39c12;">승인된 연구는 본인 이름으로 지도에 영구 등록</strong></li>
           </ul>
+          <!-- Kakao AdFit 320×50 — 사관의 역할 박스 하단 -->
+          <div id="recruit-role-adfit-slot"
+               aria-label="광고"
+               style="width:320px; min-height:50px; position:relative; left:50%; transform:translateX(-50%); margin:14px 0 0;"></div>
         </div>
       </div>      <!-- 직급 체계 요약 -->
       <div class="recruit-rank-section" style="background: #262626; padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 1px solid rgba(243, 156, 18, 0.3);">
@@ -37207,6 +37189,28 @@ kingSelect.addEventListener('change', () => {
   // 🚩 [추가] 사관 모집 팝업 관련 스크립트
   (function() {
     const POPUP_STORAGE_KEY = 'welcomePopupDontShowToday';
+
+        function ensureRecruitRoleAd() {
+            const slot = document.getElementById('recruit-role-adfit-slot');
+            if (!slot || slot.dataset.adInitialized === 'true') return;
+
+            // 숨겨진 모달 안에서는 AdFit 최초 스캔이 실패할 수 있어, 모달을 연 뒤 생성한다.
+            slot.dataset.adInitialized = 'true';
+            const ad = document.createElement('ins');
+            ad.className = 'kakao_ad_area';
+            ad.style.display = 'none';
+            ad.dataset.adUnit = 'DAN-DMkU8BRRedaPEuS2';
+            ad.dataset.adWidth = '320';
+            ad.dataset.adHeight = '50';
+            slot.appendChild(ad);
+
+            const loader = document.createElement('script');
+            loader.async = true;
+            loader.type = 'text/javascript';
+            loader.charset = 'utf-8';
+            loader.src = 'https://t1.kakaocdn.net/kas/static/ba.min.js';
+            document.head.appendChild(loader);
+        }
     
         // helper: read cookie by name
         function getCookie(name) {
@@ -37242,6 +37246,7 @@ kingSelect.addEventListener('change', () => {
 
                 popup.style.display = 'block';
                 document.body.style.overflow = 'hidden';
+                window.requestAnimationFrame(ensureRecruitRoleAd);
             }
         }
     
@@ -37471,13 +37476,6 @@ kingSelect.addEventListener('change', () => {
     </div>
     <div id="mcLoginNotice" style="padding:10px 16px; border-top:1px solid rgba(180,140,80,0.2); font-size:12px; color:#9aabbd; text-align:center; display:none;">
       의견을 작성하려면 로그인이 필요합니다.
-    </div>
-    <!-- Kakao AdFit 320×50 — 사관 의견 모달 최하단 -->
-    <div id="marker-comment-adfit"
-         aria-label="광고"
-         style="width:320px;max-width:calc(100% - 32px);min-height:50px;margin:0 auto;padding:24px 0 16px;border-top:1px solid rgba(180,140,80,0.2);overflow:hidden;text-align:center;flex-shrink:0;">
-      <div style="margin-bottom:8px;color:#6a7d8e;font-size:9px;line-height:1;letter-spacing:1px;">AD</div>
-      <div id="marker-comment-adfit-slot"></div>
     </div>
   </div>
 </div>
@@ -38297,30 +38295,6 @@ kingSelect.addEventListener('change', () => {
         }
     };
 
-    // 팝업에서 버튼 클릭 시 호출
-    function ensureMarkerCommentAd() {
-        const slot = document.getElementById('marker-comment-adfit-slot');
-        if (!slot || slot.dataset.adInitialized === 'true') return;
-
-        // AdFit이 display:none인 상위 요소 안에서 최초 스캔되면 광고를 만들지 못한다.
-        // 모달이 실제로 열린 다음 광고 태그와 로더를 한 번만 추가한다.
-        slot.dataset.adInitialized = 'true';
-        const ad = document.createElement('ins');
-        ad.className = 'kakao_ad_area';
-        ad.style.display = 'none';
-        ad.dataset.adUnit = 'DAN-u2wCidPXcHIdR74l';
-        ad.dataset.adWidth = '320';
-        ad.dataset.adHeight = '50';
-        slot.appendChild(ad);
-
-        const loader = document.createElement('script');
-        loader.async = true;
-        loader.type = 'text/javascript';
-        loader.charset = 'utf-8';
-        loader.src = 'https://t1.kakaocdn.net/kas/static/ba.min.js';
-        document.head.appendChild(loader);
-    }
-
     window.openMarkerCommentModal = function(castleId, castleName) {
         _mcCurrentCastleId = castleId;
         _mcCurrentCastleName = castleName;
@@ -38345,7 +38319,6 @@ kingSelect.addEventListener('change', () => {
         }
 
         document.getElementById('markerCommentModal').style.display = 'flex';
-        requestAnimationFrame(ensureMarkerCommentAd);
         loadMarkerComments();
     };
 
@@ -42538,14 +42511,17 @@ window.toggleResourceBar = function(btn, forceState) {
     }
 
     function restoreGuardEntry() {
-        history.pushState({ [guardStateKey]: true }, '', window.location.href);
+        if (typeof window.history?.pushState !== 'function') return false;
+        window.history.pushState({ [guardStateKey]: true }, '', window.location.href);
+        return true;
     }
 
     function installGuard() {
         if (guardInstalled || !isMobileMap()) return;
+        if (typeof window.history?.pushState !== 'function') return;
         guardInstalled = true;
         /* 광고 복귀나 새로고침으로 동일 guard가 남아 있으면 중복 적재하지 않는다. */
-        if (!history.state?.[guardStateKey]) restoreGuardEntry();
+        if (!window.history.state?.[guardStateKey]) restoreGuardEntry();
     }
 
     window.addEventListener('popstate', () => {
@@ -42568,7 +42544,7 @@ window.toggleResourceBar = function(btn, forceState) {
          * 현재 guard와 그 아래의 원래 지도 항목을 함께 건너뛰어
          * 실제로 지도에 들어오기 전 페이지로 돌아간다.
          */
-        history.go(-2);
+        if (typeof window.history?.go === 'function') window.history.go(-2);
     });
 
     document.getElementById('mobile-map-exit-dialog')?.addEventListener('click', (event) => {
