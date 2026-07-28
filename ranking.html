@@ -42,14 +42,16 @@
             flex-direction: column;
             align-items: center;
             margin: 0;
-            padding: 0;
+            padding: 59px 0 0;
             min-height: 100vh;
         }
 
         /* ── 헤더 배너 ── */
         .popup-header {
-            position: sticky;
+            position: fixed;
             top: 0;
+            left: 0;
+            right: 0;
             background: var(--bg-panel);
             border-bottom: 1px solid var(--gold-border);
             padding: 10px 20px;
@@ -303,12 +305,57 @@
         }
         .regular-officers-table tr:nth-child(even) { background: rgba(255,255,255,0.025); }
         .regular-officers-table tr:hover { background: rgba(180,140,80,0.07); }
+        .officer-metric,
+        .officer-score {
+            text-align: right;
+        }
+        .officer-metric small {
+            margin-left: 2px;
+            color: #8fa0b0;
+            font-size: 0.86em;
+        }
+        .officer-ranking-tools {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            padding: 9px;
+            border: 1px solid rgba(140,170,188,0.2);
+            border-radius: 8px;
+            background: rgba(9,14,21,0.62);
+        }
+        .officer-ranking-tools input {
+            flex: 1;
+            min-width: 0;
+            min-height: 40px;
+            box-sizing: border-box;
+            padding: 8px 11px;
+            border: 1px solid rgba(140,170,188,0.28);
+            border-radius: 6px;
+            background: rgba(7,11,17,0.82);
+            color: #e6ded2;
+            font-family: inherit;
+            font-size: 14px;
+        }
+        .officer-ranking-tools input:focus {
+            outline: none;
+            border-color: rgba(226,189,104,0.62);
+        }
 
         .hero-ranking-summary {
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
             margin-bottom: 14px;
+        }
+        .hero-podium-section-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 14px 0 9px;
+            color: #f1dfb8;
+            font-size: 15px;
+            font-weight: 900;
         }
         .hero-ranking-stat {
             flex: 1;
@@ -360,6 +407,18 @@
         .hero-podium-card.rank-3-card {
             border-color: rgba(200,152,106,0.5);
         }
+        .hero-villain-podium .hero-podium-card {
+            border-color: rgba(190,76,69,0.42);
+            background: linear-gradient(180deg, rgba(151,55,51,0.13), rgba(255,255,255,0.035));
+        }
+        .hero-villain-podium .hero-podium-card.rank-1-card {
+            border-color: rgba(224,92,80,0.68);
+            background: linear-gradient(180deg, rgba(177,58,52,0.24), rgba(255,255,255,0.035));
+            box-shadow: 0 10px 28px rgba(68,10,8,0.28);
+        }
+        .hero-villain-podium .hero-podium-score {
+            color: #f0aaa0;
+        }
         .hero-podium-medal {
             position: absolute;
             top: 9px;
@@ -388,6 +447,10 @@
             line-height: 1.25;
             padding-right: 26px;
             word-break: keep-all;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+            overflow: hidden;
         }
         .rank-1-card .hero-podium-name {
             font-size: 18px;
@@ -397,6 +460,9 @@
             font-size: 11px;
             margin-top: 4px;
             line-height: 1.35;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
         }
         .hero-podium-score {
             margin-top: 8px;
@@ -569,6 +635,377 @@
             border-color: rgba(140,150,160,0.22);
             background: rgba(140,150,160,0.12);
         }
+        .hero-ranking-pagination {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin: 18px 0 4px;
+        }
+        .hero-page-status {
+            margin-right: 8px;
+            color: #8fa0b0;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .hero-page-btn {
+            min-width: 36px;
+            height: 36px;
+            padding: 0 10px;
+            border: 1px solid rgba(180,140,80,0.32);
+            border-radius: 7px;
+            background: rgba(255,255,255,0.035);
+            color: #cbd5df;
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+        .hero-page-btn:hover:not(:disabled):not(.active) {
+            color: #f3d98c;
+            border-color: rgba(180,140,80,0.62);
+            background: rgba(180,140,80,0.13);
+        }
+        .hero-page-btn.active {
+            color: #161008;
+            border-color: #e2bd68;
+            background: #e2bd68;
+        }
+        .hero-page-btn:disabled {
+            cursor: default;
+            opacity: 0.38;
+        }
+        .hero-page-ellipsis {
+            padding: 0 2px;
+            color: #6f7f8e;
+        }
+        #heroRankingTable {
+            overflow: visible;
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+        #heroRankingTable thead th {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            background: #111922;
+            box-shadow: 0 1px 0 rgba(220,185,118,0.28), 0 7px 12px rgba(0,0,0,0.22);
+        }
+        #heroRankingTable th.hero-sortable {
+            cursor: pointer;
+            user-select: none;
+        }
+        #heroRankingTable th.hero-sortable:hover,
+        #heroRankingTable th.hero-sortable:focus-visible {
+            color: #fff0b8;
+            background: #1a2632;
+            outline: none;
+        }
+        #heroRankingTable th.hero-sortable::after {
+            content: ' ⇅';
+            opacity: 0.42;
+            font-size: 11px;
+        }
+        #heroRankingTable th.hero-sortable.sort-asc::after {
+            content: ' ↑';
+            opacity: 1;
+            color: #e2bd68;
+        }
+        #heroRankingTable th.hero-sortable.sort-desc::after {
+            content: ' ↓';
+            opacity: 1;
+            color: #e2bd68;
+        }
+        body.hero-vote-game-open {
+            overflow: hidden;
+        }
+        .hero-vote-game {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 18px;
+            box-sizing: border-box;
+            background: rgba(3, 7, 11, 0.9);
+            backdrop-filter: blur(12px);
+        }
+        .hero-vote-game.open {
+            display: flex;
+        }
+        .hero-vote-game-card {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            width: min(720px, 100%);
+            max-height: min(900px, calc(100dvh - 36px));
+            overflow: hidden;
+            border: 1px solid rgba(226,189,104,0.48);
+            border-radius: 18px;
+            background:
+                radial-gradient(circle at 50% -15%, rgba(226,189,104,0.18), transparent 42%),
+                linear-gradient(180deg, #17212c 0%, #0e151e 100%);
+            box-shadow: 0 28px 80px rgba(0,0,0,0.62);
+        }
+        .hero-vote-game-close {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            z-index: 4;
+            display: grid;
+            place-items: center;
+            width: 44px;
+            height: 44px;
+            padding: 0;
+            border: 1px solid rgba(255,255,255,0.18);
+            border-radius: 50%;
+            background: rgba(6,10,15,0.78);
+            color: #fff;
+            font-size: 27px;
+            line-height: 1;
+            text-align: center;
+            cursor: pointer;
+        }
+        .hero-vote-game-close span {
+            display: block;
+            line-height: 1;
+            transform: translateY(-1px);
+        }
+        .hero-vote-game-head {
+            padding: 18px 68px 12px 22px;
+            border-bottom: 1px solid rgba(226,189,104,0.16);
+        }
+        .hero-vote-game-head strong {
+            display: block;
+            color: #f4dfa4;
+            font-size: 18px;
+        }
+        .hero-vote-game-progress {
+            margin-top: 4px;
+            color: #8fa0b0;
+            font-size: 12px;
+        }
+        .hero-vote-game-content {
+            min-height: 0;
+            padding: 20px 22px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+        }
+        .hero-game-profile {
+            display: grid;
+            grid-template-columns: 150px minmax(0, 1fr);
+            gap: 20px;
+            align-items: center;
+        }
+        .hero-game-image {
+            width: 150px;
+            height: 180px;
+            object-fit: cover;
+            object-position: top center;
+            border: 1px solid rgba(226,189,104,0.34);
+            border-radius: 13px;
+            background: rgba(0,0,0,0.25);
+        }
+        .hero-game-image-placeholder {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #71808c;
+            font-weight: 700;
+        }
+        .hero-game-name {
+            color: #f3e4c0;
+            font-size: clamp(26px, 5vw, 40px);
+            font-weight: 900;
+            line-height: 1.15;
+        }
+        .hero-game-name-zh {
+            margin-top: 5px;
+            color: #91a2af;
+            font-size: 16px;
+        }
+        .hero-game-meta {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 13px;
+        }
+        .hero-game-meta span {
+            padding: 6px 9px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.06);
+            color: #c2cdd5;
+            font-size: 12px;
+        }
+        .hero-game-title {
+            margin-top: 12px;
+            color: #eac866;
+            font-weight: 700;
+        }
+        .hero-game-description {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            background: rgba(0,0,0,0.19);
+            color: #d7dce0;
+            font-size: 14px;
+            line-height: 1.75;
+            white-space: pre-line;
+        }
+        .hero-game-history {
+            display: grid;
+            gap: 7px;
+            margin-top: 12px;
+        }
+        .hero-game-history-item {
+            display: grid;
+            grid-template-columns: 88px 1fr;
+            gap: 9px;
+            padding: 9px 11px;
+            border-left: 2px solid rgba(226,189,104,0.46);
+            background: rgba(255,255,255,0.025);
+            font-size: 12px;
+        }
+        .hero-game-history-item strong { color: #e7c76f; }
+        .hero-vote-game-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            padding: 14px 22px 20px;
+            border-top: 1px solid rgba(226,189,104,0.16);
+            background: rgba(7,11,16,0.92);
+        }
+        .hero-game-comments {
+            grid-column: 1 / -1;
+            min-width: 0;
+        }
+        .hero-game-comments-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 7px;
+            color: #f1dfb8;
+            font-size: 13px;
+            font-weight: 800;
+        }
+        .hero-game-comments-count {
+            color: #8fa0b0;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .hero-game-comments-list {
+            display: grid;
+            gap: 5px;
+            max-height: 92px;
+            overflow-y: auto;
+        }
+        .hero-game-comment {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            gap: 7px;
+            padding: 7px 9px;
+            border-radius: 7px;
+            background: rgba(255,255,255,0.04);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+        .hero-game-comment strong {
+            color: #e8c96f;
+            white-space: nowrap;
+        }
+        .hero-game-comment span {
+            overflow-wrap: anywhere;
+            color: #cbd4da;
+        }
+        .hero-game-comment-empty {
+            padding: 7px 2px;
+            color: #7f909d;
+            font-size: 12px;
+        }
+        .hero-game-comment-form {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 7px;
+            margin-top: 7px;
+        }
+        .hero-game-comment-form .hero-detail-comment-input {
+            min-height: 38px;
+            height: 38px;
+            padding: 8px 9px;
+            resize: none;
+            box-sizing: border-box;
+        }
+        .hero-game-comment-form .hero-detail-comment-submit {
+            min-width: 58px;
+            padding: 0 11px;
+        }
+        .hero-game-comment-login {
+            margin-top: 6px;
+            color: #71828f;
+            font-size: 11px;
+        }
+        .hero-game-vote {
+            min-height: 62px;
+            border-radius: 12px;
+            font-family: inherit;
+            font-size: 18px;
+            font-weight: 900;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+        .hero-game-vote.hero {
+            border: 1px solid rgba(226,189,104,0.68);
+            background: linear-gradient(135deg, #d8b456, #f0d785);
+            color: #1a1308;
+        }
+        .hero-game-vote.villain {
+            border: 1px solid rgba(220,91,80,0.65);
+            background: linear-gradient(135deg, #7f2e2c, #b7463f);
+            color: #fff1ed;
+        }
+        .hero-game-vote:disabled {
+            cursor: wait;
+            opacity: 0.55;
+        }
+        .hero-game-skip {
+            grid-column: 1 / -1;
+            min-height: 36px;
+            border: 0;
+            background: transparent;
+            color: #8fa0b0;
+            font-family: inherit;
+            cursor: pointer;
+        }
+        @media (max-width: 600px) {
+            .hero-vote-game { padding: 0; }
+            .hero-vote-game-card {
+                width: 100%;
+                height: 100dvh;
+                max-height: none;
+                border: 0;
+                border-radius: 0;
+            }
+            .hero-vote-game-head { padding: 14px 62px 10px 16px; }
+            .hero-vote-game-content { padding: 16px; }
+            .hero-game-profile {
+                grid-template-columns: 104px minmax(0, 1fr);
+                gap: 14px;
+            }
+            .hero-game-image { width: 104px; height: 132px; }
+            .hero-game-name { font-size: 27px; }
+            .hero-game-description { margin-top: 15px; padding: 12px; font-size: 13px; }
+            .hero-game-history-item { grid-template-columns: 72px 1fr; }
+            .hero-vote-game-actions {
+                gap: 8px;
+                padding: 10px 12px max(12px, env(safe-area-inset-bottom));
+            }
+            .hero-game-comments-list { max-height: 74px; }
+            .hero-game-vote { min-height: 58px; font-size: 16px; }
+        }
         .hero-rank-row {
             cursor: pointer;
         }
@@ -661,6 +1098,9 @@
         .hero-detail-comment-form {
             display: grid;
             gap: 8px;
+            width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
             margin-top: 12px;
             padding: 12px;
             border: 1px solid rgba(180,140,80,0.18);
@@ -668,8 +1108,11 @@
             background: rgba(180,140,80,0.06);
         }
         .hero-detail-comment-input {
+            display: block;
             width: 100%;
+            max-width: 100%;
             min-height: 78px;
+            box-sizing: border-box;
             resize: vertical;
             border: 1px solid rgba(180,140,80,0.35);
             border-radius: 7px;
@@ -690,6 +1133,9 @@
             justify-content: flex-end;
             align-items: center;
             gap: 8px;
+            width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
             flex-wrap: wrap;
         }
         .hero-detail-comment-submit {
@@ -784,6 +1230,17 @@
             .hero-detail-admin-form { grid-template-columns: 1fr; }
             .hero-detail-admin-form .full-row { grid-column: auto; }
             .hero-detail-edit-btn { margin-left: 0; }
+            .hero-ranking-pagination { gap: 5px; }
+            .hero-page-status {
+                flex-basis: 100%;
+                margin: 0 0 3px;
+                text-align: center;
+            }
+            .hero-page-btn {
+                min-width: 40px;
+                height: 40px;
+                padding: 0 9px;
+            }
         }
         .hero-support-btn.worst {
             border-color: rgba(200,80,70,0.45);
@@ -792,6 +1249,18 @@
         }
         .hero-support-btn.worst:hover:not(:disabled) {
             background: rgba(200,80,70,0.26);
+        }
+        .hero-support-btn.is-voted:disabled {
+            opacity: 1;
+            color: #181208;
+            border-color: #d7b451;
+            background: #d7b451;
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);
+        }
+        .hero-support-btn.worst.is-voted:disabled {
+            color: #fff2ef;
+            border-color: #a84842;
+            background: #963b37;
         }
 
         /* ── 사료 필터 ── */
@@ -1000,14 +1469,16 @@
             flex-direction: column;
             align-items: center;
             margin: 0;
-            padding: 0;
+            padding: 59px 0 0;
             min-height: 100vh;
         }
 
         /* 헤더 배너 */
         .popup-header {
-            position: sticky;
+            position: fixed;
             top: 0;
+            left: 0;
+            right: 0;
             background: var(--bg-panel);
             border-bottom: 1px solid var(--gold-border);
             padding: 10px 20px;
@@ -1585,7 +2056,7 @@
         }
         .hero-ranking-summary {
             display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 10px;
             margin-bottom: 16px;
         }
@@ -1606,11 +2077,18 @@
             font-weight: 700;
         }
         .hero-podium {
-            gap: 12px;
-            margin-bottom: 16px;
+            gap: 8px;
+            margin-bottom: 10px;
         }
-        .hero-podium-card {
-            min-height: 146px;
+        .hero-podium-card,
+        .hero-podium-card.rank-1-card {
+            display: grid;
+            grid-template-columns: 38px minmax(0, 1fr);
+            grid-template-rows: 38px minmax(0, 1fr) auto;
+            column-gap: 8px;
+            height: 112px;
+            min-height: 112px;
+            padding: 10px;
             border-radius: 8px;
             background:
                 linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.022)),
@@ -1618,13 +2096,44 @@
             border-color: rgba(220,185,118,0.2);
         }
         .hero-podium-card.rank-1-card {
-            min-height: 178px;
             background:
                 linear-gradient(180deg, rgba(238,196,94,0.18), rgba(255,255,255,0.03)),
                 rgba(17,23,31,0.96);
         }
+        .hero-podium-avatar,
+        .rank-1-card .hero-podium-avatar {
+            grid-column: 1;
+            grid-row: 1;
+            width: 38px;
+            height: 38px;
+            margin: 0;
+        }
         .hero-podium-medal {
-            font-size: 22px;
+            top: 7px;
+            right: 8px;
+            font-size: 18px;
+        }
+        .hero-podium-name,
+        .rank-1-card .hero-podium-name {
+            grid-column: 2;
+            grid-row: 1;
+            align-self: center;
+            padding-right: 18px;
+            font-size: 15px;
+            line-height: 1.2;
+        }
+        .hero-podium-meta {
+            grid-column: 1 / -1;
+            grid-row: 2;
+            align-self: start;
+            margin-top: 4px;
+            font-size: 10px;
+        }
+        .hero-podium-score {
+            grid-column: 1 / -1;
+            grid-row: 3;
+            margin-top: 4px;
+            font-size: 13px;
         }
         .hero-worst-mini {
             margin-top: 0;
@@ -1777,6 +2286,7 @@
             body {
                 height: auto;
                 min-height: 100%;
+                padding-top: 56px;
                 overflow-x: hidden;
                 overflow-y: auto;
                 -webkit-overflow-scrolling: touch;
@@ -1797,7 +2307,7 @@
             .page-heading h1 { font-size: 19px; }
             .tab-menu {
                 position: sticky;
-                top: 0;
+                top: 56px;
                 z-index: 40;
                 padding: 8px 10px 0;
                 gap: 6px;
@@ -1835,50 +2345,87 @@
 
             .hero-podium {
                 display: flex;
-                gap: 8px;
-                margin: 0 -10px 10px;
-                padding: 0 10px 4px;
-                overflow-x: auto;
-                scroll-snap-type: x proximity;
-                scrollbar-width: none;
+                align-items: stretch;
+                gap: 6px;
+                width: 100%;
+                margin: 0 0 10px;
+                padding: 0 0 4px;
+                overflow: visible;
             }
             .hero-podium::-webkit-scrollbar { display: none; }
             .hero-podium-card,
             .hero-podium-card.rank-1-card {
-                flex: 0 0 148px;
-                min-height: 104px;
-                padding: 10px;
-                scroll-snap-align: start;
+                flex: 1 1 0;
+                width: 0;
+                min-width: 0;
+                grid-template-columns: 29px minmax(0, 1fr);
+                grid-template-rows: 29px minmax(0, 1fr) auto;
+                column-gap: 5px;
+                height: 116px;
+                min-height: 116px;
+                padding: 7px;
             }
-            .hero-podium-avatar { width: 34px; height: 34px; }
-            .hero-podium-medal { font-size: 17px; }
-            .hero-podium-name { font-size: 13px; }
-            .hero-podium-score { font-size: 12px; }
+            .hero-podium-avatar,
+            .rank-1-card .hero-podium-avatar {
+                width: 29px;
+                height: 29px;
+                margin: 0;
+            }
+            .hero-podium-medal {
+                top: 5px;
+                right: 6px;
+                font-size: 14px;
+            }
+            .hero-podium-name,
+            .rank-1-card .hero-podium-name {
+                padding-right: 12px;
+                font-size: 13px;
+                line-height: 1.15;
+            }
+            .hero-podium-meta {
+                margin-top: 4px;
+                font-size: 9px;
+            }
+            .hero-podium-score { font-size: 10px; }
             .hero-worst-mini { display: none; }
 
             .hero-ranking-search {
                 position: sticky;
-                top: 46px;
+                top: 102px;
                 z-index: 35;
                 display: grid;
-                grid-template-columns: minmax(0, 1fr) auto;
+                grid-template-columns: minmax(0, 1fr);
                 gap: 7px;
+                width: 100%;
                 margin-bottom: 10px;
                 padding: 8px;
+                box-sizing: border-box;
                 background: rgba(10, 16, 23, .96);
                 box-shadow: 0 8px 18px rgba(0,0,0,.28);
             }
             .hero-ranking-search > span:first-child { display: none; }
-            .hero-ranking-search input { min-width: 0; min-height: 38px; font-size: 16px; }
+            .hero-ranking-search input {
+                grid-column: 1;
+                width: 100%;
+                min-width: 0;
+                min-height: 38px;
+                font-size: 16px;
+            }
             .hero-ethnicity-filter {
-                grid-column: 1 / -1;
+                grid-column: 1;
                 display: grid;
                 grid-template-columns: repeat(3, minmax(0, 1fr));
                 width: 100%;
                 box-sizing: border-box;
             }
             .hero-filter-chip { min-height: 38px; padding: 0 6px; font-size: 12px; }
-            .hero-ranking-search button { min-height: 38px; padding: 0 10px; }
+            .hero-ranking-search > #heroRankingSearchClear {
+                grid-column: 1;
+                width: 100%;
+                min-height: 38px;
+                padding: 0 10px;
+                box-sizing: border-box;
+            }
 
             .regular-officers-container {
                 width: 100%;
@@ -1989,6 +2536,122 @@
             .hero-actions-cell .hero-support-btn:not(.worst)::before { content: "👍 "; }
             .hero-actions-cell .hero-support-btn.worst::before { content: "👎 "; }
 
+            .regular-officers-table tbody tr.officer-rank-row {
+                display: grid;
+                grid-template-columns: repeat(6, minmax(0, 1fr));
+                grid-template-areas:
+                    "rank name name name score score"
+                    "position position position position position position"
+                    "submitted submitted recommended recommended participation participation"
+                    "approved approved reviewed reviewed attendance attendance";
+                gap: 8px;
+                padding: 13px;
+                border: 1px solid rgba(220,185,118,.18);
+                border-radius: 10px;
+                background: linear-gradient(145deg, rgba(255,255,255,.055), rgba(255,255,255,.022));
+                box-shadow: 0 5px 14px rgba(0,0,0,.18);
+            }
+            .regular-officers-table tbody tr.officer-rank-row.current-user {
+                border-color: rgba(226,189,104,.62);
+                box-shadow: 0 0 0 1px rgba(226,189,104,.14), 0 5px 14px rgba(0,0,0,.2);
+            }
+            .officer-ranking-tools {
+                position: sticky;
+                top: 102px;
+                z-index: 34;
+                padding: 8px;
+                background: rgba(10,16,23,.96);
+                box-shadow: 0 8px 18px rgba(0,0,0,.25);
+            }
+            .officer-ranking-tools input {
+                min-height: 42px;
+                font-size: 16px;
+            }
+            .officer-rank {
+                grid-area: rank;
+                color: #f0c96c !important;
+                font-size: 20px;
+                font-weight: 900;
+            }
+            .officer-rank::before {
+                content: "#";
+                color: #758897;
+                font-size: 10px;
+            }
+            .officer-name {
+                grid-area: name;
+                align-self: center;
+                overflow: hidden;
+                color: #f1dfb8 !important;
+                font-size: 15px;
+                font-weight: 800;
+                white-space: nowrap;
+                text-overflow: ellipsis;
+            }
+            .officer-position {
+                grid-area: position;
+                padding: 8px 10px !important;
+                border-radius: 7px !important;
+                background: rgba(226,189,104,.08);
+                color: #d4b96e !important;
+                font-size: 12px;
+                line-height: 1.45;
+            }
+            .officer-score {
+                grid-area: score;
+                align-self: center;
+                color: #f4d36f !important;
+                font-size: 19px;
+                font-weight: 900;
+                text-align: right !important;
+            }
+            .officer-score::before {
+                content: "공적 ";
+                color: #7f909d;
+                font-size: 10px;
+                font-weight: 700;
+            }
+            .officer-metric {
+                display: flex !important;
+                flex-direction: column;
+                justify-content: center;
+                min-height: 48px;
+                box-sizing: border-box;
+                padding: 7px 8px !important;
+                border-radius: 7px !important;
+                background: rgba(0,0,0,.2);
+                color: #e2e7ea !important;
+                font-size: 14px;
+                font-weight: 800;
+                text-align: right !important;
+            }
+            .officer-metric::before {
+                margin-bottom: 3px;
+                color: #80929f;
+                font-size: 9px;
+                font-weight: 700;
+                line-height: 1;
+            }
+            .officer-metric small {
+                display: block;
+                margin: 2px 0 0;
+                color: #71828f;
+                font-size: 9px;
+                font-weight: 600;
+            }
+            .officer-submitted { grid-area: submitted; }
+            .officer-recommended { grid-area: recommended; }
+            .officer-participation { grid-area: participation; }
+            .officer-approved { grid-area: approved; }
+            .officer-reviewed { grid-area: reviewed; }
+            .officer-attendance { grid-area: attendance; }
+            .officer-submitted::before { content: "사료 제출"; }
+            .officer-recommended::before { content: "추천"; }
+            .officer-participation::before { content: "투표 참여"; }
+            .officer-approved::before { content: "승인"; }
+            .officer-reviewed::before { content: "검토"; }
+            .officer-attendance::before { content: "출석"; }
+
             .modal-content { width: calc(100% - 16px); max-height: 92dvh; padding: 16px 14px 86px; }
             .hero-detail-hero { align-items: flex-start; }
             .hero-detail-avatar { width: 58px; height: 58px; }
@@ -2033,6 +2696,10 @@
             display: none;
         }
         @media (max-width: 768px) {
+            #ranking-adfit,
+            #ranking-adfit-left {
+                display: none !important;
+            }
             #ranking-mobile-search-adfit {
                 display: block;
                 width: 320px;
@@ -2150,6 +2817,11 @@
                         <p>사료 제출, 추천받은 수, 투표 참여, 승인과 검토를 공적으로 합산합니다.</p>
                     </div>
                 </div>
+                <div class="officer-ranking-tools">
+                    <input type="search" id="officerRankingSearchInput"
+                           placeholder="사관명 검색..." autocomplete="off" aria-label="사관명 검색">
+                    <button type="button" id="officerRankingSearchClear" class="btn-secondary">초기화</button>
+                </div>
                 <div class="regular-officers-container">
                     <table class="regular-officers-table">
                         <thead>
@@ -2171,6 +2843,8 @@
                         </tbody>
                     </table>
                 </div>
+                <nav id="officerRankingPagination" class="hero-ranking-pagination"
+                     aria-label="사관 랭킹 페이지"></nav>
             </div>
         </div>
 
@@ -2191,16 +2865,11 @@
                         <strong id="heroRankingVotes">-</strong>
                         <span>총 영웅표</span>
                     </div>
-                    <div class="hero-ranking-stat">
-                        <strong id="heroRankingLeader">-</strong>
-                        <span>영웅 1위</span>
-                    </div>
-                    <div class="hero-ranking-stat">
-                        <strong id="heroRankingWorstLeader">-</strong>
-                        <span>빌런 1위</span>
-                    </div>
                 </div>
+                <div class="hero-podium-section-title">🏆 영웅 TOP 3</div>
                 <div id="heroRankingPodium" class="hero-podium"></div>
+                <div class="hero-podium-section-title">😈 빌런 TOP 3</div>
+                <div id="heroWorstRankingPodium" class="hero-podium hero-villain-podium"></div>
                 <!-- Kakao AdFit 320×50 — 모바일 영웅 검색창 상단 -->
                 <div id="ranking-mobile-search-adfit" aria-label="광고">
                     <span class="ranking-ad-label">AD</span>
@@ -2220,16 +2889,16 @@
                     <button type="button" id="heroRankingSearchClear" class="btn-secondary">초기화</button>
                 </div>
                 <div class="regular-officers-container">
-                    <table class="regular-officers-table">
+                    <table id="heroRankingTable" class="regular-officers-table">
                         <thead>
                             <tr>
-                                <th>순위</th>
-                                <th>영웅</th>
-                                <th>소속</th>
-                                <th>유형</th>
-                                <th>활동 시기</th>
-                                <th style="text-align: right;">영웅표</th>
-                                <th style="text-align: right;">빌런표</th>
+                                <th class="hero-sortable" data-hero-sort="rank" tabindex="0" role="button" aria-sort="none">순위</th>
+                                <th class="hero-sortable" data-hero-sort="name" tabindex="0" role="button" aria-sort="none">영웅</th>
+                                <th class="hero-sortable" data-hero-sort="faction" tabindex="0" role="button" aria-sort="none">소속</th>
+                                <th class="hero-sortable" data-hero-sort="type" tabindex="0" role="button" aria-sort="none">유형</th>
+                                <th class="hero-sortable" data-hero-sort="period" tabindex="0" role="button" aria-sort="none">활동 시기</th>
+                                <th class="hero-sortable sort-desc" data-hero-sort="vote_count" tabindex="0" role="button" aria-sort="descending" style="text-align: right;">영웅표</th>
+                                <th class="hero-sortable" data-hero-sort="worst_vote_count" tabindex="0" role="button" aria-sort="none" style="text-align: right;">빌런표</th>
                                 <th style="text-align: center;">투표</th>
                             </tr>
                         </thead>
@@ -2238,6 +2907,8 @@
                         </tbody>
                     </table>
                 </div>
+                <nav id="heroRankingPagination" class="hero-ranking-pagination"
+                     aria-label="영웅 랭킹 페이지"></nav>
             </div>
         </div>
         
@@ -2275,6 +2946,8 @@
             <div id="contributionsList">
                 <!-- 사료 데이터가 여기에 동적으로 추가됩니다 -->
             </div>
+            <nav id="contributionPagination" class="hero-ranking-pagination"
+                 aria-label="사료 목록 페이지"></nav>
         </div>
     </div>
 
@@ -2293,6 +2966,36 @@
              data-ad-width="160"
              data-ad-height="600"></ins>
     </aside>
+
+    <div id="heroVoteGame" class="hero-vote-game" role="dialog" aria-modal="true"
+         aria-labelledby="heroVoteGameTitle" aria-hidden="true">
+        <section class="hero-vote-game-card">
+            <button type="button" id="heroVoteGameClose" class="hero-vote-game-close"
+                    aria-label="랜덤 투표 닫기"><span aria-hidden="true">&times;</span></button>
+            <header class="hero-vote-game-head">
+                <strong id="heroVoteGameTitle">영웅인가, 빌런인가?</strong>
+                <div id="heroVoteGameProgress" class="hero-vote-game-progress">랜덤 인물을 불러오는 중...</div>
+            </header>
+            <div id="heroVoteGameContent" class="hero-vote-game-content">
+                <div style="padding:40px 0;text-align:center;color:#8fa0b0;">인물 정보를 불러오는 중...</div>
+            </div>
+            <footer class="hero-vote-game-actions">
+                <section id="heroVoteGameComments" class="hero-game-comments" aria-label="사관들의 인물평">
+                    <div class="hero-game-comments-head">
+                        <span>사관들의 인물평</span>
+                        <span id="heroVoteGameCommentCount" class="hero-game-comments-count"></span>
+                    </div>
+                    <div id="heroVoteGameCommentList" class="hero-game-comments-list">
+                        <div class="hero-game-comment-empty">인물평을 불러오는 중...</div>
+                    </div>
+                    <div id="heroVoteGameCommentForm"></div>
+                </section>
+                <button type="button" id="heroVoteGameHero" class="hero-game-vote hero">🦸 영웅</button>
+                <button type="button" id="heroVoteGameVillain" class="hero-game-vote villain">😈 빌런</button>
+                <button type="button" id="heroVoteGameSkip" class="hero-game-skip">Pass</button>
+            </footer>
+        </section>
+    </div>
 
     <!-- 사료 상세 모달 -->
     <div id="contributionDetailModal" class="modal">
@@ -2331,6 +3034,10 @@
 
     <script>
         const API_BASE_URL = '/api'; // 로컬: localhost:3000/api, Vercel: historymap-psi.vercel.app/api
+        if (window.matchMedia('(max-width: 768px)').matches) {
+            document.getElementById('ranking-adfit')?.remove();
+            document.getElementById('ranking-adfit-left')?.remove();
+        }
         const _rankingUrlToken = new URLSearchParams(window.location.search).get('t');
         if (_rankingUrlToken && !localStorage.getItem('token') && !sessionStorage.getItem('token')) {
             sessionStorage.setItem('token', _rankingUrlToken);
@@ -2341,6 +3048,18 @@
         let _clientRankingsCacheTime = 0;
         let _clientHeroRankingsCache = null;
         let _clientHeroRankingsCacheTime = 0;
+        const HERO_RANKING_PAGE_SIZE = 15;
+        let _heroRankingCurrentPage = 1;
+        let _heroRankingSortColumn = 'vote_count';
+        let _heroRankingSortDirection = 'desc';
+        let _heroVoteGameAutoOpened = false;
+        let _heroVoteGameCurrentId = '';
+        let _heroVoteGameDeck = [];
+        let _heroVoteGameSeenCount = 0;
+        let _heroVoteGameRequestId = 0;
+        let _heroVoteGameVoting = false;
+        const CONTRIBUTIONS_PAGE_SIZE = 15;
+        let _contributionCurrentPage = 1;
         let _clientContribsCache = null;
         let _clientContribsCacheTime = 0;
         const CLIENT_CACHE_TTL = 2 * 60 * 1000; // 2분
@@ -2385,7 +3104,7 @@
                     role: payload.role || '',
                     position: payload.position || '',
                     isGuest: !!payload.isGuest,
-                    canCommentAsOfficer: !!payload.username && !payload.isGuest
+                    canCommentAsOfficer: !!payload.username
                 };
             } catch (error) {
                 console.warn('사관 정보 확인 실패:', error);
@@ -2489,6 +3208,53 @@
                     formatHeroYear(hero.death_year)
                 ].filter(Boolean).join(' ').toLowerCase();
                 return haystack.includes(q);
+            });
+        }
+
+        function sortHeroRankingList(heroes) {
+            const direction = _heroRankingSortDirection === 'asc' ? 1 : -1;
+            const numericValue = (hero, key, fallback = 0) => {
+                const rawValue = hero?.[key];
+                if (rawValue == null || rawValue === '') return fallback;
+                const value = Number(rawValue);
+                return Number.isFinite(value) ? value : fallback;
+            };
+            const textValue = value => String(value || '').trim();
+            return [...heroes].sort((a, b) => {
+                let comparison = 0;
+                switch (_heroRankingSortColumn) {
+                    case 'rank':
+                        comparison = numericValue(a, 'rank', Number.MAX_SAFE_INTEGER)
+                            - numericValue(b, 'rank', Number.MAX_SAFE_INTEGER);
+                        break;
+                    case 'name':
+                        comparison = textValue(a.name_ko).localeCompare(textValue(b.name_ko), 'ko');
+                        break;
+                    case 'faction':
+                        comparison = textValue(a.faction).localeCompare(textValue(b.faction), 'ko');
+                        break;
+                    case 'type':
+                        comparison = heroTypeLabel(a.hero_type).localeCompare(heroTypeLabel(b.hero_type), 'ko');
+                        break;
+                    case 'period':
+                        {
+                            const missingYear = direction === 1 ? Number.MAX_SAFE_INTEGER : Number.MIN_SAFE_INTEGER;
+                            comparison = numericValue(a, 'birth_year', missingYear)
+                                - numericValue(b, 'birth_year', missingYear);
+                        }
+                        break;
+                    case 'worst_vote_count':
+                        comparison = numericValue(a, 'worst_vote_count') - numericValue(b, 'worst_vote_count');
+                        break;
+                    case 'vote_count':
+                    default:
+                        comparison = numericValue(a, 'vote_count') - numericValue(b, 'vote_count');
+                        break;
+                }
+                if (comparison === 0) {
+                    comparison = textValue(a.name_ko).localeCompare(textValue(b.name_ko), 'ko');
+                }
+                return comparison * direction;
             });
         }
 
@@ -2655,6 +3421,8 @@
         let currentSortColumn = 'score';
         let currentSortDirection = 'desc';
         let rankingData = [];
+        const OFFICER_RANKING_PAGE_SIZE = 15;
+        let _officerRankingCurrentPage = 1;
 
         // 정렬 함수
         function sortRankings(column, direction) {
@@ -2721,28 +3489,38 @@
         function renderRankings() {
             const tableBody = document.getElementById('rankingTableBody');
             tableBody.innerHTML = '';
+            const query = (document.getElementById('officerRankingSearchInput')?.value || '').trim().toLowerCase();
+            const filteredRankingData = query
+                ? rankingData.filter(user => String(user.username || '').toLowerCase().includes(query))
+                : rankingData;
+            const totalPages = Math.max(1, Math.ceil(filteredRankingData.length / OFFICER_RANKING_PAGE_SIZE));
+            _officerRankingCurrentPage = Math.min(Math.max(1, _officerRankingCurrentPage), totalPages);
+            const pageStart = (_officerRankingCurrentPage - 1) * OFFICER_RANKING_PAGE_SIZE;
+            const pageRankingData = filteredRankingData.slice(pageStart, pageStart + OFFICER_RANKING_PAGE_SIZE);
             
-            if (rankingData.length === 0) {
+            if (filteredRankingData.length === 0) {
                 const row = document.createElement('tr');
                 const cell = document.createElement('td');
                 cell.colSpan = 10;
-                cell.textContent = '일반 사관이 없습니다.';
+                cell.textContent = query ? '검색 결과가 없습니다.' : '일반 사관이 없습니다.';
                 cell.style.textAlign = 'center';
                 cell.style.color = '#95a5a6';
                 row.appendChild(cell);
                 tableBody.appendChild(row);
+                renderOfficerRankingPagination(0);
                 return;
             }
             
             const currentUsername = localStorage.getItem('username');
             const frag = document.createDocumentFragment(); // ⚡ 리플로우 최소화
 
-            rankingData.forEach((user, index) => {
+            pageRankingData.forEach((user, index) => {
                 const row = document.createElement('tr');
-                const rankClass = index < 3 ? `rank-${index + 1}` : '';
+                const displayRank = user.rank || (pageStart + index + 1);
+                const rankClass = displayRank <= 3 ? `rank-${displayRank}` : '';
                 const isCurrentUser = currentUsername && user.username === currentUsername;
                 const userClass = isCurrentUser ? 'current-user' : '';
-                const displayRank = user.rank || (index + 1);
+                row.className = `officer-rank-row ${userClass}`.trim();
                 const displayPosition = normalizePosition(user.position) || getDetailedPosition(user.score || 0);
 
                 const submittedScore = (user.totalCount || 0) * 3;
@@ -2755,26 +3533,70 @@
                 const reviewCount = user.reviewedCount || Math.round(reviewScore / 5) || 0;
 
                 row.innerHTML = `
-                    <td class="${rankClass} ${userClass}">${displayRank}</td>
-                    <td class="${userClass}">${user.username}${isCurrentUser ? ' 👑' : ''}</td>
-                    <td class="${userClass}">${displayPosition}</td>
-                    <td style="text-align: right;" class="${userClass}">${submittedScore}(${user.totalCount || 0})</td>
-                    <td style="text-align: right;" class="${userClass}">${votesScore}(${user.totalVotes || 0})</td>
-                    <td style="text-align: right;" class="${userClass}">${voteParticipationScore}(${voteParticipationCount})</td>
-                    <td style="text-align: right;" class="${userClass}">${approvedScore}(${user.approvedCount || 0})</td>
-                    <td style="text-align: right;" class="${userClass}">${reviewScore}(${reviewCount})</td>
-                    <td style="text-align: right;" class="${userClass}">${attendanceScore}(${user.attendancePoints || 0})</td>
-                    <td style="text-align: right;" class="${rankClass} ${userClass}"><strong>${user.score || 0}</strong></td>
+                    <td class="officer-rank ${rankClass} ${userClass}">${displayRank}</td>
+                    <td class="officer-name ${userClass}">${user.username}${isCurrentUser ? ' 👑' : ''}</td>
+                    <td class="officer-position ${userClass}">${displayPosition}</td>
+                    <td class="officer-metric officer-submitted ${userClass}">${submittedScore}<small>(${user.totalCount || 0}건)</small></td>
+                    <td class="officer-metric officer-recommended ${userClass}">${votesScore}<small>(${user.totalVotes || 0}회)</small></td>
+                    <td class="officer-metric officer-participation ${userClass}">${voteParticipationScore}<small>(${voteParticipationCount}회)</small></td>
+                    <td class="officer-metric officer-approved ${userClass}">${approvedScore}<small>(${user.approvedCount || 0}건)</small></td>
+                    <td class="officer-metric officer-reviewed ${userClass}">${reviewScore}<small>(${reviewCount}건)</small></td>
+                    <td class="officer-metric officer-attendance ${userClass}">${attendanceScore}<small>(${user.attendancePoints || 0}회)</small></td>
+                    <td class="officer-score ${rankClass} ${userClass}"><strong>${user.score || 0}</strong></td>
                 `;
                 frag.appendChild(row);
             });
             tableBody.appendChild(frag); // ⚡ 한 번만 DOM에 삽입
+            renderOfficerRankingPagination(filteredRankingData.length);
+        }
+
+        function renderOfficerRankingPagination(totalItems) {
+            const container = document.getElementById('officerRankingPagination');
+            if (!container) return;
+            const totalPages = Math.max(1, Math.ceil(totalItems / OFFICER_RANKING_PAGE_SIZE));
+            if (totalItems <= OFFICER_RANKING_PAGE_SIZE) {
+                container.innerHTML = '';
+                container.style.display = 'none';
+                return;
+            }
+
+            container.style.display = 'flex';
+            const page = _officerRankingCurrentPage;
+            const pages = new Set([1, totalPages]);
+            for (let value = Math.max(1, page - 2); value <= Math.min(totalPages, page + 2); value++) {
+                pages.add(value);
+            }
+            const orderedPages = [...pages].sort((a, b) => a - b);
+            const buttons = [];
+            let previousPage = 0;
+            orderedPages.forEach(value => {
+                if (previousPage && value - previousPage > 1) {
+                    buttons.push('<span class="hero-page-ellipsis" aria-hidden="true">…</span>');
+                }
+                buttons.push(
+                    `<button type="button" class="hero-page-btn officer-page-btn${value === page ? ' active' : ''}" ` +
+                    `data-page="${value}" ${value === page ? 'aria-current="page"' : ''}>${value}</button>`
+                );
+                previousPage = value;
+            });
+
+            const startItem = (page - 1) * OFFICER_RANKING_PAGE_SIZE + 1;
+            const endItem = Math.min(totalItems, page * OFFICER_RANKING_PAGE_SIZE);
+            container.innerHTML = `
+                <span class="hero-page-status">${startItem.toLocaleString('ko-KR')}–${endItem.toLocaleString('ko-KR')} / ${totalItems.toLocaleString('ko-KR')}</span>
+                <button type="button" class="hero-page-btn officer-page-btn" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>이전</button>
+                ${buttons.join('')}
+                <button type="button" class="hero-page-btn officer-page-btn" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>다음</button>
+            `;
         }
 
         async function loadHeroRankings() {
             const cached = _clientHeroRankingsCache && Date.now() - _clientHeroRankingsCacheTime < CLIENT_CACHE_TTL;
             if (cached) {
                 renderHeroRankings(_clientHeroRankingsCache);
+                if (!new URLSearchParams(window.location.search).has('contributionId')) {
+                    openHeroVoteGameOnce();
+                }
                 return;
             }
 
@@ -2789,6 +3611,9 @@
                 _clientHeroRankingsCache = Array.isArray(heroes) ? heroes : [];
                 _clientHeroRankingsCacheTime = Date.now();
                 renderHeroRankings(_clientHeroRankingsCache);
+                if (!new URLSearchParams(window.location.search).has('contributionId')) {
+                    openHeroVoteGameOnce();
+                }
             } catch (error) {
                 console.error('Error fetching hero ranking data:', error);
                 tableBody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#e74c3c;">영웅 & 빌런 투표를 불러오지 못했습니다.</td></tr>';
@@ -2799,25 +3624,36 @@
             const tableBody = document.getElementById('heroRankingTableBody');
             const totalEl = document.getElementById('heroRankingTotal');
             const votesEl = document.getElementById('heroRankingVotes');
-            const leaderEl = document.getElementById('heroRankingLeader');
-            const worstLeaderEl = document.getElementById('heroRankingWorstLeader');
             const podiumEl = document.getElementById('heroRankingPodium');
+            const worstPodiumEl = document.getElementById('heroWorstRankingPodium');
             const query = getHeroRankingQuery();
             const sourceList = Array.isArray(heroes) ? heroes : [];
-            const list = filterHeroRankings(sourceList, query);
+            const filteredList = filterHeroRankings(sourceList, query);
+            const list = sortHeroRankingList(filteredList);
+            const totalPages = Math.max(1, Math.ceil(list.length / HERO_RANKING_PAGE_SIZE));
+            _heroRankingCurrentPage = Math.min(Math.max(1, _heroRankingCurrentPage), totalPages);
+            const pageStart = (_heroRankingCurrentPage - 1) * HERO_RANKING_PAGE_SIZE;
+            const pageList = list.slice(pageStart, pageStart + HERO_RANKING_PAGE_SIZE);
             const totalVotes = list.reduce((sum, hero) => sum + (parseInt(hero.vote_count, 10) || 0), 0);
             const totalWorstVotes = list.reduce((sum, hero) => sum + (parseInt(hero.worst_vote_count, 10) || 0), 0);
-            const leader = list[0] || null;
-            const worstLeader = list.slice().sort((a, b) => (
+            const heroLeaders = filteredList.slice().sort((a, b) => (
+                (parseInt(b.vote_count, 10) || 0) - (parseInt(a.vote_count, 10) || 0) ||
+                String(a.name_ko || '').localeCompare(String(b.name_ko || ''), 'ko')
+            ));
+            const villainLeaders = filteredList.slice().sort((a, b) => (
                 (parseInt(b.worst_vote_count, 10) || 0) - (parseInt(a.worst_vote_count, 10) || 0) ||
                 String(a.name_ko || '').localeCompare(String(b.name_ko || ''), 'ko')
-            ))[0] || null;
+            ));
 
             if (totalEl) totalEl.textContent = query ? `${list.length.toLocaleString('ko-KR')} / ${sourceList.length.toLocaleString('ko-KR')}` : list.length.toLocaleString('ko-KR');
             if (votesEl) votesEl.textContent = totalVotes.toLocaleString('ko-KR');
-            if (leaderEl) leaderEl.textContent = leader ? `${leader.name_ko || '이름 미상'} (${leader.vote_count || 0})` : '-';
-            if (worstLeaderEl) worstLeaderEl.textContent = worstLeader ? `${worstLeader.name_ko || '이름 미상'} (${worstLeader.worst_vote_count || 0})` : '-';
-            renderHeroPodium(list, podiumEl);
+            renderHeroPodium(heroLeaders, podiumEl);
+            renderHeroPodium(villainLeaders, worstPodiumEl, {
+                voteKey: 'worst_vote_count',
+                variant: 'villain',
+                onlyVoted: true
+            });
+            renderHeroRankingPagination(list.length, totalPages);
 
             tableBody.innerHTML = '';
             if (!list.length) {
@@ -2826,11 +3662,13 @@
             }
 
             const frag = document.createDocumentFragment();
-            list.forEach((hero, index) => {
+            pageList.forEach((hero, index) => {
+                const filteredIndex = pageStart + index;
                 const row = document.createElement('tr');
                 row.className = 'hero-rank-row';
                 row.dataset.heroId = String(hero._id || '');
-                const rankClass = index < 3 ? `rank-${index + 1}` : '';
+                const displayedRank = parseInt(hero.rank, 10) || filteredIndex + 1;
+                const rankClass = displayedRank <= 3 ? `rank-${displayedRank}` : '';
                 const votes = parseInt(hero.vote_count, 10) || 0;
                 const worstVotes = parseInt(hero.worst_vote_count, 10) || 0;
                 const ratio = totalVotes > 0 ? ((votes / totalVotes) * 100).toFixed(1) : '0.0';
@@ -2845,7 +3683,7 @@
                 const voted = _heroVotedSet.has(heroId);
                 const worstVoted = _heroWorstVotedSet.has(heroId);
                 row.innerHTML = `
-                    <td class="hero-rank-cell ${rankClass}">${hero.rank || index + 1}</td>
+                    <td class="hero-rank-cell ${rankClass}">${displayedRank}</td>
                     <td class="hero-identity-cell">${avatar}<strong>${escapeHTML(hero.name_ko || '이름 미상')}</strong>${hero.name_zh ? ` <span style="color:#8fa0b0;">${escapeHTML(hero.name_zh)}</span>` : ''}</td>
                     <td class="hero-faction-cell"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${color};margin-right:6px;"></span>${escapeHTML(hero.faction || '소속 미상')}</td>
                     <td class="hero-type-cell"><span class="hero-type-chip">${escapeHTML(heroTypeLabel(hero.hero_type))}</span></td>
@@ -2853,8 +3691,8 @@
                     <td class="hero-votes-cell" style="text-align:right;"><span class="hero-vote-count">${votes.toLocaleString('ko-KR')}</span>표 <span style="color:#8fa0b0;">(${ratio}%)</span></td>
                     <td class="hero-worst-cell" style="text-align:right;"><span style="color:#f0aaa0;font-weight:700;">${worstVotes.toLocaleString('ko-KR')}</span>표 <span style="color:#8fa0b0;">(${worstRatio}%)</span></td>
                     <td class="hero-actions-cell" style="text-align:center;display:flex;gap:6px;justify-content:center;flex-wrap:wrap;">
-                        <button type="button" class="hero-support-btn" data-hero-id="${escapeHTML(heroId)}" ${voted ? 'disabled' : ''}>${voted ? '영웅 완료' : '영웅'}</button>
-                        <button type="button" class="hero-support-btn worst" data-hero-id="${escapeHTML(heroId)}" ${worstVoted ? 'disabled' : ''}>${worstVoted ? '빌런 완료' : '빌런'}</button>
+                        <button type="button" class="hero-support-btn${voted ? ' is-voted' : ''}" data-hero-id="${escapeHTML(heroId)}" ${voted ? 'disabled' : ''}>영웅</button>
+                        <button type="button" class="hero-support-btn worst${worstVoted ? ' is-voted' : ''}" data-hero-id="${escapeHTML(heroId)}" ${worstVoted ? 'disabled' : ''}>빌런</button>
                     </td>
                 `;
                 frag.appendChild(row);
@@ -2862,31 +3700,67 @@
             tableBody.appendChild(frag);
         }
 
-        function renderHeroPodium(list, container) {
+        function renderHeroRankingPagination(totalItems, totalPages) {
+            const container = document.getElementById('heroRankingPagination');
             if (!container) return;
-            const top = [list[0], list[1], list[2]];
-            const worstTop = list
-                .slice()
-                .filter(hero => (parseInt(hero.worst_vote_count, 10) || 0) > 0)
-                .sort((a, b) => (
-                    (parseInt(b.worst_vote_count, 10) || 0) - (parseInt(a.worst_vote_count, 10) || 0) ||
-                    String(a.name_ko || '').localeCompare(String(b.name_ko || ''), 'ko')
-                ))
-                .slice(0, 3);
+            if (totalItems <= HERO_RANKING_PAGE_SIZE) {
+                container.innerHTML = '';
+                container.style.display = 'none';
+                return;
+            }
+
+            container.style.display = 'flex';
+            const page = _heroRankingCurrentPage;
+            const pages = new Set([1, totalPages]);
+            for (let value = Math.max(1, page - 2); value <= Math.min(totalPages, page + 2); value++) {
+                pages.add(value);
+            }
+            const orderedPages = [...pages].sort((a, b) => a - b);
+            const pageButtons = [];
+            let previousPage = 0;
+            orderedPages.forEach(value => {
+                if (previousPage && value - previousPage > 1) {
+                    pageButtons.push('<span class="hero-page-ellipsis" aria-hidden="true">…</span>');
+                }
+                pageButtons.push(
+                    `<button type="button" class="hero-page-btn${value === page ? ' active' : ''}" ` +
+                    `data-page="${value}" ${value === page ? 'aria-current="page"' : ''}>${value}</button>`
+                );
+                previousPage = value;
+            });
+
+            const startItem = (page - 1) * HERO_RANKING_PAGE_SIZE + 1;
+            const endItem = Math.min(totalItems, page * HERO_RANKING_PAGE_SIZE);
+            container.innerHTML = `
+                <span class="hero-page-status">${startItem.toLocaleString('ko-KR')}–${endItem.toLocaleString('ko-KR')} / ${totalItems.toLocaleString('ko-KR')}</span>
+                <button type="button" class="hero-page-btn hero-page-nav" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>이전</button>
+                ${pageButtons.join('')}
+                <button type="button" class="hero-page-btn hero-page-nav" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>다음</button>
+            `;
+        }
+
+        function renderHeroPodium(list, container, options = {}) {
+            if (!container) return;
+            const voteKey = options.voteKey || 'vote_count';
+            const variant = options.variant || 'hero';
+            const candidates = options.onlyVoted
+                ? list.filter(hero => (parseInt(hero[voteKey], 10) || 0) > 0)
+                : list;
+            const top = [candidates[0], candidates[1], candidates[2]];
             const rankInfo = [
-                { rank: 1, medal: '🏆', cls: 'rank-1-card', label: '1위' },
+                { rank: 1, medal: variant === 'villain' ? '😈' : '🏆', cls: 'rank-1-card', label: '1위' },
                 { rank: 2, medal: '🥈', cls: 'rank-2-card', label: '2위' },
                 { rank: 3, medal: '🥉', cls: 'rank-3-card', label: '3위' }
             ];
             const podiumHtml = top.map((hero, index) => {
                 const info = rankInfo[index];
                 if (!hero) return `<div class="hero-podium-empty">${info.label} 대기 중</div>`;
-                const votes = parseInt(hero.vote_count, 10) || 0;
+                const votes = parseInt(hero[voteKey], 10) || 0;
                 const avatar = hero.avatar_url
                     ? `<img src="${escapeHTML(hero.avatar_url)}" alt="" class="hero-podium-avatar" onerror="this.style.display='none'">`
                     : '<div class="hero-podium-avatar" style="display:flex;align-items:center;justify-content:center;color:#8fa0b0;">?</div>';
                 return `
-                    <div class="hero-podium-card ${info.cls}" data-hero-id="${escapeHTML(hero._id || '')}" title="상세 보기">
+                    <div class="hero-podium-card ${info.cls} ${variant === 'villain' ? 'villain-card' : ''}" data-hero-id="${escapeHTML(hero._id || '')}" title="상세 보기">
                         <div class="hero-podium-medal">${info.medal}</div>
                         ${avatar}
                         <div class="hero-podium-name">${escapeHTML(hero.name_ko || '이름 미상')}</div>
@@ -2895,34 +3769,220 @@
                     </div>
                 `;
             }).join('');
-            const worstHtml = worstTop.length
-                ? worstTop.map((hero, index) => {
-                    const votes = parseInt(hero.worst_vote_count, 10) || 0;
+            container.innerHTML = podiumHtml;
+        }
+
+        function buildHeroVoteGameDeck() {
+            const available = (Array.isArray(_clientHeroRankingsCache) ? _clientHeroRankingsCache : [])
+                .filter(hero => {
+                    const id = String(hero?._id || '');
+                    return id && !_heroVotedSet.has(id) && !_heroWorstVotedSet.has(id);
+                })
+                .map(hero => String(hero._id));
+            for (let index = available.length - 1; index > 0; index--) {
+                const randomIndex = Math.floor(Math.random() * (index + 1));
+                [available[index], available[randomIndex]] = [available[randomIndex], available[index]];
+            }
+            return available;
+        }
+
+        function openHeroVoteGameOnce() {
+            if (_heroVoteGameAutoOpened || !Array.isArray(_clientHeroRankingsCache)) return;
+            _heroVoteGameAutoOpened = true;
+            _heroVoteGameDeck = buildHeroVoteGameDeck();
+            _heroVoteGameSeenCount = 0;
+            const modal = document.getElementById('heroVoteGame');
+            if (!modal) return;
+            modal.classList.add('open');
+            modal.setAttribute('aria-hidden', 'false');
+            document.body.classList.add('hero-vote-game-open');
+            showNextHeroVoteGameCard();
+            document.getElementById('heroVoteGameClose')?.focus();
+        }
+
+        function closeHeroVoteGame() {
+            const modal = document.getElementById('heroVoteGame');
+            if (!modal) return;
+            _heroVoteGameRequestId += 1;
+            modal.classList.remove('open');
+            modal.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('hero-vote-game-open');
+            _heroVoteGameCurrentId = '';
+        }
+
+        function setHeroVoteGameButtonsDisabled(disabled) {
+            ['heroVoteGameHero', 'heroVoteGameVillain', 'heroVoteGameSkip'].forEach(id => {
+                const button = document.getElementById(id);
+                if (button) button.disabled = disabled;
+            });
+        }
+
+        function renderHeroVoteGameComments(heroId, comments) {
+            const panel = document.getElementById('heroVoteGameComments');
+            const list = document.getElementById('heroVoteGameCommentList');
+            const count = document.getElementById('heroVoteGameCommentCount');
+            const formHost = document.getElementById('heroVoteGameCommentForm');
+            if (!panel || !list || !count || !formHost) return;
+
+            const items = Array.isArray(comments) ? comments : [];
+            panel.style.display = '';
+            count.textContent = items.length ? `${items.length.toLocaleString('ko-KR')}개` : '';
+            list.innerHTML = items.length
+                ? items.slice(0, 5).map(comment => `
+                    <div class="hero-game-comment">
+                        <strong>${escapeHTML(comment.author || '게스트')}</strong>
+                        <span>${escapeHTML(comment.content || '')}</span>
+                    </div>
+                `).join('')
+                : '<div class="hero-game-comment-empty">아직 인물평이 없습니다. 첫 평가를 남겨보세요.</div>';
+
+            const auth = getRankingAuthInfo();
+            formHost.innerHTML = auth.canCommentAsOfficer
+                ? `
+                    <form class="hero-detail-comment-form hero-game-comment-form" data-hero-id="${escapeHTML(heroId)}">
+                        <textarea class="hero-detail-comment-input" rows="1" maxlength="500" aria-label="인물평 작성" placeholder="이 인물에 대한 평가를 남겨보세요."></textarea>
+                        <button type="submit" class="hero-detail-comment-submit">등록</button>
+                    </form>
+                `
+                : '<div class="hero-game-comment-login">로그인하거나 게스트로 입장하면 인물평을 작성할 수 있습니다.</div>';
+        }
+
+        async function refreshHeroVoteGameComments(heroId) {
+            if (String(heroId) !== _heroVoteGameCurrentId) return;
+            const response = await fetch(`${API_BASE_URL}/heroes/${encodeURIComponent(heroId)}`);
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.message || '인물평을 불러오지 못했습니다.');
+            if (String(heroId) === _heroVoteGameCurrentId) {
+                renderHeroVoteGameComments(heroId, data.comments || []);
+            }
+        }
+
+        async function showNextHeroVoteGameCard() {
+            if (_heroVoteGameVoting) return;
+            const content = document.getElementById('heroVoteGameContent');
+            const progress = document.getElementById('heroVoteGameProgress');
+            if (!content || !progress) return;
+
+            let nextId = _heroVoteGameDeck.pop() || '';
+            while (nextId && (_heroVotedSet.has(nextId) || _heroWorstVotedSet.has(nextId))) {
+                nextId = _heroVoteGameDeck.pop() || '';
+            }
+            if (!nextId) {
+                _heroVoteGameCurrentId = '';
+                const commentsPanel = document.getElementById('heroVoteGameComments');
+                if (commentsPanel) commentsPanel.style.display = 'none';
+                progress.textContent = `${_heroVoteGameSeenCount.toLocaleString('ko-KR')}명 판정 완료`;
+                content.innerHTML = `
+                    <div style="padding:55px 15px;text-align:center;">
+                        <div style="font-size:48px;margin-bottom:12px;">🏁</div>
+                        <div style="color:#f3e4c0;font-size:22px;font-weight:900;">판정할 인물을 모두 확인했습니다</div>
+                        <p style="color:#8fa0b0;line-height:1.7;">X를 누르면 영웅·빌런 전체 랭킹을 볼 수 있습니다.</p>
+                    </div>
+                `;
+                setHeroVoteGameButtonsDisabled(true);
+                return;
+            }
+
+            _heroVoteGameCurrentId = nextId;
+            _heroVoteGameSeenCount += 1;
+            const requestId = ++_heroVoteGameRequestId;
+            progress.textContent = `${_heroVoteGameSeenCount.toLocaleString('ko-KR')}번째 인물 · 남은 후보 ${_heroVoteGameDeck.length.toLocaleString('ko-KR')}명`;
+            content.innerHTML = '<div style="padding:55px 0;text-align:center;color:#8fa0b0;">인물 정보를 불러오는 중...</div>';
+            const commentsPanel = document.getElementById('heroVoteGameComments');
+            const commentsList = document.getElementById('heroVoteGameCommentList');
+            const commentsForm = document.getElementById('heroVoteGameCommentForm');
+            if (commentsPanel) commentsPanel.style.display = '';
+            if (commentsList) commentsList.innerHTML = '<div class="hero-game-comment-empty">인물평을 불러오는 중...</div>';
+            if (commentsForm) commentsForm.innerHTML = '';
+            setHeroVoteGameButtonsDisabled(true);
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/heroes/${encodeURIComponent(nextId)}`);
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.message || '인물 정보를 불러오지 못했습니다.');
+                if (requestId !== _heroVoteGameRequestId || _heroVoteGameCurrentId !== nextId) return;
+
+                const hero = data.hero || {};
+                const cachedHero = _clientHeroRankingsCache.find(item => String(item._id) === nextId) || {};
+                const positions = Array.isArray(data.positions) ? data.positions : [];
+                const imageUrl = hero.illustration_url || hero.avatar_url || cachedHero.avatar_url || '';
+                const years = `${formatHeroYear(hero.birth_year ?? cachedHero.birth_year)} ~ ${formatHeroYear(hero.death_year ?? cachedHero.death_year)}`;
+                const title = hero.title && !isDuplicateHeroDetailText(hero.title, hero.description) ? hero.title : '';
+                const historyHtml = positions.slice(0, 5).map(position => {
+                    const distinctEventTitle = isDuplicateHeroDetailText(position.event_title, hero.description, hero.title)
+                        ? ''
+                        : (position.event_title || '');
+                    const eventTitle = distinctEventTitle || (position.type !== 'STAY' ? position.type : '') || position.location_name || '';
                     return `
-                        <button type="button" class="hero-worst-mini-row" data-hero-id="${escapeHTML(hero._id || '')}" title="상세 보기">
-                            <span class="hero-worst-mini-rank">${index + 1}위</span>
-                            <span class="hero-worst-mini-name">${escapeHTML(hero.name_ko || '이름 미상')}</span>
-                            <span class="hero-worst-mini-votes">${votes.toLocaleString('ko-KR')}표</span>
-                        </button>
+                        <div class="hero-game-history-item">
+                            <strong>${escapeHTML(formatHeroYear(position.year ?? position.start_year))}</strong>
+                            <span>${escapeHTML(eventTitle)}</span>
+                        </div>
                     `;
-                }).join('')
-                : '<span style="color:#8fa0b0;font-size:12px;">빌런 투표 순위 대기 중</span>';
-            container.innerHTML = `
-                ${podiumHtml}
-                <div class="hero-worst-mini">
-                    <div class="hero-worst-mini-title">빌런 TOP 3</div>
-                    <div class="hero-worst-mini-list">${worstHtml}</div>
-                </div>
-            `;
+                }).join('');
+                content.innerHTML = `
+                    <div class="hero-game-profile">
+                        ${imageUrl
+                            ? `<img class="hero-game-image" src="${escapeHTML(imageUrl)}" alt="${escapeHTML(hero.name_ko || cachedHero.name_ko || '인물')}">`
+                            : '<div class="hero-game-image hero-game-image-placeholder">No Image</div>'}
+                        <div>
+                            <div class="hero-game-name">${escapeHTML(hero.name_ko || cachedHero.name_ko || '이름 미상')}</div>
+                            ${(hero.name_zh || cachedHero.name_zh) ? `<div class="hero-game-name-zh">${escapeHTML(hero.name_zh || cachedHero.name_zh)}</div>` : ''}
+                            <div class="hero-game-meta">
+                                <span>${escapeHTML(hero.faction || cachedHero.faction || '소속 미상')}</span>
+                                <span>${escapeHTML(heroTypeLabel(hero.hero_type || cachedHero.hero_type))}</span>
+                                <span>${escapeHTML(years)}</span>
+                            </div>
+                            ${title ? `<div class="hero-game-title">${escapeHTML(title)}</div>` : ''}
+                        </div>
+                    </div>
+                    <div class="hero-game-description">${escapeHTML(hero.description || '등록된 인물 설명이 없습니다.')}</div>
+                    ${historyHtml ? `<div class="hero-game-history">${historyHtml}</div>` : ''}
+                `;
+                renderHeroVoteGameComments(nextId, data.comments || []);
+                setHeroVoteGameButtonsDisabled(false);
+            } catch (error) {
+                if (requestId !== _heroVoteGameRequestId) return;
+                console.error('랜덤 영웅 정보 조회 실패:', error);
+                content.innerHTML = `
+                    <div style="padding:45px 15px;text-align:center;color:#e7a29b;">
+                        ${escapeHTML(error.message || '인물 정보를 불러오지 못했습니다.')}<br>
+                        <button type="button" class="hero-game-skip" onclick="showNextHeroVoteGameCard()">Pass</button>
+                    </div>
+                `;
+                const skipButton = document.getElementById('heroVoteGameSkip');
+                if (skipButton) skipButton.disabled = false;
+            }
+        }
+
+        async function submitHeroVoteGame(kind) {
+            const heroId = _heroVoteGameCurrentId;
+            if (!heroId || _heroVoteGameVoting) return;
+            _heroVoteGameVoting = true;
+            setHeroVoteGameButtonsDisabled(true);
+            const button = document.getElementById(kind === 'hero' ? 'heroVoteGameHero' : 'heroVoteGameVillain');
+            const originalText = button?.textContent || '';
+            if (button) button.textContent = '투표 저장 중...';
+            const success = kind === 'hero'
+                ? await voteHeroFromRanking(heroId, button)
+                : await voteWorstHeroFromRanking(heroId, button);
+            _heroVoteGameVoting = false;
+            if (button) button.textContent = originalText;
+            if (success) {
+                if (document.getElementById('heroVoteGame')?.classList.contains('open')) {
+                    await showNextHeroVoteGameCard();
+                }
+            } else {
+                setHeroVoteGameButtonsDisabled(false);
+            }
         }
 
         async function voteHeroFromRanking(heroId, button) {
             const id = String(heroId || '');
-            if (!id || _heroVotedSet.has(id)) return;
+            if (!id || _heroVotedSet.has(id)) return false;
             const originalText = button ? button.textContent : '';
             if (button) {
                 button.disabled = true;
-                button.textContent = '처리 중';
             }
             try {
                 const voteRequest = buildHeroVoteRequest();
@@ -2948,7 +4008,7 @@
                     renderHeroRankings(_clientHeroRankingsCache);
                 }
                 if (button) {
-                    button.textContent = '영웅 완료';
+                    button.classList.add('is-voted');
                     button.disabled = true;
                 }
                 const countEl = document.getElementById(`heroDetailVoteCount-${id}`);
@@ -2956,6 +4016,7 @@
                 if (result.already_voted) {
                     alert('이미 영웅으로 투표한 인물입니다. 기존 표 수를 표시합니다.');
                 }
+                return true;
             } catch (error) {
                 console.error('영웅 투표 실패:', error);
                 alert(error.message || '영웅 투표에 실패했습니다.');
@@ -2963,16 +4024,16 @@
                     button.disabled = false;
                     button.textContent = originalText || '영웅';
                 }
+                return false;
             }
         }
 
         async function voteWorstHeroFromRanking(heroId, button) {
             const id = String(heroId || '');
-            if (!id || _heroWorstVotedSet.has(id)) return;
+            if (!id || _heroWorstVotedSet.has(id)) return false;
             const originalText = button ? button.textContent : '';
             if (button) {
                 button.disabled = true;
-                button.textContent = '처리 중';
             }
             try {
                 const voteRequest = buildHeroVoteRequest();
@@ -2992,7 +4053,7 @@
                     renderHeroRankings(_clientHeroRankingsCache);
                 }
                 if (button) {
-                    button.textContent = '빌런 완료';
+                    button.classList.add('is-voted');
                     button.disabled = true;
                 }
                 const countEl = document.getElementById(`heroDetailWorstVoteCount-${id}`);
@@ -3000,6 +4061,7 @@
                 if (result.already_voted) {
                     alert('이미 빌런으로 투표한 인물입니다. 기존 표 수를 표시합니다.');
                 }
+                return true;
             } catch (error) {
                 console.error('빌런 투표 실패:', error);
                 alert(error.message || '빌런 투표에 실패했습니다.');
@@ -3007,8 +4069,44 @@
                     button.disabled = false;
                     button.textContent = originalText || '빌런';
                 }
+                return false;
             }
         }
+
+        function changeHeroRankingSort(column) {
+            if (!column) return;
+            if (_heroRankingSortColumn === column) {
+                _heroRankingSortDirection = _heroRankingSortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                _heroRankingSortColumn = column;
+                _heroRankingSortDirection = ['name', 'faction', 'type', 'period'].includes(column) ? 'asc' : 'desc';
+            }
+            document.querySelectorAll('#heroRankingTable th.hero-sortable').forEach(header => {
+                const active = header.dataset.heroSort === _heroRankingSortColumn;
+                header.classList.toggle('sort-asc', active && _heroRankingSortDirection === 'asc');
+                header.classList.toggle('sort-desc', active && _heroRankingSortDirection === 'desc');
+                header.setAttribute(
+                    'aria-sort',
+                    active ? (_heroRankingSortDirection === 'asc' ? 'ascending' : 'descending') : 'none'
+                );
+            });
+            _heroRankingCurrentPage = 1;
+            if (Array.isArray(_clientHeroRankingsCache)) {
+                renderHeroRankings(_clientHeroRankingsCache);
+            }
+        }
+
+        document.querySelector('#heroRankingTable thead')?.addEventListener('click', event => {
+            const header = event.target.closest('th.hero-sortable');
+            if (header) changeHeroRankingSort(header.dataset.heroSort);
+        });
+        document.querySelector('#heroRankingTable thead')?.addEventListener('keydown', event => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            const header = event.target.closest('th.hero-sortable');
+            if (!header) return;
+            event.preventDefault();
+            changeHeroRankingSort(header.dataset.heroSort);
+        });
 
         document.getElementById('heroRankingTableBody')?.addEventListener('click', (event) => {
             const button = event.target.closest('.hero-support-btn');
@@ -3025,11 +4123,38 @@
             if (row?.dataset.heroId) showHeroDetail(row.dataset.heroId);
         });
 
-        document.getElementById('heroRankingPodium')?.addEventListener('click', (event) => {
-            const card = event.target.closest('.hero-podium-card');
-            if (card?.dataset.heroId) showHeroDetail(card.dataset.heroId);
-            const worstRow = event.target.closest('.hero-worst-mini-row');
-            if (worstRow?.dataset.heroId) showHeroDetail(worstRow.dataset.heroId);
+        document.getElementById('heroRankingPagination')?.addEventListener('click', (event) => {
+            const button = event.target.closest('.hero-page-btn');
+            if (!button || button.disabled) return;
+            const page = parseInt(button.dataset.page, 10);
+            if (!Number.isFinite(page) || !Array.isArray(_clientHeroRankingsCache)) return;
+            _heroRankingCurrentPage = page;
+            renderHeroRankings(_clientHeroRankingsCache);
+            document.querySelector('#hero-ranking-tab .regular-officers-container')
+                ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+
+        ['heroRankingPodium', 'heroWorstRankingPodium'].forEach(containerId => {
+            document.getElementById(containerId)?.addEventListener('click', event => {
+                const card = event.target.closest('.hero-podium-card');
+                if (card?.dataset.heroId) showHeroDetail(card.dataset.heroId);
+            });
+        });
+
+        document.getElementById('heroVoteGameClose')?.addEventListener('click', closeHeroVoteGame);
+        document.getElementById('heroVoteGameHero')?.addEventListener('click', () => submitHeroVoteGame('hero'));
+        document.getElementById('heroVoteGameVillain')?.addEventListener('click', () => submitHeroVoteGame('villain'));
+        document.getElementById('heroVoteGameSkip')?.addEventListener('click', showNextHeroVoteGameCard);
+        document.getElementById('heroVoteGameComments')?.addEventListener('submit', event => {
+            const form = event.target.closest('.hero-detail-comment-form');
+            if (!form) return;
+            event.preventDefault();
+            submitHeroDetailComment(form.dataset.heroId, form);
+        });
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && document.getElementById('heroVoteGame')?.classList.contains('open')) {
+                closeHeroVoteGame();
+            }
         });
 
         function renderHeroDetailComments(comments) {
@@ -3066,7 +4191,7 @@
         async function submitHeroDetailComment(heroId, form) {
             const auth = getRankingAuthInfo();
             if (!auth.canCommentAsOfficer) {
-                alert(auth.isGuest ? '게스트 계정은 의견을 작성할 수 없습니다.' : '로그인한 사관만 의견을 작성할 수 있습니다.');
+                alert('로그인하거나 게스트로 입장하면 인물평을 작성할 수 있습니다.');
                 return;
             }
             const input = form?.querySelector('.hero-detail-comment-input');
@@ -3093,7 +4218,10 @@
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(data.message || '의견 등록에 실패했습니다.');
                 if (input) input.value = '';
-                await refreshHeroDetailComments(heroId);
+                await Promise.all([
+                    refreshHeroDetailComments(heroId),
+                    refreshHeroVoteGameComments(heroId)
+                ]);
             } catch (error) {
                 console.error('영웅 사관평 등록 실패:', error);
                 alert(error.message || '의견 등록에 실패했습니다.');
@@ -3160,7 +4288,7 @@
                             </div>
                         </form>
                     `
-                    : `<div class="hero-detail-comment-notice">${auth.isGuest ? '게스트 계정은 의견을 작성할 수 없습니다.' : '로그인한 사관만 의견을 작성할 수 있습니다.'}</div>`;
+                    : '<div class="hero-detail-comment-notice">로그인하거나 게스트로 입장하면 인물평을 작성할 수 있습니다.</div>';
 
                 content.innerHTML = `
                     <div class="hero-detail-hero">
@@ -3179,8 +4307,8 @@
                         </div>
                     </div>
                     <div class="hero-detail-actions">
-                        <button type="button" class="hero-support-btn hero-detail-vote-btn" data-hero-id="${escapeHTML(heroId)}" ${voted ? 'disabled' : ''}>${voted ? '영웅 투표 완료' : '영웅으로 투표'}</button>
-                        <button type="button" class="hero-support-btn worst hero-detail-worst-vote-btn" data-hero-id="${escapeHTML(heroId)}" ${worstVoted ? 'disabled' : ''}>${worstVoted ? '빌런 투표 완료' : '빌런으로 투표'}</button>
+                        <button type="button" class="hero-support-btn hero-detail-vote-btn${voted ? ' is-voted' : ''}" data-hero-id="${escapeHTML(heroId)}" ${voted ? 'disabled' : ''}>영웅으로 투표</button>
+                        <button type="button" class="hero-support-btn worst hero-detail-worst-vote-btn${worstVoted ? ' is-voted' : ''}" data-hero-id="${escapeHTML(heroId)}" ${worstVoted ? 'disabled' : ''}>빌런으로 투표</button>
                         ${isAdmin ? `<button type="button" class="hero-detail-edit-btn" data-hero-id="${escapeHTML(heroId)}">✏️ 바로 편집</button>` : ''}
                     </div>
                     <div class="hero-detail-desc">${escapeHTML(hero.description || '설명이 아직 없습니다.')}</div>
@@ -3300,6 +4428,7 @@
 
         document.getElementById('heroRankingSearchInput')?.addEventListener('input', () => {
             if (Array.isArray(_clientHeroRankingsCache)) {
+                _heroRankingCurrentPage = 1;
                 renderHeroRankings(_clientHeroRankingsCache);
             }
         });
@@ -3315,6 +4444,7 @@
                 chip.setAttribute('aria-pressed', active ? 'true' : 'false');
             });
             if (Array.isArray(_clientHeroRankingsCache)) {
+                _heroRankingCurrentPage = 1;
                 renderHeroRankings(_clientHeroRankingsCache);
             }
         });
@@ -3323,9 +4453,32 @@
             const input = document.getElementById('heroRankingSearchInput');
             if (input) input.value = '';
             if (Array.isArray(_clientHeroRankingsCache)) {
+                _heroRankingCurrentPage = 1;
                 renderHeroRankings(_clientHeroRankingsCache);
             }
             input?.focus();
+        });
+
+        document.getElementById('officerRankingSearchInput')?.addEventListener('input', () => {
+            _officerRankingCurrentPage = 1;
+            renderRankings();
+        });
+        document.getElementById('officerRankingSearchClear')?.addEventListener('click', () => {
+            const input = document.getElementById('officerRankingSearchInput');
+            if (input) input.value = '';
+            _officerRankingCurrentPage = 1;
+            renderRankings();
+            input?.focus();
+        });
+        document.getElementById('officerRankingPagination')?.addEventListener('click', event => {
+            const button = event.target.closest('.officer-page-btn');
+            if (!button || button.disabled) return;
+            const page = parseInt(button.dataset.page, 10);
+            if (!Number.isFinite(page)) return;
+            _officerRankingCurrentPage = page;
+            renderRankings();
+            document.querySelector('#ranking-tab .officer-ranking-tools')
+                ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
 
         // 헤더 클릭 이벤트 설정
@@ -3362,6 +4515,7 @@
                     
                     // 데이터 정렬 및 렌더링
                     sortRankings(column, currentSortDirection);
+                    _officerRankingCurrentPage = 1;
                     renderRankings();
                 });
             });
@@ -3384,6 +4538,7 @@
                 
                 if (!token) {
                     document.getElementById('contributionsList').innerHTML = '<p style="text-align: center; color: #e74c3c;">로그인이 필요합니다.</p>';
+                    renderContributionPagination(0);
                     return;
                 }
                 
@@ -3453,16 +4608,32 @@
                 
                 // 전역 변수에 저장하여 상세 보기에서 활용
                 window.loadedContributions = filteredContributions;
-                
-                const listContainer = document.getElementById('contributionsList');
-                listContainer.innerHTML = '';
-                
-                if (filteredContributions.length === 0) {
-                    listContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: #95a5a5;"><div style="font-size: 40px; margin-bottom: 10px;">📭</div>조건에 맞는 사료가 없습니다.</div>';
-                    return;
-                }
-                
-                filteredContributions.forEach(item => {
+                renderContributionPage();
+            } catch (error) {
+                console.error('❌ 사료 데이터 로딩 실패:', error);
+                document.getElementById('contributionsList').innerHTML = `<p style="text-align: center; color: #e74c3c;">사료 데이터를 불러오는데 실패했습니다.<br>오류: ${error.message}</p>`;
+                renderContributionPagination(0);
+            }
+        }
+
+        function renderContributionPage() {
+            const contributions = Array.isArray(window.loadedContributions) ? window.loadedContributions : [];
+            const listContainer = document.getElementById('contributionsList');
+            if (!listContainer) return;
+            const totalPages = Math.max(1, Math.ceil(contributions.length / CONTRIBUTIONS_PAGE_SIZE));
+            _contributionCurrentPage = Math.min(Math.max(1, _contributionCurrentPage), totalPages);
+            const startIndex = (_contributionCurrentPage - 1) * CONTRIBUTIONS_PAGE_SIZE;
+            const pageItems = contributions.slice(startIndex, startIndex + CONTRIBUTIONS_PAGE_SIZE);
+            listContainer.innerHTML = '';
+
+            if (contributions.length === 0) {
+                listContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: #95a5a5;"><div style="font-size: 40px; margin-bottom: 10px;">📭</div>조건에 맞는 사료가 없습니다.</div>';
+                renderContributionPagination(0);
+                return;
+            }
+
+            const fragment = document.createDocumentFragment();
+            pageItems.forEach(item => {
                     const div = document.createElement('div');
                     div.className = 'contribution-item';
                     div.style.backgroundColor = 'rgba(255,255,255,0.04)';
@@ -3515,12 +4686,50 @@
                             ${(item.commentCount > 0) ? `<div style="color: #b8a060;">💬 ${item.commentCount}</div>` : ''}
                         </div>
                     `;
-                    listContainer.appendChild(div);
-                });
-            } catch (error) {
-                console.error('❌ 사료 데이터 로딩 실패:', error);
-                document.getElementById('contributionsList').innerHTML = `<p style="text-align: center; color: #e74c3c;">사료 데이터를 불러오는데 실패했습니다.<br>오류: ${error.message}</p>`;
+                    fragment.appendChild(div);
+            });
+            listContainer.appendChild(fragment);
+            renderContributionPagination(contributions.length);
+        }
+
+        function renderContributionPagination(totalItems) {
+            const container = document.getElementById('contributionPagination');
+            if (!container) return;
+            const totalPages = Math.max(1, Math.ceil(totalItems / CONTRIBUTIONS_PAGE_SIZE));
+            if (totalItems <= CONTRIBUTIONS_PAGE_SIZE) {
+                container.innerHTML = '';
+                container.style.display = 'none';
+                return;
             }
+
+            container.style.display = 'flex';
+            const page = _contributionCurrentPage;
+            const pages = new Set([1, totalPages]);
+            for (let value = Math.max(1, page - 2); value <= Math.min(totalPages, page + 2); value++) {
+                pages.add(value);
+            }
+            const orderedPages = [...pages].sort((a, b) => a - b);
+            const pageButtons = [];
+            let previousPage = 0;
+            orderedPages.forEach(value => {
+                if (previousPage && value - previousPage > 1) {
+                    pageButtons.push('<span class="hero-page-ellipsis" aria-hidden="true">…</span>');
+                }
+                pageButtons.push(
+                    `<button type="button" class="hero-page-btn contribution-page-btn${value === page ? ' active' : ''}" ` +
+                    `data-page="${value}" ${value === page ? 'aria-current="page"' : ''}>${value}</button>`
+                );
+                previousPage = value;
+            });
+
+            const startItem = (page - 1) * CONTRIBUTIONS_PAGE_SIZE + 1;
+            const endItem = Math.min(totalItems, page * CONTRIBUTIONS_PAGE_SIZE);
+            container.innerHTML = `
+                <span class="hero-page-status">${startItem.toLocaleString('ko-KR')}–${endItem.toLocaleString('ko-KR')} / ${totalItems.toLocaleString('ko-KR')}</span>
+                <button type="button" class="hero-page-btn contribution-page-btn" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>이전</button>
+                ${pageButtons.join('')}
+                <button type="button" class="hero-page-btn contribution-page-btn" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>다음</button>
+            `;
         }
 
         // 사료 상세 보기 - 기존 데이터 활용
@@ -3822,14 +5031,33 @@
 
         // 필터 변경 이벤트
         if (document.getElementById('searchInput')) {
-            document.getElementById('searchInput').addEventListener('input', debounce(loadContributions, 300));
+            document.getElementById('searchInput').addEventListener('input', debounce(() => {
+                _contributionCurrentPage = 1;
+                loadContributions();
+            }, 300));
         }
         if (document.getElementById('statusFilter')) {
-            document.getElementById('statusFilter').addEventListener('change', loadContributions);
+            document.getElementById('statusFilter').addEventListener('change', () => {
+                _contributionCurrentPage = 1;
+                loadContributions();
+            });
         }
         if (document.getElementById('ownershipFilter')) {
-            document.getElementById('ownershipFilter').addEventListener('change', loadContributions);
+            document.getElementById('ownershipFilter').addEventListener('change', () => {
+                _contributionCurrentPage = 1;
+                loadContributions();
+            });
         }
+        document.getElementById('contributionPagination')?.addEventListener('click', event => {
+            const button = event.target.closest('.contribution-page-btn');
+            if (!button || button.disabled) return;
+            const page = parseInt(button.dataset.page, 10);
+            if (!Number.isFinite(page)) return;
+            _contributionCurrentPage = page;
+            renderContributionPage();
+            document.getElementById('contributionsList')
+                ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
         
         // 디바운스 함수 (검색어 입력 시 과도한 요청 방지)
         function debounce(func, wait) {

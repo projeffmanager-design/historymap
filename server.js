@@ -2592,7 +2592,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
             }
         });
 
-        // POST /api/heroes/:id/comments — 사관 댓글 작성 (로그인 필요)
+        // POST /api/heroes/:id/comments — 인물평 작성 (일반 계정과 게스트 모두 가능)
         app.post('/api/heroes/:id/comments', verifyToken, async (req, res) => {
             try {
                 const id = normalizeRouteId(req.params.id);
