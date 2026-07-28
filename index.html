@@ -18065,6 +18065,8 @@ function invalidateCountryLookupCache() {
     const CASTLES_DB_VERSION = 5;  // 🚩 캐시 강제 무효화 (산성하 고분군 built_year 수정)
     const CASTLES_STORE_NAME = 'castles';
     const CASTLES_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24시간
+    // 만료된 대용량 캐시도 첫 화면에는 사용하고 서버 데이터로 백그라운드 교체한다.
+    let castlesCacheNeedsRefresh = false;
 
     // 🚀 [IndexedDB] Events 캐싱 시스템
     const EVENTS_DB_NAME = 'EventsDB';
@@ -18204,17 +18206,21 @@ function invalidateCountryLookupCache() {
             if (!mainCached) return null;
             const age = Date.now() - mainCached.timestamp;
             if (age > CASTLES_CACHE_DURATION) {
-                console.log('⚠️ Castles 캐시 만료 (3시간 초과)');
-                return null;
+                castlesCacheNeedsRefresh = true;
+                console.log('♻️ Castles 캐시 만료 — 오래된 캐시로 즉시 렌더링 후 백그라운드 갱신');
             }
             let allData = [...mainCached.data];
             if (mainCached.totalChunks && mainCached.totalChunks > 1) {
+                const chunkPromises = [];
                 for (let i = 1; i < mainCached.totalChunks; i++) {
                     const chunkRequest = objectStore.get(`castles_chunk_${i}`);
-                    const chunkData = await new Promise((resolve, reject) => {
+                    chunkPromises.push(new Promise((resolve, reject) => {
                         chunkRequest.onsuccess = () => resolve(chunkRequest.result);
                         chunkRequest.onerror = () => reject(chunkRequest.error);
-                    });
+                    }));
+                }
+                const chunks = await Promise.all(chunkPromises);
+                for (const chunkData of chunks) {
                     if (chunkData && chunkData.data) allData = allData.concat(chunkData.data);
                 }
             }
@@ -18673,7 +18679,7 @@ const loadingMessages = [
           castlesPromise,
           castleVersionPromise
       ]);
-      // 🔔 [v3.9] 서버 수정 시각 vs 캐시 저장 시각 비교 → 서버가 더 최신이면 캐시 무시
+      // 서버가 더 최신이어도 캐시를 먼저 그리고 백그라운드에서 최신 데이터로 교체한다.
       let effectiveCachedCastles = cachedCastles;
       if (cachedCastles && cachedCastles.length > 0 && castleServerVersion) {
           // IndexedDB에서 저장 시각을 직접 읽어 비교
@@ -18684,8 +18690,8 @@ const loadingMessages = [
               const _vreq = _vos.get('all_castles');
               const _vmeta = await new Promise(r => { _vreq.onsuccess = () => r(_vreq.result); _vreq.onerror = () => r(null); });
               if (_vmeta && _vmeta.timestamp < castleServerVersion) {
-                  console.log(`🔔 castles 캐시 무효화 — 서버 수정(${new Date(castleServerVersion).toLocaleTimeString()}) > 캐시 저장(${new Date(_vmeta.timestamp).toLocaleTimeString()})`);
-                  effectiveCachedCastles = null;
+                  castlesCacheNeedsRefresh = true;
+                  console.log(`🔔 castles 캐시 갱신 예약 — 서버 수정(${new Date(castleServerVersion).toLocaleTimeString()}) > 캐시 저장(${new Date(_vmeta.timestamp).toLocaleTimeString()})`);
               }
           } catch (e) { /* 실패 시 캐시 그대로 사용 */ }
       }
@@ -18776,8 +18782,8 @@ const loadingMessages = [
           }
           
           // Castles 캐시 적용
-          if (cachedCastles && cachedCastles.length > 0) {
-              castles = cachedCastles;
+          if (effectiveCachedCastles && effectiveCachedCastles.length > 0) {
+              _initCastlesSession(effectiveCachedCastles);
               console.log(`💾 [즉시 캐시] castles ${castles.length}개 IndexedDB에서 로드 완료`);
               hasCachedData = true;
           }
@@ -19016,7 +19022,8 @@ const loadingMessages = [
           
           // 🚀 [v3.6.68] castles를 Promise.all에서 분리 → 별도 백그라운드로 처리
           // kings/naturalFeatures 완료 후 즉시 지도 렌더링, castles는 도착하면 재렌더링
-          if ((layerVisibility.city || layerVisibility.territoryPolygon) && castles.length === 0) {
+          if ((layerVisibility.city || layerVisibility.territoryPolygon) &&
+              (castles.length === 0 || castlesCacheNeedsRefresh)) {
               // castle은 별도 비동기 처리 (서버 캐시 히트 시 즉시, 미스 시 ~280초 백그라운드)
               // 🔄 [SessionCache] in-flight dedup: 동일 fetch key 가 이미 진행 중이면 기존 Promise 재사용
               const _castleFetchKey = 'all_castles';
@@ -19068,16 +19075,18 @@ const loadingMessages = [
                       }
                       return { ...castle, history: processedHistory };
                   });
-                  // 🔄 [SessionCache] replace 대신 merge — 세션 중 이미 로드된 항목 유지
-                  const addedCount = _mergeCastlesIntoSession(processedCastles);
-                  console.log(`✅ castles 처리 완료: ${castles.length}개 (신규 ${addedCount}개, ${((performance.now()-castleProcessStart)/1000).toFixed(2)}초)`);
+                  // 전체 응답으로 교체해 stale 캐시의 수정/삭제 항목도 정확히 반영한다.
+                  const previousCount = castles.length;
+                  _initCastlesSession(processedCastles);
+                  castlesCacheNeedsRefresh = false;
+                  console.log(`✅ castles 처리 완료: ${castles.length}개 (이전 캐시 ${previousCount}개 교체, ${((performance.now()-castleProcessStart)/1000).toFixed(2)}초)`);
                   saveCastlesCache(castles).catch(e => console.warn('⚠️ castles 캐시 저장 실패:', e));
                   if (layerVisibility.countryLabel || layerVisibility.placeLabel || layerVisibility.ethnicLabel) {
                       const { year, month } = getCurrentYearMonth();
                       renderImmediateCountryLabels(year, month);
                   }
                   populateCitySelectForEdit();
-                  requestUpdateMap();
+                  requestUpdateMap(true);
                   // 🚩 [추가] castles 로드 완료 → history_id 기반 이벤트 위치 재확인
                   if (typeof checkAndDisplayEvent === 'function') {
                       const { year: _cy, month: _cm } = getCurrentYearMonth();
