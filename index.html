@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
     <title>고려만리지도 | 시간으로 탐색하는 한국·동아시아 역사지도</title>
     <meta name="description" content="연도와 월을 이동하며 한국과 동아시아의 국가, 영토, 도시, 인물과 사건을 함께 탐색하는 디지털 역사지도입니다.">
     <meta name="robots" content="index,follow,max-image-preview:large">
@@ -1475,7 +1475,6 @@ body.force-mobile .marker-type-selector button {
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta charset="UTF-8">
   <!-- 🚀 [캐시 무효화] 브라우저 캐시 강제 새로고침 -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2117,6 +2116,16 @@ body.force-mobile .marker-type-selector button {
         display: flex;
         align-items: center;
         gap: 7px;
+    }
+
+    /* iOS Safari는 16px 미만 입력창에 포커스할 때 페이지를 자동 확대한다.
+       모바일 입력 UI만 16px 이상으로 유지해 확대 상태가 남는 것을 방지한다. */
+    @media (max-width: 768px) {
+        input,
+        select,
+        textarea {
+            font-size: 16px !important;
+        }
     }
     #timeline-sidebar-header h3 span.tl-year-badge {
         font-size: 11px;
@@ -22229,6 +22238,10 @@ const loadingMessages = [
         
         // 터치 이벤트
         timelineContainer.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 1) {
+                isDragging = false;
+                return;
+            }
             isDragging = true;
             hasDragged = false; // 🚩 [추가] 초기화
             startX = e.touches[0].clientX;
@@ -22240,6 +22253,11 @@ const loadingMessages = [
         
         document.addEventListener('touchmove', (e) => {
             if (!isDragging) return;
+            if (e.touches.length !== 1) {
+                isDragging = false;
+                timelineContent.style.transition = 'transform 0.3s ease';
+                return;
+            }
             
             e.preventDefault();
             e.stopPropagation(); // 🚩 [수정] 지도로 이벤트 전파 방지
@@ -22378,10 +22396,19 @@ const loadingMessages = [
 
         dragSurface.addEventListener('touchstart', (e) => {
             if (shouldIgnoreTimelineBodyDrag(e.target)) return;
+            if (e.touches.length !== 1) {
+                isDragging = false;
+                return;
+            }
             onStart(e.touches[0].clientX, e.touches[0].clientY);
         }, { passive: true });
         document.addEventListener('touchmove', (e) => {
-            if (isDragging && e.touches.length) onMove(e.touches[0].clientX, e.touches[0].clientY, e);
+            if (!isDragging) return;
+            if (e.touches.length !== 1) {
+                onEnd();
+                return;
+            }
+            onMove(e.touches[0].clientX, e.touches[0].clientY, e);
         }, { capture: true, passive: false });
         document.addEventListener('touchend', () => onEnd(), true);
         document.addEventListener('touchcancel', () => onEnd(), true);
