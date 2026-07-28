@@ -7131,6 +7131,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
 
         app.get('/api/hero-rankings', async (req, res) => {
             try {
+                const voterId = getHeroVoteVoterId(req);
                 const [countryDocs, kingDocs] = await Promise.all([
                     collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1, ethnicity: 1 } }).toArray(),
                     collections.kings.find({}, { projection: { country_id: 1, kings: 1 } }).toArray()
@@ -7147,6 +7148,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         const sourceRefId = king._id ? String(king._id) : String(index);
                         const voteCount = parseInt(king.vote_count || 0);
                         const worstVoteCount = parseInt(king.worst_vote_count || 0);
+                        const votedBy = Array.isArray(king.voted_by) ? king.voted_by.map(String) : [];
+                        const worstVotedBy = Array.isArray(king.worst_voted_by) ? king.worst_voted_by.map(String) : [];
                         heroes.push({
                             _id: kingHeroId(countryId, sourceRefId),
                             name_ko: normalized.name_ko || king.name || '이름 미상',
@@ -7161,7 +7164,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                             death_year: normalized.death_year,
                             avatar_url: normalized.avatar_url || '',
                             vote_count: Number.isFinite(voteCount) ? voteCount : 0,
-                            worst_vote_count: Number.isFinite(worstVoteCount) ? worstVoteCount : 0
+                            worst_vote_count: Number.isFinite(worstVoteCount) ? worstVoteCount : 0,
+                            has_voted: votedBy.includes(voterId),
+                            has_worst_voted: worstVotedBy.includes(voterId)
                         });
                     });
                 });
