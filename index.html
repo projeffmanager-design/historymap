@@ -8351,7 +8351,7 @@ body.force-mobile .marker-type-selector button {
                   <button id="menu-cityEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">🏯 성/도시</button>
                   <button id="menu-countryEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">🏛️ 국가</button>
                   <button id="menu-kingEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">👑 왕</button>
-                  <button id="menu-heroEditBtn" style="background: rgba(245,196,66,0.1); border-color: #f5c442; color: #f5c442;">🦸 영웅</button>
+                  <button id="menu-heroEditBtn" style="background: rgba(245,196,66,0.1); border-color: #f5c442; color: #f5c442;">👤 인물</button>
                   <button id="menu-eventEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">📅 이벤트</button>
                   <button id="menu-historyEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">📜 역사 기록</button>
                   <button id="menu-trashBtn" style="background: rgba(243,156,18,0.1); border-color: #f39c12; color: #f39c12;">🗑️ 휴지통</button>
@@ -8621,7 +8621,7 @@ body.force-mobile .marker-type-selector button {
                     <button id="trashBtnDropdown" class="dropdown-item" style="color: #f39c12;">🗑️ 휴지통</button>
                     <button id="resourceEditBtnDropdown" class="dropdown-item" style="color: #4ecdc4;">📦 산지/서식지 편집</button>
                     <button id="territoryBoundaryEditBtnDropdown" class="dropdown-item" style="color: #f5d98b;">🧭 영토 경계 편집</button>
-                    <button id="heroAdminOpenBtn" class="dropdown-item" style="color: #f5c842;">🦸 영웅 관리</button>
+                    <button id="heroAdminOpenBtn" class="dropdown-item" style="color: #f5c842;">👤 인물 관리</button>
                     <hr style="border: 0; border-top: 1px solid #5d7185; margin: 4px 0;">
                     <button id="exitEditBtnDropdown" class="dropdown-item danger">편집모드 종료</button>
                 </div>
@@ -39262,6 +39262,7 @@ body.guest-mode #activity-feed-panel { display: none !important; }
         territory_create: { icon: '🗺️' },
         territory_update: { icon: '🗺️' },
         castle_create:    { icon: '🏯' },
+        hero_create:      { icon: '👤' },
     };
 
     function e(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -39288,6 +39289,8 @@ body.guest-mode #activity-feed-panel { display: none !important; }
             'natural_feature': '자연지형',
             'battle': '전투',
             'capital': '도읍',
+            'geography': '지리',
+            'hero': '인물',
         };
         const catLabel = extra.category ? (CATEGORY_LABEL[extra.category] || extra.category) : null;
         const catBadge = catLabel
@@ -39344,9 +39347,15 @@ body.guest-mode #activity-feed-panel { display: none !important; }
             }
             case 'castle_create': {
                 if (target) {
-                    return `${pos}${actor}님이 ${target}을 <span class="af-restore">등록</span>하셨습니다. 🏯`;
+                    return `${pos}${actor}님이 ${target}을 <span class="af-restore">생성</span>하셨습니다.${catBadge} 🏯`;
                 }
-                return `${pos}${actor}님이 새 오브젝트를 <span class="af-restore">등록</span>하셨습니다. 🏯`;
+                return `${pos}${actor}님이 새 오브젝트를 <span class="af-restore">생성</span>하셨습니다.${catBadge} 🏯`;
+            }
+            case 'hero_create': {
+                if (target) {
+                    return `${pos}${actor}님이 ${target}을 <span class="af-restore">생성</span>하셨습니다.${catBadge} 👤`;
+                }
+                return `${pos}${actor}님이 새 인물을 <span class="af-restore">생성</span>하셨습니다.${catBadge} 👤`;
             }
             default:
                 return `${pos}${actor}님의 활동이 기록되었습니다.`;
@@ -39356,9 +39365,10 @@ body.guest-mode #activity-feed-panel { display: none !important; }
     function _isAdminUser() {
         try {
             const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-            if (!token) return false;
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            return payload.role === 'admin' || payload.role === 'superuser';
+            const payload = (typeof currentUser !== 'undefined' && currentUser)
+                ? currentUser
+                : (token ? parseJwt(token) : null);
+            return !!payload && (payload.role === 'admin' || payload.role === 'superuser');
         } catch { return false; }
     }
 

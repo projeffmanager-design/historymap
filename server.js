@@ -879,12 +879,13 @@ async function logActivity(type, actor, actorPosition, targetName, extra = {}, u
             createdAt: new Date()
         });
 
-        // FIFO 정리: 전체 30개 유지, 단 checkin/checkout은 최대 8개만 보존
-        const total = await cols.activityLogs.countDocuments({});
+        // FIFO 정리: 일반 활동 30개 유지. 공지는 관리자가 직접 삭제할 때까지 보존한다.
+        const regularLogQuery = { type: { $ne: 'notice' } };
+        const total = await cols.activityLogs.countDocuments(regularLogQuery);
         if (total > 30) {
             const overflow = total - 30;
             const oldest = await cols.activityLogs
-                .find({})
+                .find(regularLogQuery)
                 .sort({ createdAt: 1 })
                 .limit(overflow)
                 .toArray();
@@ -1851,6 +1852,17 @@ async function setupRoutesAndCollections() {
                 patchCastleInStaticFile('upsert', insertedDocument);
 
                 logCRUD('CREATE', 'Castle', newCastle.name, `(ID: ${result.insertedId})`);
+                await logActivity(
+                    'castle_create',
+                    req.user.username,
+                    req.user.position || '',
+                    newCastle.name || '새 오브젝트',
+                    {
+                        castle_id: result.insertedId.toString(),
+                        category: 'geography'
+                    },
+                    req.user.userId
+                );
                 res.status(201).json({ 
                     message: "Castle 추가 성공", 
                     id: result.insertedId.toString(),
@@ -2671,10 +2683,22 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                         { upsert: true }
                     );
                     invalidateHeroCaches();
+                    const heroId = kingHeroId(country._id, figure._id);
+                    await logActivity(
+                        'hero_create',
+                        req.user.username,
+                        req.user.position || '',
+                        figure.name_ko || name_ko,
+                        {
+                            hero_id: heroId,
+                            category: 'hero'
+                        },
+                        req.user.userId
+                    );
                     res.status(201).json({
                         message: '인물 생성 성공',
                         hero: {
-                            _id: kingHeroId(country._id, figure._id),
+                            _id: heroId,
                             ...normalizeKingSchema(figure, country, String(country._id))
                         }
                     });
