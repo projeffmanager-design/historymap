@@ -2039,7 +2039,28 @@ async function setupRoutesAndCollections() {
             }
         });
 
-        // �🚩 [신규 추가] GET: 개별 성 정보 조회
+        // GET: 개별 장소 정보 조회 — 활동 피드 등 ID 기반 상세 열기용
+        app.get('/api/castle/:id', async (req, res) => {
+            try {
+                const objectId = toObjectId(req.params.id);
+                if (!objectId) {
+                    return res.status(400).json({ message: '잘못된 장소 ID입니다.' });
+                }
+                const castle = await collections.castle.findOne({
+                    _id: objectId,
+                    $or: [{ deleted: { $exists: false } }, { deleted: false }]
+                });
+                if (!castle) {
+                    return res.status(404).json({ message: '장소 정보를 찾을 수 없습니다.' });
+                }
+                res.json(castle);
+            } catch (error) {
+                console.error('[/api/castle/:id] 조회 오류:', error);
+                res.status(500).json({ message: '장소 정보 조회 실패', error: error.message });
+            }
+        });
+
+        // 하위 호환용 전체 장소 조회 (상단 /api/castle 라우트와 동일 경로)
 app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
     try {
         // ✅ cold start 시 MongoDB에서 직접 로드
