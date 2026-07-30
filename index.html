@@ -26015,7 +26015,17 @@ const loadingMessages = [
                 : { year: 0, month: 1 };
 
             const items = myKings.map(({ king: k, sourceRefId }, i) => {
-                const name    = _esc(k.name || '이름 미상');
+                const rawName = String(k.name_ko || k.name || '이름 미상').trim();
+                const rawHanja = String(k.name_zh || '').trim();
+                const rawTitle = String(k.title || '').trim();
+                let displayName = rawName;
+                if (rawHanja && !displayName.includes(rawHanja)) {
+                    displayName += ` (${rawHanja})`;
+                }
+                if (rawTitle && !displayName.includes(rawTitle)) {
+                    displayName += ` ${rawTitle}`;
+                }
+                const name    = _esc(displayName);
                 const sy      = k.start;
                 const ey      = k.end;
                 const sm      = k.start_month != null ? k.start_month : 1;
@@ -28239,6 +28249,7 @@ kingSelect.addEventListener('change', () => {
                     editBtn.classList.toggle('visible', !!isAdmin);
                     editBtn.onclick = () => {
                         document.getElementById('heroSidebar').classList.remove('open');
+                        document.getElementById('heroIllustWrap').classList.remove('open');
                         heroSystem._openAdminPanel();
                         setTimeout(() => heroSystem.editHero(String(hero._id)), 350);
                     };
