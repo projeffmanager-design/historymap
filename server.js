@@ -153,7 +153,7 @@ const normalizeKingSchema = (king = {}, country = null, countryId = '') => {
     return {
         name_ko: king.name_ko || king.name || country?.name || '',
         name_zh: king.name_zh || '',
-        title: king.title || king.summary || '',
+        title: king.title || '',
         description: king.description || king.summary || '',
         avatar_url: king.avatar_url || '',
         illustration_url: king.illustration_url || '',
