@@ -5,6 +5,7 @@ const HERO_BASE_STORAGE_TTL_MS = 15 * 60 * 1000;
 const HERO_TYPE_IMAGE_URLS = {
   emperor: '/public/assets/ui/hero-emperor.png',
   king: '/public/assets/ui/hero-king.png',
+  president: '/public/assets/ui/hero-civilian.png',
   general: '/public/assets/ui/hero-general.png',
   civilian: '/public/assets/ui/hero-civilian.png',
   brigand: '/public/assets/ui/hero-brigand.png',
@@ -13,7 +14,7 @@ const HERO_TYPE_IMAGE_URLS = {
 };
 const DEFAULT_HERO_IMAGE_URL = HERO_TYPE_IMAGE_URLS.general;
 const royalTypes = new Set(['emperor', 'king', 'khan']);
-const knownHeroTypes = new Set([...royalTypes, 'general', 'civilian', 'brigand', 'hojok']);
+const knownHeroTypes = new Set([...royalTypes, 'president', 'general', 'civilian', 'brigand', 'hojok']);
 let heroLayer = null;
 let heroLayerVisible = true;
 let heroRenderTimer = null;
@@ -73,6 +74,7 @@ function normalizeType(value, fallbackText = '') {
   if (/황제|천자|대제/.test(hint)) return 'emperor';
   if (/칸|카간|可汗|汗/.test(hint)) return 'khan';
   if (/왕/.test(hint)) return 'king';
+  if (/대통령/.test(hint)) return 'president';
   if (/장군|대장군|총관/.test(hint)) return 'general';
   if (/문관|재상|상서|대신|승상|관리/.test(hint)) return 'civilian';
   if (/호족|족장|수장|토호|豪族/.test(hint)) return 'hojok';
@@ -84,7 +86,7 @@ function isRoyalHero(king) {
   const raw = String(king && (king.hero_type || king.type || king.role_type) || '').trim().toLowerCase();
   if (raw) return royalTypes.has(normalizeType(raw, king && (king.name || king.summary || king.title || '')));
   const hint = king && (king.name || king.summary || king.title || '');
-  if (/장군|대장군|총관|문관|재상|상서|대신|승상|관리|호족|족장|수장|토호|豪族|도적|적벽|강도|유민/.test(hint)) return false;
+  if (/대통령|장군|대장군|총관|문관|재상|상서|대신|승상|관리|호족|족장|수장|토호|豪族|도적|적벽|강도|유민/.test(hint)) return false;
   return true;
 }
 

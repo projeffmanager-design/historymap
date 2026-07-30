@@ -25,13 +25,14 @@ const BLOCKED_FLAG_URL = [
 const HERO_TYPE_LABELS = {
     emperor: '황제',
     king: '왕',
+    president: '대통령',
     general: '장군',
     civilian: '문관',
     hojok: '호족',
     khan: '칸',
     brigand: '도적'
 };
-const HERO_TYPE_ORDER = ['emperor', 'king', 'general', 'civilian', 'hojok', 'khan', 'brigand'];
+const HERO_TYPE_ORDER = ['emperor', 'king', 'president', 'general', 'civilian', 'hojok', 'khan', 'brigand'];
 // 💡 [추가] JWT 시크릿 키 환경 변수 확인
 const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret) {
@@ -111,6 +112,7 @@ const normalizeHeroType = (value, fallbackText = '') => {
     if (/황제|천자|대제/.test(hint)) return 'emperor';
     if (/칸|카간|可汗|汗/.test(hint)) return 'khan';
     if (/왕/.test(hint)) return 'king';
+    if (/대통령/.test(hint)) return 'president';
     if (/장군|대장군|총관/.test(hint)) return 'general';
     if (/문관|재상|상서|대신|승상|관리/.test(hint)) return 'civilian';
     if (/호족|족장|수장|토호|豪族/.test(hint)) return 'hojok';
@@ -122,6 +124,7 @@ const normalizeKingHeroType = (king = {}) => {
     const raw = String(king.hero_type || king.type || king.role_type || '').trim().toLowerCase();
     if (HERO_TYPE_LABELS[raw]) return raw;
     const hint = `${king.name || ''} ${king.summary || ''} ${king.title || ''}`.replace(/\s+/g, ' ').trim();
+    if (/대통령/.test(hint)) return 'president';
     if (/장군|대장군|총관/.test(hint)) return 'general';
     if (/문관|재상|상서|대신|승상|관리/.test(hint)) return 'civilian';
     if (/호족|족장|수장|토호|豪族/.test(hint)) return 'hojok';
@@ -620,6 +623,7 @@ const buildHeroBasePayload = async () => {
                 birth_year: normalized.start_year,
                 death_year: normalized.end_year,
                 vote_count: king.vote_count || 0,
+                worst_vote_count: king.worst_vote_count || 0,
                 sort_year: normalized.start_year,
                 sort_month: normalized.start_month || 1,
                 sort_order: index,
@@ -2401,6 +2405,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                             death_year: endYear == null || Number.isNaN(endYear) ? year : endYear,
                             position: capitalPosition,
                             vote_count: king.vote_count || 0,
+                            worst_vote_count: king.worst_vote_count || 0,
                             sort_year: startYear,
                             sort_month: normalized.start_month || 1,
                             sort_order: index
