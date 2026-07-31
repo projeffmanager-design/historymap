@@ -4124,6 +4124,39 @@
             `;
         }
 
+        function renderHeroVoteGauge(heroVotes, villainVotes) {
+            const heroCount = Math.max(0, parseInt(String(heroVotes ?? 0).replace(/,/g, ''), 10) || 0);
+            const villainCount = Math.max(0, parseInt(String(villainVotes ?? 0).replace(/,/g, ''), 10) || 0);
+            const total = heroCount + villainCount;
+            const heroPercent = total ? Math.round((heroCount / total) * 100) : 50;
+            const villainPercent = 100 - heroPercent;
+            const displayHeroPercent = total && heroCount === 0 ? 4
+                : total && villainCount === 0 ? 96
+                : heroPercent;
+            const displayVillainPercent = 100 - displayHeroPercent;
+            return `
+                <div class="hero-opinion-gauge" aria-label="영웅표 ${heroCount}표, 빌런표 ${villainCount}표">
+                    <div class="hero-opinion-gauge-labels">
+                        <span class="hero-side">🦸 영웅표 ${heroCount} · ${total ? heroPercent : 0}%</span>
+                        <span class="villain-side">😈 빌런표 ${villainCount} · ${total ? villainPercent : 0}%</span>
+                    </div>
+                    <div class="hero-opinion-gauge-track">
+                        <span class="hero-opinion-gauge-hero" style="width:${displayHeroPercent}%"></span>
+                        <span class="hero-opinion-gauge-villain" style="width:${displayVillainPercent}%"></span>
+                        <span class="hero-opinion-gauge-vs">VS</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateHeroDetailVoteGauge(heroId) {
+            const host = document.getElementById(`heroDetailVoteGauge-${heroId}`);
+            if (!host) return;
+            const heroVotes = document.getElementById(`heroDetailVoteCount-${heroId}`)?.textContent || 0;
+            const villainVotes = document.getElementById(`heroDetailWorstVoteCount-${heroId}`)?.textContent || 0;
+            host.innerHTML = renderHeroVoteGauge(heroVotes, villainVotes);
+        }
+
         function renderHeroOpinionSelector() {
             return `
                 <div class="hero-opinion-selector" role="radiogroup" aria-label="인물평 종류 선택">
@@ -4355,6 +4388,7 @@
                 }
                 const countEl = document.getElementById(`heroDetailVoteCount-${id}`);
                 if (countEl) countEl.textContent = parseInt(result.vote_count || 0, 10).toLocaleString('ko-KR');
+                updateHeroDetailVoteGauge(id);
                 if (result.already_voted) {
                     alert('이미 영웅으로 투표한 인물입니다. 기존 표 수를 표시합니다.');
                 }
@@ -4400,6 +4434,7 @@
                 }
                 const countEl = document.getElementById(`heroDetailWorstVoteCount-${id}`);
                 if (countEl) countEl.textContent = parseInt(result.worst_vote_count || 0, 10).toLocaleString('ko-KR');
+                updateHeroDetailVoteGauge(id);
                 if (result.already_voted) {
                     alert('이미 빌런으로 투표한 인물입니다. 기존 표 수를 표시합니다.');
                 }
@@ -4755,11 +4790,14 @@
                                 <span class="hero-detail-pill">${escapeHTML(hero.faction || '소속 미상')}</span>
                                 <span class="hero-detail-pill">${escapeHTML(heroTypeLabel(hero.hero_type))}</span>
                                 <span class="hero-detail-pill">${years}</span>
-                                <span class="hero-detail-pill">영웅 <span id="heroDetailVoteCount-${escapeHTML(heroId)}">${heroVoteCount.toLocaleString('ko-KR')}</span>표</span>
-                                <span class="hero-detail-pill">빌런 <span id="heroDetailWorstVoteCount-${escapeHTML(heroId)}">${worstVoteCount.toLocaleString('ko-KR')}</span>표</span>
+                                <span class="hero-detail-pill" hidden>영웅 <span id="heroDetailVoteCount-${escapeHTML(heroId)}">${heroVoteCount.toLocaleString('ko-KR')}</span>표</span>
+                                <span class="hero-detail-pill" hidden>빌런 <span id="heroDetailWorstVoteCount-${escapeHTML(heroId)}">${worstVoteCount.toLocaleString('ko-KR')}</span>표</span>
                             </div>
                             ${showHeroTitle ? `<div style="color:#f0d060;">${escapeHTML(hero.title)}</div>` : ''}
                         </div>
+                    </div>
+                    <div id="heroDetailVoteGauge-${escapeHTML(heroId)}">
+                        ${renderHeroVoteGauge(heroVoteCount, worstVoteCount)}
                     </div>
                     <div class="hero-detail-actions">
                         <button type="button" class="hero-support-btn hero-detail-vote-btn${voted ? ' is-voted' : ''}" data-hero-id="${escapeHTML(heroId)}" ${voted ? 'disabled' : ''}>영웅으로 투표</button>
