@@ -4271,6 +4271,57 @@
             document.getElementById('heroVoteGameClose')?.focus();
         }
 
+        async function loadQuickHeroVoteCandidate() {
+            const requestedHeroId = String(new URLSearchParams(window.location.search).get('heroId') || '').trim();
+            if (requestedHeroId) return { _id: requestedHeroId, isDeepLink: true };
+            // 이름만 있는 구형 딥링크는 전체 목록에서 정확히 매칭해야 한다.
+            if (new URLSearchParams(window.location.search).get('hero')) return null;
+            try {
+                const response = await fetch(`${API_BASE_URL}/hero-rankings/random`, {
+                    headers: buildHeroVoteRequest().headers,
+                    cache: 'no-store'
+                });
+                if (!response.ok) return null;
+                return await response.json();
+            } catch (error) {
+                console.warn('첫 랜덤 인물 빠른 로딩 실패:', error);
+                return null;
+            }
+        }
+
+        function openHeroVoteGameWithCandidate(candidate) {
+            const heroId = String(candidate?._id || '');
+            if (!heroId || _heroVoteGameAutoOpened) return false;
+            _heroVoteGameAutoOpened = true;
+            _heroVoteGameDeepLinkId = candidate.isDeepLink ? heroId : '';
+            _heroVoteGameDeck = [heroId];
+            _heroVoteGameSeenCount = 0;
+            const modal = document.getElementById('heroVoteGame');
+            if (!modal) return false;
+            modal.classList.add('open');
+            modal.setAttribute('aria-hidden', 'false');
+            document.body.classList.add('hero-vote-game-open');
+            showNextHeroVoteGameCard();
+            document.getElementById('heroVoteGameClose')?.focus();
+            return true;
+        }
+
+        function replenishHeroVoteGameDeck() {
+            if (!document.getElementById('heroVoteGame')?.classList.contains('open')) return;
+            const currentId = String(_heroVoteGameCurrentId || '');
+            const existing = new Set(_heroVoteGameDeck.map(String));
+            const additions = buildHeroVoteGameDeck().filter(id => id !== currentId && !existing.has(id));
+            _heroVoteGameDeck.unshift(...additions);
+            if (!currentId && additions.length) {
+                showNextHeroVoteGameCard();
+                return;
+            }
+            const progress = document.getElementById('heroVoteGameProgress');
+            if (progress && currentId) {
+                progress.textContent = `${_heroVoteGameSeenCount.toLocaleString('ko-KR')}번째 인물 · 남은 후보 ${_heroVoteGameDeck.length.toLocaleString('ko-KR')}명`;
+            }
+        }
+
         function closeHeroVoteGame() {
             const modal = document.getElementById('heroVoteGame');
             if (!modal) return;
@@ -4503,7 +4554,8 @@
                 if (requestId !== _heroVoteGameRequestId || _heroVoteGameCurrentId !== nextId) return;
 
                 const hero = data.hero || {};
-                const cachedHero = _clientHeroRankingsCache.find(item => String(item._id) === nextId) || {};
+                const cachedHero = (Array.isArray(_clientHeroRankingsCache) ? _clientHeroRankingsCache : [])
+                    .find(item => String(item._id) === nextId) || {};
                 const positions = Array.isArray(data.positions) ? data.positions : [];
                 const imageUrl = hero.illustration_url || hero.avatar_url || cachedHero.avatar_url || '';
                 const years = `${formatHeroYear(hero.birth_year ?? cachedHero.birth_year)} ~ ${formatHeroYear(hero.death_year ?? cachedHero.death_year)}`;
@@ -6126,15 +6178,21 @@
             updateRankingAuthBar();
             const urlParams = new URLSearchParams(window.location.search);
             const contributionId = urlParams.get('contributionId');
-            // 게스트 세션과 영웅 목록은 서로 의존하지 않으므로 동시에 요청한다.
-            await Promise.all([
-                ensureRankingGuestSession(),
-                loadHeroRankings()
-            ]);
+            // 전체 랭킹은 백그라운드에서 받고, 첫 카드 후보는 가벼운 별도 요청으로 먼저 연다.
+            await ensureRankingGuestSession();
+            let quickCandidate = null;
+            if (!contributionId) {
+                quickCandidate = await loadQuickHeroVoteCandidate();
+                if (quickCandidate) openHeroVoteGameWithCandidate(quickCandidate);
+            }
             updateRankingAuthBar();
 
+            // 첫 카드가 화면에 열린 다음에 무거운 전체 목록 요청을 시작한다.
+            const rankingsPromise = loadHeroRankings();
+            await rankingsPromise;
             if (!contributionId) {
-                openHeroVoteGameOnce();
+                if (_heroVoteGameAutoOpened) replenishHeroVoteGameDeck();
+                else openHeroVoteGameOnce();
             }
 
             // 🚩 [수정] URL 파라미터로 contributionId가 전달된 경우 자동으로 모달 열기

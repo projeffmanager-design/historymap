@@ -7274,6 +7274,52 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // 첫 화면 카드용: 전체 랭킹을 만들지 않고 kings 배열에서 후보 1명만 추출한다.
+        app.get('/api/hero-rankings/random', async (req, res) => {
+            try {
+                const voterId = getHeroVoteVoterId(req);
+                const candidates = await collections.kings.aggregate([
+                    { $match: { 'kings.0': { $exists: true } } },
+                    { $sample: { size: 8 } },
+                    { $unwind: { path: '$kings', includeArrayIndex: 'kingIndex' } },
+                    { $sample: { size: 12 } },
+                    { $project: { country_id: 1, king: '$kings', kingIndex: 1 } }
+                ]).toArray();
+                if (!candidates.length) return res.status(404).json({ message: '표시할 인물이 없습니다.' });
+
+                const candidate = candidates.find(item => {
+                    const heroVoters = Array.isArray(item.king?.voted_by) ? item.king.voted_by.map(String) : [];
+                    const villainVoters = Array.isArray(item.king?.worst_voted_by) ? item.king.worst_voted_by.map(String) : [];
+                    return !heroVoters.includes(voterId) && !villainVoters.includes(voterId);
+                }) || candidates[0];
+                const countryId = String(candidate.country_id || '');
+                const country = await collections.countries.findOne(
+                    { _id: { $in: countryIdQueryValues(countryId) } },
+                    { projection: { _id: 1, name: 1, color: 1, ethnicity: 1 } }
+                );
+                const king = candidate.king || {};
+                const normalized = normalizeKingSchema(king, country, countryId);
+                const sourceRefId = king._id ? String(king._id) : String(candidate.kingIndex);
+                const heroId = kingHeroId(countryId, sourceRefId);
+                res.set('Cache-Control', 'no-store');
+                res.json({
+                    _id: heroId,
+                    name_ko: normalized.name_ko || king.name || '이름 미상',
+                    name_zh: normalized.name_zh || '',
+                    faction: normalized.faction || country?.name || '',
+                    hero_type: normalized.hero_type,
+                    birth_year: normalized.birth_year,
+                    death_year: normalized.death_year,
+                    avatar_url: normalized.avatar_url || '',
+                    has_voted: Array.isArray(king.voted_by) && king.voted_by.map(String).includes(voterId),
+                    has_worst_voted: Array.isArray(king.worst_voted_by) && king.worst_voted_by.map(String).includes(voterId)
+                });
+            } catch (error) {
+                console.error('[GET /api/hero-rankings/random] 오류:', error);
+                res.status(500).json({ message: '랜덤 인물 조회 실패' });
+            }
+        });
+
         app.get('/api/hero-rankings', async (req, res) => {
             try {
                 const voterId = getHeroVoteVoterId(req);
