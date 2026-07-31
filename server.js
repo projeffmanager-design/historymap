@@ -966,6 +966,28 @@ const getHeroVoteVoterId = (req) => {
     return `anon:${fallback}`;
 };
 
+const getHeroCommentPermissions = (req, comment) => {
+    const user = req.user || getOptionalAuthUser(req);
+    const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
+    const voterId = getHeroVoteVoterId(req);
+    const storedAuthorKey = String(comment?.author_key || '');
+    const isLegacyAccountOwner = !storedAuthorKey
+        && user
+        && !user.isGuest
+        && String(comment?.author || '') === String(user.username || '');
+    return {
+        can_edit: Boolean((storedAuthorKey && storedAuthorKey === voterId) || isLegacyAccountOwner),
+        can_delete: Boolean(isAdmin)
+    };
+};
+
+const serializeHeroComments = (req, comments) => (Array.isArray(comments) ? comments : []).map(comment => {
+    const serialized = { ...comment, ...getHeroCommentPermissions(req, comment) };
+    delete serialized.author_key;
+    delete serialized.author_id;
+    return serialized;
+});
+
 const verifyAdmin = (req, res, next) => { // (전역으로 이동)
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1];
@@ -2557,7 +2579,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     const comments = await collections.heroComments
                         .find({ hero_id: heroId })
                         .sort({ createdAt: -1 }).limit(50).toArray();
-                    return res.json({ hero, positions, comments });
+                    return res.json({ hero, positions, comments: serializeHeroComments(req, comments) });
                 }
                 res.status(410).json({ message: 'heroes 컬렉션 기반 영웅은 kings 기반 인물 데이터로 대체되었습니다.' });
             } catch (err) {
@@ -2636,18 +2658,70 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                 const id = normalizeRouteId(req.params.id);
                 const kingMatch = parseKingHeroId(id);
                 if (!kingMatch) return res.status(410).json({ message: 'heroes 컬렉션 기반 댓글은 더 이상 사용하지 않습니다.' });
-                const { content } = req.body;
+                const { content, stance } = req.body;
                 if (!content || !content.trim()) return res.status(400).json({ message: '댓글 내용을 입력하세요.' });
+                if (!['hero', 'villain'].includes(stance)) {
+                    return res.status(400).json({ message: '영웅평 또는 빌런평을 선택하세요.' });
+                }
                 const found = await findKingFigure(kingMatch.countryId, kingMatch.sourceRefId);
                 if (!found) return res.status(404).json({ message: '영웅 없음' });
                 const comment = {
                     hero_id: id,
                     author: req.user.username,
+                    author_id: String(req.user.userId || req.user.id || req.user._id || ''),
+                    author_key: getHeroVoteVoterId(req),
+                    stance,
                     content: content.trim().slice(0, 500),
                     createdAt: new Date()
                 };
                 const inserted = await collections.heroComments.insertOne(comment);
-                res.status(201).json({ ...comment, _id: inserted.insertedId });
+                const [serialized] = serializeHeroComments(req, [{ ...comment, _id: inserted.insertedId }]);
+                res.status(201).json(serialized);
+            } catch (err) {
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // PUT /api/heroes/:id/comments/:commentId — 작성자 본인 평가 수정
+        app.put('/api/heroes/:id/comments/:commentId', verifyToken, async (req, res) => {
+            try {
+                const heroId = normalizeRouteId(req.params.id);
+                const commentId = toObjectId(req.params.commentId);
+                if (!commentId) return res.status(400).json({ message: '올바르지 않은 평가 ID입니다.' });
+                const comment = await collections.heroComments.findOne({ _id: commentId, hero_id: heroId });
+                if (!comment) return res.status(404).json({ message: '평가를 찾을 수 없습니다.' });
+                if (!getHeroCommentPermissions(req, comment).can_edit) {
+                    return res.status(403).json({ message: '본인이 작성한 평가만 수정할 수 있습니다.' });
+                }
+                const content = String(req.body?.content || '').trim();
+                const stance = String(req.body?.stance || '');
+                if (!content) return res.status(400).json({ message: '평가 내용을 입력하세요.' });
+                if (!['hero', 'villain'].includes(stance)) {
+                    return res.status(400).json({ message: '영웅평 또는 빌런평을 선택하세요.' });
+                }
+                await collections.heroComments.updateOne(
+                    { _id: commentId },
+                    { $set: { content: content.slice(0, 500), stance, updatedAt: new Date() } }
+                );
+                res.json({ message: '평가를 수정했습니다.' });
+            } catch (err) {
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
+        // DELETE /api/heroes/:id/comments/:commentId — 관리자 평가 삭제
+        app.delete('/api/heroes/:id/comments/:commentId', verifyToken, async (req, res) => {
+            try {
+                const heroId = normalizeRouteId(req.params.id);
+                const commentId = toObjectId(req.params.commentId);
+                if (!commentId) return res.status(400).json({ message: '올바르지 않은 평가 ID입니다.' });
+                const comment = await collections.heroComments.findOne({ _id: commentId, hero_id: heroId });
+                if (!comment) return res.status(404).json({ message: '평가를 찾을 수 없습니다.' });
+                if (!getHeroCommentPermissions(req, comment).can_delete) {
+                    return res.status(403).json({ message: '관리자만 평가를 삭제할 수 있습니다.' });
+                }
+                await collections.heroComments.deleteOne({ _id: commentId });
+                res.json({ message: '평가를 삭제했습니다.' });
             } catch (err) {
                 res.status(500).json({ message: '서버 오류' });
             }
