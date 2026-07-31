@@ -2974,7 +2974,7 @@
                     </table>
                 </div>
             </div>
-            
+
             <!-- 일반 사관 테이블 -->
             <div class="ranking-section">
                 <div class="section-heading">
@@ -3214,6 +3214,7 @@
         let _clientRankingsCacheTime = 0;
         let _clientHeroRankingsCache = null;
         let _clientHeroRankingsCacheTime = 0;
+        let _heroRankingsLoadPromise = null;
         const HERO_RANKING_PAGE_SIZE = 15;
         let _heroRankingCurrentPage = 1;
         let _heroRankingSortColumn = 'vote_count';
@@ -3800,12 +3801,18 @@
             const cached = _clientHeroRankingsCache && Date.now() - _clientHeroRankingsCacheTime < CLIENT_CACHE_TTL;
             if (cached) {
                 renderHeroRankings(_clientHeroRankingsCache);
-                if (!new URLSearchParams(window.location.search).has('contributionId')) {
-                    openHeroVoteGameOnce();
-                }
                 return;
             }
+            if (_heroRankingsLoadPromise) return _heroRankingsLoadPromise;
+            _heroRankingsLoadPromise = fetchAndRenderHeroRankings();
+            try {
+                return await _heroRankingsLoadPromise;
+            } finally {
+                _heroRankingsLoadPromise = null;
+            }
+        }
 
+        async function fetchAndRenderHeroRankings() {
             const tableBody = document.getElementById('heroRankingTableBody');
             tableBody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#95a5a6;">영웅 & 빌런 투표를 불러오는 중...</td></tr>';
             try {
@@ -3820,9 +3827,6 @@
                 syncHeroVoteState(_clientHeroRankingsCache);
                 _clientHeroRankingsCacheTime = Date.now();
                 renderHeroRankings(_clientHeroRankingsCache);
-                if (!new URLSearchParams(window.location.search).has('contributionId')) {
-                    openHeroVoteGameOnce();
-                }
             } catch (error) {
                 console.error('Error fetching hero ranking data:', error);
                 tableBody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#e74c3c;">영웅 & 빌런 투표를 불러오지 못했습니다.</td></tr>';
@@ -3885,7 +3889,7 @@
                 const start = formatHeroYear(hero.birth_year);
                 const end = formatHeroYear(hero.death_year);
                 const avatar = hero.avatar_url
-                    ? `<img src="${escapeHTML(hero.avatar_url)}" alt="" class="hero-avatar" onerror="this.style.display='none'">`
+                    ? `<img src="${escapeHTML(hero.avatar_url)}" alt="" class="hero-avatar" loading="lazy" decoding="async" onerror="this.style.display='none'">`
                     : '';
                 const color = /^#[0-9a-f]{6}$/i.test(hero.faction_color || '') ? hero.faction_color : '#c8860a';
                 const heroId = String(hero._id || '');
@@ -3969,7 +3973,7 @@
                 if (!hero) return `<div class="hero-podium-empty">${info.label} 대기 중</div>`;
                 const votes = parseInt(hero[voteKey], 10) || 0;
                 const avatar = hero.avatar_url
-                    ? `<img src="${escapeHTML(hero.avatar_url)}" alt="" class="hero-podium-avatar" onerror="this.style.display='none'">`
+                    ? `<img src="${escapeHTML(hero.avatar_url)}" alt="" class="hero-podium-avatar" loading="lazy" decoding="async" onerror="this.style.display='none'">`
                     : '<div class="hero-podium-avatar" style="display:flex;align-items:center;justify-content:center;color:#8fa0b0;">?</div>';
                 return `
                     <div class="hero-podium-card ${info.cls} ${variant === 'villain' ? 'villain-card' : ''}" data-hero-id="${escapeHTML(hero._id || '')}" title="상세 보기">
@@ -5895,12 +5899,19 @@
         // 초기 로드
 
         document.addEventListener('DOMContentLoaded', async () => {
-            await ensureRankingGuestSession();
-            await loadHeroRankings();
-            
-            // 🚩 [수정] URL 파라미터로 contributionId가 전달된 경우 자동으로 모달 열기
             const urlParams = new URLSearchParams(window.location.search);
             const contributionId = urlParams.get('contributionId');
+            // 게스트 세션과 영웅 목록은 서로 의존하지 않으므로 동시에 요청한다.
+            await Promise.all([
+                ensureRankingGuestSession(),
+                loadHeroRankings()
+            ]);
+
+            if (!contributionId) {
+                openHeroVoteGameOnce();
+            }
+
+            // 🚩 [수정] URL 파라미터로 contributionId가 전달된 경우 자동으로 모달 열기
             if (contributionId) {
                 console.log('🔍 URL에서 contributionId 감지:', contributionId);
                 

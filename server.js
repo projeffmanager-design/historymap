@@ -567,13 +567,32 @@ const isCastleActiveAtYear = (castle, year, month = 1) => (
 );
 const HERO_BASE_CACHE_TTL_MS = 10 * 60 * 1000;
 const HERO_RESULT_CACHE_TTL_MS = 15 * 60 * 1000;
+const HERO_RANKINGS_CACHE_TTL_MS = 2 * 60 * 1000;
 let heroBaseCache = null;
 let heroBasePayloadCache = null;
+let heroRankingsBaseCache = null;
 const heroResultCache = new Map();
-const invalidateHeroCaches = () => {
+const invalidateHeroCaches = ({ preserveRankings = false } = {}) => {
     heroBaseCache = null;
     heroBasePayloadCache = null;
+    if (!preserveRankings) heroRankingsBaseCache = null;
     heroResultCache.clear();
+};
+const updateHeroRankingsVoteCache = (heroId, voterId, kind, count) => {
+    const heroes = heroRankingsBaseCache?.heroes;
+    if (!Array.isArray(heroes)) return;
+    const hero = heroes.find(item => String(item._id) === String(heroId));
+    if (!hero) return;
+    const isVillain = kind === 'villain';
+    hero[isVillain ? 'worst_vote_count' : 'vote_count'] = count;
+    const voterField = isVillain ? '_worst_voted_by' : '_voted_by';
+    if (!hero[voterField].includes(voterId)) hero[voterField].push(voterId);
+    heroes.sort((a, b) => (
+        (b.vote_count || 0) - (a.vote_count || 0) ||
+        String(a.name_ko || '').localeCompare(String(b.name_ko || ''), 'ko') ||
+        (a.birth_year ?? 999999) - (b.birth_year ?? 999999)
+    ));
+    heroes.forEach((item, index) => { item.rank = index + 1; });
 };
 const setHeroPublicCacheHeaders = (res, cacheState) => {
     res.set('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=1800');
@@ -2612,7 +2631,8 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                 if (updateResult.modifiedCount !== 1) {
                     return res.status(409).json({ message: '투표가 반영되지 않았습니다. 다시 시도해주세요.' });
                 }
-                invalidateHeroCaches();
+                updateHeroRankingsVoteCache(id, userId, 'hero', nextVoteCount);
+                invalidateHeroCaches({ preserveRankings: true });
                 invalidateRankingsCache();
                 res.json({ vote_count: nextVoteCount });
             } catch (err) {
@@ -2644,7 +2664,8 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                 if (updateResult.modifiedCount !== 1) {
                     return res.status(409).json({ message: '투표가 반영되지 않았습니다. 다시 시도해주세요.' });
                 }
-                invalidateHeroCaches();
+                updateHeroRankingsVoteCache(id, userId, 'villain', nextVoteCount);
+                invalidateHeroCaches({ preserveRankings: true });
                 invalidateRankingsCache();
                 res.json({ worst_vote_count: nextVoteCount });
             } catch (err) {
@@ -7256,51 +7277,63 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         app.get('/api/hero-rankings', async (req, res) => {
             try {
                 const voterId = getHeroVoteVoterId(req);
-                const [countryDocs, kingDocs] = await Promise.all([
-                    collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1, ethnicity: 1 } }).toArray(),
-                    collections.kings.find({}, { projection: { country_id: 1, kings: 1 } }).toArray()
-                ]);
-                const countryMap = new Map(countryDocs.map(country => [String(country._id), country]));
-                const heroes = [];
+                let baseHeroes = heroRankingsBaseCache
+                    && Date.now() - heroRankingsBaseCache.at < HERO_RANKINGS_CACHE_TTL_MS
+                    ? heroRankingsBaseCache.heroes
+                    : null;
 
-                kingDocs.forEach((doc) => {
-                    const countryId = String(doc.country_id || '');
-                    const country = countryMap.get(countryId) || null;
-                    const kingsList = Array.isArray(doc.kings) ? doc.kings : [];
-                    kingsList.forEach((king, index) => {
-                        const normalized = normalizeKingSchema(king, country, countryId);
-                        const sourceRefId = king._id ? String(king._id) : String(index);
-                        const voteCount = parseInt(king.vote_count || 0);
-                        const worstVoteCount = parseInt(king.worst_vote_count || 0);
-                        const votedBy = Array.isArray(king.voted_by) ? king.voted_by.map(String) : [];
-                        const worstVotedBy = Array.isArray(king.worst_voted_by) ? king.worst_voted_by.map(String) : [];
-                        heroes.push({
-                            _id: kingHeroId(countryId, sourceRefId),
-                            name_ko: normalized.name_ko || king.name || '이름 미상',
-                            name_zh: normalized.name_zh || '',
-                            title: normalized.title || '',
-                            faction: normalized.faction || country?.name || '',
-                            faction_color: normalized.faction_color || country?.color || '#c8860a',
-                            ethnicity: country?.ethnicity || '',
-                            is_our_ethnicity: /동이|東夷/.test(String(country?.ethnicity || '')),
-                            hero_type: normalized.hero_type,
-                            birth_year: normalized.birth_year,
-                            death_year: normalized.death_year,
-                            avatar_url: normalized.avatar_url || '',
-                            vote_count: Number.isFinite(voteCount) ? voteCount : 0,
-                            worst_vote_count: Number.isFinite(worstVoteCount) ? worstVoteCount : 0,
-                            has_voted: votedBy.includes(voterId),
-                            has_worst_voted: worstVotedBy.includes(voterId)
+                if (!baseHeroes) {
+                    const [countryDocs, kingDocs] = await Promise.all([
+                        collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1, ethnicity: 1 } }).toArray(),
+                        collections.kings.find({}, { projection: { country_id: 1, kings: 1 } }).toArray()
+                    ]);
+                    const countryMap = new Map(countryDocs.map(country => [String(country._id), country]));
+                    baseHeroes = [];
+
+                    kingDocs.forEach((doc) => {
+                        const countryId = String(doc.country_id || '');
+                        const country = countryMap.get(countryId) || null;
+                        const kingsList = Array.isArray(doc.kings) ? doc.kings : [];
+                        kingsList.forEach((king, index) => {
+                            const normalized = normalizeKingSchema(king, country, countryId);
+                            const sourceRefId = king._id ? String(king._id) : String(index);
+                            const voteCount = parseInt(king.vote_count || 0);
+                            const worstVoteCount = parseInt(king.worst_vote_count || 0);
+                            baseHeroes.push({
+                                _id: kingHeroId(countryId, sourceRefId),
+                                name_ko: normalized.name_ko || king.name || '이름 미상',
+                                name_zh: normalized.name_zh || '',
+                                title: normalized.title || '',
+                                faction: normalized.faction || country?.name || '',
+                                faction_color: normalized.faction_color || country?.color || '#c8860a',
+                                ethnicity: country?.ethnicity || '',
+                                is_our_ethnicity: /동이|東夷/.test(String(country?.ethnicity || '')),
+                                hero_type: normalized.hero_type,
+                                birth_year: normalized.birth_year,
+                                death_year: normalized.death_year,
+                                avatar_url: normalized.avatar_url || '',
+                                vote_count: Number.isFinite(voteCount) ? voteCount : 0,
+                                worst_vote_count: Number.isFinite(worstVoteCount) ? worstVoteCount : 0,
+                                _voted_by: Array.isArray(king.voted_by) ? king.voted_by.map(String) : [],
+                                _worst_voted_by: Array.isArray(king.worst_voted_by) ? king.worst_voted_by.map(String) : []
+                            });
                         });
                     });
-                });
 
-                heroes.sort((a, b) => (
-                    (b.vote_count || 0) - (a.vote_count || 0) ||
-                    String(a.name_ko || '').localeCompare(String(b.name_ko || ''), 'ko') ||
-                    (a.birth_year ?? 999999) - (b.birth_year ?? 999999)
-                ));
-                heroes.forEach((hero, index) => { hero.rank = index + 1; });
+                    baseHeroes.sort((a, b) => (
+                        (b.vote_count || 0) - (a.vote_count || 0) ||
+                        String(a.name_ko || '').localeCompare(String(b.name_ko || ''), 'ko') ||
+                        (a.birth_year ?? 999999) - (b.birth_year ?? 999999)
+                    ));
+                    baseHeroes.forEach((hero, index) => { hero.rank = index + 1; });
+                    heroRankingsBaseCache = { at: Date.now(), heroes: baseHeroes };
+                }
+
+                const heroes = baseHeroes.map(({ _voted_by, _worst_voted_by, ...hero }) => ({
+                    ...hero,
+                    has_voted: _voted_by.includes(voterId),
+                    has_worst_voted: _worst_voted_by.includes(voterId)
+                }));
 
                 // 투표 직후의 숫자가 CDN/브라우저의 오래된 응답으로 되돌아가지 않게 한다.
                 res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
