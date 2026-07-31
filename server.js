@@ -254,7 +254,17 @@ const getFigureIdentityContext = async (found) => {
     const personId = String(found?.king?.person_id || '').trim();
     if (!personId) {
         const phaseId = kingHeroId(found.countryId, found.sourceRefId);
-        return { personId: '', storageId: phaseId, records: [found], aliasIds: [phaseId] };
+        return {
+            personId: '',
+            storageId: phaseId,
+            records: [{
+                doc: found.kingDoc,
+                king: found.king,
+                index: found.index,
+                countryId: found.countryId
+            }],
+            aliasIds: [phaseId]
+        };
     }
     const records = await findPersonFigureRecords(personId);
     const aliasIds = records.map(record => kingHeroId(
