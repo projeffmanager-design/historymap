@@ -28490,8 +28490,21 @@ kingSelect.addEventListener('change', () => {
             return stance === 'hero' || stance === 'villain' ? stance : 'neutral';
         }
 
+        function sortHeroCommentsByCreatedAt(comments) {
+            return (Array.isArray(comments) ? comments : [])
+                .map((comment, index) => ({ comment, index }))
+                .sort((a, b) => {
+                    const aTime = new Date(a.comment?.createdAt || 0).getTime();
+                    const bTime = new Date(b.comment?.createdAt || 0).getTime();
+                    const safeATime = Number.isFinite(aTime) ? aTime : 0;
+                    const safeBTime = Number.isFinite(bTime) ? bTime : 0;
+                    return safeATime - safeBTime || a.index - b.index;
+                })
+                .map(item => item.comment);
+        }
+
         function renderHeroCommentGauge(comments) {
-            const items = Array.isArray(comments) ? comments : [];
+            const items = sortHeroCommentsByCreatedAt(comments);
             const heroCount = items.filter(comment => comment.stance === 'hero').length;
             const villainCount = items.filter(comment => comment.stance === 'villain').length;
             const total = heroCount + villainCount;
@@ -28541,7 +28554,7 @@ kingSelect.addEventListener('change', () => {
         function renderComments(comments) {
             const list = document.getElementById('heroCommentList');
             const gauge = document.getElementById('heroCommentGauge');
-            const items = Array.isArray(comments) ? comments : [];
+            const items = sortHeroCommentsByCreatedAt(comments);
             _heroCommentById = new Map(items.map(comment => [String(comment._id || ''), comment]));
             if (gauge) gauge.innerHTML = renderHeroCommentGauge(items);
             list.innerHTML = '';

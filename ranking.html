@@ -4175,8 +4175,21 @@
             return stance === 'hero' || stance === 'villain' ? stance : 'neutral';
         }
 
+        function sortHeroOpinionsByCreatedAt(comments) {
+            return (Array.isArray(comments) ? comments : [])
+                .map((comment, index) => ({ comment, index }))
+                .sort((a, b) => {
+                    const aTime = new Date(a.comment?.createdAt || 0).getTime();
+                    const bTime = new Date(b.comment?.createdAt || 0).getTime();
+                    const safeATime = Number.isFinite(aTime) ? aTime : 0;
+                    const safeBTime = Number.isFinite(bTime) ? bTime : 0;
+                    return safeATime - safeBTime || a.index - b.index;
+                })
+                .map(item => item.comment);
+        }
+
         function renderHeroOpinionGauge(comments) {
-            const items = Array.isArray(comments) ? comments : [];
+            const items = sortHeroOpinionsByCreatedAt(comments);
             const heroCount = items.filter(comment => comment.stance === 'hero').length;
             const villainCount = items.filter(comment => comment.stance === 'villain').length;
             const total = heroCount + villainCount;
@@ -4252,11 +4265,11 @@
             const formHost = document.getElementById('heroVoteGameCommentForm');
             if (!panel || !list || !count || !formHost) return;
 
-            const items = Array.isArray(comments) ? comments : [];
+            const items = sortHeroOpinionsByCreatedAt(comments);
             panel.style.display = '';
             count.textContent = items.length ? `${items.length.toLocaleString('ko-KR')}개` : '';
             list.innerHTML = renderHeroOpinionGauge(items) + (items.length
-                ? items.slice(0, 8).map(comment => {
+                ? items.slice(-8).map(comment => {
                     const stance = normalizeHeroOpinionStance(comment.stance);
                     const stanceLabel = stance === 'hero' ? '영웅평' : stance === 'villain' ? '빌런평' : '기존평';
                     const commentId = String(comment._id || '');
@@ -4274,6 +4287,9 @@
                 `;
                 }).join('')
                 : '<div class="hero-game-comment-empty">아직 인물평이 없습니다. 첫 평가를 남겨보세요.</div>');
+            requestAnimationFrame(() => {
+                list.scrollTop = list.scrollHeight;
+            });
 
             const auth = getRankingAuthInfo();
             formHost.innerHTML = auth.canCommentAsOfficer
@@ -4611,11 +4627,11 @@
         });
 
         function renderHeroDetailComments(comments) {
-            const list = Array.isArray(comments) ? comments : [];
+            const list = sortHeroOpinionsByCreatedAt(comments);
             if (!list.length) {
                 return renderHeroOpinionGauge([]) + '<div class="hero-detail-comment-notice">아직 사관평이 없습니다. 첫 의견을 남겨보세요.</div>';
             }
-            return renderHeroOpinionGauge(list) + `<div class="hero-detail-comment-list">${list.slice(0, 20).map(comment => {
+            return renderHeroOpinionGauge(list) + `<div class="hero-detail-comment-list">${list.slice(-20).map(comment => {
                 const createdAt = comment.createdAt ? new Date(comment.createdAt) : null;
                 const dateText = createdAt && !Number.isNaN(createdAt.getTime())
                     ? createdAt.toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' })
