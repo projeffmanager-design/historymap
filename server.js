@@ -7329,8 +7329,17 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     heroRankingsBaseCache = { at: Date.now(), heroes: baseHeroes };
                 }
 
+                // 인물별 평가글 수를 한 번의 집계로 계산해 랭킹 카드/목록에 함께 제공한다.
+                const heroCommentCounts = await collections.heroComments.aggregate([
+                    { $group: { _id: '$hero_id', count: { $sum: 1 } } }
+                ]).toArray();
+                const heroCommentCountMap = new Map(
+                    heroCommentCounts.map(item => [String(item._id || ''), Number(item.count) || 0])
+                );
+
                 const heroes = baseHeroes.map(({ _voted_by, _worst_voted_by, ...hero }) => ({
                     ...hero,
+                    comment_count: heroCommentCountMap.get(String(hero._id)) || 0,
                     has_voted: _voted_by.includes(voterId),
                     has_worst_voted: _worst_voted_by.includes(voterId)
                 }));

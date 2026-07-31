@@ -254,6 +254,14 @@
 
         let _isLoggingIn = false; // 중복 로그인 요청 방지 플래그
 
+        function getLoginRedirectUrl() {
+            const redirect = new URLSearchParams(window.location.search).get('redirect');
+            // 같은 사이트의 절대 경로만 허용해 외부 사이트로의 우회 이동을 막는다.
+            return redirect && redirect.startsWith('/') && !redirect.startsWith('//')
+                ? redirect
+                : '/map';
+        }
+
         const loginMuteBtn = document.getElementById('loginMuteBtn');
         let loginMuted = localStorage.getItem('bgmMuted') === 'true';
 
@@ -325,7 +333,7 @@
                 
                 // 약간의 딜레이 후 리디렉션 (사용자에게 피드백 제공)
                 setTimeout(() => {
-                    window.location.href = '/map';
+                    window.location.href = getLoginRedirectUrl();
                 }, 300);
 
             } catch (error) {
@@ -442,7 +450,7 @@
                 messageEl.style.color = '#4CAF50';
                 
                 setTimeout(() => {
-                    window.location.href = '/map';
+                    window.location.href = getLoginRedirectUrl();
                 }, 300);
 
             } catch (error) {
