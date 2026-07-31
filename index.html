@@ -28087,6 +28087,7 @@ kingSelect.addEventListener('change', () => {
         let _cachedYear = null;  // 마지막으로 렌더된 연도 (캐시 키)
         let _cachedMonth = null; // 마지막으로 렌더된 월 (캐시 키)
         let currentHeroId = null;
+        let currentHeroIdentityKey = null;
         let currentHeroVoteCount = 0;
         let currentHeroWorstVoteCount = 0;
         let _heroCommentById = new Map();
@@ -28102,6 +28103,7 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('heroSidebar')?.classList.remove('open');
             document.getElementById('heroIllustWrap')?.classList.remove('open');
             currentHeroId = null;
+            currentHeroIdentityKey = null;
         }
 
         // ── 레이어 초기화 ──
@@ -28384,6 +28386,7 @@ kingSelect.addEventListener('change', () => {
                     if (!r.ok) throw new Error(data.message || '영웅 정보를 불러오지 못했습니다.');
                     return data;
                 });
+                currentHeroIdentityKey = hero.person_id ? `person:${hero.person_id}` : String(hero._id);
                 // 일러스트
                 const illImg = document.getElementById('heroIllustImg');
                 const illPh  = document.getElementById('heroIllustPlaceholder');
@@ -28479,12 +28482,12 @@ kingSelect.addEventListener('change', () => {
                 });
                 // 투표
                 const voteBtn = document.getElementById('heroVoteBtn');
-                const voted = _votedSet.has(String(hero._id));
+                const voted = _votedSet.has(currentHeroIdentityKey) || _votedSet.has(String(hero._id));
                 voteBtn.className = `hero-vote-btn${voted ? ' voted' : ''}`;
                 document.getElementById('heroVoteLabel').textContent = voted ? '이미 투표했습니다' : '영웅 투표';
                 document.getElementById('heroVoteCount').textContent = `(${hero.vote_count || 0}표)`;
                 const worstVoteBtn = document.getElementById('heroWorstVoteBtn');
-                const worstVoted = _worstVotedSet.has(String(hero._id));
+                const worstVoted = _worstVotedSet.has(currentHeroIdentityKey) || _worstVotedSet.has(String(hero._id));
                 worstVoteBtn.className = `hero-vote-btn villain${worstVoted ? ' voted' : ''}`;
                 document.getElementById('heroWorstVoteLabel').textContent = worstVoted ? '이미 투표했습니다' : '빌런 투표';
                 document.getElementById('heroWorstVoteCount').textContent = `(${hero.worst_vote_count || 0}표)`;
@@ -29172,7 +29175,7 @@ kingSelect.addEventListener('change', () => {
             // 투표
             document.getElementById('heroVoteBtn').onclick = async () => {
                 if (!currentHeroId) return;
-                if (_votedSet.has(String(currentHeroId))) return;
+                if (_votedSet.has(currentHeroIdentityKey || String(currentHeroId))) return;
                 if (!token) { alert('로그인이 필요합니다.'); return; }
                 try {
                     const response = await fetch(
@@ -29181,7 +29184,7 @@ kingSelect.addEventListener('change', () => {
                     );
                     const res = await response.json();
                     if (!response.ok) throw new Error(res.message || '영웅 투표 실패');
-                    _votedSet.add(String(currentHeroId));
+                    _votedSet.add(currentHeroIdentityKey || String(currentHeroId));
                     localStorage.setItem('_heroVoted', JSON.stringify([..._votedSet]));
                     document.getElementById('heroVoteBtn').className = 'hero-vote-btn voted';
                     document.getElementById('heroVoteLabel').textContent = '이미 투표했습니다';
@@ -29197,7 +29200,7 @@ kingSelect.addEventListener('change', () => {
 
             document.getElementById('heroWorstVoteBtn').onclick = async () => {
                 if (!currentHeroId) return;
-                if (_worstVotedSet.has(String(currentHeroId))) return;
+                if (_worstVotedSet.has(currentHeroIdentityKey || String(currentHeroId))) return;
                 if (!token) { alert('로그인이 필요합니다.'); return; }
                 try {
                     const response = await fetch(
@@ -29206,7 +29209,7 @@ kingSelect.addEventListener('change', () => {
                     );
                     const res = await response.json();
                     if (!response.ok) throw new Error(res.message || '빌런 투표 실패');
-                    _worstVotedSet.add(String(currentHeroId));
+                    _worstVotedSet.add(currentHeroIdentityKey || String(currentHeroId));
                     localStorage.setItem('_heroWorstVoted', JSON.stringify([..._worstVotedSet]));
                     document.getElementById('heroWorstVoteBtn').className = 'hero-vote-btn villain voted';
                     document.getElementById('heroWorstVoteLabel').textContent = '이미 투표했습니다';

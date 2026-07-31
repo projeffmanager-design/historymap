@@ -151,6 +151,7 @@ const normalizeKingSchema = (king = {}, country = null, countryId = '') => {
     const endMonth = normalizeMonthValue(king.end_month, 12);
     const heroType = normalizeKingHeroType(king);
     return {
+        person_id: king.person_id || '',
         name_ko: king.name_ko || king.name || country?.name || '',
         name_zh: king.name_zh || '',
         title: king.title || '',
@@ -180,7 +181,7 @@ const isKingActiveAtYearMonth = (king = {}, year = 0, month = 1) => {
         ? Infinity
         : ((parseInt(king.end) || 0) * 12) + (normalizeMonthValue(king.end_month, 12) - 1);
     const currentCombined = (parseInt(year) || 0) * 12 + ((parseInt(month) || 1) - 1);
-    return startCombined <= currentCombined && currentCombined < endCombined;
+    return startCombined <= currentCombined && currentCombined <= endCombined;
 };
 const isHeroPositionActiveAtYearMonth = (pos = {}, year = 0, month = 1) => {
     const startYear = parseInt(pos.start_year ?? pos.year);
@@ -240,6 +241,32 @@ const findKingFigure = async (countryId, sourceRefId) => {
     if (index < 0) return null;
     const country = await collections.countries.findOne({ _id: countryObjectId || countryId });
     return { kingDoc, country, king: kings[index], index, countryId: String(countryId), sourceRefId: String(sourceRefId) };
+};
+const canonicalPersonHeroId = (personId) => `person:${String(personId)}`;
+const findPersonFigureRecords = async (personId) => {
+    if (!personId) return [];
+    const docs = await collections.kings.find({ 'kings.person_id': String(personId) }).toArray();
+    return docs.flatMap(doc => (Array.isArray(doc.kings) ? doc.kings : [])
+        .map((king, index) => ({ doc, king, index, countryId: String(doc.country_id || '') }))
+        .filter(record => String(record.king.person_id || '') === String(personId)));
+};
+const getFigureIdentityContext = async (found) => {
+    const personId = String(found?.king?.person_id || '').trim();
+    if (!personId) {
+        const phaseId = kingHeroId(found.countryId, found.sourceRefId);
+        return { personId: '', storageId: phaseId, records: [found], aliasIds: [phaseId] };
+    }
+    const records = await findPersonFigureRecords(personId);
+    const aliasIds = records.map(record => kingHeroId(
+        record.countryId,
+        record.king._id ? String(record.king._id) : String(record.index)
+    ));
+    return {
+        personId,
+        storageId: canonicalPersonHeroId(personId),
+        records,
+        aliasIds: [...new Set([canonicalPersonHeroId(personId), ...aliasIds])]
+    };
 };
 const resolveCountryForFigure = async ({ country_id, source_country_id, faction } = {}) => {
     const rawId = country_id || source_country_id;
@@ -2577,6 +2604,9 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                         vote_count: parseInt(king.vote_count || 0) || 0,
                         worst_vote_count: parseInt(king.worst_vote_count || 0) || 0
                     };
+                    const identity = await getFigureIdentityContext(found);
+                    hero.vote_count = Math.max(0, ...identity.records.map(record => parseInt(record.king.vote_count || 0)));
+                    hero.worst_vote_count = Math.max(0, ...identity.records.map(record => parseInt(record.king.worst_vote_count || 0)));
                     const savedPositions = await collections.heroPositions
                         .find({ hero_id: heroId }, { projection: { source_text: 0 } })
                         .sort({ start_year: 1, year: 1 }).toArray();
@@ -2596,7 +2626,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                         });
                     }
                     const comments = await collections.heroComments
-                        .find({ hero_id: heroId })
+                        .find({ hero_id: { $in: identity.aliasIds } })
                         .sort({ createdAt: -1 }).limit(50).toArray();
                     return res.json({ hero, positions, comments: serializeHeroComments(req, comments) });
                 }
@@ -2615,26 +2645,26 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                 if (!kingMatch) return res.status(410).json({ message: 'heroes 컬렉션 기반 투표는 더 이상 사용하지 않습니다.' });
                 const found = await findKingFigure(kingMatch.countryId, kingMatch.sourceRefId);
                 if (!found) return res.status(404).json({ message: '영웅 없음' });
+                const identity = await getFigureIdentityContext(found);
                 const userId = getHeroVoteVoterId(req);
-                const votedBy = Array.isArray(found.king.voted_by) ? found.king.voted_by.map(String) : [];
+                const votedBy = [...new Set(identity.records.flatMap(record =>
+                    Array.isArray(record.king.voted_by) ? record.king.voted_by.map(String) : []
+                ))];
+                const currentVoteCount = Math.max(0, ...identity.records.map(record => parseInt(record.king.vote_count || 0)));
                 if (userId && votedBy.includes(userId)) {
-                    return res.json({ vote_count: parseInt(found.king.vote_count || 0), already_voted: true });
+                    return res.json({ vote_count: currentVoteCount, already_voted: true, person_id: identity.personId });
                 }
-                const nextVoteCount = parseInt(found.king.vote_count || 0) + 1;
-                const updateResult = await collections.kings.updateOne(
-                    { _id: found.kingDoc._id },
-                    {
-                        $set: { [`kings.${found.index}.vote_count`]: nextVoteCount, updatedAt: new Date() },
-                        $addToSet: { [`kings.${found.index}.voted_by`]: userId }
-                    }
-                );
-                if (updateResult.modifiedCount !== 1) {
+                const nextVoteCount = currentVoteCount + 1;
+                const updates = await Promise.all(identity.records.map(record => collections.kings.updateOne(
+                    { _id: record.doc._id },
+                    { $set: { [`kings.${record.index}.vote_count`]: nextVoteCount, updatedAt: new Date() }, $addToSet: { [`kings.${record.index}.voted_by`]: userId } }
+                )));
+                if (!updates.some(result => result.modifiedCount === 1)) {
                     return res.status(409).json({ message: '투표가 반영되지 않았습니다. 다시 시도해주세요.' });
                 }
-                updateHeroRankingsVoteCache(id, userId, 'hero', nextVoteCount);
-                invalidateHeroCaches({ preserveRankings: true });
+                invalidateHeroCaches();
                 invalidateRankingsCache();
-                res.json({ vote_count: nextVoteCount });
+                res.json({ vote_count: nextVoteCount, person_id: identity.personId });
             } catch (err) {
                 res.status(500).json({ message: '서버 오류' });
             }
@@ -2648,26 +2678,26 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                 if (!kingMatch) return res.status(410).json({ message: 'heroes 컬렉션 기반 투표는 더 이상 사용하지 않습니다.' });
                 const found = await findKingFigure(kingMatch.countryId, kingMatch.sourceRefId);
                 if (!found) return res.status(404).json({ message: '영웅 없음' });
+                const identity = await getFigureIdentityContext(found);
                 const userId = getHeroVoteVoterId(req);
-                const votedBy = Array.isArray(found.king.worst_voted_by) ? found.king.worst_voted_by.map(String) : [];
+                const votedBy = [...new Set(identity.records.flatMap(record =>
+                    Array.isArray(record.king.worst_voted_by) ? record.king.worst_voted_by.map(String) : []
+                ))];
+                const currentVoteCount = Math.max(0, ...identity.records.map(record => parseInt(record.king.worst_vote_count || 0)));
                 if (userId && votedBy.includes(userId)) {
-                    return res.json({ worst_vote_count: parseInt(found.king.worst_vote_count || 0), already_voted: true });
+                    return res.json({ worst_vote_count: currentVoteCount, already_voted: true, person_id: identity.personId });
                 }
-                const nextVoteCount = parseInt(found.king.worst_vote_count || 0) + 1;
-                const updateResult = await collections.kings.updateOne(
-                    { _id: found.kingDoc._id },
-                    {
-                        $set: { [`kings.${found.index}.worst_vote_count`]: nextVoteCount, updatedAt: new Date() },
-                        $addToSet: { [`kings.${found.index}.worst_voted_by`]: userId }
-                    }
-                );
-                if (updateResult.modifiedCount !== 1) {
+                const nextVoteCount = currentVoteCount + 1;
+                const updates = await Promise.all(identity.records.map(record => collections.kings.updateOne(
+                    { _id: record.doc._id },
+                    { $set: { [`kings.${record.index}.worst_vote_count`]: nextVoteCount, updatedAt: new Date() }, $addToSet: { [`kings.${record.index}.worst_voted_by`]: userId } }
+                )));
+                if (!updates.some(result => result.modifiedCount === 1)) {
                     return res.status(409).json({ message: '투표가 반영되지 않았습니다. 다시 시도해주세요.' });
                 }
-                updateHeroRankingsVoteCache(id, userId, 'villain', nextVoteCount);
-                invalidateHeroCaches({ preserveRankings: true });
+                invalidateHeroCaches();
                 invalidateRankingsCache();
-                res.json({ worst_vote_count: nextVoteCount });
+                res.json({ worst_vote_count: nextVoteCount, person_id: identity.personId });
             } catch (err) {
                 res.status(500).json({ message: '서버 오류' });
             }
@@ -2686,8 +2716,9 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                 }
                 const found = await findKingFigure(kingMatch.countryId, kingMatch.sourceRefId);
                 if (!found) return res.status(404).json({ message: '영웅 없음' });
+                const identity = await getFigureIdentityContext(found);
                 const comment = {
-                    hero_id: id,
+                    hero_id: identity.storageId,
                     author: req.user.username,
                     author_id: String(req.user.userId || req.user.id || req.user._id || ''),
                     author_key: getHeroVoteVoterId(req),
@@ -2709,7 +2740,10 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                 const heroId = normalizeRouteId(req.params.id);
                 const commentId = toObjectId(req.params.commentId);
                 if (!commentId) return res.status(400).json({ message: '올바르지 않은 평가 ID입니다.' });
-                const comment = await collections.heroComments.findOne({ _id: commentId, hero_id: heroId });
+                const kingMatch = parseKingHeroId(heroId);
+                const found = kingMatch ? await findKingFigure(kingMatch.countryId, kingMatch.sourceRefId) : null;
+                const identity = found ? await getFigureIdentityContext(found) : { aliasIds: [heroId] };
+                const comment = await collections.heroComments.findOne({ _id: commentId, hero_id: { $in: identity.aliasIds } });
                 if (!comment) return res.status(404).json({ message: '평가를 찾을 수 없습니다.' });
                 if (!getHeroCommentPermissions(req, comment).can_edit) {
                     return res.status(403).json({ message: '본인이 작성한 평가만 수정할 수 있습니다.' });
@@ -2736,7 +2770,10 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                 const heroId = normalizeRouteId(req.params.id);
                 const commentId = toObjectId(req.params.commentId);
                 if (!commentId) return res.status(400).json({ message: '올바르지 않은 평가 ID입니다.' });
-                const comment = await collections.heroComments.findOne({ _id: commentId, hero_id: heroId });
+                const kingMatch = parseKingHeroId(heroId);
+                const found = kingMatch ? await findKingFigure(kingMatch.countryId, kingMatch.sourceRefId) : null;
+                const identity = found ? await getFigureIdentityContext(found) : { aliasIds: [heroId] };
+                const comment = await collections.heroComments.findOne({ _id: commentId, hero_id: { $in: identity.aliasIds } });
                 if (!comment) return res.status(404).json({ message: '평가를 찾을 수 없습니다.' });
                 if (!getHeroCommentPermissions(req, comment).can_delete) {
                     return res.status(403).json({ message: '관리자만 평가를 삭제할 수 있습니다.' });
@@ -7347,6 +7384,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                             const worstVoteCount = parseInt(king.worst_vote_count || 0);
                             baseHeroes.push({
                                 _id: kingHeroId(countryId, sourceRefId),
+                                person_id: normalized.person_id || '',
                                 name_ko: normalized.name_ko || king.name || '이름 미상',
                                 name_zh: normalized.name_zh || '',
                                 title: normalized.title || '',
@@ -7366,6 +7404,33 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         });
                     });
 
+                    const heroesByIdentity = new Map();
+                    baseHeroes.forEach(hero => {
+                        const identityKey = hero.person_id ? canonicalPersonHeroId(hero.person_id) : hero._id;
+                        const previous = heroesByIdentity.get(identityKey);
+                        if (!previous) {
+                            heroesByIdentity.set(identityKey, { ...hero, comment_storage_id: identityKey });
+                            return;
+                        }
+                        const displayHero = (hero.birth_year ?? -Infinity) >= (previous.birth_year ?? -Infinity) ? hero : previous;
+                        heroesByIdentity.set(identityKey, {
+                            ...displayHero,
+                            person_id: hero.person_id || previous.person_id,
+                            comment_storage_id: identityKey,
+                            birth_year: Math.min(previous.birth_year ?? Infinity, hero.birth_year ?? Infinity),
+                            death_year: Math.max(previous.death_year ?? -Infinity, hero.death_year ?? -Infinity),
+                            vote_count: Math.max(previous.vote_count || 0, hero.vote_count || 0),
+                            worst_vote_count: Math.max(previous.worst_vote_count || 0, hero.worst_vote_count || 0),
+                            _voted_by: [...new Set([...(previous._voted_by || []), ...(hero._voted_by || [])])],
+                            _worst_voted_by: [...new Set([...(previous._worst_voted_by || []), ...(hero._worst_voted_by || [])])]
+                        });
+                    });
+                    baseHeroes = [...heroesByIdentity.values()].map(hero => ({
+                        ...hero,
+                        birth_year: Number.isFinite(hero.birth_year) ? hero.birth_year : null,
+                        death_year: Number.isFinite(hero.death_year) ? hero.death_year : null
+                    }));
+
                     baseHeroes.sort((a, b) => (
                         (b.vote_count || 0) - (a.vote_count || 0) ||
                         String(a.name_ko || '').localeCompare(String(b.name_ko || ''), 'ko') ||
@@ -7383,9 +7448,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     heroCommentCounts.map(item => [String(item._id || ''), Number(item.count) || 0])
                 );
 
-                const heroes = baseHeroes.map(({ _voted_by, _worst_voted_by, ...hero }) => ({
+                const heroes = baseHeroes.map(({ _voted_by, _worst_voted_by, comment_storage_id, ...hero }) => ({
                     ...hero,
-                    comment_count: heroCommentCountMap.get(String(hero._id)) || 0,
+                    comment_count: heroCommentCountMap.get(String(comment_storage_id || hero._id)) || 0,
                     has_voted: _voted_by.includes(voterId),
                     has_worst_voted: _worst_voted_by.includes(voterId)
                 }));
