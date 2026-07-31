@@ -8255,11 +8255,20 @@ app.put('/api/contributions/:id/reject-final', verifyToken, async (req, res) => 
 app.get('/api/activity-logs', async (req, res) => {
     try {
         const limit = Math.min(parseInt(req.query.limit) || 50, 100);
-        const logs = await collections.activityLogs
-            .find({})
-            .sort({ createdAt: -1 })
-            .limit(limit)
-            .toArray();
+        const [notices, regularLogs] = await Promise.all([
+            collections.activityLogs
+                .find({ type: 'notice' })
+                .sort({ createdAt: -1 })
+                .toArray(),
+            collections.activityLogs
+                .find({ type: { $ne: 'notice' } })
+                .sort({ createdAt: -1 })
+                .limit(limit)
+                .toArray()
+        ]);
+        const logs = [...notices, ...regularLogs].sort((a, b) => (
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        ));
         res.json(logs);
     } catch (error) {
         res.status(500).json({ message: '액티비티 로그 조회 실패', error: error.message });

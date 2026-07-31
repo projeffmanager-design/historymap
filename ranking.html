@@ -2211,40 +2211,58 @@
             transform: translateY(-50%);
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 3px;
             min-width: 0;
         }
         .ranking-current-user {
-            display: inline-flex;
-            align-items: center;
-            min-height: 34px;
+            display: block;
             max-width: 180px;
-            padding: 0 11px;
-            border: 1px solid rgba(220, 185, 118, 0.24);
-            border-radius: 6px;
-            background: rgba(220, 185, 118, 0.08);
-            color: #eadfc8;
-            font-size: 12px;
-            font-weight: 700;
+            padding: 0 6px;
+            color: #8a9aaa;
+            font-family: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0.02em;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
         .ranking-auth-btn {
-            min-height: 34px;
-            padding: 0 12px;
-            border: 1px solid rgba(140, 170, 188, 0.38);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            padding: 4px 11px;
             border-radius: 6px;
-            background: rgba(55, 82, 99, 0.5);
-            color: #dcebf2;
-            font: inherit;
-            font-size: 12px;
-            font-weight: 800;
+            font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif;
+            font-size: 11px;
+            font-weight: 500;
             cursor: pointer;
             white-space: nowrap;
+            transition: background 0.2s, color 0.2s, border-color 0.2s;
         }
-        .ranking-auth-btn:hover {
-            background: rgba(72, 105, 124, 0.68);
+        .ranking-auth-btn.login {
+            border: 1px solid rgba(100,145,190,0.28);
+            background: rgba(50,75,105,0.45);
+            color: #90b4d4;
+        }
+        .ranking-auth-btn.login:hover {
+            border-color: rgba(130,175,220,0.4);
+            background: rgba(70,100,140,0.55);
+            color: #bdd4ea;
+        }
+        .ranking-auth-btn.logout {
+            border: 1px solid rgba(170,75,75,0.22);
+            background: rgba(55,28,28,0.4);
+            color: #b88080;
+            font-weight: 400;
+        }
+        .ranking-auth-btn.logout:hover {
+            background: rgba(80,40,40,0.55);
+            color: #e8a8a8;
+        }
+        .ranking-auth-btn svg {
+            flex-shrink: 0;
         }
         #contentContainer {
             width: min(1320px, calc(100% - 36px));
@@ -2572,13 +2590,19 @@
             }
             .ranking-current-user {
                 max-width: 92px;
-                padding: 0 8px;
+                padding: 0 3px;
             }
             .ranking-account {
                 gap: 5px;
             }
             .ranking-auth-btn {
-                padding: 0 9px;
+                width: 34px;
+                height: 34px;
+                padding: 0;
+                border-radius: 8px;
+            }
+            .ranking-auth-label {
+                display: none;
             }
             .map-link-long {
                 display: none;
@@ -3077,11 +3101,14 @@
 <body>
     <!-- 🚩 [추가] 팝업 전용 헤더 -->
     <div class="popup-header">
-        <a href="index.html" class="map-link-btn">🗺 지도로 이동</span></a>
+        <a href="index.html" class="map-link-btn">🗺 지도<span class="map-link-long">로 이동</span></a>
         <img src="/public/assets/ui/koreamanri-logo-white-horizontal.png" alt="고려만리지도" class="ranking-logo">
         <div class="ranking-account" aria-label="로그인 정보">
-            <span id="rankingCurrentUser" class="ranking-current-user">👤 확인 중</span>
-            <button type="button" id="rankingAuthBtn" class="ranking-auth-btn">로그인</button>
+            <span id="rankingCurrentUser" class="ranking-current-user">확인 중</span>
+            <button type="button" id="rankingAuthBtn" class="ranking-auth-btn login" title="로그인" aria-label="로그인">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v10"/><path d="M6.4 5.6a9 9 0 1 0 11.2 0"/></svg>
+                <span id="rankingAuthLabel" class="ranking-auth-label">로그인</span>
+            </button>
         </div>
     </div>
     
@@ -3484,14 +3511,27 @@
             const auth = getRankingAuthInfo();
             const userEl = document.getElementById('rankingCurrentUser');
             const authBtn = document.getElementById('rankingAuthBtn');
-            if (!userEl || !authBtn) return;
+            const authLabel = document.getElementById('rankingAuthLabel');
+            if (!userEl || !authBtn || !authLabel) return;
 
             const username = auth.username || '방문자';
-            userEl.textContent = `👤 ${username}${auth.isGuest ? ' (게스트)' : ''}`;
+            const isCompact = window.matchMedia('(max-width: 920px)').matches;
+            const position = auth.isGuest
+                ? ''
+                : normalizePosition(String(auth.position || localStorage.getItem('lastKnownPosition') || '').trim());
+            userEl.textContent = isCompact
+                ? `${username}님`
+                : `${position ? `${position} ` : ''}${username}님`;
             userEl.title = auth.isGuest ? `${username} (게스트)` : username;
-            authBtn.textContent = auth.isGuest || !auth.username ? '로그인' : '로그아웃';
-            authBtn.title = auth.isGuest || !auth.username ? '계정으로 로그인' : `${username} 계정 로그아웃`;
+            const shouldLogin = auth.isGuest || !auth.username;
+            authLabel.textContent = shouldLogin ? '로그인' : '로그아웃';
+            authBtn.classList.toggle('login', shouldLogin);
+            authBtn.classList.toggle('logout', !shouldLogin);
+            authBtn.title = shouldLogin ? '계정으로 로그인' : `${username} 계정 로그아웃`;
+            authBtn.setAttribute('aria-label', shouldLogin ? '로그인' : '로그아웃');
         }
+
+        window.addEventListener('resize', updateRankingAuthBar);
 
         async function handleRankingAuthAction() {
             const auth = getRankingAuthInfo();
