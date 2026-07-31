@@ -1178,7 +1178,8 @@
             padding: 9px 16px;
             font-size: 13px;
         }
-        .hero-detail-edit-btn {
+        .hero-detail-edit-btn,
+        .hero-detail-copy-link-btn {
             margin-left: auto;
             padding: 9px 16px;
             border: 1px solid rgba(90,160,180,0.5);
@@ -1187,9 +1188,20 @@
             color: #bfe5ef;
             font-size: 13px;
             font-weight: 700;
+            cursor: pointer;
         }
-        .hero-detail-edit-btn:hover {
+        .hero-detail-copy-link-btn {
+            margin-left: 0;
+            border-color: rgba(226,189,104,0.48);
+            background: rgba(226,189,104,0.12);
+            color: #e7c76f;
+        }
+        .hero-detail-edit-btn:hover,
+        .hero-detail-copy-link-btn:hover {
             background: rgba(90,160,180,0.3);
+        }
+        .hero-detail-copy-link-btn:hover {
+            background: rgba(226,189,104,0.22);
         }
         .hero-detail-admin-form {
             display: grid;
@@ -3058,6 +3070,7 @@
         let _heroVoteGameSeenCount = 0;
         let _heroVoteGameRequestId = 0;
         let _heroVoteGameVoting = false;
+        let _heroVoteGameDeepLinkId = '';
         const CONTRIBUTIONS_PAGE_SIZE = 15;
         let _contributionCurrentPage = 1;
         let _clientContribsCache = null;
@@ -3805,10 +3818,60 @@
             return available;
         }
 
+        function getDeepLinkedHeroId() {
+            const params = new URLSearchParams(window.location.search);
+            const requestedHeroId = String(params.get('heroId') || '').trim();
+            const requestedHero = String(params.get('hero') || '').trim();
+            if ((!requestedHeroId && !requestedHero) || !Array.isArray(_clientHeroRankingsCache)) return '';
+
+            const normalizedRequest = requestedHero.replace(/\s+/g, '').toLocaleLowerCase('ko-KR');
+            const matchedHero = _clientHeroRankingsCache.find(hero => String(hero?._id || '') === requestedHeroId)
+                || _clientHeroRankingsCache.find(hero => String(hero?._id || '') === requestedHero)
+                || _clientHeroRankingsCache.find(hero => (
+                    String(hero?.name_ko || '').replace(/\s+/g, '').toLocaleLowerCase('ko-KR') === normalizedRequest
+                ));
+            return matchedHero ? String(matchedHero._id || '') : '';
+        }
+
+        function buildHeroDeepLink(heroId, heroName) {
+            const url = new URL('https://www.koreamanri.com/ranking.html');
+            if (heroName) url.searchParams.set('hero', String(heroName));
+            if (heroId) url.searchParams.set('heroId', String(heroId));
+            return url.toString();
+        }
+
+        async function copyHeroDeepLink(button) {
+            if (!button) return;
+            const link = buildHeroDeepLink(button.dataset.heroId, button.dataset.heroName);
+            try {
+                if (navigator.clipboard?.writeText) {
+                    await navigator.clipboard.writeText(link);
+                } else {
+                    const textarea = document.createElement('textarea');
+                    textarea.value = link;
+                    textarea.style.position = 'fixed';
+                    textarea.style.opacity = '0';
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    document.execCommand('copy');
+                    textarea.remove();
+                }
+                button.textContent = '✓ 딥링크 복사됨';
+                setTimeout(() => {
+                    if (button) button.textContent = '🔗 딥링크 복사';
+                }, 1800);
+            } catch (error) {
+                console.error('딥링크 복사 실패:', error);
+                window.prompt('아래 딥링크를 복사하세요.', link);
+            }
+        }
+
         function openHeroVoteGameOnce() {
             if (_heroVoteGameAutoOpened || !Array.isArray(_clientHeroRankingsCache)) return;
             _heroVoteGameAutoOpened = true;
-            _heroVoteGameDeck = buildHeroVoteGameDeck();
+            const deepLinkedHeroId = getDeepLinkedHeroId();
+            _heroVoteGameDeepLinkId = deepLinkedHeroId;
+            _heroVoteGameDeck = deepLinkedHeroId ? [deepLinkedHeroId] : buildHeroVoteGameDeck();
             _heroVoteGameSeenCount = 0;
             const modal = document.getElementById('heroVoteGame');
             if (!modal) return;
@@ -3834,6 +3897,25 @@
                 const button = document.getElementById(id);
                 if (button) button.disabled = disabled;
             });
+        }
+
+        function setHeroVoteGameChoiceState(heroId) {
+            const id = String(heroId || '');
+            const heroButton = document.getElementById('heroVoteGameHero');
+            const villainButton = document.getElementById('heroVoteGameVillain');
+            const skipButton = document.getElementById('heroVoteGameSkip');
+            const heroVoted = _heroVotedSet.has(id);
+            const villainVoted = _heroWorstVotedSet.has(id);
+
+            if (heroButton) {
+                heroButton.disabled = heroVoted;
+                heroButton.textContent = heroVoted ? '✓ 영웅 투표 완료' : '🦸 영웅';
+            }
+            if (villainButton) {
+                villainButton.disabled = villainVoted;
+                villainButton.textContent = villainVoted ? '✓ 빌런 투표 완료' : '😈 빌런';
+            }
+            if (skipButton) skipButton.disabled = false;
         }
 
         function renderHeroVoteGameComments(heroId, comments) {
@@ -3883,7 +3965,11 @@
             if (!content || !progress) return;
 
             let nextId = _heroVoteGameDeck.pop() || '';
-            while (nextId && (_heroVotedSet.has(nextId) || _heroWorstVotedSet.has(nextId))) {
+            while (
+                nextId &&
+                nextId !== _heroVoteGameDeepLinkId &&
+                (_heroVotedSet.has(nextId) || _heroWorstVotedSet.has(nextId))
+            ) {
                 nextId = _heroVoteGameDeck.pop() || '';
             }
             if (!nextId) {
@@ -3959,7 +4045,7 @@
                     ${historyHtml ? `<div class="hero-game-history">${historyHtml}</div>` : ''}
                 `;
                 renderHeroVoteGameComments(nextId, data.comments || []);
-                setHeroVoteGameButtonsDisabled(false);
+                setHeroVoteGameChoiceState(nextId);
             } catch (error) {
                 if (requestId !== _heroVoteGameRequestId) return;
                 console.error('랜덤 영웅 정보 조회 실패:', error);
@@ -4328,7 +4414,10 @@
                     <div class="hero-detail-actions">
                         <button type="button" class="hero-support-btn hero-detail-vote-btn${voted ? ' is-voted' : ''}" data-hero-id="${escapeHTML(heroId)}" ${voted ? 'disabled' : ''}>영웅으로 투표</button>
                         <button type="button" class="hero-support-btn worst hero-detail-worst-vote-btn${worstVoted ? ' is-voted' : ''}" data-hero-id="${escapeHTML(heroId)}" ${worstVoted ? 'disabled' : ''}>빌런으로 투표</button>
-                        ${isAdmin ? `<button type="button" class="hero-detail-edit-btn" data-hero-id="${escapeHTML(heroId)}">✏️ 바로 편집</button>` : ''}
+                        ${isAdmin ? `
+                            <button type="button" class="hero-detail-edit-btn" data-hero-id="${escapeHTML(heroId)}">✏️ 바로 편집</button>
+                            <button type="button" class="hero-detail-copy-link-btn" data-hero-id="${escapeHTML(heroId)}" data-hero-name="${escapeHTML(hero.name_ko || '')}">🔗 딥링크 복사</button>
+                        ` : ''}
                     </div>
                     <div class="hero-detail-desc">${escapeHTML(hero.description || '설명이 아직 없습니다.')}</div>
                     <h3 style="color:#f0e2c0;margin:18px 0 8px;">행적</h3>
@@ -4429,6 +4518,11 @@
             const editButton = event.target.closest('.hero-detail-edit-btn');
             if (editButton) {
                 openHeroAdminEditor(editButton.dataset.heroId);
+                return;
+            }
+            const copyLinkButton = event.target.closest('.hero-detail-copy-link-btn');
+            if (copyLinkButton) {
+                copyHeroDeepLink(copyLinkButton);
                 return;
             }
             const cancelButton = event.target.closest('.hero-detail-edit-cancel');

@@ -8918,6 +8918,9 @@ body.force-mobile .marker-type-selector button {
             <div class="hero-sidebar-header">
                 <span class="hero-sidebar-header-title">👤 인물 상세</span>
                 <div style="display:flex; align-items:center; gap:6px;">
+                    <button class="hero-admin-edit-btn visible" id="heroShareLinkBtn"
+                        style="margin:0; width:auto; padding:5px 10px; font-size:11px;"
+                        title="이 인물의 평가 링크 복사">🔗 평가 링크</button>
                     <button class="hero-admin-edit-btn" id="heroSidebarEditBtn" style="margin:0; width:auto; padding:5px 10px; font-size:11px;">✏️ 수정</button>
                     <button class="hero-close-btn" id="heroSidebarClose" title="닫기">✕</button>
                 </div>
@@ -28224,6 +28227,23 @@ kingSelect.addEventListener('change', () => {
                 document.getElementById('heroYears').textContent = `${by} — ${dy}`;
                 document.getElementById('heroDesc').textContent = hero.description || '';
 
+                // 특정 인물의 상세·투표 화면을 바로 여는 공유 링크
+                const shareBtn = document.getElementById('heroShareLinkBtn');
+                if (shareBtn) {
+                    shareBtn.onclick = async () => {
+                        const shareUrl = new URL(window.location.href);
+                        shareUrl.search = '';
+                        shareUrl.hash = '';
+                        shareUrl.searchParams.set('person', String(hero._id));
+                        try {
+                            await navigator.clipboard.writeText(shareUrl.toString());
+                            _showHeroToast('🔗 인물 평가 링크를 복사했습니다.');
+                        } catch (_) {
+                            window.prompt('아래 인물 평가 링크를 복사하세요.', shareUrl.toString());
+                        }
+                    };
+                }
+
                 // 국가/세력 배지
                 const badge = document.getElementById('heroFactionBadge');
                 if (hero.faction) {
@@ -29339,6 +29359,17 @@ kingSelect.addEventListener('change', () => {
         };
     })();
     window.heroSystem = heroSystem;
+
+    // /?person=인물ID — 공유받은 평가 링크로 접속하면 인물 상세를 바로 연다.
+    (() => {
+        const personId = new URLSearchParams(window.location.search).get('person');
+        if (!personId) return;
+        setTimeout(() => {
+            if (window.heroSystem && typeof window.heroSystem.openSidebar === 'function') {
+                window.heroSystem.openSidebar(personId);
+            }
+        }, 0);
+    })();
 
     // updateMap 호출 시 영웅 마커도 갱신 (간단한 래핑 방식)
     (function() {
