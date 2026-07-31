@@ -894,6 +894,12 @@
             border-top: 1px solid rgba(226,189,104,0.16);
             background: rgba(7,11,16,0.92);
         }
+        .hero-game-vote-dock {
+            grid-column: 1 / -1;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
         .hero-game-comments {
             grid-column: 1 / -1;
             min-width: 0;
@@ -1129,16 +1135,42 @@
             cursor: pointer;
         }
         @media (max-width: 600px) {
-            .hero-vote-game { padding: 0; }
+            .hero-vote-game {
+                display: none;
+                padding: 0;
+                overflow-x: hidden;
+                overflow-y: auto;
+                overscroll-behavior-y: contain;
+                -webkit-overflow-scrolling: touch;
+                backdrop-filter: none;
+            }
+            .hero-vote-game.open {
+                display: block;
+            }
             .hero-vote-game-card {
                 width: 100%;
-                height: 100dvh;
+                height: auto;
+                min-height: 100dvh;
                 max-height: none;
+                padding-bottom: calc(132px + env(safe-area-inset-bottom));
+                box-sizing: border-box;
+                overflow: visible;
                 border: 0;
                 border-radius: 0;
             }
+            .hero-vote-game-close {
+                position: fixed;
+                top: max(10px, env(safe-area-inset-top));
+                right: 10px;
+            }
             .hero-vote-game-head { padding: 14px 62px 10px 16px; }
-            .hero-vote-game-content { padding: 16px; }
+            .hero-vote-game-content {
+                flex: none;
+                min-height: auto;
+                padding: 16px;
+                overflow: visible;
+                overscroll-behavior: auto;
+            }
             .hero-game-profile {
                 grid-template-columns: 104px minmax(0, 1fr);
                 gap: 14px;
@@ -1149,10 +1181,39 @@
             .hero-game-history-item { grid-template-columns: 72px 1fr; }
             .hero-vote-game-actions {
                 gap: 8px;
-                padding: 10px 12px max(12px, env(safe-area-inset-bottom));
+                padding: 10px 12px 18px;
             }
-            .hero-game-comments-list { max-height: 74px; }
-            .hero-game-vote { min-height: 58px; font-size: 16px; }
+            .hero-game-vote-dock {
+                position: fixed;
+                right: 0;
+                bottom: 0;
+                left: 0;
+                z-index: 6;
+                grid-template-rows: 58px 36px;
+                gap: 8px;
+                padding: 10px 12px max(10px, env(safe-area-inset-bottom));
+                height: auto;
+                min-height: 0;
+                max-height: calc(122px + env(safe-area-inset-bottom));
+                box-sizing: border-box;
+                border-top: 1px solid rgba(226,189,104,0.3);
+                background: rgba(7,11,16,0.97);
+                box-shadow: 0 -10px 28px rgba(0,0,0,0.42);
+                backdrop-filter: blur(12px);
+            }
+            .hero-game-comments-list {
+                max-height: none;
+                overflow: visible;
+            }
+            .hero-game-vote {
+                height: 58px;
+                min-height: 58px;
+                font-size: 16px;
+            }
+            .hero-game-skip {
+                height: 36px;
+                min-height: 36px;
+            }
         }
         .hero-rank-row {
             cursor: pointer;
@@ -3156,9 +3217,11 @@
                     </div>
                     <div id="heroVoteGameCommentForm"></div>
                 </section>
-                <button type="button" id="heroVoteGameHero" class="hero-game-vote hero">🦸 영웅</button>
-                <button type="button" id="heroVoteGameVillain" class="hero-game-vote villain">😈 빌런</button>
-                <button type="button" id="heroVoteGameSkip" class="hero-game-skip">Pass</button>
+                <div class="hero-game-vote-dock">
+                    <button type="button" id="heroVoteGameHero" class="hero-game-vote hero">🦸 영웅</button>
+                    <button type="button" id="heroVoteGameVillain" class="hero-game-vote villain">😈 빌런</button>
+                    <button type="button" id="heroVoteGameSkip" class="hero-game-skip">Pass</button>
+                </div>
             </footer>
         </section>
     </div>
@@ -4055,7 +4118,13 @@
             _heroVoteGameAutoOpened = true;
             const deepLinkedHeroId = getDeepLinkedHeroId();
             _heroVoteGameDeepLinkId = deepLinkedHeroId;
-            _heroVoteGameDeck = deepLinkedHeroId ? [deepLinkedHeroId] : buildHeroVoteGameDeck();
+            _heroVoteGameDeck = buildHeroVoteGameDeck();
+            if (deepLinkedHeroId) {
+                // pop()으로 꺼내므로 딥링크 인물을 마지막에 넣어 첫 카드로 보여준다.
+                // 이후에는 남아 있는 무작위 후보가 자연스럽게 이어진다.
+                _heroVoteGameDeck = _heroVoteGameDeck.filter(id => id !== deepLinkedHeroId);
+                _heroVoteGameDeck.push(deepLinkedHeroId);
+            }
             _heroVoteGameSeenCount = 0;
             const modal = document.getElementById('heroVoteGame');
             if (!modal) return;
