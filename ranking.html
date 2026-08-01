@@ -772,10 +772,12 @@
             position: relative;
             display: flex;
             flex-direction: column;
+            box-sizing: border-box;
             width: min(720px, 100%);
-            max-height: none;
+            height: calc(100dvh - 36px);
+            max-height: calc(100dvh - 36px);
             margin: auto 0;
-            overflow: visible;
+            overflow: hidden;
             border: 1px solid rgba(226,189,104,0.48);
             border-radius: 18px;
             background:
@@ -820,6 +822,14 @@
             margin-top: 4px;
             color: #8fa0b0;
             font-size: 12px;
+        }
+        .hero-vote-game-scroll {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-x: hidden;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            scrollbar-gutter: stable;
         }
         .hero-vote-game-content {
             flex: none;
@@ -889,6 +899,29 @@
             line-height: 1.75;
             white-space: pre-line;
         }
+        .hero-game-description.is-collapsed {
+            display: -webkit-box;
+            overflow: hidden;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 4;
+            line-clamp: 4;
+        }
+        .hero-game-description-toggle {
+            display: block;
+            margin: 8px 0 0 auto;
+            padding: 6px 10px;
+            border: 1px solid rgba(226,189,104,0.34);
+            border-radius: 7px;
+            background: rgba(226,189,104,0.08);
+            color: #e7c76f;
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .hero-game-description-toggle:hover {
+            background: rgba(226,189,104,0.16);
+        }
+        .hero-game-description-toggle[hidden] { display: none; }
         .hero-game-history {
             display: grid;
             gap: 7px;
@@ -921,6 +954,7 @@
         .hero-game-comments {
             grid-column: 1 / -1;
             min-width: 0;
+            padding: 0 22px 16px;
         }
         .hero-game-comments-head {
             display: flex;
@@ -1157,7 +1191,9 @@
             display: flex;
             justify-content: center;
             width: 100%;
+            height: 50px;
             min-height: 50px;
+            line-height: 0;
             overflow: hidden;
         }
         @media (max-width: 600px) {
@@ -1178,11 +1214,18 @@
                 height: auto;
                 min-height: 100dvh;
                 max-height: none;
-                padding-bottom: calc(132px + env(safe-area-inset-bottom));
+                padding-bottom: calc(182px + env(safe-area-inset-bottom));
                 box-sizing: border-box;
                 overflow: visible;
                 border: 0;
                 border-radius: 0;
+            }
+            .hero-vote-game-scroll {
+                flex: none;
+                min-height: auto;
+                overflow: visible;
+                overscroll-behavior: auto;
+                scrollbar-gutter: auto;
             }
             .hero-vote-game-close {
                 position: fixed;
@@ -1205,27 +1248,42 @@
             .hero-game-name { font-size: 27px; }
             .hero-game-description { margin-top: 15px; padding: 12px; font-size: 13px; }
             .hero-game-history-item { grid-template-columns: 72px 1fr; }
+            .hero-game-comments { padding: 0 12px 14px; }
             .hero-vote-game-actions {
                 gap: 8px;
-                padding: 10px 12px 18px;
+                padding: 0;
             }
             .hero-game-vote-dock {
                 position: fixed;
                 right: 0;
-                bottom: 0;
+                bottom: calc(50px + env(safe-area-inset-bottom));
                 left: 0;
                 z-index: 6;
                 grid-template-rows: 58px 36px;
                 gap: 8px;
-                padding: 10px 12px max(10px, env(safe-area-inset-bottom));
+                padding: 10px 12px;
                 height: auto;
                 min-height: 0;
-                max-height: calc(122px + env(safe-area-inset-bottom));
+                max-height: 122px;
                 box-sizing: border-box;
                 border-top: 1px solid rgba(226,189,104,0.3);
                 background: rgba(7,11,16,0.97);
                 box-shadow: 0 -10px 28px rgba(0,0,0,0.42);
                 backdrop-filter: blur(12px);
+            }
+            .hero-game-adfit {
+                position: fixed;
+                right: 0;
+                bottom: 0;
+                left: 0;
+                z-index: 7;
+                align-items: flex-start;
+                height: calc(50px + env(safe-area-inset-bottom));
+                min-height: calc(50px + env(safe-area-inset-bottom));
+                padding-bottom: env(safe-area-inset-bottom);
+                box-sizing: border-box;
+                border-top: 1px solid rgba(226,189,104,0.2);
+                background: rgba(7,11,16,0.99);
             }
             .hero-game-comments-list {
                 max-height: none;
@@ -3331,10 +3389,10 @@
                 <strong id="heroVoteGameTitle">영웅인가, 빌런인가?</strong>
                 <div id="heroVoteGameProgress" class="hero-vote-game-progress">랜덤 인물을 불러오는 중...</div>
             </header>
-            <div id="heroVoteGameContent" class="hero-vote-game-content">
-                <div style="padding:40px 0;text-align:center;color:#8fa0b0;">인물 정보를 불러오는 중...</div>
-            </div>
-            <footer class="hero-vote-game-actions">
+            <div class="hero-vote-game-scroll">
+                <div id="heroVoteGameContent" class="hero-vote-game-content">
+                    <div style="padding:40px 0;text-align:center;color:#8fa0b0;">인물 정보를 불러오는 중...</div>
+                </div>
                 <section id="heroVoteGameComments" class="hero-game-comments" aria-label="사관들의 인물평">
                     <div class="hero-game-comments-head">
                         <span>사관들의 인물평</span>
@@ -3345,6 +3403,8 @@
                     </div>
                     <div id="heroVoteGameCommentForm"></div>
                 </section>
+            </div>
+            <footer class="hero-vote-game-actions">
                 <div class="hero-game-vote-dock">
                     <button type="button" id="heroVoteGameHero" class="hero-game-vote hero">🦸 영웅</button>
                     <button type="button" id="heroVoteGameVillain" class="hero-game-vote villain">😈 빌런</button>
@@ -5065,22 +5125,9 @@
                 const hero = data.hero || {};
                 const cachedHero = (Array.isArray(_clientHeroRankingsCache) ? _clientHeroRankingsCache : [])
                     .find(item => String(item._id) === nextId) || {};
-                const positions = Array.isArray(data.positions) ? data.positions : [];
                 const imageUrl = hero.illustration_url || hero.avatar_url || cachedHero.avatar_url || '';
                 const years = `${formatHeroYear(hero.birth_year ?? cachedHero.birth_year)} ~ ${formatHeroYear(hero.death_year ?? cachedHero.death_year)}`;
                 const title = hero.title && !isDuplicateHeroDetailText(hero.title, hero.description) ? hero.title : '';
-                const historyHtml = positions.slice(0, 5).map(position => {
-                    const distinctEventTitle = isDuplicateHeroDetailText(position.event_title, hero.description, hero.title)
-                        ? ''
-                        : (position.event_title || '');
-                    const eventTitle = distinctEventTitle || (position.type !== 'STAY' ? position.type : '') || position.location_name || '';
-                    return `
-                        <div class="hero-game-history-item">
-                            <strong>${escapeHTML(formatHeroYear(position.year ?? position.start_year))}</strong>
-                            <span>${escapeHTML(eventTitle)}</span>
-                        </div>
-                    `;
-                }).join('');
                 const cardRenderTimer = startRankingPerf('랜덤 카드 DOM 렌더', { 인물ID: nextId });
                 content.innerHTML = `
                     <div class="hero-game-profile">
@@ -5098,9 +5145,18 @@
                             ${title ? `<div class="hero-game-title">${escapeHTML(title)}</div>` : ''}
                         </div>
                     </div>
-                    <div class="hero-game-description">${escapeHTML(hero.description || '등록된 인물 설명이 없습니다.')}</div>
-                    ${historyHtml ? `<div class="hero-game-history">${historyHtml}</div>` : ''}
+                    <div class="hero-game-description is-collapsed">${escapeHTML(hero.description || '등록된 인물 설명이 없습니다.')}</div>
+                    <button type="button" class="hero-game-description-toggle" aria-expanded="false" hidden>전체보기</button>
                 `;
+                const description = content.querySelector('.hero-game-description');
+                const descriptionToggle = content.querySelector('.hero-game-description-toggle');
+                if (description && descriptionToggle) {
+                    requestAnimationFrame(() => {
+                        if (description.scrollHeight > description.clientHeight + 2) {
+                            descriptionToggle.hidden = false;
+                        }
+                    });
+                }
                 renderHeroVoteGameComments(nextId, data.comments || []);
                 setHeroVoteGameChoiceState(nextId);
                 endRankingPerf(cardRenderTimer, { 인물: hero.name_ko || cachedHero.name_ko || '' });
@@ -5321,6 +5377,19 @@
         document.getElementById('heroVoteGameHero')?.addEventListener('click', () => submitHeroVoteGame('hero'));
         document.getElementById('heroVoteGameVillain')?.addEventListener('click', () => submitHeroVoteGame('villain'));
         document.getElementById('heroVoteGameSkip')?.addEventListener('click', showNextHeroVoteGameCard);
+        document.getElementById('heroVoteGameContent')?.addEventListener('click', event => {
+            const toggle = event.target.closest('.hero-game-description-toggle');
+            if (!toggle) return;
+            const description = toggle.previousElementSibling;
+            if (!description?.classList.contains('hero-game-description')) return;
+            const willExpand = description.classList.contains('is-collapsed');
+            description.classList.toggle('is-collapsed', !willExpand);
+            toggle.textContent = willExpand ? '접기' : '전체보기';
+            toggle.setAttribute('aria-expanded', willExpand ? 'true' : 'false');
+            if (!willExpand) {
+                description.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        });
         document.getElementById('heroVoteGameComments')?.addEventListener('submit', event => {
             const form = event.target.closest('.hero-detail-comment-form');
             if (!form) return;
