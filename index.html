@@ -9345,9 +9345,13 @@ body.force-mobile .marker-type-selector button {
                         <option value="general">장군</option><option value="civilian">문관</option><option value="hojok">호족</option>
                         <option value="khan">칸</option><option value="brigand">도적</option>
                     </select>
-                    <select class="hero-admin-input" id="heroAdminFactionFilter" onchange="heroSystem._applyAdminFilters()">
-                        <option value="">모든 국가/세력</option>
-                    </select>
+                    <div>
+                        <input class="hero-admin-input" id="heroAdminFactionFilter" list="heroAdminFactionOptions"
+                            placeholder="국가/세력명 검색" autocomplete="off"
+                            oninput="heroSystem._searchAdminFilters()" onchange="heroSystem._applyAdminFilters()"
+                            style="width:100%;box-sizing:border-box;">
+                        <datalist id="heroAdminFactionOptions"></datalist>
+                    </div>
                     <input class="hero-admin-input" id="heroAdminStartYearFilter" type="number" placeholder="등장 연도 시작" onchange="heroSystem._applyAdminFilters()">
                     <div style="display:flex;gap:6px;">
                         <input class="hero-admin-input" id="heroAdminEndYearFilter" type="number" placeholder="등장 연도 끝" style="min-width:0;flex:1;" onchange="heroSystem._applyAdminFilters()">
@@ -9388,7 +9392,7 @@ body.force-mobile .marker-type-selector button {
                     <table class="hero-admin-table" style="min-width:1180px;width:100%;">
                         <thead style="position:sticky;top:0;background:#1b1205;z-index:1;">
                             <tr>
-                                <th>국가</th><th>이름</th><th>한자</th><th>칭호</th><th>유형</th><th>시작</th><th>종료</th><th>설명</th>
+                                <th>국가</th><th>이름</th><th>한자</th><th>칭호</th><th>연호</th><th>유형</th><th>시작</th><th>종료</th><th>설명</th>
                             </tr>
                         </thead>
                         <tbody id="heroBulkTableBody"></tbody>
@@ -28759,6 +28763,7 @@ kingSelect.addEventListener('change', () => {
                     <td><input class="hero-admin-input hbt-name" value="${escapeHeroAdminText(h.name_ko || '')}" style="width:clamp(140px,9vw,200px);box-sizing:border-box;"></td>
                     <td><input class="hero-admin-input hbt-zh" value="${escapeHeroAdminText(h.name_zh || '')}" style="width:clamp(90px,6vw,130px);box-sizing:border-box;"></td>
                     <td><input class="hero-admin-input hbt-title" value="${escapeHeroAdminText(h.title || '')}" style="width:clamp(150px,10vw,220px);box-sizing:border-box;"></td>
+                    <td><input class="hero-admin-input hbt-era-name" value="${escapeHeroAdminText(h.era_name || '')}" style="width:clamp(90px,6vw,130px);box-sizing:border-box;"></td>
                     <td><select class="hero-admin-input hbt-type" style="width:clamp(80px,5vw,100px);box-sizing:border-box;">${typeHtml}</select></td>
                     <td><input class="hero-admin-input hbt-start" type="number" value="${escapeHeroAdminText(start)}" style="width:82px;"></td>
                     <td><input class="hero-admin-input hbt-end" type="number" value="${escapeHeroAdminText(end)}" style="width:82px;"></td>
@@ -28808,6 +28813,7 @@ kingSelect.addEventListener('change', () => {
                 fields: {
                     name_ko: tr.querySelector('.hbt-name')?.value.trim() || '',
                     name_zh: tr.querySelector('.hbt-zh')?.value.trim() || '',
+                    era_name: tr.querySelector('.hbt-era-name')?.value.trim() || '',
                     hero_type: tr.querySelector('.hbt-type')?.value || 'general',
                     faction: tr.querySelector('.hbt-faction')?.value.trim() || '',
                     birth_year: tr.querySelector('.hbt-start')?.value,
@@ -29617,23 +29623,25 @@ kingSelect.addEventListener('change', () => {
         }
 
         function _applyAdminFilters() {
+            clearTimeout(_adminHeroSearchTimer);
             _adminHeroPage = 1;
             loadAdminList(1);
         }
 
+        function _searchAdminFilters() {
+            clearTimeout(_adminHeroSearchTimer);
+            _adminHeroSearchTimer = setTimeout(_applyAdminFilters, 300);
+        }
+
         async function populateHeroAdminFactionFilter() {
-            const select = document.getElementById('heroAdminFactionFilter');
-            if (!select || select.options.length > 1) return;
+            const datalist = document.getElementById('heroAdminFactionOptions');
+            if (!datalist || datalist.children.length) return;
             const countries = await _loadCountries();
-            countries
+            datalist.innerHTML = countries
                 .filter(country => country?.name)
                 .sort((a, b) => String(a.name).localeCompare(String(b.name), 'ko'))
-                .forEach(country => {
-                    const option = document.createElement('option');
-                    option.value = country.name;
-                    option.textContent = country.name;
-                    select.appendChild(option);
-                });
+                .map(country => `<option value="${escapeHeroAdminText(country.name)}"></option>`)
+                .join('');
         }
 
         function _openAdminPanel() {
@@ -29663,6 +29671,7 @@ kingSelect.addEventListener('change', () => {
             _filterAdminRows,
             _searchAdminRows,
             _applyAdminFilters,
+            _searchAdminFilters,
             _filterFaction,
             _applyPendingPos: null  // 지도 클릭 후 콜백, editHero에서 소비
         };

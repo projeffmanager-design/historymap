@@ -3246,14 +3246,15 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     }
                     if (factionFilter) {
                         const escapedFaction = factionFilter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                        const exactFaction = new RegExp(`^${escapedFaction}$`, 'i');
+                        const factionRegex = new RegExp(escapedFaction, 'i');
                         const factionCountryIds = countryDocs
-                            .filter(country => String(country.name || '').normalize('NFKC').toLocaleLowerCase('ko-KR') === factionFilter.toLocaleLowerCase('ko-KR'))
+                            .filter(country => String(country.name || '').normalize('NFKC').toLocaleLowerCase('ko-KR')
+                                .includes(factionFilter.toLocaleLowerCase('ko-KR')))
                             .flatMap(country => countryIdQueryValues(country._id));
                         pipeline.push({
                             $match: {
                                 $or: [
-                                    { 'kings.faction': exactFaction },
+                                    { 'kings.faction': factionRegex },
                                     ...(factionCountryIds.length ? [{ country_id: { $in: factionCountryIds } }] : [])
                                 ]
                             }
