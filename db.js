@@ -63,38 +63,27 @@ async function connectToDatabase() {
             collections.heroPositions = db.collection("hero_positions"); // 🦸 [추가] 영웅 연도별 위치 컬렉션
             collections.heroComments = db.collection("hero_comments");   // 🦸 [추가] 영웅 사관 댓글 컬렉션
 
-            // 🚩 [추가] 지리 공간 인덱스 생성
-            try {
-                // territories 컬렉션에 2dsphere 인덱스 생성
-                await collections.territories.createIndex({ "geometry": "2dsphere" });
-                console.log("✅ Territories collection 2dsphere index created");
-
-                // natural_features 컬렉션에 2dsphere 인덱스 생성
-                await collections.naturalFeatures.createIndex({ "geometry": "2dsphere" });
-                console.log("✅ Natural features collection 2dsphere index created");
-
-                // castle 컬렉션에 2dsphere 인덱스 생성 (location 필드)
-                await collections.castle.createIndex({ "location": "2dsphere" });
-                console.log("✅ Castle collection 2dsphere index created");
-
-                // hero_positions 컬렉션에 2dsphere + 연도 복합 인덱스
-                await collections.heroPositions.createIndex({ "geometry": "2dsphere" });
-                await collections.heroPositions.createIndex({ hero_id: 1, year: 1 });
-                await collections.kings.createIndex({ country_id: 1 }, { name: 'idx_kings_country_id' });
-                await collections.kings.createIndex({ 'kings._id': 1 }, { name: 'idx_kings_figure_id' });
-                await collections.kings.createIndex({ 'kings.person_id': 1 }, { name: 'idx_kings_person_id' });
-                await collections.heroPositions.createIndex(
-                    { hero_id: 1, start_year: 1, year: 1 },
-                    { name: 'idx_hero_positions_hero_start_year' }
-                );
-                await collections.heroComments.createIndex(
-                    { hero_id: 1, createdAt: -1 },
-                    { name: 'idx_hero_comments_hero_created' }
-                );
-                console.log("✅ Hero position indexes created");
-            } catch (indexError) {
-                console.warn("⚠️ Index creation warning (may already exist):", indexError.message);
+            // 인덱스 하나의 충돌/실패가 나머지 인덱스 생성을 막지 않게 개별 처리한다.
+            const indexDefinitions = [
+                [collections.territories, { geometry: '2dsphere' }, {}],
+                [collections.naturalFeatures, { geometry: '2dsphere' }, {}],
+                [collections.castle, { location: '2dsphere' }, {}],
+                [collections.heroPositions, { geometry: '2dsphere' }, {}],
+                [collections.heroPositions, { hero_id: 1, year: 1 }, {}],
+                // kings.country_id는 운영 DB의 기존 idx_country_id를 그대로 사용한다.
+                [collections.kings, { 'kings._id': 1 }, { name: 'idx_kings_figure_id' }],
+                [collections.kings, { 'kings.person_id': 1 }, { name: 'idx_kings_person_id' }],
+                [collections.heroPositions, { hero_id: 1, start_year: 1, year: 1 }, { name: 'idx_hero_positions_hero_start_year' }],
+                [collections.heroComments, { hero_id: 1, createdAt: -1 }, { name: 'idx_hero_comments_hero_created' }]
+            ];
+            for (const [collection, keys, options] of indexDefinitions) {
+                try {
+                    await collection.createIndex(keys, options);
+                } catch (indexError) {
+                    console.warn(`⚠️ ${collection.collectionName} index warning:`, indexError.message);
+                }
             }
+            console.log("✅ Database indexes checked");
 
             return { db, collections };
         } catch (err) {
