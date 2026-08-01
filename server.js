@@ -16,7 +16,7 @@ const { put: blobPut, del: blobDel } = require('@vercel/blob'); // 🎙️ [추�
 const multer = require('multer'); // 🦸 [추가] Hero 이미지 업로드용 Multer
 
 const app = express();
-const port = 3000;
+const port = parseInt(process.env.PORT || '3000', 10) || 3000;
 const BLOCKED_FLAG_URL = [
     'https://png.pngtree.com',
     '/png-clipart/20250215/original/',
@@ -611,6 +611,8 @@ const HERO_COMMENT_COUNTS_CACHE_TTL_MS = 5 * 60 * 1000;
 let heroBaseCache = null;
 let heroBasePayloadCache = null;
 let heroRankingsBaseCache = null;
+const heroRankingPageCache = new Map();
+const heroRankingScopeCache = new Map();
 let heroCommentCountsCache = null;
 let heroCommentCountsLoadPromise = null;
 const heroResultCache = new Map();
@@ -622,6 +624,8 @@ const invalidateHeroCaches = ({ preserveRankings = false } = {}) => {
     adminHeroPageCache.clear();
     adminHeroCountryCache = null;
     if (!preserveRankings) heroRankingsBaseCache = null;
+    heroRankingPageCache.clear();
+    heroRankingScopeCache.clear();
     heroResultCache.clear();
 };
 const getHeroCommentCountMap = async () => {
@@ -660,8 +664,6 @@ const updateHeroRankingsVoteCache = (heroId, voterId, kind, count) => {
     if (!hero) return;
     const isVillain = kind === 'villain';
     hero[isVillain ? 'worst_vote_count' : 'vote_count'] = count;
-    const voterField = isVillain ? '_worst_voted_by' : '_voted_by';
-    if (!hero[voterField].includes(voterId)) hero[voterField].push(voterId);
     heroes.sort((a, b) => (
         (b.vote_count || 0) - (a.vote_count || 0) ||
         String(a.name_ko || '').localeCompare(String(b.name_ko || ''), 'ko') ||
@@ -7540,6 +7542,50 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // 랜덤 카드 다음 후보용: 상세 데이터 없이 ID 10개만 가볍게 반환한다.
+        app.get('/api/hero-rankings/random-batch', async (req, res) => {
+            try {
+                const voterId = getHeroVoteVoterId(req);
+                const limit = Math.min(10, Math.max(1, parseInt(req.query.limit, 10) || 10));
+                const excludedIds = new Set(
+                    String(req.query.exclude || '').split(',').map(value => value.trim()).filter(Boolean).slice(0, 30)
+                );
+                const candidates = await collections.kings.aggregate([
+                    { $match: { 'kings.0': { $exists: true } } },
+                    { $sample: { size: 16 } },
+                    { $unwind: { path: '$kings', includeArrayIndex: 'kingIndex' } },
+                    { $sample: { size: Math.max(40, limit * 4) } },
+                    {
+                        $project: {
+                            country_id: 1,
+                            kingIndex: 1,
+                            source_ref_id: '$kings._id',
+                            voted_by: '$kings.voted_by',
+                            worst_voted_by: '$kings.worst_voted_by'
+                        }
+                    }
+                ]).toArray();
+                const ids = [];
+                const seen = new Set(excludedIds);
+                for (const row of candidates) {
+                    const sourceRefId = row.source_ref_id ? String(row.source_ref_id) : String(row.kingIndex);
+                    const heroId = kingHeroId(String(row.country_id || ''), sourceRefId);
+                    if (seen.has(heroId)) continue;
+                    const heroVoters = Array.isArray(row.voted_by) ? row.voted_by.map(String) : [];
+                    const villainVoters = Array.isArray(row.worst_voted_by) ? row.worst_voted_by.map(String) : [];
+                    if (heroVoters.includes(voterId) || villainVoters.includes(voterId)) continue;
+                    seen.add(heroId);
+                    ids.push(heroId);
+                    if (ids.length >= limit) break;
+                }
+                res.set('Cache-Control', 'private, no-store');
+                res.json({ ids });
+            } catch (error) {
+                console.error('[GET /api/hero-rankings/random-batch] 오류:', error);
+                res.status(500).json({ message: '랜덤 후보 묶음 조회 실패' });
+            }
+        });
+
         // 개인 투표 상태만 반환한다. 공개 랭킹 응답과 분리해 CDN 캐시를 가능하게 한다.
         app.get('/api/hero-rankings/vote-state', async (req, res) => {
             try {
@@ -7594,6 +7640,205 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // 랭킹 첫 화면/검색/페이지용 경량 API. 선택 범위만 DB에서 읽고 현재 화면에
+        // 필요한 인물의 평가글 수만 집계해 전체 공개 API의 cold-start 비용을 피한다.
+        app.get('/api/hero-rankings/page', async (req, res) => {
+            const requestStartedAt = performance.now();
+            const timings = {};
+            const finishStage = (name, startedAt) => {
+                timings[name] = Math.round((performance.now() - startedAt) * 10) / 10;
+            };
+            try {
+                const scope = ['our', 'foreign', 'all'].includes(String(req.query.scope))
+                    ? String(req.query.scope)
+                    : 'our';
+                const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+                const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 15));
+                const query = String(req.query.query || '').trim().toLocaleLowerCase('ko-KR');
+                const sort = ['rank', 'name', 'faction', 'type', 'period', 'vote_count', 'worst_vote_count']
+                    .includes(String(req.query.sort)) ? String(req.query.sort) : 'vote_count';
+                const direction = String(req.query.direction) === 'asc' ? 1 : -1;
+                const cacheKey = [scope, page, limit, query, sort, direction].join('|');
+                const cachedPage = heroRankingPageCache.get(cacheKey);
+                if (cachedPage && Date.now() - cachedPage.at < 60 * 1000) {
+                    const cacheDuration = Math.round((performance.now() - requestStartedAt) * 10) / 10;
+                    res.set('Server-Timing', `cache;dur=${cacheDuration}`);
+                    res.set('X-Hero-Page-Cache', 'HIT');
+                    res.set('Cache-Control', 'public, max-age=15, s-maxage=60, stale-while-revalidate=300');
+                    return res.json(cachedPage.payload);
+                }
+
+                let stageStartedAt = performance.now();
+                const cachedScope = heroRankingScopeCache.get(scope);
+                let heroes;
+                if (cachedScope && Date.now() - cachedScope.at < HERO_RANKINGS_CACHE_TTL_MS) {
+                    heroes = [...cachedScope.heroes];
+                    finishStage('scope_cache_ms', stageStartedAt);
+                } else {
+                const countryDocs = await collections.countries.find({}, {
+                    projection: { _id: 1, name: 1, color: 1, ethnicity: 1 }
+                }).toArray();
+                finishStage('countries_ms', stageStartedAt);
+                const countryMap = new Map(countryDocs.map(country => [String(country._id), country]));
+                const selectedCountryIds = countryDocs
+                    .filter(country => {
+                        const isOur = /동이|東夷/.test(String(country.ethnicity || ''));
+                        return scope === 'all' || (scope === 'our' ? isOur : !isOur);
+                    })
+                    .flatMap(country => [country._id, String(country._id)]);
+
+                stageStartedAt = performance.now();
+                const kingDocs = await collections.kings.find(
+                    scope === 'all' ? {} : { country_id: { $in: selectedCountryIds } },
+                    {
+                        projection: {
+                            country_id: 1,
+                            'kings._id': 1,
+                            'kings.person_id': 1,
+                            'kings.name': 1,
+                            'kings.name_ko': 1,
+                            'kings.name_zh': 1,
+                            'kings.title': 1,
+                            'kings.start': 1,
+                            'kings.end': 1,
+                            'kings.faction': 1,
+                            'kings.faction_color': 1,
+                            'kings.hero_type': 1,
+                            'kings.type': 1,
+                            'kings.source_ref_id': 1,
+                            'kings.avatar_url': 1,
+                            'kings.vote_count': 1,
+                            'kings.worst_vote_count': 1
+                        }
+                    }
+                ).toArray();
+                finishStage('heroes_db_ms', stageStartedAt);
+
+                stageStartedAt = performance.now();
+                const heroesByIdentity = new Map();
+                kingDocs.forEach(doc => {
+                    const countryId = String(doc.country_id || '');
+                    const country = countryMap.get(countryId) || null;
+                    (Array.isArray(doc.kings) ? doc.kings : []).forEach((king, index) => {
+                        const normalized = normalizeKingSchema(king, country, countryId);
+                        const sourceRefId = king._id ? String(king._id) : String(index);
+                        const heroId = kingHeroId(countryId, sourceRefId);
+                        const identityKey = normalized.person_id ? canonicalPersonHeroId(normalized.person_id) : heroId;
+                        const hero = {
+                            _id: heroId,
+                            person_id: normalized.person_id || '',
+                            vote_identity: identityKey,
+                            comment_storage_id: identityKey,
+                            name_ko: normalized.name_ko || king.name || '이름 미상',
+                            name_zh: normalized.name_zh || '',
+                            title: normalized.title || '',
+                            faction: normalized.faction || country?.name || '',
+                            faction_color: normalized.faction_color || country?.color || '#c8860a',
+                            ethnicity: country?.ethnicity || '',
+                            is_our_ethnicity: /동이|東夷/.test(String(country?.ethnicity || '')),
+                            hero_type: normalized.hero_type,
+                            birth_year: normalized.birth_year,
+                            death_year: normalized.death_year,
+                            avatar_url: normalized.avatar_url || '',
+                            vote_count: parseInt(king.vote_count || 0, 10) || 0,
+                            worst_vote_count: parseInt(king.worst_vote_count || 0, 10) || 0
+                        };
+                        const previous = heroesByIdentity.get(identityKey);
+                        if (!previous) {
+                            heroesByIdentity.set(identityKey, hero);
+                            return;
+                        }
+                        const displayHero = (hero.birth_year ?? -Infinity) >= (previous.birth_year ?? -Infinity)
+                            ? hero : previous;
+                        heroesByIdentity.set(identityKey, {
+                            ...displayHero,
+                            person_id: hero.person_id || previous.person_id,
+                            vote_identity: identityKey,
+                            comment_storage_id: identityKey,
+                            birth_year: Math.min(previous.birth_year ?? Infinity, hero.birth_year ?? Infinity),
+                            death_year: Math.max(previous.death_year ?? -Infinity, hero.death_year ?? -Infinity),
+                            vote_count: Math.max(previous.vote_count || 0, hero.vote_count || 0),
+                            worst_vote_count: Math.max(previous.worst_vote_count || 0, hero.worst_vote_count || 0)
+                        });
+                    });
+                });
+                heroes = [...heroesByIdentity.values()].map(hero => ({
+                    ...hero,
+                    birth_year: Number.isFinite(hero.birth_year) ? hero.birth_year : null,
+                    death_year: Number.isFinite(hero.death_year) ? hero.death_year : null
+                }));
+                finishStage('scope_build_ms', stageStartedAt);
+                heroRankingScopeCache.set(scope, { at: Date.now(), heroes });
+                }
+                stageStartedAt = performance.now();
+                if (query) {
+                    heroes = heroes.filter(hero => [
+                        hero.name_ko, hero.name_zh, hero.title, hero.faction,
+                        hero.ethnicity, hero.hero_type, hero.birth_year, hero.death_year
+                    ].filter(value => value !== null && value !== undefined).join(' ')
+                        .toLocaleLowerCase('ko-KR').includes(query));
+                }
+                const numeric = (hero, key, fallback = 0) => Number.isFinite(Number(hero[key])) ? Number(hero[key]) : fallback;
+                heroes.sort((a, b) => {
+                    let comparison = 0;
+                    if (sort === 'rank' || sort === 'vote_count') comparison = numeric(a, 'vote_count') - numeric(b, 'vote_count');
+                    else if (sort === 'worst_vote_count') comparison = numeric(a, 'worst_vote_count') - numeric(b, 'worst_vote_count');
+                    else if (sort === 'period') comparison = numeric(a, 'birth_year', 999999) - numeric(b, 'birth_year', 999999);
+                    else if (sort === 'name') comparison = String(a.name_ko || '').localeCompare(String(b.name_ko || ''), 'ko');
+                    else if (sort === 'faction') comparison = String(a.faction || '').localeCompare(String(b.faction || ''), 'ko');
+                    else if (sort === 'type') comparison = String(a.hero_type || '').localeCompare(String(b.hero_type || ''), 'ko');
+                    return comparison * direction || String(a.name_ko || '').localeCompare(String(b.name_ko || ''), 'ko');
+                });
+                const total = heroes.length;
+                const totalVotes = heroes.reduce((sum, hero) => sum + hero.vote_count, 0);
+                const totalWorstVotes = heroes.reduce((sum, hero) => sum + hero.worst_vote_count, 0);
+                const heroTop3 = [...heroes].sort((a, b) => b.vote_count - a.vote_count).slice(0, 3);
+                const villainTop3 = [...heroes].filter(hero => hero.worst_vote_count > 0)
+                    .sort((a, b) => b.worst_vote_count - a.worst_vote_count).slice(0, 3);
+                const pageItems = heroes.slice((page - 1) * limit, page * limit);
+                finishStage('transform_ms', stageStartedAt);
+
+                stageStartedAt = performance.now();
+                const visibleHeroes = [...new Map(
+                    [...heroTop3, ...villainTop3, ...pageItems].map(hero => [hero.vote_identity, hero])
+                ).values()];
+                const visibleIds = visibleHeroes.map(hero => String(hero.comment_storage_id || hero._id));
+                const commentRows = visibleIds.length ? await collections.heroComments.aggregate([
+                    { $match: { hero_id: { $in: visibleIds } } },
+                    { $group: { _id: '$hero_id', count: { $sum: 1 } } }
+                ]).toArray() : [];
+                const commentCounts = new Map(commentRows.map(row => [String(row._id), Number(row.count) || 0]));
+                const expose = hero => {
+                    const { comment_storage_id, ...publicHero } = hero;
+                    return { ...publicHero, comment_count: commentCounts.get(String(comment_storage_id || hero._id)) || 0 };
+                };
+                finishStage('comments_ms', stageStartedAt);
+                timings.total_ms = Math.round((performance.now() - requestStartedAt) * 10) / 10;
+                console.log('[RankAPI/page]', { scope, page, limit, query: !!query, total, timings });
+                const responsePayload = {
+                    summary: { total, total_votes: totalVotes, total_worst_votes: totalWorstVotes },
+                    page,
+                    limit,
+                    total_pages: Math.max(1, Math.ceil(total / limit)),
+                    hero_top3: heroTop3.map(expose),
+                    villain_top3: villainTop3.map(expose),
+                    items: pageItems.map(expose),
+                    timings
+                };
+                heroRankingPageCache.set(cacheKey, { at: Date.now(), payload: responsePayload });
+                while (heroRankingPageCache.size > 100) {
+                    heroRankingPageCache.delete(heroRankingPageCache.keys().next().value);
+                }
+                res.set('Server-Timing', Object.entries(timings).map(([name, value]) => `${name};dur=${value}`).join(', '));
+                res.set('X-Hero-Page-Cache', 'MISS');
+                res.set('Cache-Control', 'public, max-age=15, s-maxage=60, stale-while-revalidate=300');
+                res.json(responsePayload);
+            } catch (error) {
+                console.error('[GET /api/hero-rankings/page] 오류:', error);
+                res.status(500).json({ message: '영웅 랭킹 페이지 조회 실패' });
+            }
+        });
+
         app.get(['/api/hero-rankings/public', '/api/hero-rankings'], async (req, res) => {
             try {
                 let baseHeroes = heroRankingsBaseCache
@@ -7604,7 +7849,31 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (!baseHeroes) {
                     const [countryDocs, kingDocs] = await Promise.all([
                         collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1, ethnicity: 1 } }).toArray(),
-                        collections.kings.find({}, { projection: { country_id: 1, kings: 1 } }).toArray()
+                        // 공개 랭킹에는 사용자별 투표자 목록이 필요 없다. 큰 배열을 DB에서
+                        // 전송하지 않아 cold cache 응답과 서버 메모리 사용량을 줄인다.
+                        collections.kings.find({}, {
+                            projection: {
+                                country_id: 1,
+                                'kings._id': 1,
+                                'kings.person_id': 1,
+                                'kings.name': 1,
+                                'kings.name_ko': 1,
+                                'kings.name_zh': 1,
+                                'kings.title': 1,
+                                'kings.start': 1,
+                                'kings.end': 1,
+                                'kings.faction': 1,
+                                'kings.faction_color': 1,
+                                'kings.hero_type': 1,
+                                'kings.type': 1,
+                                'kings.source_kind': 1,
+                                'kings.source_ref_id': 1,
+                                'kings.source_country_id': 1,
+                                'kings.avatar_url': 1,
+                                'kings.vote_count': 1,
+                                'kings.worst_vote_count': 1
+                            }
+                        }).toArray()
                     ]);
                     const countryMap = new Map(countryDocs.map(country => [String(country._id), country]));
                     baseHeroes = [];
@@ -7633,9 +7902,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                                 death_year: normalized.death_year,
                                 avatar_url: normalized.avatar_url || '',
                                 vote_count: Number.isFinite(voteCount) ? voteCount : 0,
-                                worst_vote_count: Number.isFinite(worstVoteCount) ? worstVoteCount : 0,
-                                _voted_by: Array.isArray(king.voted_by) ? king.voted_by.map(String) : [],
-                                _worst_voted_by: Array.isArray(king.worst_voted_by) ? king.worst_voted_by.map(String) : []
+                                worst_vote_count: Number.isFinite(worstVoteCount) ? worstVoteCount : 0
                             });
                         });
                     });
@@ -7661,9 +7928,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                             birth_year: Math.min(previous.birth_year ?? Infinity, hero.birth_year ?? Infinity),
                             death_year: Math.max(previous.death_year ?? -Infinity, hero.death_year ?? -Infinity),
                             vote_count: Math.max(previous.vote_count || 0, hero.vote_count || 0),
-                            worst_vote_count: Math.max(previous.worst_vote_count || 0, hero.worst_vote_count || 0),
-                            _voted_by: [...new Set([...(previous._voted_by || []), ...(hero._voted_by || [])])],
-                            _worst_voted_by: [...new Set([...(previous._worst_voted_by || []), ...(hero._worst_voted_by || [])])]
+                            worst_vote_count: Math.max(previous.worst_vote_count || 0, hero.worst_vote_count || 0)
                         });
                     });
                     baseHeroes = [...heroesByIdentity.values()].map(hero => ({
@@ -7684,7 +7949,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 // 평가글 수 전체 집계는 5분간 재사용하고 등록/삭제 때 해당 값만 증분 갱신한다.
                 const heroCommentCountMap = await getHeroCommentCountMap();
 
-                const heroes = baseHeroes.map(({ _voted_by, _worst_voted_by, comment_storage_id, ...hero }) => ({
+                const heroes = baseHeroes.map(({ comment_storage_id, ...hero }) => ({
                     ...hero,
                     comment_count: heroCommentCountMap.get(String(comment_storage_id || hero._id)) || 0
                 }));

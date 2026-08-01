@@ -9,10 +9,8 @@
     <link rel="icon" type="image/jpg" href="https://pds.joongang.co.kr/news/component/htmlphoto_mmdata/200609/htm_20060904073327a000a010-001.JPG">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&family=Yeon+Sung&display=swap" rel="stylesheet">
-    <!-- Added Leaflet.js library for the mini map functionality -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" media="print" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&family=Yeon+Sung&display=swap" onload="this.media='all'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&family=Yeon+Sung&display=swap" rel="stylesheet"></noscript>
     <style>
         /* ── 전역 색상 변수 ── */
         :root {
@@ -1153,6 +1151,14 @@
             color: #8fa0b0;
             font-family: inherit;
             cursor: pointer;
+        }
+        .hero-game-adfit {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: center;
+            width: 100%;
+            min-height: 50px;
+            overflow: hidden;
         }
         @media (max-width: 600px) {
             .hero-vote-game {
@@ -3344,6 +3350,12 @@
                     <button type="button" id="heroVoteGameVillain" class="hero-game-vote villain">😈 빌런</button>
                     <button type="button" id="heroVoteGameSkip" class="hero-game-skip">Pass</button>
                 </div>
+                <div class="hero-game-adfit" aria-label="광고">
+                    <ins class="kakao_ad_area" style="display:none;"
+                         data-ad-unit="DAN-2ajpKphCWyOKcT9J"
+                         data-ad-width="320"
+                         data-ad-height="50"></ins>
+                </div>
             </footer>
         </section>
     </div>
@@ -3385,9 +3397,105 @@
 
     <script>
         const API_BASE_URL = '/api'; // 로컬: localhost:3000/api, Vercel: historymap-psi.vercel.app/api
-        if (window.matchMedia('(max-width: 768px)').matches) {
+        const _rankingPerfEntries = [];
+        const _rankingPerfPageStartedAt = performance.now();
+
+        function startRankingPerf(label, detail = {}) {
+            return { label, detail, startedAt: performance.now() };
+        }
+
+        function endRankingPerf(timer, detail = {}) {
+            if (!timer) return 0;
+            if (timer.ended) return timer.duration || 0;
+            const duration = Math.round((performance.now() - timer.startedAt) * 10) / 10;
+            timer.ended = true;
+            timer.duration = duration;
+            const entry = {
+                단계: timer.label,
+                소요시간_ms: duration,
+                시작_ms: Math.round(timer.startedAt * 10) / 10,
+                ...timer.detail,
+                ...detail
+            };
+            _rankingPerfEntries.push(entry);
+            console.log(`⏱️ [RankPerf] ${timer.label}: ${duration}ms`, entry);
+            return duration;
+        }
+
+        function markRankingPerf(label, detail = {}) {
+            const elapsed = Math.round((performance.now() - _rankingPerfPageStartedAt) * 10) / 10;
+            const entry = { 단계: label, 소요시간_ms: 0, 시작_ms: elapsed, ...detail };
+            _rankingPerfEntries.push(entry);
+            console.log(`📍 [RankPerf] ${label}: 페이지 시작 +${elapsed}ms`, entry);
+        }
+
+        window.rankingPerfReport = () => {
+            console.group('📊 Ranking 성능 측정 전체 기록');
+            console.table(_rankingPerfEntries);
+            const navigation = performance.getEntriesByType('navigation')[0];
+            if (navigation) {
+                console.table([{
+                    DNS_ms: Math.round(navigation.domainLookupEnd - navigation.domainLookupStart),
+                    연결_ms: Math.round(navigation.connectEnd - navigation.connectStart),
+                    TTFB_ms: Math.round(navigation.responseStart - navigation.requestStart),
+                    HTML다운로드_ms: Math.round(navigation.responseEnd - navigation.responseStart),
+                    DOMContentLoaded_ms: Math.round(navigation.domContentLoadedEventEnd),
+                    Load_ms: Math.round(navigation.loadEventEnd)
+                }]);
+            }
+            console.groupEnd();
+            return _rankingPerfEntries.slice();
+        };
+        window.rankingPerfReset = () => { _rankingPerfEntries.length = 0; };
+        markRankingPerf('인라인 스크립트 실행 시작');
+        document.addEventListener('DOMContentLoaded', () => markRankingPerf('DOMContentLoaded'));
+        window.addEventListener('load', () => {
+            markRankingPerf('window load 완료');
+            console.info('💡 [RankPerf] 전체 표 보기: rankingPerfReport() / 기록 초기화: rankingPerfReset()');
+        }, { once: true });
+        const _rankingIsMobile = window.matchMedia('(max-width: 768px)').matches;
+        if (_rankingIsMobile) {
             document.getElementById('ranking-adfit')?.remove();
             document.getElementById('ranking-adfit-left')?.remove();
+        } else {
+            document.getElementById('ranking-mobile-search-adfit')?.remove();
+            document.getElementById('ranking-mobile-hero-detail-adfit')?.remove();
+        }
+
+        let _kakaoAdFitLoading = false;
+        let _rankingAdsObserved = false;
+        function loadKakaoAdFit() {
+            if (_kakaoAdFitLoading || document.querySelector('script[data-ranking-kakao-adfit]')) return;
+            _kakaoAdFitLoading = true;
+            const perfTimer = startRankingPerf('카카오 광고 SDK 지연 로딩');
+            const script = document.createElement('script');
+            script.async = true;
+            script.src = 'https://t1.kakaocdn.net/kas/static/ba.min.js';
+            script.dataset.rankingKakaoAdfit = 'true';
+            script.onload = () => endRankingPerf(perfTimer, { 상태: '완료' });
+            script.onerror = () => {
+                _kakaoAdFitLoading = false;
+                endRankingPerf(perfTimer, { 상태: '실패' });
+            };
+            document.body.appendChild(script);
+        }
+
+        function observeRankingAds() {
+            if (_rankingAdsObserved) return;
+            _rankingAdsObserved = true;
+            const adHosts = [...document.querySelectorAll(
+                '.hero-game-adfit, #ranking-mobile-search-adfit, #ranking-mobile-hero-detail-adfit, #ranking-adfit, #ranking-adfit-left'
+            )];
+            if (!adHosts.length || !('IntersectionObserver' in window)) {
+                window.setTimeout(loadKakaoAdFit, 1500);
+                return;
+            }
+            const observer = new IntersectionObserver(entries => {
+                if (!entries.some(entry => entry.isIntersecting && entry.intersectionRatio > 0)) return;
+                observer.disconnect();
+                loadKakaoAdFit();
+            }, { rootMargin: '80px' });
+            adHosts.forEach(host => observer.observe(host));
         }
         const _rankingUrlToken = new URLSearchParams(window.location.search).get('t');
         if (_rankingUrlToken && !localStorage.getItem('token') && !sessionStorage.getItem('token')) {
@@ -3400,10 +3508,22 @@
         let _clientHeroRankingsCache = null;
         let _clientHeroRankingsCacheTime = 0;
         let _heroRankingsLoadPromise = null;
+        let _heroRankingsLoadPromiseKey = '';
         const HERO_RANKING_PAGE_SIZE = 15;
         let _heroRankingCurrentPage = 1;
         let _heroRankingSortColumn = 'vote_count';
         let _heroRankingSortDirection = 'desc';
+        let _heroRankingServerPayload = null;
+        let _heroRankingLoadedKey = '';
+        let _heroRankingPageRequestId = 0;
+        let _heroRankingSearchTimer = null;
+        let _heroVoteStateCache = null;
+        let _heroVoteStateCacheTime = 0;
+        let _heroVoteStatePromise = null;
+        let _heroForeignRankingPrefetched = false;
+        const _heroRankingResourceCache = new Map();
+        const _heroRankingResourcePromises = new Map();
+        let _heroRankingResourceGeneration = 0;
         let _heroVoteGameAutoOpened = false;
         let _heroVoteGameCurrentId = '';
         let _heroVoteGameDeck = [];
@@ -3411,6 +3531,12 @@
         let _heroVoteGameRequestId = 0;
         let _heroVoteGameVoting = false;
         let _heroVoteGameDeepLinkId = '';
+        let _heroVoteBatchPromise = null;
+        const _heroVoteDetailCache = new Map();
+        const _heroVoteDetailPromises = new Map();
+        const HERO_VOTE_DETAIL_PREFETCH_COUNT = 2;
+        const HERO_VOTE_DETAIL_CACHE_TTL = 60 * 1000;
+        const HERO_VOTE_DETAIL_CACHE_MAX = 8;
         const CONTRIBUTIONS_PAGE_SIZE = 15;
         let _contributionCurrentPage = 1;
         let _clientContribsCache = null;
@@ -3439,6 +3565,110 @@
                 headers,
                 body: JSON.stringify({ anonymousVoterId: getAnonymousHeroVoterId() })
             };
+        }
+
+        async function loadHeroVoteState() {
+            if (_heroVoteStateCache && Date.now() - _heroVoteStateCacheTime < CLIENT_CACHE_TTL) {
+                markRankingPerf('개인 투표 상태 캐시 적중');
+                return _heroVoteStateCache;
+            }
+            if (_heroVoteStatePromise) return _heroVoteStatePromise;
+            const perfTimer = startRankingPerf('개인 투표 상태 API');
+            _heroVoteStatePromise = (async () => {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/hero-rankings/vote-state`, {
+                        headers: buildHeroVoteRequest().headers,
+                        cache: 'no-store'
+                    });
+                    const data = await response.json().catch(() => ({}));
+                    endRankingPerf(perfTimer, { 상태: response.status });
+                    if (!response.ok) return null;
+                    _heroVoteStateCache = data;
+                    _heroVoteStateCacheTime = Date.now();
+                    return data;
+                } catch (error) {
+                    endRankingPerf(perfTimer, { 오류: error.message || String(error) });
+                    return null;
+                } finally {
+                    _heroVoteStatePromise = null;
+                }
+            })();
+            return _heroVoteStatePromise;
+        }
+
+        function invalidateHeroVoteStateCache() {
+            _heroVoteStateCache = null;
+            _heroVoteStateCacheTime = 0;
+        }
+
+        function pruneHeroVoteDetailCache() {
+            const now = Date.now();
+            for (const [heroId, cached] of _heroVoteDetailCache) {
+                if (!cached || now - cached.cachedAt > HERO_VOTE_DETAIL_CACHE_TTL) {
+                    _heroVoteDetailCache.delete(heroId);
+                }
+            }
+            while (_heroVoteDetailCache.size > HERO_VOTE_DETAIL_CACHE_MAX) {
+                _heroVoteDetailCache.delete(_heroVoteDetailCache.keys().next().value);
+            }
+        }
+
+        async function fetchHeroVoteDetail(heroId) {
+            const normalizedId = String(heroId || '');
+            if (!normalizedId) throw new Error('인물 ID가 없습니다.');
+            pruneHeroVoteDetailCache();
+            const cached = _heroVoteDetailCache.get(normalizedId);
+            if (cached) {
+                markRankingPerf('인물 상세 캐시 적중', { 인물ID: normalizedId });
+                return cached.data;
+            }
+            if (_heroVoteDetailPromises.has(normalizedId)) {
+                markRankingPerf('인물 상세 진행 중 요청 재사용', { 인물ID: normalizedId });
+                return _heroVoteDetailPromises.get(normalizedId);
+            }
+
+            const perfTimer = startRankingPerf('인물 상세 API', { 인물ID: normalizedId });
+            const request = (async () => {
+                const response = await fetch(`${API_BASE_URL}/heroes/${encodeURIComponent(normalizedId)}`, {
+                    headers: buildHeroVoteRequest().headers
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    endRankingPerf(perfTimer, { 상태: response.status });
+                    throw new Error(data.message || '인물 정보를 불러오지 못했습니다.');
+                }
+                _heroVoteDetailCache.set(normalizedId, { data, cachedAt: Date.now() });
+                pruneHeroVoteDetailCache();
+                const imageUrl = data.hero?.illustration_url || data.hero?.avatar_url || '';
+                if (imageUrl) {
+                    const image = new Image();
+                    image.decoding = 'async';
+                    image.src = imageUrl;
+                }
+                endRankingPerf(perfTimer, { 상태: response.status, 인물: data.hero?.name_ko || '' });
+                return data;
+            })().catch(error => {
+                if (!perfTimer.ended) endRankingPerf(perfTimer, { 오류: error.message || String(error) });
+                throw error;
+            }).finally(() => {
+                _heroVoteDetailPromises.delete(normalizedId);
+            });
+            _heroVoteDetailPromises.set(normalizedId, request);
+            return request;
+        }
+
+        function prefetchUpcomingHeroVoteDetails() {
+            if (!document.getElementById('heroVoteGame')?.classList.contains('open')) return;
+            // 후보는 pop()으로 소비하므로 배열 끝에서부터 다음 카드를 준비한다.
+            _heroVoteGameDeck.slice(-HERO_VOTE_DETAIL_PREFETCH_COUNT).reverse().forEach(heroId => {
+                void fetchHeroVoteDetail(heroId).catch(error => {
+                    console.warn('다음 인물 상세 미리 불러오기 실패:', error);
+                });
+            });
+        }
+
+        function invalidateHeroVoteDetail(heroId) {
+            _heroVoteDetailCache.delete(String(heroId || ''));
         }
 
         function syncHeroVoteState(heroes) {
@@ -3482,11 +3712,15 @@
         }
 
         async function ensureRankingGuestSession() {
-            if (getRankingAuthInfo().username) return true;
+            if (getRankingAuthInfo().username) {
+                markRankingPerf('기존 로그인/게스트 세션 사용');
+                return true;
+            }
 
             // 랭킹 직접 방문자는 별도의 입장 절차 없이 서긍 게스트로 이용한다.
             localStorage.removeItem('token');
             sessionStorage.removeItem('token');
+            const perfTimer = startRankingPerf('게스트 로그인 API');
             try {
                 const response = await fetch(`${API_BASE_URL}/auth/guest-login`, {
                     method: 'POST',
@@ -3497,8 +3731,10 @@
                     throw new Error(data.message || '게스트 세션을 만들지 못했습니다.');
                 }
                 sessionStorage.setItem('token', data.token);
+                endRankingPerf(perfTimer, { 상태: response.status });
                 return true;
             } catch (error) {
+                endRankingPerf(perfTimer, { 오류: error.message || String(error) });
                 console.error('랭킹 게스트 자동 입장 실패:', error);
                 return false;
             }
@@ -4024,17 +4260,29 @@
         }
 
         async function loadHeroRankings() {
+            const requestKey = [
+                getHeroEthnicityFilter(), _heroRankingCurrentPage,
+                _heroRankingSortColumn, _heroRankingSortDirection, getHeroRankingQuery()
+            ].join('|');
             const cached = _clientHeroRankingsCache && Date.now() - _clientHeroRankingsCacheTime < CLIENT_CACHE_TTL;
-            if (cached) {
+            if (cached && _heroRankingLoadedKey === requestKey) {
                 renderHeroRankings(_clientHeroRankingsCache);
                 return;
             }
-            if (_heroRankingsLoadPromise) return _heroRankingsLoadPromise;
-            _heroRankingsLoadPromise = fetchAndRenderHeroRankings();
+            if (_heroRankingsLoadPromise && _heroRankingsLoadPromiseKey === requestKey) {
+                await _heroRankingsLoadPromise;
+                return;
+            }
+            const loadPromise = fetchAndRenderHeroRankings();
+            _heroRankingsLoadPromise = loadPromise;
+            _heroRankingsLoadPromiseKey = requestKey;
             try {
-                return await _heroRankingsLoadPromise;
+                return await loadPromise;
             } finally {
-                _heroRankingsLoadPromise = null;
+                if (_heroRankingsLoadPromise === loadPromise) {
+                    _heroRankingsLoadPromise = null;
+                    _heroRankingsLoadPromiseKey = '';
+                }
             }
         }
 
@@ -4049,42 +4297,153 @@
             });
         }
 
+        async function fetchHeroRankingPageResource(url) {
+            const cacheKey = String(url);
+            const cached = _heroRankingResourceCache.get(cacheKey);
+            if (cached && Date.now() - cached.at < 60 * 1000) {
+                markRankingPerf('랭킹 페이지 응답 캐시 적중', { URL: cacheKey });
+                return cached.resource;
+            }
+            if (_heroRankingResourcePromises.has(cacheKey)) {
+                markRankingPerf('진행 중인 랭킹 페이지 요청 공유', { URL: cacheKey });
+                return _heroRankingResourcePromises.get(cacheKey);
+            }
+            const generation = _heroRankingResourceGeneration;
+            const request = (async () => {
+                const response = await fetch(cacheKey);
+                const parseStartedAt = performance.now();
+                const payload = await response.json().catch(() => ({}));
+                const parseMs = Math.round((performance.now() - parseStartedAt) * 10) / 10;
+                const resource = {
+                    payload,
+                    status: response.status,
+                    size: response.headers.get('content-length') || '미상',
+                    serverTiming: response.headers.get('server-timing') || '미상',
+                    parseMs
+                };
+                if (!response.ok) throw new Error(payload.message || `HTTP ${response.status}`);
+                if (generation === _heroRankingResourceGeneration) {
+                    _heroRankingResourceCache.set(cacheKey, { at: Date.now(), resource });
+                }
+                return resource;
+            })().finally(() => {
+                _heroRankingResourcePromises.delete(cacheKey);
+            });
+            _heroRankingResourcePromises.set(cacheKey, request);
+            return request;
+        }
+
+        function invalidateHeroRankingResourceCache() {
+            _heroRankingResourceGeneration += 1;
+            _heroRankingResourceCache.clear();
+        }
+
+        function scheduleForeignHeroRankingPrefetch() {
+            if (_heroForeignRankingPrefetched || getHeroEthnicityFilter() !== 'our') return;
+            _heroForeignRankingPrefetched = true;
+            window.setTimeout(() => {
+                if (getHeroEthnicityFilter() !== 'our') return;
+                const run = async () => {
+                    const perfTimer = startRankingPerf('주변 민족 첫 페이지 미리 로딩');
+                    try {
+                        const query = new URLSearchParams({
+                            scope: 'foreign', page: '1', limit: String(HERO_RANKING_PAGE_SIZE),
+                            sort: 'vote_count', direction: 'desc'
+                        });
+                        const resource = await fetchHeroRankingPageResource(
+                            `${API_BASE_URL}/hero-rankings/page?${query}`
+                        );
+                        endRankingPerf(perfTimer, { 상태: resource.status, 공유캐시: true });
+                    } catch (error) {
+                        _heroForeignRankingPrefetched = false;
+                        endRankingPerf(perfTimer, { 오류: error.message || String(error) });
+                    }
+                };
+                if ('requestIdleCallback' in window) {
+                    window.requestIdleCallback(() => void run(), { timeout: 2500 });
+                } else {
+                    void run();
+                }
+            }, 3000);
+        }
+
         async function fetchAndRenderHeroRankings() {
             const tableBody = document.getElementById('heroRankingTableBody');
             tableBody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#95a5a6;">영웅 & 빌런 투표를 불러오는 중...</td></tr>';
+            const requestId = ++_heroRankingPageRequestId;
             try {
-                const voteRequest = buildHeroVoteRequest();
-                const [publicResponse, voteStateResponse] = await Promise.all([
-                    fetch(`${API_BASE_URL}/hero-rankings/public?v=2`),
-                    fetch(`${API_BASE_URL}/hero-rankings/vote-state`, {
-                        headers: voteRequest.headers,
-                        cache: 'no-store'
-                    }).catch(() => null)
-                ]);
-                if (!publicResponse.ok) throw new Error(`HTTP ${publicResponse.status}`);
-                const heroes = await publicResponse.json();
-                _clientHeroRankingsCache = Array.isArray(heroes) ? heroes : [];
+                // 개인 투표 상태는 동시에 요청하되 공개 랭킹의 첫 렌더를 막지 않는다.
+                const voteStatePromise = loadHeroVoteState();
+                const query = new URLSearchParams({
+                    scope: getHeroEthnicityFilter(),
+                    page: String(_heroRankingCurrentPage),
+                    limit: String(HERO_RANKING_PAGE_SIZE),
+                    sort: _heroRankingSortColumn,
+                    direction: _heroRankingSortDirection
+                });
+                const searchQuery = getHeroRankingQuery();
+                if (searchQuery) query.set('query', searchQuery);
+                const publicApiTimer = startRankingPerf('경량 영웅 랭킹 페이지 API', {
+                    페이지: _heroRankingCurrentPage,
+                    범위: getHeroEthnicityFilter(),
+                    검색: searchQuery || ''
+                });
+                const resource = await fetchHeroRankingPageResource(
+                    `${API_BASE_URL}/hero-rankings/page?${query}`
+                );
+                endRankingPerf(publicApiTimer, {
+                    상태: resource.status,
+                    크기: resource.size,
+                    서버계측: resource.serverTiming
+                });
+                const parseTimer = startRankingPerf('경량 랭킹 JSON 파싱');
+                const payload = resource.payload;
+                if (requestId !== _heroRankingPageRequestId) return;
+                const heroes = Array.isArray(payload.items) ? payload.items : [];
+                endRankingPerf(parseTimer, {
+                    인물수: heroes.length,
+                    전체수: payload.summary?.total || 0,
+                    실제파싱_ms: resource.parseMs
+                });
+                _heroRankingServerPayload = payload;
+                _heroRankingLoadedKey = [
+                    getHeroEthnicityFilter(), _heroRankingCurrentPage,
+                    _heroRankingSortColumn, _heroRankingSortDirection, getHeroRankingQuery()
+                ].join('|');
+                _clientHeroRankingsCache = heroes;
 
-                if (voteStateResponse?.ok) {
-                    const voteState = await voteStateResponse.json();
+                // 브라우저에 기억된 선택으로 버튼 상태를 구성해 공개 데이터 즉시 표시.
+                const visibleHeroes = [...new Map([
+                    ...(payload.hero_top3 || []),
+                    ...(payload.villain_top3 || []),
+                    ...heroes
+                ].map(hero => [String(hero.vote_identity || hero._id), hero])).values()];
+                visibleHeroes.forEach(hero => {
+                    const heroId = String(hero._id || '');
+                    hero.has_voted = _heroVotedSet.has(heroId);
+                    hero.has_worst_voted = _heroWorstVotedSet.has(heroId);
+                });
+                _clientHeroRankingsCacheTime = Date.now();
+                const firstRenderTimer = startRankingPerf('메인 랭킹 최초 렌더');
+                renderHeroRankings(heroes);
+                endRankingPerf(firstRenderTimer, { 인물수: heroes.length, 전체수: payload.summary?.total || 0 });
+                scheduleForeignHeroRankingPrefetch();
+
+                const voteState = await voteStatePromise;
+                if (voteState) {
                     const heroVoteKeys = new Set(Array.isArray(voteState.hero_vote_keys) ? voteState.hero_vote_keys.map(String) : []);
                     const villainVoteKeys = new Set(Array.isArray(voteState.villain_vote_keys) ? voteState.villain_vote_keys.map(String) : []);
-                    _clientHeroRankingsCache.forEach(hero => {
+                    visibleHeroes.forEach(hero => {
                         const identityKey = String(hero.vote_identity || hero._id || '');
                         hero.has_voted = heroVoteKeys.has(identityKey);
                         hero.has_worst_voted = villainVoteKeys.has(identityKey);
                     });
-                    syncHeroVoteState(_clientHeroRankingsCache);
-                } else {
-                    // 개인 상태 요청만 실패한 경우 공개 랭킹은 표시하고 현재 브라우저 선택을 유지한다.
-                    _clientHeroRankingsCache.forEach(hero => {
-                        const heroId = String(hero._id || '');
-                        hero.has_voted = _heroVotedSet.has(heroId);
-                        hero.has_worst_voted = _heroWorstVotedSet.has(heroId);
-                    });
+                    syncHeroVoteState(visibleHeroes);
+                    // 서버의 정확한 개인 상태가 도착하면 투표 버튼만 한 번 보정한다.
+                    const stateRenderTimer = startRankingPerf('개인 투표 상태 반영 렌더');
+                    renderHeroRankings(heroes);
+                    endRankingPerf(stateRenderTimer);
                 }
-                _clientHeroRankingsCacheTime = Date.now();
-                renderHeroRankings(_clientHeroRankingsCache);
             } catch (error) {
                 console.error('Error fetching hero ranking data:', error);
                 tableBody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#e74c3c;">영웅 & 빌런 투표를 불러오지 못했습니다.</td></tr>';
@@ -4098,25 +4457,33 @@
             const podiumEl = document.getElementById('heroRankingPodium');
             const worstPodiumEl = document.getElementById('heroWorstRankingPodium');
             const query = getHeroRankingQuery();
+            const serverPayload = _heroRankingServerPayload;
             const sourceList = Array.isArray(heroes) ? heroes : [];
-            const filteredList = filterHeroRankings(sourceList, query);
-            const list = sortHeroRankingList(filteredList);
-            const totalPages = Math.max(1, Math.ceil(list.length / HERO_RANKING_PAGE_SIZE));
+            const filteredList = serverPayload ? sourceList : filterHeroRankings(sourceList, query);
+            const list = serverPayload ? sourceList : sortHeroRankingList(filteredList);
+            const totalItems = serverPayload ? (parseInt(serverPayload.summary?.total, 10) || 0) : list.length;
+            const totalPages = serverPayload
+                ? (parseInt(serverPayload.total_pages, 10) || 1)
+                : Math.max(1, Math.ceil(list.length / HERO_RANKING_PAGE_SIZE));
             _heroRankingCurrentPage = Math.min(Math.max(1, _heroRankingCurrentPage), totalPages);
             const pageStart = (_heroRankingCurrentPage - 1) * HERO_RANKING_PAGE_SIZE;
-            const pageList = list.slice(pageStart, pageStart + HERO_RANKING_PAGE_SIZE);
-            const totalVotes = list.reduce((sum, hero) => sum + (parseInt(hero.vote_count, 10) || 0), 0);
-            const totalWorstVotes = list.reduce((sum, hero) => sum + (parseInt(hero.worst_vote_count, 10) || 0), 0);
-            const heroLeaders = filteredList.slice().sort((a, b) => (
+            const pageList = serverPayload ? list : list.slice(pageStart, pageStart + HERO_RANKING_PAGE_SIZE);
+            const totalVotes = serverPayload
+                ? (parseInt(serverPayload.summary?.total_votes, 10) || 0)
+                : list.reduce((sum, hero) => sum + (parseInt(hero.vote_count, 10) || 0), 0);
+            const totalWorstVotes = serverPayload
+                ? (parseInt(serverPayload.summary?.total_worst_votes, 10) || 0)
+                : list.reduce((sum, hero) => sum + (parseInt(hero.worst_vote_count, 10) || 0), 0);
+            const heroLeaders = serverPayload ? (serverPayload.hero_top3 || []) : filteredList.slice().sort((a, b) => (
                 (parseInt(b.vote_count, 10) || 0) - (parseInt(a.vote_count, 10) || 0) ||
                 String(a.name_ko || '').localeCompare(String(b.name_ko || ''), 'ko')
             ));
-            const villainLeaders = filteredList.slice().sort((a, b) => (
+            const villainLeaders = serverPayload ? (serverPayload.villain_top3 || []) : filteredList.slice().sort((a, b) => (
                 (parseInt(b.worst_vote_count, 10) || 0) - (parseInt(a.worst_vote_count, 10) || 0) ||
                 String(a.name_ko || '').localeCompare(String(b.name_ko || ''), 'ko')
             ));
 
-            if (totalEl) totalEl.textContent = query ? `${list.length.toLocaleString('ko-KR')} / ${sourceList.length.toLocaleString('ko-KR')}` : list.length.toLocaleString('ko-KR');
+            if (totalEl) totalEl.textContent = totalItems.toLocaleString('ko-KR');
             if (votesEl) votesEl.textContent = totalVotes.toLocaleString('ko-KR');
             renderHeroPodium(heroLeaders, podiumEl);
             renderHeroPodium(villainLeaders, worstPodiumEl, {
@@ -4124,7 +4491,7 @@
                 variant: 'villain',
                 onlyVoted: true
             });
-            renderHeroRankingPagination(list.length, totalPages);
+            renderHeroRankingPagination(totalItems, totalPages);
 
             tableBody.innerHTML = '';
             if (!list.length) {
@@ -4267,7 +4634,7 @@
                 const randomIndex = Math.floor(Math.random() * (index + 1));
                 [available[index], available[randomIndex]] = [available[randomIndex], available[index]];
             }
-            return available;
+            return available.slice(0, 1);
         }
 
         function getDeepLinkedHeroId() {
@@ -4337,22 +4704,47 @@
             modal.setAttribute('aria-hidden', 'false');
             document.body.classList.add('hero-vote-game-open');
             showNextHeroVoteGameCard();
+            void fetchMoreHeroVoteCandidates();
             document.getElementById('heroVoteGameClose')?.focus();
         }
 
         async function loadQuickHeroVoteCandidate() {
-            const requestedHeroId = String(new URLSearchParams(window.location.search).get('heroId') || '').trim();
+            const params = new URLSearchParams(window.location.search);
+            const requestedHeroId = String(params.get('heroId') || '').trim();
             if (requestedHeroId) return { _id: requestedHeroId, isDeepLink: true };
-            // 이름만 있는 구형 딥링크는 전체 목록에서 정확히 매칭해야 한다.
-            if (new URLSearchParams(window.location.search).get('hero')) return null;
+            const requestedHeroName = String(params.get('hero') || '').trim();
+            if (requestedHeroName) {
+                const perfTimer = startRankingPerf('이름 딥링크 인물 검색 API', { 검색: requestedHeroName });
+                try {
+                    const query = new URLSearchParams({
+                        scope: 'all', page: '1', limit: '1',
+                        sort: 'vote_count', direction: 'desc', query: requestedHeroName
+                    });
+                    const response = await fetch(`${API_BASE_URL}/hero-rankings/page?${query}`);
+                    const payload = await response.json().catch(() => ({}));
+                    const candidate = Array.isArray(payload.items) ? payload.items[0] : null;
+                    endRankingPerf(perfTimer, { 상태: response.status, 발견: !!candidate });
+                    return candidate ? { ...candidate, isDeepLink: true } : null;
+                } catch (error) {
+                    endRankingPerf(perfTimer, { 오류: error.message || String(error) });
+                    return null;
+                }
+            }
+            const perfTimer = startRankingPerf('최초 랜덤 후보 API');
             try {
                 const response = await fetch(`${API_BASE_URL}/hero-rankings/random`, {
                     headers: buildHeroVoteRequest().headers,
                     cache: 'no-store'
                 });
-                if (!response.ok) return null;
-                return await response.json();
+                if (!response.ok) {
+                    endRankingPerf(perfTimer, { 상태: response.status });
+                    return null;
+                }
+                const candidate = await response.json();
+                endRankingPerf(perfTimer, { 상태: response.status, 인물: candidate?.name_ko || candidate?._id || '' });
+                return candidate;
             } catch (error) {
+                endRankingPerf(perfTimer, { 오류: error.message || String(error) });
                 console.warn('첫 랜덤 인물 빠른 로딩 실패:', error);
                 return null;
             }
@@ -4371,24 +4763,64 @@
             modal.setAttribute('aria-hidden', 'false');
             document.body.classList.add('hero-vote-game-open');
             showNextHeroVoteGameCard();
+            void fetchMoreHeroVoteCandidates();
             document.getElementById('heroVoteGameClose')?.focus();
             return true;
         }
 
+        async function fetchMoreHeroVoteCandidates() {
+            if (_heroVoteBatchPromise) return _heroVoteBatchPromise;
+            const excluded = [...new Set([
+                String(_heroVoteGameCurrentId || ''),
+                ..._heroVoteGameDeck.map(String)
+            ].filter(Boolean))];
+            const perfTimer = startRankingPerf('랜덤 후보 10명 API', { 제외수: excluded.length });
+            _heroVoteBatchPromise = (async () => {
+                try {
+                    const query = new URLSearchParams({ limit: '10' });
+                    if (excluded.length) query.set('exclude', excluded.join(','));
+                    const response = await fetch(`${API_BASE_URL}/hero-rankings/random-batch?${query}`, {
+                        headers: buildHeroVoteRequest().headers,
+                        cache: 'no-store'
+                    });
+                    if (!response.ok) {
+                        endRankingPerf(perfTimer, { 상태: response.status });
+                        return [];
+                    }
+                    const data = await response.json().catch(() => ({}));
+                    const existing = new Set([
+                        String(_heroVoteGameCurrentId || ''),
+                        ..._heroVoteGameDeck.map(String)
+                    ]);
+                    const additions = (Array.isArray(data.ids) ? data.ids : [])
+                        .map(String)
+                        .filter(id => id && !existing.has(id) && !_heroVotedSet.has(id) && !_heroWorstVotedSet.has(id));
+                    // pop()으로 기존 후보를 먼저 소비하도록 새 묶음은 배열 앞쪽에 넣는다.
+                    _heroVoteGameDeck.unshift(...additions);
+                    if (_clientHeroRankingsCache || _heroVoteGameSeenCount > 1) {
+                        prefetchUpcomingHeroVoteDetails();
+                    }
+                    endRankingPerf(perfTimer, { 상태: response.status, 추가수: additions.length });
+                    return additions;
+                } catch (error) {
+                    endRankingPerf(perfTimer, { 오류: error.message || String(error) });
+                    console.warn('다음 랜덤 후보 준비 실패:', error);
+                    return [];
+                } finally {
+                    _heroVoteBatchPromise = null;
+                }
+            })();
+            const additions = await _heroVoteBatchPromise;
+            const progress = document.getElementById('heroVoteGameProgress');
+            if (progress && _heroVoteGameCurrentId) {
+                progress.textContent = `${_heroVoteGameSeenCount.toLocaleString('ko-KR')}번째 인물 · 준비된 후보 ${_heroVoteGameDeck.length.toLocaleString('ko-KR')}명`;
+            }
+            return additions;
+        }
+
         function replenishHeroVoteGameDeck() {
             if (!document.getElementById('heroVoteGame')?.classList.contains('open')) return;
-            const currentId = String(_heroVoteGameCurrentId || '');
-            const existing = new Set(_heroVoteGameDeck.map(String));
-            const additions = buildHeroVoteGameDeck().filter(id => id !== currentId && !existing.has(id));
-            _heroVoteGameDeck.unshift(...additions);
-            if (!currentId && additions.length) {
-                showNextHeroVoteGameCard();
-                return;
-            }
-            const progress = document.getElementById('heroVoteGameProgress');
-            if (progress && currentId) {
-                progress.textContent = `${_heroVoteGameSeenCount.toLocaleString('ko-KR')}번째 인물 · 남은 후보 ${_heroVoteGameDeck.length.toLocaleString('ko-KR')}명`;
-            }
+            if (_heroVoteGameDeck.length <= 5) void fetchMoreHeroVoteCandidates();
         }
 
         function closeHeroVoteGame() {
@@ -4399,6 +4831,10 @@
             modal.setAttribute('aria-hidden', 'true');
             document.body.classList.remove('hero-vote-game-open');
             _heroVoteGameCurrentId = '';
+            // 사용자가 메인 화면을 보려는 순간에는 idle 대기 없이 즉시 랭킹을 가져온다.
+            if (!_clientHeroRankingsCache && !_heroRankingsLoadPromise) {
+                void loadHeroRankings();
+            }
         }
 
         function setHeroVoteGameButtonsDisabled(disabled) {
@@ -4576,8 +5012,13 @@
             const content = document.getElementById('heroVoteGameContent');
             const progress = document.getElementById('heroVoteGameProgress');
             if (!content || !progress) return;
+            const cardFlowTimer = startRankingPerf('다음 카드 전환 전체');
 
             let nextId = _heroVoteGameDeck.pop() || '';
+            if (!nextId) {
+                await fetchMoreHeroVoteCandidates();
+                nextId = _heroVoteGameDeck.pop() || '';
+            }
             while (
                 nextId &&
                 nextId !== _heroVoteGameDeepLinkId &&
@@ -4598,13 +5039,16 @@
                     </div>
                 `;
                 setHeroVoteGameButtonsDisabled(true);
+                endRankingPerf(cardFlowTimer, { 결과: '후보 없음' });
                 return;
             }
 
             _heroVoteGameCurrentId = nextId;
             _heroVoteGameSeenCount += 1;
             const requestId = ++_heroVoteGameRequestId;
-            progress.textContent = `${_heroVoteGameSeenCount.toLocaleString('ko-KR')}번째 인물 · 남은 후보 ${_heroVoteGameDeck.length.toLocaleString('ko-KR')}명`;
+            progress.textContent = `${_heroVoteGameSeenCount.toLocaleString('ko-KR')}번째 인물 · 준비된 후보 ${_heroVoteGameDeck.length.toLocaleString('ko-KR')}명`;
+            if (_heroVoteGameDeck.length <= 5) void fetchMoreHeroVoteCandidates();
+            prefetchUpcomingHeroVoteDetails();
             content.innerHTML = '<div style="padding:55px 0;text-align:center;color:#8fa0b0;">인물 정보를 불러오는 중...</div>';
             const commentsPanel = document.getElementById('heroVoteGameComments');
             const commentsList = document.getElementById('heroVoteGameCommentList');
@@ -4615,11 +5059,7 @@
             setHeroVoteGameButtonsDisabled(true);
 
             try {
-                const response = await fetch(`${API_BASE_URL}/heroes/${encodeURIComponent(nextId)}`, {
-                    headers: buildHeroVoteRequest().headers
-                });
-                const data = await response.json().catch(() => ({}));
-                if (!response.ok) throw new Error(data.message || '인물 정보를 불러오지 못했습니다.');
+                const data = await fetchHeroVoteDetail(nextId);
                 if (requestId !== _heroVoteGameRequestId || _heroVoteGameCurrentId !== nextId) return;
 
                 const hero = data.hero || {};
@@ -4641,6 +5081,7 @@
                         </div>
                     `;
                 }).join('');
+                const cardRenderTimer = startRankingPerf('랜덤 카드 DOM 렌더', { 인물ID: nextId });
                 content.innerHTML = `
                     <div class="hero-game-profile">
                         ${imageUrl
@@ -4662,8 +5103,18 @@
                 `;
                 renderHeroVoteGameComments(nextId, data.comments || []);
                 setHeroVoteGameChoiceState(nextId);
+                endRankingPerf(cardRenderTimer, { 인물: hero.name_ko || cachedHero.name_ko || '' });
+                endRankingPerf(cardFlowTimer, { 인물ID: nextId, 인물: hero.name_ko || cachedHero.name_ko || '' });
+                observeRankingAds();
+                if (_heroVoteGameSeenCount === 1 && !_clientHeroRankingsCache && !_heroRankingsLoadPromise) {
+                    // 첫 카드 다음에는 메인 랭킹을 우선 준비하고 상세 프리페치는 그 뒤 시작한다.
+                    void loadHeroRankings().finally(prefetchUpcomingHeroVoteDetails);
+                } else {
+                    prefetchUpcomingHeroVoteDetails();
+                }
             } catch (error) {
                 if (requestId !== _heroVoteGameRequestId) return;
+                endRankingPerf(cardFlowTimer, { 인물ID: nextId, 오류: error.message || String(error) });
                 console.error('랜덤 영웅 정보 조회 실패:', error);
                 content.innerHTML = `
                     <div style="padding:45px 15px;text-align:center;color:#e7a29b;">
@@ -4715,6 +5166,8 @@
                 const result = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(result.message || '영웅 투표에 실패했습니다.');
 
+                invalidateHeroVoteStateCache();
+                invalidateHeroRankingResourceCache();
                 _heroVotedSet.add(id);
                 localStorage.setItem('_heroVoted', JSON.stringify([..._heroVotedSet]));
                 if (Array.isArray(_clientHeroRankingsCache)) {
@@ -4767,6 +5220,8 @@
                 const result = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(result.message || '빌런 투표에 실패했습니다.');
 
+                invalidateHeroVoteStateCache();
+                invalidateHeroRankingResourceCache();
                 _heroWorstVotedSet.add(id);
                 localStorage.setItem('_heroWorstVoted', JSON.stringify([..._heroWorstVotedSet]));
                 if (Array.isArray(_clientHeroRankingsCache)) {
@@ -4814,9 +5269,7 @@
                 );
             });
             _heroRankingCurrentPage = 1;
-            if (Array.isArray(_clientHeroRankingsCache)) {
-                renderHeroRankings(_clientHeroRankingsCache);
-            }
+            void loadHeroRankings();
         }
 
         document.querySelector('#heroRankingTable thead')?.addEventListener('click', event => {
@@ -4850,9 +5303,9 @@
             const button = event.target.closest('.hero-page-btn');
             if (!button || button.disabled) return;
             const page = parseInt(button.dataset.page, 10);
-            if (!Number.isFinite(page) || !Array.isArray(_clientHeroRankingsCache)) return;
+            if (!Number.isFinite(page)) return;
             _heroRankingCurrentPage = page;
-            renderHeroRankings(_clientHeroRankingsCache);
+            void loadHeroRankings();
             document.querySelector('#hero-ranking-tab .regular-officers-container')
                 ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
@@ -4961,6 +5414,7 @@
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(data.message || '의견 등록에 실패했습니다.');
                 if (input) input.value = '';
+                invalidateHeroVoteDetail(heroId);
                 adjustCachedHeroCommentCount(heroId, 1);
                 await Promise.all([
                     refreshHeroDetailComments(heroId),
@@ -5015,6 +5469,7 @@
                 );
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(data.message || '평가 수정에 실패했습니다.');
+                invalidateHeroVoteDetail(heroId);
                 await Promise.all([
                     refreshHeroDetailComments(heroId),
                     refreshHeroVoteGameComments(heroId)
@@ -5040,6 +5495,7 @@
                 );
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(data.message || '평가 삭제에 실패했습니다.');
+                invalidateHeroVoteDetail(heroId);
                 adjustCachedHeroCommentCount(heroId, -1);
                 await Promise.all([
                     refreshHeroDetailComments(heroId),
@@ -5275,10 +5731,11 @@
         });
 
         document.getElementById('heroRankingSearchInput')?.addEventListener('input', () => {
-            if (Array.isArray(_clientHeroRankingsCache)) {
+            window.clearTimeout(_heroRankingSearchTimer);
+            _heroRankingSearchTimer = window.setTimeout(() => {
                 _heroRankingCurrentPage = 1;
-                renderHeroRankings(_clientHeroRankingsCache);
-            }
+                void loadHeroRankings();
+            }, 300);
         });
 
         document.getElementById('heroEthnicityFilter')?.addEventListener('click', (event) => {
@@ -5291,19 +5748,16 @@
                 chip.classList.toggle('active', active);
                 chip.setAttribute('aria-pressed', active ? 'true' : 'false');
             });
-            if (Array.isArray(_clientHeroRankingsCache)) {
-                _heroRankingCurrentPage = 1;
-                renderHeroRankings(_clientHeroRankingsCache);
-            }
+            _heroRankingCurrentPage = 1;
+            void loadHeroRankings();
         });
 
         document.getElementById('heroRankingSearchClear')?.addEventListener('click', () => {
             const input = document.getElementById('heroRankingSearchInput');
             if (input) input.value = '';
-            if (Array.isArray(_clientHeroRankingsCache)) {
-                _heroRankingCurrentPage = 1;
-                renderHeroRankings(_clientHeroRankingsCache);
-            }
+            window.clearTimeout(_heroRankingSearchTimer);
+            _heroRankingCurrentPage = 1;
+            void loadHeroRankings();
             input?.focus();
         });
 
@@ -6241,6 +6695,7 @@
         // 초기 로드
 
         document.addEventListener('DOMContentLoaded', async () => {
+            const initialFlowTimer = startRankingPerf('랭킹 초기화 전체 흐름');
             document.getElementById('rankingAuthBtn')?.addEventListener('click', handleRankingAuthAction);
             updateRankingAuthBar();
             const urlParams = new URLSearchParams(window.location.search);
@@ -6254,12 +6709,10 @@
             }
             updateRankingAuthBar();
 
-            // 첫 카드가 화면에 열린 다음에 무거운 전체 목록 요청을 시작한다.
-            const rankingsPromise = scheduleHeroRankingsBackgroundLoad();
-            await rankingsPromise;
-            if (!contributionId) {
-                if (_heroVoteGameAutoOpened) replenishHeroVoteGameDeck();
-                else openHeroVoteGameOnce();
+            // 빠른 후보를 구하지 못했거나 이름 기반 구형 딥링크일 때만 전체 목록을 먼저 받는다.
+            if (!contributionId && !quickCandidate) {
+                await scheduleHeroRankingsBackgroundLoad();
+                openHeroVoteGameOnce();
             }
 
             // 🚩 [수정] URL 파라미터로 contributionId가 전달된 경우 자동으로 모달 열기
@@ -6282,7 +6735,12 @@
                     console.log('🔍 사료 상세 모달 열기 시도:', contributionId);
                     showContributionDetail(contributionId);
                 }, 100);
+                observeRankingAds();
             }
+            endRankingPerf(initialFlowTimer, {
+                빠른후보: !!quickCandidate,
+                사료딥링크: !!contributionId
+            });
         });
         
         // 페이지 로드 시 초기화
@@ -6313,9 +6771,47 @@
         // 미니 맵 관련 스크립트
         let miniMap;
         let miniMapMarker;
+        let leafletLoadPromise;
 
-        function initializeMiniMap(lat, lng) {
+        function loadLeafletAssets() {
+            if (window.L) return Promise.resolve(window.L);
+            if (leafletLoadPromise) return leafletLoadPromise;
+            leafletLoadPromise = new Promise((resolve, reject) => {
+                if (!document.querySelector('link[data-leaflet-css]')) {
+                    const stylesheet = document.createElement('link');
+                    stylesheet.rel = 'stylesheet';
+                    stylesheet.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+                    stylesheet.dataset.leafletCss = 'true';
+                    document.head.appendChild(stylesheet);
+                }
+                const existingScript = document.querySelector('script[data-leaflet-js]');
+                if (existingScript) {
+                    existingScript.addEventListener('load', () => resolve(window.L), { once: true });
+                    existingScript.addEventListener('error', reject, { once: true });
+                    return;
+                }
+                const script = document.createElement('script');
+                script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+                script.async = true;
+                script.dataset.leafletJs = 'true';
+                script.onload = () => resolve(window.L);
+                script.onerror = () => reject(new Error('미니 지도 라이브러리를 불러오지 못했습니다.'));
+                document.head.appendChild(script);
+            }).catch(error => {
+                leafletLoadPromise = null;
+                throw error;
+            });
+            return leafletLoadPromise;
+        }
+
+        async function initializeMiniMap(lat, lng) {
             if (!lat || !lng) return;
+            try {
+                await loadLeafletAssets();
+            } catch (error) {
+                console.warn('미니 지도 로딩 실패:', error);
+                return;
+            }
 
             if (!miniMap) {
                 miniMap = L.map('mini-map', {
@@ -6365,6 +6861,5 @@
         });
     </script>
 <footer style="padding:24px 16px;background:#0d1217;border-top:1px solid rgba(255,255,255,.08);text-align:center;font-size:12px;color:#aaa;"><nav style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px 15px;"><a href="/about">소개</a><a href="/guide">이용안내</a><a href="/methodology">편집 원칙</a><a href="/sources">출처</a><a href="/contact">문의</a><a href="/privacy">개인정보</a><a href="/terms">이용약관</a><a href="/disclaimer">면책·저작권</a></nav></footer>
-<script async type="text/javascript" charset="utf-8" src="https://t1.kakaocdn.net/kas/static/ba.min.js"></script>
 </body>
 </html>
