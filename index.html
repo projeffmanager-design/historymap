@@ -11336,6 +11336,8 @@ body.force-mobile .marker-type-selector button {
     let contributions = []; // 🚩 [추가] 유저 기여 데이터
     let markers = [];
     let allCastleMarkers = []; // 🚩 [추가] 모든 성 마커 저장소
+    // 음성 패치 모듈이 lexical let 변수를 window에서도 참조할 수 있게 한다.
+    window.allCastleMarkers = allCastleMarkers;
     let currentOpenPopup = null; // 🚩 [추가] 현재 열린 팝업 추적
 
     // 🎙️ 전역 오디오 제어 (마커 음성 보고)
@@ -17963,6 +17965,40 @@ function invalidateCountryLookupCache() {
         localStorage.setItem(key + '_fetchedAt', Date.now().toString());
     }
 
+    const KINGS_PAYLOAD_CACHE_KEY = 'kings_payload_cache_v1';
+    function applyKingsPayload(data) {
+        if (!Array.isArray(data)) return 0;
+        kings = {};
+        let totalKings = 0;
+        data.forEach(item => {
+            if (item.country_id && Array.isArray(item.kings)) {
+                kings[item.country_id] = item.kings;
+                totalKings += item.kings.length;
+            }
+        });
+        return totalKings;
+    }
+    function loadKingsPayloadCache() {
+        try {
+            const cached = JSON.parse(localStorage.getItem(KINGS_PAYLOAD_CACHE_KEY) || 'null');
+            return cached && Array.isArray(cached.data) ? cached : null;
+        } catch (error) {
+            localStorage.removeItem(KINGS_PAYLOAD_CACHE_KEY);
+            return null;
+        }
+    }
+    function saveKingsPayloadCache(data) {
+        try {
+            localStorage.setItem(KINGS_PAYLOAD_CACHE_KEY, JSON.stringify({ at: Date.now(), data }));
+        } catch (error) {
+            console.warn('⚠️ 왕 데이터 캐시 저장 실패:', error.message);
+        }
+    }
+    function invalidateKingsPayloadCache() {
+        localStorage.removeItem(KINGS_PAYLOAD_CACHE_KEY);
+        localStorage.removeItem('kings_fetchedAt');
+    }
+
     // 🔊 [사운드] 마커 클릭 효과음 — 볼륨 0.5
     const _sfxCache = {};
     function playSfx(src) {
@@ -18101,8 +18137,36 @@ function invalidateCountryLookupCache() {
     // 🚩 [최적화] 레이어 설정 먼저 로드 (데이터 로딩 전)
     async function loadLayerSettings() {
         // console.log('🚀 [1단계] 레이어 설정 우선 로드...');
+        const cacheKey = 'layer_settings_cache_v1';
+        const cachedRaw = localStorage.getItem(cacheKey);
+        if (cachedRaw) {
+            try {
+                const cachedSettings = JSON.parse(cachedRaw);
+                Object.assign(layerVisibility, cachedSettings);
+                applyLayerSettingsToUI(cachedSettings);
+
+                // 첫 화면을 차단하지 않고 서버 설정을 재검증한다.
+                fetch(`${API_BASE_URL}/layer-settings`)
+                    .then(response => response.ok ? response.json() : null)
+                    .then(data => {
+                        if (!data || !data.settings) return;
+                        localStorage.setItem(cacheKey, JSON.stringify(data.settings));
+                        Object.assign(layerVisibility, data.settings);
+                        applyLayerSettingsToUI(data.settings);
+                    })
+                    .catch(() => {});
+                console.log('⚡ 레이어 설정 캐시 즉시 적용');
+                return cachedSettings;
+            } catch (error) {
+                localStorage.removeItem(cacheKey);
+            }
+        }
+
         try {
-            const response = await fetch(`${API_BASE_URL}/layer-settings`);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 1500);
+            const response = await fetch(`${API_BASE_URL}/layer-settings`, { signal: controller.signal });
+            clearTimeout(timeoutId);
             if (!response.ok) {
                 // console.log('⚠️ 레이어 설정을 불러올 수 없어 기본값을 사용합니다.');
                 return null;
@@ -18110,6 +18174,7 @@ function invalidateCountryLookupCache() {
 
             const data = await response.json();
             const settings = data.settings;
+            localStorage.setItem(cacheKey, JSON.stringify(settings));
             // console.log('✅ 레이어 설정 로드 성공:', settings);
             
             // layerVisibility 객체 업데이트
@@ -18883,6 +18948,8 @@ const loadingMessages = [
     }
 
     function hideLoadingStatus() {
+        if (window._loadingStatusHidden) return;
+        window._loadingStatusHidden = true;
         // 100% 채운 뒤 페이드아웃
         completeFakeProgress();
         // ✅ 로딩 완료 — 워치독 타이머 해제
@@ -19056,6 +19123,8 @@ const loadingMessages = [
               // 3D 모드 즉시 진입 신호 (idle 데이터 완료를 기다리지 않음)
               window.dispatchEvent(new Event('cache-painted'));
               window._cachePainted = true; // init3DMap이 늦게 등록될 경우 플래그로 감지
+              // 캐시 지도가 완성됐으므로 남은 API 요청을 기다리지 않고 로딩 화면을 해제한다.
+              requestAnimationFrame(() => setTimeout(hideLoadingStatus, 100));
               
               // ℹ️ 참고: 이 시점은 castles 백그라운드 로드 전이므로 색칠 가능 수는 과소 집계됨 (정상)
           }
@@ -19371,18 +19440,26 @@ const loadingMessages = [
           const additionalDuration = ((additionalEndTime - additionalStartTime) / 1000).toFixed(2);
           console.log(`⏱️ [타이밍] 추가 데이터 Promise.all 전체: ${additionalDuration}초`);
           
-          // 🚀 [idle defer] kings — 왕 편집 폼에서 필요하지만 로딩 차단 불필요
+          // 🚀 [stale-while-revalidate] kings — 캐시를 즉시 표시하고 필요할 때만 서버 갱신
+          const cachedKingsPayload = loadKingsPayloadCache();
+          if (cachedKingsPayload) {
+              const cachedKingCount = applyKingsPayload(cachedKingsPayload.data);
+              console.log(`⚡ 왕 데이터 캐시 즉시 로드: ${Object.keys(kings).length}개 국가, 총 ${cachedKingCount}명`);
+              if (yearInput && monthInput) {
+                  updateKingLabel(parseInt(yearInput.value) || 400, parseInt(monthInput.value) || 1);
+              }
+          }
           defer(() => {
+            const cacheAge = cachedKingsPayload ? Date.now() - cachedKingsPayload.at : Infinity;
+            if (cachedKingsPayload && cacheAge < _CACHE_TTL.kings) {
+                console.log('⏭️ [idle] 왕 데이터 캐시 유효 → 네트워크 스킵');
+                return;
+            }
             fetchData('kings').then(data => {
-              kings = {};
               if (Array.isArray(data)) {
-                  let totalKings = 0;
-                  data.forEach(item => {
-                      if (item.country_id && Array.isArray(item.kings)) {
-                          kings[item.country_id] = item.kings;
-                          totalKings += item.kings.length;
-                      }
-                  });
+                  const totalKings = applyKingsPayload(data);
+                  saveKingsPayloadCache(data);
+                  markCacheFresh('kings');
                   console.log(`✅ [idle] 왕 데이터 로드 완료: ${Object.keys(kings).length}개 국가, 총 ${totalKings}명 왕`);
                   if (yearInput && monthInput) {
                       const _ky = parseInt(yearInput.value) || 400;
@@ -19512,7 +19589,10 @@ const loadingMessages = [
                   const updateTimeline = async () => {
                       let sourceYears = [];
                       try {
-                          sourceYears = await fetch('/api/source-records/years').then(r => r.json());
+                          const sourceYearsResponse = await fetch('/api/source-records/years');
+                          if (!sourceYearsResponse.ok) throw new Error(`HTTP ${sourceYearsResponse.status}`);
+                          const sourceYearsData = await sourceYearsResponse.json();
+                          sourceYears = Array.isArray(sourceYearsData) ? sourceYearsData : [];
                           console.log(`📜 source_records 연도 ${sourceYears.length}개 로드`);
                       } catch(e) { console.warn('source-records/years 로드 실패:', e); }
 
@@ -19583,8 +19663,10 @@ const loadingMessages = [
               // 조건 4: 최대 대기 초과
               const isTimeout = _checkRetryCount >= _checkMaxRetries;
 
-              if (castlesReady || isTimeout) {
-                  const reason = castlesReady ? '성/도시 마커 렌더링 완료' : '최대 대기 초과';
+              if (castlesReady || (hasInteractive && isReady) || isTimeout) {
+                  const reason = castlesReady
+                      ? '성/도시 마커 렌더링 완료'
+                      : ((hasInteractive && isReady) ? '캐시 지도 렌더링 완료' : '최대 대기 초과');
                   console.log(`✅ 로딩 화면 해제 (${reason}, ${_checkRetryCount}회 시도)`);
                   setTimeout(() => hideLoadingStatus(), 150);
               } else {
@@ -19594,7 +19676,9 @@ const loadingMessages = [
           };
           
           // 🚀 territories 캐시 있으면 100ms, 없으면 300ms 후 첫 확인
-          setTimeout(checkTerritoriesRendered, territories.length > 0 ? 100 : 300);
+          if (!window._loadingStatusHidden) {
+              setTimeout(checkTerritoriesRendered, territories.length > 0 ? 100 : 300);
+          }
           
       } catch (error) {
           console.error('❌ 초기화 오류:', error);
@@ -26950,6 +27034,7 @@ kingSelect.addEventListener('change', () => {
             
             // 🚩 [최적화] 전체 fetch 대신 메모리에서 증분 업데이트
             const responseData = await response.json();
+            invalidateKingsPayloadCache();
             
             if (!isUpdate) { // 추가(POST) 성공 시에만 연속 추가 모드 작동
                 
@@ -27032,6 +27117,7 @@ kingSelect.addEventListener('change', () => {
             
             // 🚩 [최적화] 전체 fetch 대신 메모리에서 삭제
             deleteKingInMemory(kingMongoId);
+            invalidateKingsPayloadCache();
         } catch (error) {
             console.error("King 정보 삭제 중 오류:", error);
             alert(`King 정보 삭제 실패: ${error.message}`);
@@ -30201,7 +30287,10 @@ kingSelect.addEventListener('change', () => {
         }
         if (token) {
             currentUser = parseJwt(token);
-            console.log('👤 currentUser 설정됨:', currentUser);
+            console.log('👤 currentUser 설정 완료:', {
+                role: currentUser?.role || 'unknown',
+                isGuest: !!currentUser?.isGuest
+            });
             // 게스트 로그인 시 이전에 캐시된 직급 노출을 방지
             if (currentUser && currentUser.isGuest) {
                 localStorage.removeItem('lastKnownPosition');
@@ -30510,8 +30599,11 @@ kingSelect.addEventListener('change', () => {
                 return;
             }
             
-            console.log('currentUser:', currentUser);
-            console.log('token:', token);
+            console.debug('인증 상태:', {
+                hasCurrentUser: !!currentUser,
+                hasToken: !!token,
+                isGuest: !!currentUser?.isGuest
+            });
             
             if (!currentUser || !token) {
                 console.log('❌ currentUser 또는 token이 없음');
@@ -30548,7 +30640,7 @@ kingSelect.addEventListener('change', () => {
                 });
                 if (userResponse.ok) {
                     const latestUserInfo = await userResponse.json();
-                    console.log('👤 최신 사용자 정보:', latestUserInfo);
+                    console.debug('👤 최신 사용자 정보 조회 완료:', { role: latestUserInfo?.role || 'unknown' });
                     // currentUser 업데이트 (DB 직급 반영)
                     if (latestUserInfo.position) {
                         currentUser.position = latestUserInfo.position;
@@ -30572,11 +30664,11 @@ kingSelect.addEventListener('change', () => {
                 // 사용자의 랭킹 데이터 조회
                 const response = await fetch('/api/rankings');
                 const rankings = await response.json();
-                console.log('📊 랭킹 데이터:', rankings);
+                console.log(`📊 랭킹 데이터: ${Array.isArray(rankings) ? rankings.length : 0}명`);
 
                 // 현재 사용자의 랭킹 데이터 찾기
                 const userRanking = rankings.find(ranking => ranking.username === currentUser.username);
-                console.log('👤 사용자 랭킹 데이터:', userRanking);
+                console.debug('👤 사용자 랭킹 조회:', { found: !!userRanking });
 
                 if (!usernameDisplay) {
                     console.warn('⚠️ usernameDisplay 요소를 찾을 수 없음');
@@ -32195,7 +32287,7 @@ kingSelect.addEventListener('change', () => {
             setTimeout(() => runWhenIdle(() => {
                 if (countries && countries.length > 0) {
                     const ethnicities = [...new Set(countries.map(c => c.ethnicity).filter(e => e))].sort((a, b) => a.localeCompare(b, 'ko'));
-                    console.log('🍔 민족 필터 채우기:', ethnicities);
+                    console.log(`🍔 민족 필터 채우기: ${ethnicities.length}개`);
                     const frag = document.createDocumentFragment();
                     ethnicities.forEach(eth => {
                         const option = document.createElement('option');
@@ -38020,7 +38112,10 @@ kingSelect.addEventListener('change', () => {
       
       // 🟢 [추가] ranking.html에서 검토 완료 메시지 받아서 실시간 업데이트
       window.addEventListener('message', async (event) => {
-        console.log('📨 [메시지 수신] event.data:', event.data);
+        // 광고 iframe의 safeframe 상태 메시지는 초기 로딩 중 다량 발생하므로 로깅하지 않는다.
+        if (event.data?.from !== 'adfit') {
+          console.debug('📨 [메시지 수신]', event.data?.type || 'unknown');
+        }
 
         // 🚩 [수정] nl-close: 사관청 소식 팝업 닫기 (IIFE 스코프 밖에서도 처리)
         if (event.data && event.data.type === 'nl-close') {
@@ -40773,6 +40868,7 @@ async function castleFormDeleteVoice() {
 
   var _audio = null, _playingId = null;
   var _cache = {};
+  var _pending = {};
   var _patched = typeof WeakSet !== 'undefined' ? new WeakSet() : null;
 
   // ── MongoDB ObjectId 정규화 ───────────────────────────────────────────
@@ -40791,13 +40887,20 @@ async function castleFormDeleteVoice() {
   function _fetchUrl(id, cb) {
     var key = String(id);
     if (_cache[key] !== undefined) { cb(_cache[key]); return; }
+    if (_pending[key]) { _pending[key].push(cb); return; }
+    _pending[key] = [cb];
+    var finish = function(url) {
+      _cache[key] = url || null;
+      var callbacks = _pending[key] || [];
+      delete _pending[key];
+      callbacks.forEach(function(fn) { fn(_cache[key]); });
+    };
     fetch('/api/voice?id=' + encodeURIComponent(key))
       .then(function(r) { return r.ok ? r.json() : null; })
       .then(function(data) {
-        _cache[key] = (data && data.audio_url) ? data.audio_url : null;
-        cb(_cache[key]);
+        finish((data && data.audio_url) ? data.audio_url : null);
       })
-      .catch(function() { _cache[key] = null; cb(null); });
+      .catch(function() { finish(null); });
   }
 
   // ── 모든 오디오 중단 (전역 헬퍼) ──────────────────────────────────────
@@ -40902,7 +41005,6 @@ async function castleFormDeleteVoice() {
     var b = contentEl.querySelector('b');
     if (b) b.insertAdjacentElement('afterend', btn);
     else   contentEl.insertBefore(btn, contentEl.firstChild);
-    console.info('[VP] 팝업 버튼 삽입:', d.name, id);
   }
 
   // ── 지명 여부 판별 ────────────────────────────────────────────────────
@@ -40938,11 +41040,6 @@ async function castleFormDeleteVoice() {
     if (_patched && _patched.has(marker)) return;
     if (_patched) _patched.add(marker);
 
-    // ① 지명 마커: 음성 있으면 커서 변경 + 배지 (클릭 핸들러는 메인 렌더 코드에서 처리)
-    if (_isLabel(d)) {
-      console.info('[VP] 지명 패치:', d.name, id);
-    }
-
     // ② 팝업 있는 마커 (비지명): popupopen 시 버튼 주입 + 음성 있으면 뱃지
     marker.on('popupopen', function(e) {
       var popup = e.popup;
@@ -40958,16 +41055,6 @@ async function castleFormDeleteVoice() {
       }
     });
 
-    // ③ 모든 마커: 음성 있으면 이퀄라이저 뱃지 표시
-    // castle.voice 필드가 직접 있으면 즉시, 없으면 API로 확인
-    if (d.voice) {
-      _attachBadge(marker);
-    } else {
-      _fetchUrl(id, function(url) {
-        if (!url) return;
-        _attachBadge(marker);
-      });
-    }
   }
 
   // ── [핵심] allCastleMarkers 배열을 감시 — push 프록시로 새 마커 자동 패치 ──

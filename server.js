@@ -608,9 +608,11 @@ const HERO_BASE_CACHE_TTL_MS = 10 * 60 * 1000;
 const HERO_RESULT_CACHE_TTL_MS = 15 * 60 * 1000;
 const HERO_RANKINGS_CACHE_TTL_MS = 2 * 60 * 1000;
 const HERO_COMMENT_COUNTS_CACHE_TTL_MS = 5 * 60 * 1000;
+const KINGS_LIST_CACHE_TTL_MS = 10 * 60 * 1000;
 let heroBaseCache = null;
 let heroBasePayloadCache = null;
 let heroRankingsBaseCache = null;
+let kingsListResponseCache = null;
 const heroRankingPageCache = new Map();
 const heroRankingScopeCache = new Map();
 let heroCommentCountsCache = null;
@@ -618,6 +620,7 @@ let heroCommentCountsLoadPromise = null;
 const heroResultCache = new Map();
 const adminHeroPageCache = new Map();
 let adminHeroCountryCache = null;
+const invalidateKingsListCache = () => { kingsListResponseCache = null; };
 const invalidateHeroCaches = ({ preserveRankings = false } = {}) => {
     heroBaseCache = null;
     heroBasePayloadCache = null;
@@ -4078,10 +4081,19 @@ app.get('/api/nearby', async (req, res) => {
 // GET: 모든 왕 정보 반환 (변경 없음)
 app.get('/api/kings', async (req, res) => {
      try {
-        const countries = await collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1 } }).toArray();
+        const now = Date.now();
+        if (kingsListResponseCache && now - kingsListResponseCache.at < KINGS_LIST_CACHE_TTL_MS) {
+            res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=600');
+            res.set('X-Data-Cache', 'HIT');
+            return res.json(kingsListResponseCache.data);
+        }
+
+        const [countries, kings] = await Promise.all([
+            collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1 } }).toArray(),
+            collections.kings.find({}, { projection: { _id: 1, country_id: 1, country_name: 1, kings: 1 } }).toArray()
+        ]);
         const countryMap = new Map(countries.map(c => [String(c._id), c]));
-        const kings = await collections.kings.find({}).toArray();
-        res.json(kings.map(doc => ({
+        const payload = kings.map(doc => ({
             ...doc,
             kings: (Array.isArray(doc.kings) ? doc.kings : [])
                 .filter(king => {
@@ -4092,7 +4104,11 @@ app.get('/api/kings', async (req, res) => {
                 ...king,
                 ...normalizeKingSchema(king, countryMap.get(String(doc.country_id || '')) || null, String(doc.country_id || ''))
             }))
-        })));
+        }));
+        kingsListResponseCache = { at: Date.now(), data: payload };
+        res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=600');
+        res.set('X-Data-Cache', 'MISS');
+        res.json(payload);
      } catch (error) {
          res.status(500).json({ message: "Kings 조회 실패" });
      }
@@ -4125,6 +4141,7 @@ app.post('/api/kings', verifyAdmin, async (req, res) => {
             throw new Error("국가 찾기/추가 실패");
         }
         invalidateHeroCaches();
+        invalidateKingsListCache();
         
         res.status(201).json({ 
             message: "King 추가 성공", 
@@ -4222,6 +4239,7 @@ app.put('/api/kings/:id', verifyAdmin, async (req, res) => {
             return res.status(404).json({ message: "해당 ID를 가진 왕 레코드를 찾을 수 없습니다." });
         }
         invalidateHeroCaches();
+        invalidateKingsListCache();
 
         res.json({ message: "King 정보 업데이트 성공" });
     } catch (error) {
@@ -4249,6 +4267,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
              return res.status(404).json({ message: "해당 ID를 가진 왕 레코드를 찾을 수 없거나 이미 삭제되었습니다." });
         }
         invalidateHeroCaches();
+        invalidateKingsListCache();
 
         res.json({ message: "King 정보 삭제 성공" });
     } catch (error) {
