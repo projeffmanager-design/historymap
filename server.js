@@ -3211,7 +3211,14 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     const requestedPage = Math.max(1, parseInt(req.query.page, 10) || 1);
                     const limit = Math.min(100, Math.max(10, parseInt(req.query.limit, 10) || 50));
                     const query = String(req.query.q || '').normalize('NFKC').trim();
-                    const cacheKey = `${requestedPage}:${limit}:${query.toLocaleLowerCase('ko-KR')}`;
+                    const typeFilter = String(req.query.type || '').trim().toLowerCase();
+                    const factionFilter = String(req.query.faction || '').normalize('NFKC').trim();
+                    const startYearFilter = req.query.startYear === undefined || req.query.startYear === ''
+                        ? null : parseInt(req.query.startYear, 10);
+                    const endYearFilter = req.query.endYear === undefined || req.query.endYear === ''
+                        ? null : parseInt(req.query.endYear, 10);
+                    const cacheKey = [requestedPage, limit, query.toLocaleLowerCase('ko-KR'), typeFilter,
+                        factionFilter.toLocaleLowerCase('ko-KR'), startYearFilter ?? '', endYearFilter ?? ''].join(':');
                     const cachedPage = adminHeroPageCache.get(cacheKey);
                     if (cachedPage && now - cachedPage.at < 60 * 1000) {
                         res.set('X-Admin-Hero-Cache', 'hit');
@@ -3226,6 +3233,36 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                             }
                         }
                     ];
+                    if (typeFilter) {
+                        pipeline.push({
+                            $match: {
+                                $or: [
+                                    { 'kings.hero_type': typeFilter },
+                                    { 'kings.type': typeFilter },
+                                    { 'kings.role_type': typeFilter }
+                                ]
+                            }
+                        });
+                    }
+                    if (factionFilter) {
+                        const escapedFaction = factionFilter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        const exactFaction = new RegExp(`^${escapedFaction}$`, 'i');
+                        const factionCountryIds = countryDocs
+                            .filter(country => String(country.name || '').normalize('NFKC').toLocaleLowerCase('ko-KR') === factionFilter.toLocaleLowerCase('ko-KR'))
+                            .flatMap(country => countryIdQueryValues(country._id));
+                        pipeline.push({
+                            $match: {
+                                $or: [
+                                    { 'kings.faction': exactFaction },
+                                    ...(factionCountryIds.length ? [{ country_id: { $in: factionCountryIds } }] : [])
+                                ]
+                            }
+                        });
+                    }
+                    const yearMatch = {};
+                    if (Number.isFinite(startYearFilter)) yearMatch.$gte = startYearFilter;
+                    if (Number.isFinite(endYearFilter)) yearMatch.$lte = endYearFilter;
+                    if (Object.keys(yearMatch).length) pipeline.push({ $match: { sortYear: yearMatch } });
                     if (query) {
                         const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                         const regex = new RegExp(escaped, 'i');
