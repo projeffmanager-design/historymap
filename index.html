@@ -854,6 +854,9 @@ body.force-mobile #map-king-list {
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
+#rankingDisplay-close:hover {
+    color: #fff !important;
+}
 
 /* 🚩 [추가] PC에서 역사기록 패널 접기/펼치기 기능 */
 #map-history-panel {
@@ -3882,8 +3885,9 @@ body.force-mobile .marker-type-selector button {
             font-variant-numeric: tabular-nums;
         }
         .cdp-figure-name {
+            display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px;
             font-size: 14px; color: #f5e9d2; font-weight: 700;
-            font-family: 'Noto Serif KR', serif; margin-bottom: 2px;
+            font-family: 'Noto Serif KR', serif; margin-bottom: 4px;
         }
         .cdp-figure-name-link {
             appearance: none; background: none; border: 0; padding: 0;
@@ -3895,6 +3899,18 @@ body.force-mobile .marker-type-selector button {
         .cdp-figure-name-link:hover,
         .cdp-figure-name-link:focus-visible {
             color: #ffd978; text-decoration-color: #ffd978; outline: none;
+        }
+        .cdp-figure-title-text {
+            color: #d4a843;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .cdp-figure-period {
+            color: #8fa0b2;
+            font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+            font-size: 10px;
+            font-weight: 500;
+            white-space: nowrap;
         }
         .cdp-figures-era {
             font-size: 12px; color: #d4a843; margin: 2px 0 12px;
@@ -8805,6 +8821,7 @@ body.force-mobile .marker-type-selector button {
         <div id="rankingDisplay" style="position: fixed; top: 72px; right: 0; z-index: 1000; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; border: none; border-radius: 8px; color: white; font-size: 12px; font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; text-shadow: 1px 1px 3px rgba(0,0,0,0.9); line-height: 1.6; pointer-events: auto; min-width: 180px; max-width: 234px; user-select: none; transition: background 0.25s ease, box-shadow 0.25s ease;">
             <div id="rankingDisplay-header" style="padding: 5px 10px 4px; cursor: pointer; border-bottom: 1px solid rgba(241,196,15,0.15); font-weight: bold; font-size: 12px; color: #f1c40f; display: flex; align-items: center; gap: 4px;">
                 🏆 <span>사관 랭킹</span>
+                <button type="button" id="rankingDisplay-close" title="사관 랭킹 닫기" aria-label="사관 랭킹 닫기" style="margin-left:auto;padding:0 2px;border:0;background:transparent;color:rgba(255,255,255,0.62);font-family:Arial,sans-serif;font-size:17px;line-height:1;cursor:pointer;text-shadow:0 1px 3px rgba(0,0,0,0.9);">&times;</button>
             </div>
             <div id="rankingDisplay-body" style="padding: 6px 10px 8px;"></div>
         </div>
@@ -26348,13 +26365,30 @@ const loadingMessages = [
                     emperor: '황제', king: '왕', khan: '칸',
                     president: '대통령', general: '장군', civilian: '문관', hojok: '호족', brigand: '도적'
                 };
+                const formatFigureYear = value => {
+                    if (value == null || value === '') return '';
+                    const numericYear = Number(value);
+                    if (!Number.isFinite(numericYear)) return '';
+                    return numericYear < 0 ? `B.C. ${Math.abs(numericYear)}` : `A.D. ${numericYear}`;
+                };
                 periodEl.innerHTML = `
                     <div class="cdp-section-title">지도 표시 인물 ${periodFigures.length}명</div>
                     ${periodFigures.map((hero, figureIndex) => {
                     const name = _esc(hero.name_ko || hero.name || '이름 미상');
                     const roleKey = String(hero.hero_type || hero.type || '').toLowerCase();
-                    const role = roleLabels[roleKey] || hero.title || '인물';
-                    const desc = hero.description || hero.title || '';
+                    const role = roleLabels[roleKey] || '인물';
+                    const rawTitle = String(hero.title || '').trim();
+                    const title = rawTitle || role;
+                    const isRoyal = royalTypes.has(roleKey);
+                    const startYear = hero.birth_year ?? hero.start_year ?? hero.start;
+                    const endYear = hero.death_year ?? hero.end_year ?? hero.end;
+                    const startLabel = formatFigureYear(startYear);
+                    const endLabel = formatFigureYear(endYear);
+                    const periodRange = startLabel || endLabel
+                        ? `${startLabel || '?'} ~ ${endLabel || '현재'}`
+                        : '';
+                    const periodLabel = periodRange ? `${isRoyal ? '재위' : '생몰'} ${periodRange}` : '';
+                    const desc = hero.description && hero.description !== rawTitle ? hero.description : '';
                     const heroVotes = parseInt(hero.vote_count || 0, 10) || 0;
                     const villainVotes = parseInt(hero.worst_vote_count || 0, 10) || 0;
                     const voteResult = heroVotes === 0 && villainVotes === 0
@@ -26371,6 +26405,8 @@ const loadingMessages = [
                                 <button type="button" class="cdp-figure-name-link"
                                     data-hero-id="${_esc(String(hero._id || ''))}"
                                     aria-label="인물 상세 보기">${name}</button>
+                                ${title ? `<span class="cdp-figure-title-text">· ${_esc(title)}</span>` : ''}
+                                ${periodLabel ? `<span class="cdp-figure-period">(${_esc(periodLabel)})</span>` : ''}
                             </div>
                             <div class="cdp-figure-meta">
                                 <span class="cdp-figure-role">${_esc(role)}</span>
@@ -37588,6 +37624,15 @@ kingSelect.addEventListener('change', () => {
 
         // 🚩 [추가] 랭킹 헤더 클릭 시 ranking.html 팝업 열기
         const rankingDisplayHeader = document.getElementById('rankingDisplay-header');
+        const rankingDisplayClose = document.getElementById('rankingDisplay-close');
+        if (rankingDisplayClose) {
+            rankingDisplayClose.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                const rankingDisplay = document.getElementById('rankingDisplay');
+                if (rankingDisplay) rankingDisplay.style.display = 'none';
+            });
+        }
         if (rankingDisplayHeader) {
             rankingDisplayHeader.addEventListener('click', () => {
                 const width = 1300, height = 850;
@@ -39275,6 +39320,7 @@ kingSelect.addEventListener('change', () => {
     <div class="activity-notice-ticker-viewport">
         <div id="activity-notice-ticker-track"></div>
     </div>
+    <button type="button" id="activity-notice-ticker-close" title="공지 닫기" aria-label="공지 닫기">&times;</button>
 </div>
 
 <div id="activity-feed-panel">
@@ -39378,7 +39424,7 @@ kingSelect.addEventListener('change', () => {
 body.guest-mode #activity-feed-panel { display: none !important; }
 #activity-notice-ticker {
     position: fixed;
-    top: calc(var(--topbar-h, 46px) + 7px);
+    top: calc(var(--topbar-h, 46px) + 42px);
     left: 50%;
     transform: translateX(-50%);
     width: min(760px, calc(100vw - 28px));
@@ -39406,6 +39452,26 @@ body.guest-mode #activity-feed-panel { display: none !important; }
     flex: 1;
     min-width: 0;
     overflow: hidden;
+}
+#activity-notice-ticker-close {
+    flex: 0 0 30px;
+    align-self: stretch;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    padding: 0;
+    border: 0;
+    border-left: 1px solid rgba(241,196,15,0.22);
+    background: rgba(24,18,8,0.98);
+    color: rgba(255,226,154,0.76);
+    font-family: Arial, sans-serif;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
+#activity-notice-ticker-close:hover {
+    background: rgba(80,53,12,0.98);
+    color: #fff0bf;
 }
 #activity-notice-ticker-track {
     display: inline-block;
@@ -39848,6 +39914,11 @@ body.guest-mode #activity-feed-panel { display: none !important; }
             return;
         }
         const signature = notices.map(log => String(log._id || '')).join('|');
+        if (sessionStorage.getItem('_dismissedNoticeTickerSignature') === signature) {
+            ticker.style.display = 'none';
+            ticker.dataset.signature = signature;
+            return;
+        }
         ticker.style.display = 'flex';
         if (ticker.dataset.signature === signature) return;
         const noticeText = notices.map(log => String(log.extra.text).trim()).join('   ◆   ');
@@ -39855,6 +39926,15 @@ body.guest-mode #activity-feed-panel { display: none !important; }
         track.textContent = noticeText;
         track.style.animationDuration = `${Math.min(90, Math.max(18, 12 + noticeText.length * 0.18))}s`;
     }
+
+    document.getElementById('activity-notice-ticker-close')?.addEventListener('click', () => {
+        const ticker = document.getElementById('activity-notice-ticker');
+        if (!ticker) return;
+        if (ticker.dataset.signature) {
+            sessionStorage.setItem('_dismissedNoticeTickerSignature', ticker.dataset.signature);
+        }
+        ticker.style.display = 'none';
+    });
 
     function renderLogs(logs) {
         renderNoticeTicker(logs);
