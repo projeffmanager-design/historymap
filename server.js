@@ -7688,7 +7688,18 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 }
 
                 let stageStartedAt = performance.now();
-                const cachedScope = heroRankingScopeCache.get(scope);
+                let cachedScope = heroRankingScopeCache.get(scope);
+                const cachedAllScope = heroRankingScopeCache.get('all');
+                if (
+                    !cachedScope && scope !== 'all' && cachedAllScope &&
+                    Date.now() - cachedAllScope.at < HERO_RANKINGS_CACHE_TTL_MS
+                ) {
+                    const derivedHeroes = cachedAllScope.heroes.filter(hero => (
+                        scope === 'our' ? hero.is_our_ethnicity === true : hero.is_our_ethnicity !== true
+                    ));
+                    cachedScope = { at: Date.now(), heroes: derivedHeroes };
+                    heroRankingScopeCache.set(scope, cachedScope);
+                }
                 let heroes;
                 if (cachedScope && Date.now() - cachedScope.at < HERO_RANKINGS_CACHE_TTL_MS) {
                     heroes = [...cachedScope.heroes];

@@ -3294,10 +3294,10 @@
                 <div class="hero-ranking-search">
                     <span style="color:#8fa0b0;">🔍</span>
                     <input type="text" id="heroRankingSearchInput" placeholder="영웅명, 한자, 소속, 유형 검색..." autocomplete="off">
-                    <div id="heroEthnicityFilter" class="hero-ethnicity-filter" role="group" aria-label="영웅 민족 필터" data-value="our">
-                        <button type="button" class="hero-filter-chip active" data-filter="our" aria-pressed="true">동이 민족</button>
+                    <div id="heroEthnicityFilter" class="hero-ethnicity-filter" role="group" aria-label="영웅 민족 필터" data-value="all">
+                        <button type="button" class="hero-filter-chip" data-filter="our" aria-pressed="false">동이 민족</button>
                         <button type="button" class="hero-filter-chip" data-filter="foreign" aria-pressed="false">주변 민족</button>
-                        <button type="button" class="hero-filter-chip" data-filter="all" aria-pressed="false">전체</button>
+                        <button type="button" class="hero-filter-chip active" data-filter="all" aria-pressed="true">전체</button>
                     </div>
                     <button type="button" id="heroRankingSearchClear" class="btn-secondary">초기화</button>
                 </div>
@@ -3574,6 +3574,7 @@
         let _heroRankingSortColumn = 'vote_count';
         let _heroRankingSortDirection = 'desc';
         let _heroRankingServerPayload = null;
+        let _heroRankingGlobalLeaders = null;
         let _heroRankingLoadedKey = '';
         let _heroRankingPageRequestId = 0;
         let _heroRankingSearchTimer = null;
@@ -3913,7 +3914,7 @@
         }
 
         function getHeroEthnicityFilter() {
-            return document.getElementById('heroEthnicityFilter')?.dataset.value || 'our';
+            return document.getElementById('heroEthnicityFilter')?.dataset.value || 'all';
         }
 
         function filterHeroRankings(heroes, query = getHeroRankingQuery()) {
@@ -4466,6 +4467,12 @@
                     실제파싱_ms: resource.parseMs
                 });
                 _heroRankingServerPayload = payload;
+                if (getHeroEthnicityFilter() === 'all' && !getHeroRankingQuery()) {
+                    _heroRankingGlobalLeaders = {
+                        hero_top3: Array.isArray(payload.hero_top3) ? payload.hero_top3 : [],
+                        villain_top3: Array.isArray(payload.villain_top3) ? payload.villain_top3 : []
+                    };
+                }
                 _heroRankingLoadedKey = [
                     getHeroEthnicityFilter(), _heroRankingCurrentPage,
                     _heroRankingSortColumn, _heroRankingSortDirection, getHeroRankingQuery()
@@ -4534,11 +4541,15 @@
             const totalWorstVotes = serverPayload
                 ? (parseInt(serverPayload.summary?.total_worst_votes, 10) || 0)
                 : list.reduce((sum, hero) => sum + (parseInt(hero.worst_vote_count, 10) || 0), 0);
-            const heroLeaders = serverPayload ? (serverPayload.hero_top3 || []) : filteredList.slice().sort((a, b) => (
+            const heroLeaders = _heroRankingGlobalLeaders
+                ? _heroRankingGlobalLeaders.hero_top3
+                : serverPayload ? (serverPayload.hero_top3 || []) : filteredList.slice().sort((a, b) => (
                 (parseInt(b.vote_count, 10) || 0) - (parseInt(a.vote_count, 10) || 0) ||
                 String(a.name_ko || '').localeCompare(String(b.name_ko || ''), 'ko')
             ));
-            const villainLeaders = serverPayload ? (serverPayload.villain_top3 || []) : filteredList.slice().sort((a, b) => (
+            const villainLeaders = _heroRankingGlobalLeaders
+                ? _heroRankingGlobalLeaders.villain_top3
+                : serverPayload ? (serverPayload.villain_top3 || []) : filteredList.slice().sort((a, b) => (
                 (parseInt(b.worst_vote_count, 10) || 0) - (parseInt(a.worst_vote_count, 10) || 0) ||
                 String(a.name_ko || '').localeCompare(String(b.name_ko || ''), 'ko')
             ));
