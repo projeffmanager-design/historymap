@@ -9174,6 +9174,10 @@ body.force-mobile .marker-type-selector button {
                     <input class="hero-admin-input" id="haNameZh" placeholder="예: 廣開土王">
                 </div>
                 <div>
+                    <label class="hero-admin-label">연호</label>
+                    <input class="hero-admin-input" id="haEraName" placeholder="예: 영락">
+                </div>
+                <div>
                     <label class="hero-admin-label">등장 연도 * (BCE: 음수)</label>
                     <input class="hero-admin-input" id="haBirthYear" type="number" placeholder="예: 374">
                 </div>
@@ -9394,7 +9398,7 @@ body.force-mobile .marker-type-selector button {
                 <input class="hero-admin-input" id="heroAdminSearch"
                     placeholder="🔍 이름·한자·국가 검색..."
                     style="width:100%; box-sizing:border-box; margin-bottom:8px;"
-                    oninput="heroSystem._filterAdminRows(this.value)">
+                    oninput="heroSystem._searchAdminRows(this.value)">
                 <div id="heroAdminSearchStatus" style="font-size:11px;color:#8a7a5a;margin:-2px 0 7px;min-height:15px;"></div>
                 <div id="heroAdminTableWrap" style="overflow-x:auto; max-height:260px; overflow-y:auto;">
                     <table class="hero-admin-table">
@@ -9406,6 +9410,11 @@ body.force-mobile .marker-type-selector button {
                         </thead>
                         <tbody id="heroAdminTbody"></tbody>
                     </table>
+                </div>
+                <div id="heroAdminPagination" style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:8px;">
+                    <button type="button" class="hero-admin-btn cancel" id="heroAdminPrevPage" style="font-size:11px;padding:4px 10px;">이전</button>
+                    <span id="heroAdminPageInfo" style="font-size:11px;color:#c8ba9a;">1 / 1</span>
+                    <button type="button" class="hero-admin-btn cancel" id="heroAdminNextPage" style="font-size:11px;padding:4px 10px;">다음</button>
                 </div>
             </div>
             </div><!-- /heroAdminPanelBody -->
@@ -9424,7 +9433,7 @@ body.force-mobile .marker-type-selector button {
                     <table class="hero-admin-table" style="min-width:1120px;">
                         <thead style="position:sticky;top:0;background:#1b1205;z-index:1;">
                             <tr>
-                                <th>이름</th><th>한자</th><th>유형</th><th>국가/세력</th><th>색상</th><th>시작</th><th>종료</th><th>직함</th><th>설명</th>
+                                <th>이름</th><th>한자</th><th>연호</th><th>유형</th><th>국가/세력</th><th>색상</th><th>시작</th><th>종료</th><th>직함</th><th>설명</th>
                             </tr>
                         </thead>
                         <tbody id="heroBulkTableBody"></tbody>
@@ -28129,6 +28138,10 @@ kingSelect.addEventListener('change', () => {
         let _heroCommentById = new Map();
         let currentAdminHeroId = null; // 위치 패널 대상 영웅 ID (외부 노출)
         let _adminHeroes = [];
+        let _adminHeroPage = 1;
+        let _adminHeroTotalPages = 1;
+        let _adminHeroTotal = 0;
+        let _adminHeroSearchTimer = null;
         let _ignoreNextMapCloseUntil = 0;
 
         function getOverlapShiftPx() {
@@ -28810,6 +28823,7 @@ kingSelect.addEventListener('change', () => {
                 return `<tr data-hero-id="${escapeHeroAdminText(h._id)}">
                     <td><input class="hero-admin-input hbt-name" value="${escapeHeroAdminText(h.name_ko || '')}" style="width:130px;"></td>
                     <td><input class="hero-admin-input hbt-zh" value="${escapeHeroAdminText(h.name_zh || '')}" style="width:100px;"></td>
+                    <td><input class="hero-admin-input hbt-era-name" value="${escapeHeroAdminText(h.era_name || '')}" style="width:100px;"></td>
                     <td><select class="hero-admin-input hbt-type" style="width:82px;">${typeHtml}</select></td>
                     <td><input class="hero-admin-input hbt-faction" value="${escapeHeroAdminText(h.faction || '')}"
                         list="heroBulkCountryOptions" autocomplete="off" placeholder="국가명 검색..." style="width:170px;"></td>
@@ -28888,6 +28902,7 @@ kingSelect.addEventListener('change', () => {
                 fields: {
                     name_ko: tr.querySelector('.hbt-name')?.value.trim() || '',
                     name_zh: tr.querySelector('.hbt-zh')?.value.trim() || '',
+                    era_name: tr.querySelector('.hbt-era-name')?.value.trim() || '',
                     hero_type: tr.querySelector('.hbt-type')?.value || 'general',
                     faction: tr.querySelector('.hbt-faction')?.value.trim() || '',
                     faction_color: tr.querySelector('.hbt-color')?.value.trim() || '',
@@ -28928,12 +28943,18 @@ kingSelect.addEventListener('change', () => {
             }
         }
 
-        async function loadAdminList() {
+        async function loadAdminList(page = _adminHeroPage) {
             try {
-                const heroes = await fetch(`${API}/admin/heroes`, {
+                const query = document.getElementById('heroAdminSearch')?.value.trim() || '';
+                const params = new URLSearchParams({ page: String(page), limit: '50' });
+                if (query) params.set('q', query);
+                const payload = await fetch(`${API}/admin/heroes?${params}`, {
                     headers: { Authorization: `Bearer ${token}` }
                 }).then(r => r.json());
-                _adminHeroes = Array.isArray(heroes) ? heroes : [];
+                _adminHeroes = Array.isArray(payload?.heroes) ? payload.heroes : [];
+                _adminHeroPage = payload?.pagination?.page || 1;
+                _adminHeroTotalPages = payload?.pagination?.totalPages || 1;
+                _adminHeroTotal = payload?.pagination?.total || _adminHeroes.length;
                 const tbody = document.getElementById('heroAdminTbody');
                 tbody.innerHTML = '';
                 _adminHeroes.forEach(h => {
@@ -28965,8 +28986,20 @@ kingSelect.addEventListener('change', () => {
                 tbody.querySelectorAll('.hero-bulk-check').forEach(cb => {
                     cb.addEventListener('change', updateHeroBulkSelectedCount);
                 });
-                const currentQuery = document.getElementById('heroAdminSearch')?.value || '';
-                _filterAdminRows(currentQuery);
+                _filterAdminRows('');
+                const status = document.getElementById('heroAdminSearchStatus');
+                if (status) {
+                    status.textContent = query
+                        ? `검색 결과 ${_adminHeroTotal}명 · 현재 ${_adminHeroes.length}명`
+                        : `전체 ${_adminHeroTotal}명 · 현재 ${_adminHeroes.length}명`;
+                    status.style.color = query && _adminHeroTotal === 0 ? '#e67e22' : '#8a7a5a';
+                }
+                const pageInfo = document.getElementById('heroAdminPageInfo');
+                if (pageInfo) pageInfo.textContent = `${_adminHeroPage} / ${_adminHeroTotalPages}`;
+                const prev = document.getElementById('heroAdminPrevPage');
+                const next = document.getElementById('heroAdminNextPage');
+                if (prev) prev.disabled = _adminHeroPage <= 1;
+                if (next) next.disabled = _adminHeroPage >= _adminHeroTotalPages;
             } catch (e) { console.warn('[heroSystem] loadAdminList 오류:', e); }
         }
 
@@ -28974,6 +29007,7 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('heroEditId').value = '';
             document.getElementById('haNameKo').value = '';
             document.getElementById('haNameZh').value = '';
+            document.getElementById('haEraName').value = '';
             document.getElementById('haBirthYear').value = '';
             document.getElementById('haDeathYear').value = '';
             document.getElementById('haTitle').value = '';
@@ -29003,6 +29037,7 @@ kingSelect.addEventListener('change', () => {
                 document.getElementById('heroEditId').value = hero._id;
                 document.getElementById('haNameKo').value = hero.name_ko;
                 document.getElementById('haNameZh').value = hero.name_zh || '';
+                document.getElementById('haEraName').value = hero.era_name || '';
                 document.getElementById('haBirthYear').value = hero.birth_year;
                 document.getElementById('haDeathYear').value = hero.death_year;
                 document.getElementById('haTitle').value = hero.title || '';
@@ -29343,6 +29378,7 @@ kingSelect.addEventListener('change', () => {
                 const fd = new FormData();
                 fd.append('name_ko',     document.getElementById('haNameKo').value.trim());
                 fd.append('name_zh',     document.getElementById('haNameZh').value.trim());
+                fd.append('era_name',    document.getElementById('haEraName').value.trim());
                 fd.append('birth_year',  document.getElementById('haBirthYear').value);
                 fd.append('death_year',  document.getElementById('haDeathYear').value);
                 fd.append('title',         document.getElementById('haTitle').value.trim());
@@ -29438,6 +29474,10 @@ kingSelect.addEventListener('change', () => {
             if (bulkTableCancel) bulkTableCancel.onclick = closeBulkTableEditor;
             const bulkTableSave = document.getElementById('heroBulkTableSave');
             if (bulkTableSave) bulkTableSave.onclick = saveBulkTableEditor;
+            const adminPrevPage = document.getElementById('heroAdminPrevPage');
+            if (adminPrevPage) adminPrevPage.onclick = () => loadAdminList(_adminHeroPage - 1);
+            const adminNextPage = document.getElementById('heroAdminNextPage');
+            if (adminNextPage) adminNextPage.onclick = () => loadAdminList(_adminHeroPage + 1);
 
             const selectAll = document.getElementById('heroBulkSelectAll');
             if (selectAll) {
@@ -29731,13 +29771,22 @@ kingSelect.addEventListener('change', () => {
             updateHeroBulkSelectedCount();
         }
 
+        function _searchAdminRows() {
+            clearTimeout(_adminHeroSearchTimer);
+            _adminHeroSearchTimer = setTimeout(() => {
+                _adminHeroPage = 1;
+                loadAdminList(1);
+            }, 300);
+        }
+
         function _openAdminPanel() {
             const panel = document.getElementById('heroAdminPanel');
             if (!panel) return;
             panel.classList.add('show');
             panel.scrollTop = 0;
             clearAdminForm();
-            loadAdminList();
+            _adminHeroPage = 1;
+            loadAdminList(1);
             _loadCountries(); // 백그라운드 프리로드
         }
 
@@ -29755,6 +29804,7 @@ kingSelect.addEventListener('change', () => {
             _openAdminPanel,
             _showHeroToast,
             _filterAdminRows,
+            _searchAdminRows,
             _filterBatchFaction,
             _filterFaction,
             _applyPendingPos: null  // 지도 클릭 후 콜백, editHero에서 소비

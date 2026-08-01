@@ -154,6 +154,7 @@ const normalizeKingSchema = (king = {}, country = null, countryId = '') => {
         person_id: king.person_id || '',
         name_ko: king.name_ko || king.name || country?.name || '',
         name_zh: king.name_zh || '',
+        era_name: king.era_name || '',
         title: king.title || '',
         description: king.description || king.summary || '',
         avatar_url: king.avatar_url || '',
@@ -305,6 +306,7 @@ const buildFigureFromBody = (body = {}, uploads = {}, existing = {}) => {
         name: nameKo,
         name_ko: nameKo,
         name_zh: body.name_zh !== undefined ? String(body.name_zh || '').trim() : (existing.name_zh || ''),
+        era_name: body.era_name !== undefined ? String(body.era_name || '').trim() : (existing.era_name || ''),
         start: Number.isNaN(startYear) ? existing.start : startYear,
         start_month: normalizeMonthValue(body.start_month ?? existing.start_month, 1),
         end: Number.isNaN(endYear) ? (endRaw === '' || endRaw == null ? null : existing.end) : endYear,
@@ -417,7 +419,7 @@ const updateKingFigureFields = async (id, fields = {}) => {
     if (!found) return { ok: false, id, message: '영웅 없음' };
 
     const allowedFields = new Set([
-        'name_ko', 'name', 'name_zh',
+        'name_ko', 'name', 'name_zh', 'era_name',
         'birth_year', 'start_year', 'start', 'start_month',
         'death_year', 'end_year', 'end', 'end_month',
         'title', 'description', 'hero_type', 'type',
@@ -3150,14 +3152,91 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
             }
         });
 
-        // GET /api/admin/heroes — 관리자용 전체 영웅 목록
+        // GET /api/admin/heroes — 관리자용 영웅 목록 (page/limit 사용 시 페이지형 응답)
         app.get('/api/admin/heroes', verifyAdmin, async (req, res) => {
             try {
-                const [kingDocs, countryDocs] = await Promise.all([
-                    collections.kings.find({}).toArray(),
-                    collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1 } }).toArray()
-                ]);
+                const countryDocs = await collections.countries
+                    .find({}, { projection: { _id: 1, name: 1, color: 1 } })
+                    .toArray();
                 const countryMap = new Map(countryDocs.map(c => [String(c._id), c]));
+                const usesPagination = req.query.page !== undefined || req.query.limit !== undefined || req.query.q !== undefined;
+                res.set('Cache-Control', 'no-store');
+
+                if (usesPagination) {
+                    const requestedPage = Math.max(1, parseInt(req.query.page, 10) || 1);
+                    const limit = Math.min(100, Math.max(10, parseInt(req.query.limit, 10) || 50));
+                    const query = String(req.query.q || '').normalize('NFKC').trim();
+                    const pipeline = [
+                        { $unwind: { path: '$kings', includeArrayIndex: 'kingIndex' } },
+                        {
+                            $set: {
+                                sortYear: { $convert: { input: '$kings.start', to: 'int', onError: 0, onNull: 0 } },
+                                sortMonth: { $convert: { input: '$kings.start_month', to: 'int', onError: 1, onNull: 1 } }
+                            }
+                        }
+                    ];
+                    if (query) {
+                        const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        const regex = new RegExp(escaped, 'i');
+                        const matchingCountryIds = countryDocs
+                            .filter(country => String(country.name || '').normalize('NFKC').toLocaleLowerCase('ko-KR')
+                                .includes(query.toLocaleLowerCase('ko-KR')))
+                            .flatMap(country => countryIdQueryValues(country._id));
+                        pipeline.push({
+                            $match: {
+                                $or: [
+                                    { 'kings.name': regex },
+                                    { 'kings.name_ko': regex },
+                                    { 'kings.name_zh': regex },
+                                    { 'kings.era_name': regex },
+                                    { 'kings.faction': regex },
+                                    { 'kings.title': regex },
+                                    ...(matchingCountryIds.length ? [{ country_id: { $in: matchingCountryIds } }] : [])
+                                ]
+                            }
+                        });
+                    }
+                    pipeline.push({
+                        $facet: {
+                            metadata: [{ $count: 'total' }],
+                            rows: [
+                                { $sort: { sortYear: 1, sortMonth: 1, 'kings.name_ko': 1, 'kings.name': 1 } },
+                                { $skip: (requestedPage - 1) * limit },
+                                { $limit: limit },
+                                { $project: { country_id: 1, king: '$kings', kingIndex: 1 } }
+                            ]
+                        }
+                    });
+                    let [pageResult = { metadata: [], rows: [] }] = await collections.kings.aggregate(pipeline).toArray();
+                    const total = pageResult.metadata?.[0]?.total || 0;
+                    const totalPages = Math.max(1, Math.ceil(total / limit));
+                    const page = Math.min(requestedPage, totalPages);
+                    if (page !== requestedPage && total > 0) {
+                        const retryPipeline = pipeline.slice(0, -1);
+                        retryPipeline.push({
+                            $sort: { sortYear: 1, sortMonth: 1, 'kings.name_ko': 1, 'kings.name': 1 }
+                        }, { $skip: (page - 1) * limit }, { $limit: limit }, {
+                            $project: { country_id: 1, king: '$kings', kingIndex: 1 }
+                        });
+                        pageResult = { metadata: [{ total }], rows: await collections.kings.aggregate(retryPipeline).toArray() };
+                    }
+                    const heroes = (pageResult.rows || []).map(row => {
+                        const countryId = String(row.country_id || '');
+                        const normalized = normalizeKingSchema(row.king || {}, countryMap.get(countryId) || null, countryId);
+                        const refId = row.king?._id ? String(row.king._id) : String(row.kingIndex);
+                        return {
+                            _id: kingHeroId(countryId, refId),
+                            ...normalized,
+                            birth_year: normalized.start_year,
+                            death_year: normalized.end_year,
+                            sort_year: normalized.start_year ?? 0,
+                            sort_month: normalized.start_month ?? 1
+                        };
+                    });
+                    return res.json({ heroes, pagination: { page, limit, total, totalPages } });
+                }
+
+                const kingDocs = await collections.kings.find({}).toArray();
                 const visibleHeroes = [];
                 kingDocs.forEach(doc => {
                     const countryId = String(doc.country_id || '');
@@ -3180,7 +3259,6 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     (a.sort_month ?? 1) - (b.sort_month ?? 1) ||
                     String(a.name_ko || '').localeCompare(String(b.name_ko || ''))
                 ));
-                res.set('Cache-Control', 'no-store');
                 res.json(visibleHeroes);
             } catch (err) {
                 res.status(500).json({ message: '서버 오류' });

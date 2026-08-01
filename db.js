@@ -80,6 +80,17 @@ async function connectToDatabase() {
                 // hero_positions 컬렉션에 2dsphere + 연도 복합 인덱스
                 await collections.heroPositions.createIndex({ "geometry": "2dsphere" });
                 await collections.heroPositions.createIndex({ hero_id: 1, year: 1 });
+                await collections.kings.createIndex({ country_id: 1 }, { name: 'idx_kings_country_id' });
+                await collections.kings.createIndex({ 'kings._id': 1 }, { name: 'idx_kings_figure_id' });
+                await collections.kings.createIndex({ 'kings.person_id': 1 }, { name: 'idx_kings_person_id' });
+                await collections.heroPositions.createIndex(
+                    { hero_id: 1, start_year: 1, year: 1 },
+                    { name: 'idx_hero_positions_hero_start_year' }
+                );
+                await collections.heroComments.createIndex(
+                    { hero_id: 1, createdAt: -1 },
+                    { name: 'idx_hero_comments_hero_created' }
+                );
                 console.log("✅ Hero position indexes created");
             } catch (indexError) {
                 console.warn("⚠️ Index creation warning (may already exist):", indexError.message);
