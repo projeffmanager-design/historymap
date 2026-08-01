@@ -8,22 +8,27 @@ if (!mongoUri) {
 }
 
 const clientOptions = {
-    serverSelectionTimeoutMS: 30000,   // 서버 선택 대기 30초
-    connectTimeoutMS: 30000,           // 연결 대기 30초
-    socketTimeoutMS: 300000,           // 소켓 유지 5분 (대용량 castle 전체 조회 대응)
+    serverSelectionTimeoutMS: 10000,
+    connectTimeoutMS: 10000,
+    socketTimeoutMS: 120000,
     heartbeatFrequencyMS: 10000,
     retryWrites: true,
     maxPoolSize: 10,
-    minPoolSize: 2
+    minPoolSize: 0,                    // 서버리스 콜드 스타트 때 연결 2개를 미리 만들지 않는다.
+    maxIdleTimeMS: 60000
 };
 const client = new MongoClient(mongoUri, clientOptions);
 let db;
+let connectingPromise = null;
 const collections = {};
 
 async function connectToDatabase() {
     if (db) {
         return { db, collections };
     }
+    if (connectingPromise) return connectingPromise;
+
+    connectingPromise = (async () => {
     const maxAttempts = 3;
     const baseDelay = 500; // ms
     let attempt = 0;
@@ -63,27 +68,8 @@ async function connectToDatabase() {
             collections.heroPositions = db.collection("hero_positions"); // 🦸 [추가] 영웅 연도별 위치 컬렉션
             collections.heroComments = db.collection("hero_comments");   // 🦸 [추가] 영웅 사관 댓글 컬렉션
 
-            // 인덱스 하나의 충돌/실패가 나머지 인덱스 생성을 막지 않게 개별 처리한다.
-            const indexDefinitions = [
-                [collections.territories, { geometry: '2dsphere' }, {}],
-                [collections.naturalFeatures, { geometry: '2dsphere' }, {}],
-                [collections.castle, { location: '2dsphere' }, {}],
-                [collections.heroPositions, { geometry: '2dsphere' }, {}],
-                [collections.heroPositions, { hero_id: 1, year: 1 }, {}],
-                // kings.country_id는 운영 DB의 기존 idx_country_id를 그대로 사용한다.
-                [collections.kings, { 'kings._id': 1 }, { name: 'idx_kings_figure_id' }],
-                [collections.kings, { 'kings.person_id': 1 }, { name: 'idx_kings_person_id' }],
-                [collections.heroPositions, { hero_id: 1, start_year: 1, year: 1 }, { name: 'idx_hero_positions_hero_start_year' }],
-                [collections.heroComments, { hero_id: 1, createdAt: -1 }, { name: 'idx_hero_comments_hero_created' }]
-            ];
-            for (const [collection, keys, options] of indexDefinitions) {
-                try {
-                    await collection.createIndex(keys, options);
-                } catch (indexError) {
-                    console.warn(`⚠️ ${collection.collectionName} index warning:`, indexError.message);
-                }
-            }
-            console.log("✅ Database indexes checked");
+            // 인덱스는 영구 자산이므로 서버 시작 경로에서 확인하지 않는다.
+            // 변경이 필요할 때 scripts/check_and_fix_indexes.js를 배포 단계에서 실행한다.
 
             return { db, collections };
         } catch (err) {
@@ -98,12 +84,20 @@ async function connectToDatabase() {
             process.exit(1);
         }
     }
+    })();
+
+    try {
+        return await connectingPromise;
+    } finally {
+        connectingPromise = null;
+    }
 }
 
 // 연결이 끊어졌을 때 강제 재연결 (타임아웃 후 재빌드 재시도용)
 async function reconnectDatabase() {
     try {
         db = null; // 기존 연결 상태 초기화
+        connectingPromise = null;
         await client.close(true).catch(() => {}); // 기존 소켓 강제 종료
     } catch (e) { /* 무시 */ }
     return connectToDatabase();

@@ -607,15 +607,51 @@ const isCastleActiveAtYear = (castle, year, month = 1) => (
 const HERO_BASE_CACHE_TTL_MS = 10 * 60 * 1000;
 const HERO_RESULT_CACHE_TTL_MS = 15 * 60 * 1000;
 const HERO_RANKINGS_CACHE_TTL_MS = 2 * 60 * 1000;
+const HERO_COMMENT_COUNTS_CACHE_TTL_MS = 5 * 60 * 1000;
 let heroBaseCache = null;
 let heroBasePayloadCache = null;
 let heroRankingsBaseCache = null;
+let heroCommentCountsCache = null;
+let heroCommentCountsLoadPromise = null;
 const heroResultCache = new Map();
+const adminHeroPageCache = new Map();
+let adminHeroCountryCache = null;
 const invalidateHeroCaches = ({ preserveRankings = false } = {}) => {
     heroBaseCache = null;
     heroBasePayloadCache = null;
+    adminHeroPageCache.clear();
+    adminHeroCountryCache = null;
     if (!preserveRankings) heroRankingsBaseCache = null;
     heroResultCache.clear();
+};
+const getHeroCommentCountMap = async () => {
+    const now = Date.now();
+    if (heroCommentCountsCache && now - heroCommentCountsCache.at < HERO_COMMENT_COUNTS_CACHE_TTL_MS) {
+        return heroCommentCountsCache.counts;
+    }
+    if (heroCommentCountsLoadPromise) return heroCommentCountsLoadPromise;
+    heroCommentCountsLoadPromise = (async () => {
+        const rows = await collections.heroComments.aggregate([
+            { $group: { _id: '$hero_id', count: { $sum: 1 } } }
+        ]).toArray();
+        const counts = new Map(rows.map(row => [String(row._id || ''), Number(row.count) || 0]));
+        heroCommentCountsCache = { at: Date.now(), counts };
+        return counts;
+    })();
+    try {
+        return await heroCommentCountsLoadPromise;
+    } finally {
+        heroCommentCountsLoadPromise = null;
+    }
+};
+const updateHeroCommentCountCache = (heroId, delta) => {
+    if (!heroCommentCountsCache?.counts) return;
+    const key = String(heroId || '');
+    heroCommentCountsCache.counts.set(
+        key,
+        Math.max(0, (heroCommentCountsCache.counts.get(key) || 0) + delta)
+    );
+    heroCommentCountsCache.at = Date.now();
 };
 const updateHeroRankingsVoteCache = (heroId, voterId, kind, count) => {
     const heroes = heroRankingsBaseCache?.heroes;
@@ -2739,6 +2775,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     createdAt: new Date()
                 };
                 const inserted = await collections.heroComments.insertOne(comment);
+                updateHeroCommentCountCache(identity.storageId, 1);
                 const [serialized] = serializeHeroComments(req, [{ ...comment, _id: inserted.insertedId }]);
                 res.status(201).json(serialized);
             } catch (err) {
@@ -2791,6 +2828,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     return res.status(403).json({ message: '관리자만 평가를 삭제할 수 있습니다.' });
                 }
                 await collections.heroComments.deleteOne({ _id: commentId });
+                updateHeroCommentCountCache(comment.hero_id, -1);
                 res.json({ message: '평가를 삭제했습니다.' });
             } catch (err) {
                 res.status(500).json({ message: '서버 오류' });
@@ -3155,9 +3193,16 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
         // GET /api/admin/heroes — 관리자용 영웅 목록 (page/limit 사용 시 페이지형 응답)
         app.get('/api/admin/heroes', verifyAdmin, async (req, res) => {
             try {
-                const countryDocs = await collections.countries
-                    .find({}, { projection: { _id: 1, name: 1, color: 1 } })
-                    .toArray();
+                const now = Date.now();
+                if (!adminHeroCountryCache || now - adminHeroCountryCache.at > HERO_BASE_CACHE_TTL_MS) {
+                    adminHeroCountryCache = {
+                        at: now,
+                        docs: await collections.countries
+                            .find({}, { projection: { _id: 1, name: 1, color: 1 } })
+                            .toArray()
+                    };
+                }
+                const countryDocs = adminHeroCountryCache.docs;
                 const countryMap = new Map(countryDocs.map(c => [String(c._id), c]));
                 const usesPagination = req.query.page !== undefined || req.query.limit !== undefined || req.query.q !== undefined;
                 res.set('Cache-Control', 'no-store');
@@ -3166,6 +3211,12 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     const requestedPage = Math.max(1, parseInt(req.query.page, 10) || 1);
                     const limit = Math.min(100, Math.max(10, parseInt(req.query.limit, 10) || 50));
                     const query = String(req.query.q || '').normalize('NFKC').trim();
+                    const cacheKey = `${requestedPage}:${limit}:${query.toLocaleLowerCase('ko-KR')}`;
+                    const cachedPage = adminHeroPageCache.get(cacheKey);
+                    if (cachedPage && now - cachedPage.at < 60 * 1000) {
+                        res.set('X-Admin-Hero-Cache', 'hit');
+                        return res.json(cachedPage.payload);
+                    }
                     const pipeline = [
                         { $unwind: { path: '$kings', includeArrayIndex: 'kingIndex' } },
                         {
@@ -3233,7 +3284,13 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                             sort_month: normalized.start_month ?? 1
                         };
                     });
-                    return res.json({ heroes, pagination: { page, limit, total, totalPages } });
+                    const payload = { heroes, pagination: { page, limit, total, totalPages } };
+                    adminHeroPageCache.set(cacheKey, { at: Date.now(), payload });
+                    if (adminHeroPageCache.size > 100) {
+                        adminHeroPageCache.delete(adminHeroPageCache.keys().next().value);
+                    }
+                    res.set('X-Admin-Hero-Cache', 'miss');
+                    return res.json(payload);
                 }
 
                 const kingDocs = await collections.kings.find({}).toArray();
@@ -7445,9 +7502,62 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
-        app.get('/api/hero-rankings', async (req, res) => {
+        // 개인 투표 상태만 반환한다. 공개 랭킹 응답과 분리해 CDN 캐시를 가능하게 한다.
+        app.get('/api/hero-rankings/vote-state', async (req, res) => {
             try {
                 const voterId = getHeroVoteVoterId(req);
+                const rows = await collections.kings.aggregate([
+                    {
+                        $match: {
+                            $or: [
+                                { 'kings.voted_by': voterId },
+                                { 'kings.worst_voted_by': voterId }
+                            ]
+                        }
+                    },
+                    { $unwind: { path: '$kings', includeArrayIndex: 'kingIndex' } },
+                    {
+                        $match: {
+                            $or: [
+                                { 'kings.voted_by': voterId },
+                                { 'kings.worst_voted_by': voterId }
+                            ]
+                        }
+                    },
+                    {
+                        $project: {
+                            country_id: 1,
+                            kingIndex: 1,
+                            person_id: '$kings.person_id',
+                            source_ref_id: '$kings._id',
+                            has_voted: { $in: [voterId, { $ifNull: ['$kings.voted_by', []] }] },
+                            has_worst_voted: { $in: [voterId, { $ifNull: ['$kings.worst_voted_by', []] }] }
+                        }
+                    }
+                ]).toArray();
+                const heroVoteKeys = new Set();
+                const villainVoteKeys = new Set();
+                rows.forEach(row => {
+                    const sourceRefId = row.source_ref_id ? String(row.source_ref_id) : String(row.kingIndex);
+                    const identityKey = row.person_id
+                        ? canonicalPersonHeroId(row.person_id)
+                        : kingHeroId(String(row.country_id || ''), sourceRefId);
+                    if (row.has_voted) heroVoteKeys.add(identityKey);
+                    if (row.has_worst_voted) villainVoteKeys.add(identityKey);
+                });
+                res.set('Cache-Control', 'private, no-store');
+                res.json({
+                    hero_vote_keys: [...heroVoteKeys],
+                    villain_vote_keys: [...villainVoteKeys]
+                });
+            } catch (error) {
+                console.error('[GET /api/hero-rankings/vote-state] 오류:', error);
+                res.status(500).json({ message: '개인 투표 상태 조회 실패' });
+            }
+        });
+
+        app.get(['/api/hero-rankings/public', '/api/hero-rankings'], async (req, res) => {
+            try {
                 let baseHeroes = heroRankingsBaseCache
                     && Date.now() - heroRankingsBaseCache.at < HERO_RANKINGS_CACHE_TTL_MS
                     ? heroRankingsBaseCache.heroes
@@ -7497,13 +7607,18 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         const identityKey = hero.person_id ? canonicalPersonHeroId(hero.person_id) : hero._id;
                         const previous = heroesByIdentity.get(identityKey);
                         if (!previous) {
-                            heroesByIdentity.set(identityKey, { ...hero, comment_storage_id: identityKey });
+                            heroesByIdentity.set(identityKey, {
+                                ...hero,
+                                vote_identity: identityKey,
+                                comment_storage_id: identityKey
+                            });
                             return;
                         }
                         const displayHero = (hero.birth_year ?? -Infinity) >= (previous.birth_year ?? -Infinity) ? hero : previous;
                         heroesByIdentity.set(identityKey, {
                             ...displayHero,
                             person_id: hero.person_id || previous.person_id,
+                            vote_identity: identityKey,
                             comment_storage_id: identityKey,
                             birth_year: Math.min(previous.birth_year ?? Infinity, hero.birth_year ?? Infinity),
                             death_year: Math.max(previous.death_year ?? -Infinity, hero.death_year ?? -Infinity),
@@ -7528,24 +7643,15 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     heroRankingsBaseCache = { at: Date.now(), heroes: baseHeroes };
                 }
 
-                // 인물별 평가글 수를 한 번의 집계로 계산해 랭킹 카드/목록에 함께 제공한다.
-                const heroCommentCounts = await collections.heroComments.aggregate([
-                    { $group: { _id: '$hero_id', count: { $sum: 1 } } }
-                ]).toArray();
-                const heroCommentCountMap = new Map(
-                    heroCommentCounts.map(item => [String(item._id || ''), Number(item.count) || 0])
-                );
+                // 평가글 수 전체 집계는 5분간 재사용하고 등록/삭제 때 해당 값만 증분 갱신한다.
+                const heroCommentCountMap = await getHeroCommentCountMap();
 
                 const heroes = baseHeroes.map(({ _voted_by, _worst_voted_by, comment_storage_id, ...hero }) => ({
                     ...hero,
-                    comment_count: heroCommentCountMap.get(String(comment_storage_id || hero._id)) || 0,
-                    has_voted: _voted_by.includes(voterId),
-                    has_worst_voted: _worst_voted_by.includes(voterId)
+                    comment_count: heroCommentCountMap.get(String(comment_storage_id || hero._id)) || 0
                 }));
 
-                // 투표 직후의 숫자가 CDN/브라우저의 오래된 응답으로 되돌아가지 않게 한다.
-                res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-                res.set('Pragma', 'no-cache');
+                res.set('Cache-Control', 'public, max-age=15, s-maxage=60, stale-while-revalidate=300');
                 res.json(heroes);
             } catch (error) {
                 console.error('[GET /api/hero-rankings] 오류:', error);

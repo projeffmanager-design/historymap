@@ -4038,19 +4038,51 @@
             }
         }
 
+        function scheduleHeroRankingsBackgroundLoad() {
+            return new Promise(resolve => {
+                const run = () => Promise.resolve(loadHeroRankings()).then(resolve, resolve);
+                if ('requestIdleCallback' in window) {
+                    window.requestIdleCallback(run, { timeout: 900 });
+                } else {
+                    window.setTimeout(run, 120);
+                }
+            });
+        }
+
         async function fetchAndRenderHeroRankings() {
             const tableBody = document.getElementById('heroRankingTableBody');
             tableBody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#95a5a6;">영웅 & 빌런 투표를 불러오는 중...</td></tr>';
             try {
                 const voteRequest = buildHeroVoteRequest();
-                const response = await fetch(`${API_BASE_URL}/hero-rankings?v=ethnicity-1`, {
-                    headers: voteRequest.headers,
-                    cache: 'no-store'
-                });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const heroes = await response.json();
+                const [publicResponse, voteStateResponse] = await Promise.all([
+                    fetch(`${API_BASE_URL}/hero-rankings/public?v=2`),
+                    fetch(`${API_BASE_URL}/hero-rankings/vote-state`, {
+                        headers: voteRequest.headers,
+                        cache: 'no-store'
+                    }).catch(() => null)
+                ]);
+                if (!publicResponse.ok) throw new Error(`HTTP ${publicResponse.status}`);
+                const heroes = await publicResponse.json();
                 _clientHeroRankingsCache = Array.isArray(heroes) ? heroes : [];
-                syncHeroVoteState(_clientHeroRankingsCache);
+
+                if (voteStateResponse?.ok) {
+                    const voteState = await voteStateResponse.json();
+                    const heroVoteKeys = new Set(Array.isArray(voteState.hero_vote_keys) ? voteState.hero_vote_keys.map(String) : []);
+                    const villainVoteKeys = new Set(Array.isArray(voteState.villain_vote_keys) ? voteState.villain_vote_keys.map(String) : []);
+                    _clientHeroRankingsCache.forEach(hero => {
+                        const identityKey = String(hero.vote_identity || hero._id || '');
+                        hero.has_voted = heroVoteKeys.has(identityKey);
+                        hero.has_worst_voted = villainVoteKeys.has(identityKey);
+                    });
+                    syncHeroVoteState(_clientHeroRankingsCache);
+                } else {
+                    // 개인 상태 요청만 실패한 경우 공개 랭킹은 표시하고 현재 브라우저 선택을 유지한다.
+                    _clientHeroRankingsCache.forEach(hero => {
+                        const heroId = String(hero._id || '');
+                        hero.has_voted = _heroVotedSet.has(heroId);
+                        hero.has_worst_voted = _heroWorstVotedSet.has(heroId);
+                    });
+                }
                 _clientHeroRankingsCacheTime = Date.now();
                 renderHeroRankings(_clientHeroRankingsCache);
             } catch (error) {
@@ -6223,7 +6255,7 @@
             updateRankingAuthBar();
 
             // 첫 카드가 화면에 열린 다음에 무거운 전체 목록 요청을 시작한다.
-            const rankingsPromise = loadHeroRankings();
+            const rankingsPromise = scheduleHeroRankingsBackgroundLoad();
             await rankingsPromise;
             if (!contributionId) {
                 if (_heroVoteGameAutoOpened) replenishHeroVoteGameDeck();
