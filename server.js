@@ -2581,7 +2581,8 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     result.forEach((hero) => {
                         const savedPositions = positionsByHero.get(String(hero._id)) || [];
                         const activePosition = selectActiveHeroPosition(savedPositions, year, month);
-                        if (activePosition && !isRoyalHeroType(hero.hero_type)) hero.position = activePosition;
+                        // 관리자가 등록한 명시적 위치 이벤트는 왕·황제에게도 수도 자동 위치보다 우선한다.
+                        if (activePosition) hero.position = activePosition;
                     });
                 }
 

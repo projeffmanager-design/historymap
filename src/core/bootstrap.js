@@ -710,7 +710,8 @@ function buildHeroesFromBaseDataset(base, year, month) {
       }
       const savedPositions = prepared?.positionsByHero.get(idToString(nextHero._id)) || [];
       const savedPosition = selectActiveHeroPosition(savedPositions, year, month);
-      if (savedPosition && !royalTypes.has(type)) nextHero.position = savedPosition;
+      // Explicit position history overrides the capital fallback for royal figures too.
+      if (savedPosition) nextHero.position = savedPosition;
       result.push(nextHero);
     });
   });
