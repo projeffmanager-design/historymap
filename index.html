@@ -4899,6 +4899,24 @@ body.force-mobile .marker-type-selector button {
         font-size: 11px;
         line-height: 1.2;
     }
+    button.hero-faction-link {
+        font-family: inherit;
+        cursor: pointer;
+        text-decoration: underline dotted;
+        text-underline-offset: 3px;
+    }
+    button.hero-faction-link:hover,
+    button.hero-faction-link:focus-visible {
+        border-color: rgba(126,184,232,.72);
+        color: #9dcdf1;
+        background: rgba(126,184,232,.12);
+        outline: none;
+    }
+    button.hero-faction-link:disabled {
+        cursor: default;
+        text-decoration: none;
+        opacity: .75;
+    }
     .hero-years {
         font-size: 11px;
         color: #8a7a5a;
@@ -9131,9 +9149,7 @@ body.force-mobile .marker-type-selector button {
                     <div class="hero-name-ko" id="heroNameKo">-</div>
                     <div class="hero-title-badge" id="heroTitleBadge"></div>
                     <div class="hero-meta-row">
-                        <span class="hero-meta-pill" id="heroFactionName">국가 미상</span>
-                        <span class="hero-meta-pill" id="heroVoteMeta" hidden>영웅 0표</span>
-                        <span class="hero-meta-pill" id="heroWorstVoteMeta" hidden>빌런 0표</span>
+                        <button type="button" class="hero-meta-pill hero-faction-link" id="heroFactionName" disabled>국가 미상</button>
                     </div>
                     <div class="hero-years" id="heroYears"></div>
                     <hr class="hero-divider">
@@ -28641,9 +28657,17 @@ kingSelect.addEventListener('change', () => {
                 document.getElementById('heroNameZh').textContent = hero.name_zh || '';
                 document.getElementById('heroNameKo').textContent = hero.name_ko;
                 document.getElementById('heroTitleBadge').textContent = hero.title || '';
-                document.getElementById('heroFactionName').textContent = hero.faction ? `국가 ${hero.faction}` : '국가 미상';
-                document.getElementById('heroVoteMeta').textContent = `영웅 ${hero.vote_count || 0}표`;
-                document.getElementById('heroWorstVoteMeta').textContent = `빌런 ${hero.worst_vote_count || 0}표`;
+                const factionLink = document.getElementById('heroFactionName');
+                factionLink.textContent = hero.faction ? `국가 ${hero.faction}` : '국가 미상';
+                const linkedCountry = getCountryInfoById(hero.source_country_id || hero.country_id)
+                    || getCountryInfo(hero.faction);
+                factionLink.disabled = !linkedCountry;
+                factionLink.title = linkedCountry ? `${linkedCountry.name} 국가 상세 보기` : '';
+                factionLink.onclick = linkedCountry ? (event) => {
+                    event.stopPropagation();
+                    closeHeroDetail();
+                    showCountryInfoModal(linkedCountry);
+                } : null;
                 currentHeroVoteCount = parseInt(hero.vote_count, 10) || 0;
                 currentHeroWorstVoteCount = parseInt(hero.worst_vote_count, 10) || 0;
                 renderHeroVoteGauge();
@@ -29409,7 +29433,6 @@ kingSelect.addEventListener('change', () => {
                     document.getElementById('heroVoteBtn').className = 'hero-vote-btn voted';
                     document.getElementById('heroVoteLabel').textContent = '이미 투표했습니다';
                     document.getElementById('heroVoteCount').textContent = `(${res.vote_count}표)`;
-                    document.getElementById('heroVoteMeta').textContent = `영웅 ${res.vote_count || 0}표`;
                     currentHeroVoteCount = parseInt(res.vote_count, 10) || 0;
                     renderHeroVoteGauge();
                     if (res.already_voted) {
@@ -29434,7 +29457,6 @@ kingSelect.addEventListener('change', () => {
                     document.getElementById('heroWorstVoteBtn').className = 'hero-vote-btn villain voted';
                     document.getElementById('heroWorstVoteLabel').textContent = '이미 투표했습니다';
                     document.getElementById('heroWorstVoteCount').textContent = `(${res.worst_vote_count}표)`;
-                    document.getElementById('heroWorstVoteMeta').textContent = `빌런 ${res.worst_vote_count || 0}표`;
                     currentHeroWorstVoteCount = parseInt(res.worst_vote_count, 10) || 0;
                     renderHeroVoteGauge();
                     if (res.already_voted) {
