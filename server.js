@@ -77,6 +77,18 @@ const hasOverlappingCastleName = (a, b) => {
     return false;
 };
 
+const hasSameCastleDuplicateIdentity = (a = {}, b = {}) => {
+    const aLat = Number(a.lat);
+    const aLng = Number(a.lng);
+    const bLat = Number(b.lat);
+    const bLng = Number(b.lng);
+    if (![aLat, aLng, bLat, bLng].every(Number.isFinite)) return false;
+    if (Math.abs(aLat - bLat) > 1e-9 || Math.abs(aLng - bLng) > 1e-9) return false;
+    const aNames = [...castleDuplicateNameSet(a)].sort();
+    const bNames = [...castleDuplicateNameSet(b)].sort();
+    return aNames.length === bNames.length && aNames.every((name, index) => name === bNames[index]);
+};
+
 const normalizeRouteId = (id) => {
     try {
         return decodeURIComponent(String(id || ''));
@@ -2056,15 +2068,24 @@ async function setupRoutesAndCollections() {
                     }
                 }
 
-                // 🚩 [중복 방지] 수정으로 다른 근접 마커와 충돌하는 경우 저장 차단
-                const duplicateCastle = await findDuplicateCastleCandidate(updatedCastle, id);
-                if (duplicateCastle) {
-                    console.warn(`⚠️ [중복 Castle 수정 차단] '${updatedCastle.name}'이 기존 castle과 충돌 (ID: ${duplicateCastle._id}).`);
-                    return res.status(409).json({
-                        message: `'${updatedCastle.name || '이 마커'}'와 같은 이름/위치의 기존 마커가 있습니다. 기존 항목을 병합하거나 휴지통으로 이동한 뒤 저장해주세요.`,
-                        existingId: duplicateCastle._id.toString(),
-                        existingName: duplicateCastle.name
-                    });
+                // 🚩 [중복 방지] 이름·역사명·좌표를 실제로 바꾼 경우에만 다른 마커와 충돌 검사.
+                // 과거부터 중복이 존재하더라도 설명·연도 등 비식별 정보 수정은 막지 않는다.
+                const currentCastle = await collections.castle.findOne(
+                    { _id },
+                    { projection: { _id: 1, name: 1, lat: 1, lng: 1, history: 1 } }
+                );
+                const duplicateIdentityChanged = !currentCastle
+                    || !hasSameCastleDuplicateIdentity(updatedCastle, currentCastle);
+                if (duplicateIdentityChanged) {
+                    const duplicateCastle = await findDuplicateCastleCandidate(updatedCastle, id);
+                    if (duplicateCastle) {
+                        console.warn(`⚠️ [중복 Castle 수정 차단] '${updatedCastle.name}'이 기존 castle과 충돌 (ID: ${duplicateCastle._id}).`);
+                        return res.status(409).json({
+                            message: `'${updatedCastle.name || '이 마커'}'와 같은 이름/위치의 기존 마커가 있습니다. 기존 항목을 병합하거나 휴지통으로 이동한 뒤 저장해주세요.`,
+                            existingId: duplicateCastle._id.toString(),
+                            existingName: duplicateCastle.name
+                        });
+                    }
                 }
                 
                 // mark update time for incremental updates
