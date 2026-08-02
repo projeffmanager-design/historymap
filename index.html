@@ -4916,6 +4916,21 @@ body.force-mobile .marker-type-selector button {
         font-family: 'Nanum Myeongjo', serif;
         white-space: pre-wrap;
     }
+    .hero-desc img {
+        display: block;
+        max-width: 100%;
+        height: auto;
+        margin: 8px 0;
+        border-radius: 5px;
+    }
+    .hero-desc p { margin: 0 0 8px; }
+    .hero-desc ul, .hero-desc ol { margin: 6px 0; padding-left: 22px; }
+    #haDescEditor[data-placeholder]:empty::before {
+        content: attr(data-placeholder);
+        color: #6a5a3a;
+        pointer-events: none;
+    }
+    #haDescEditor img { display:block; max-width:100%; height:auto; margin:4px 0; border-radius:4px; }
 
     .hero-positions-title {
         font-size: 12px;
@@ -9225,8 +9240,17 @@ body.force-mobile .marker-type-selector button {
                 </div>
                 <div class="full-col">
                     <label class="hero-admin-label">인물 설명</label>
-                    <textarea class="hero-admin-textarea" id="haDesc" rows="4"
-                        placeholder="인물 요약, 특성, 업적 등..."></textarea>
+                    <div id="haDescToolbar" style="display:flex;gap:4px;flex-wrap:wrap;margin:4px 0 3px;">
+                        <button type="button" onmousedown="event.preventDefault();document.execCommand('bold')" title="굵게" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#ecf0f1;padding:3px 8px;border-radius:4px;cursor:pointer;font-weight:bold;font-size:12px;">B</button>
+                        <button type="button" onmousedown="event.preventDefault();document.execCommand('italic')" title="기울임" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#ecf0f1;padding:3px 8px;border-radius:4px;cursor:pointer;font-style:italic;font-size:12px;">I</button>
+                        <button type="button" onmousedown="event.preventDefault();document.execCommand('underline')" title="밑줄" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#ecf0f1;padding:3px 8px;border-radius:4px;cursor:pointer;text-decoration:underline;font-size:12px;">U</button>
+                        <button type="button" onmousedown="event.preventDefault();insertHeroDescImage()" title="이미지 URL 삽입" style="background:rgba(180,140,80,0.15);border:1px solid rgba(180,140,80,0.4);color:#d4a843;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:12px;">🖼 이미지</button>
+                        <span style="font-size:11px;color:#7a6a4a;align-self:center;margin-left:4px;">이미지 복붙(Ctrl+V) 가능</span>
+                    </div>
+                    <div id="haDescEditor" contenteditable="true" data-placeholder="인물 요약, 특성, 업적 등..."
+                        style="min-height:90px;max-height:280px;overflow-y:auto;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.18);border-radius:5px;padding:8px 10px;color:#ecf0f1;font-size:13px;line-height:1.7;outline:none;word-break:break-word;white-space:pre-wrap;box-sizing:border-box;"
+                        oninput="syncHeroDescFromEditor()" onpaste="handleHeroDescPaste(event)"></div>
+                    <textarea id="haDesc" style="display:none;"></textarea>
                 </div>
                 <div>
                     <label class="hero-admin-label">아바타 이미지 (지도 핀용, 원형)</label>
@@ -9314,9 +9338,14 @@ body.force-mobile .marker-type-selector button {
                     <textarea class="hero-admin-textarea" id="hpSourceText" rows="2"
                         placeholder="삼국사기 권18..."></textarea>
                 </div>
-                <button class="hero-admin-btn save" id="hpAddBtn" style="font-size:12px; padding:7px 14px;">
-                    + 위치 추가
-                </button>
+                <div style="display:flex;gap:6px;align-items:center;">
+                    <button class="hero-admin-btn save" id="hpAddBtn" style="font-size:12px; padding:7px 14px;">
+                        + 위치 추가
+                    </button>
+                    <button type="button" id="hpEditCancelBtn" style="display:none;font-size:12px;padding:7px 14px;background:none;border:1px solid #7a5a1a;color:#a89268;border-radius:4px;cursor:pointer;">
+                        수정 취소
+                    </button>
+                </div>
                 <div id="hpList" style="margin-top:10px;"></div>
             </div>
 
@@ -12908,6 +12937,90 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         const editor = document.getElementById('castleDescEditor');
         const ta = document.getElementById('castleDesc');
         if (editor && ta) ta.value = editor.innerHTML;
+    }
+
+    // 인물 설명 에디터 → 저장용 hidden textarea 동기화
+    function syncHeroDescFromEditor() {
+        const editor = document.getElementById('haDescEditor');
+        const ta = document.getElementById('haDesc');
+        if (!editor || !ta) return;
+        const html = editor.innerHTML;
+        ta.value = (html === '<br>' || html === '<br/>') ? '' : html;
+    }
+
+    function loadHeroDescToEditor(htmlContent) {
+        const html = sanitizeHeroDescriptionHtml(htmlContent || '');
+        const editor = document.getElementById('haDescEditor');
+        const ta = document.getElementById('haDesc');
+        if (editor) editor.innerHTML = html;
+        if (ta) ta.value = html;
+    }
+
+    function insertHeroDescImage() {
+        const url = prompt('이미지 URL을 입력하세요:');
+        if (!url) return;
+        if (!/^https?:\/\//i.test(url)) {
+            alert('http:// 또는 https:// 이미지 URL만 삽입할 수 있습니다.');
+            return;
+        }
+        const editor = document.getElementById('haDescEditor');
+        if (!editor) return;
+        editor.focus();
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = '';
+        document.execCommand('insertHTML', false, img.outerHTML);
+        syncHeroDescFromEditor();
+    }
+
+    function handleHeroDescPaste(e) {
+        const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+        if (!items) return;
+        for (const item of items) {
+            if (!item.type.startsWith('image/')) continue;
+            e.preventDefault();
+            const reader = new FileReader();
+            reader.onload = ev => {
+                const editor = document.getElementById('haDescEditor');
+                if (!editor) return;
+                editor.focus();
+                document.execCommand('insertHTML', false,
+                    `<img src="${ev.target.result}" style="max-width:100%;border-radius:4px;margin:4px 0;display:block;">`);
+                syncHeroDescFromEditor();
+            };
+            reader.readAsDataURL(item.getAsFile());
+            return;
+        }
+        setTimeout(syncHeroDescFromEditor, 0);
+    }
+
+    // 관리자가 저장한 서식은 유지하되 스크립트/이벤트 속성은 표시 전 제거한다.
+    function sanitizeHeroDescriptionHtml(html) {
+        const template = document.createElement('template');
+        template.innerHTML = String(html || '');
+        const allowedTags = new Set(['B','STRONG','I','EM','U','BR','DIV','P','UL','OL','LI','BLOCKQUOTE','A','IMG','SPAN']);
+        [...template.content.querySelectorAll('*')].forEach(el => {
+            if (!allowedTags.has(el.tagName)) {
+                el.replaceWith(...el.childNodes);
+                return;
+            }
+            [...el.attributes].forEach(attr => {
+                const name = attr.name.toLowerCase();
+                const keep = (el.tagName === 'A' && ['href','target','rel'].includes(name)) ||
+                    (el.tagName === 'IMG' && ['src','alt'].includes(name));
+                if (!keep) el.removeAttribute(attr.name);
+            });
+            if (el.tagName === 'A') {
+                const href = el.getAttribute('href') || '';
+                if (!/^(https?:|mailto:|\/)/i.test(href)) el.removeAttribute('href');
+                el.setAttribute('rel', 'noopener noreferrer');
+            }
+            if (el.tagName === 'IMG') {
+                const src = el.getAttribute('src') || '';
+                if (!/^(https?:|data:image\/)/i.test(src)) el.remove();
+            }
+        });
+        return template.innerHTML;
     }
 
     // 자연 설명 에디터 → proxy textarea + castleDesc + castleDescEditor 동기화
@@ -28182,6 +28295,7 @@ kingSelect.addEventListener('change', () => {
         let currentHeroWorstVoteCount = 0;
         let _heroCommentById = new Map();
         let currentAdminHeroId = null; // 위치 패널 대상 영웅 ID (외부 노출)
+        let currentEditingPositionId = null;
         let _adminHeroes = [];
         let _adminHeroPage = 1;
         let _adminHeroTotalPages = 1;
@@ -28509,7 +28623,7 @@ kingSelect.addEventListener('change', () => {
                 const by = fmtHeroYear(hero.birth_year);
                 const dy = fmtHeroYear(hero.death_year);
                 document.getElementById('heroYears').textContent = `${by} — ${dy}`;
-                document.getElementById('heroDesc').textContent = hero.description || '';
+                document.getElementById('heroDesc').innerHTML = sanitizeHeroDescriptionHtml(hero.description || '');
 
                 // 특정 인물의 상세·투표 화면을 바로 여는 공유 링크
                 const shareBtn = document.getElementById('heroShareLinkBtn');
@@ -29007,6 +29121,53 @@ kingSelect.addEventListener('change', () => {
             } catch (e) { console.warn('[heroSystem] loadAdminList 오류:', e); }
         }
 
+        function resetPositionEditor(options = {}) {
+            currentEditingPositionId = null;
+            const fieldIds = ['hpStartYear','hpEndYear','hpLat','hpLng','hpPlaceSearch','hpEventTitle','hpSourceText'];
+            fieldIds.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
+            const type = document.getElementById('hpType');
+            if (type) type.value = 'STAY';
+            const results = document.getElementById('hpPlaceResults');
+            if (results) { results.innerHTML = ''; results.style.display = 'none'; }
+            const saveBtn = document.getElementById('hpAddBtn');
+            if (saveBtn) {
+                saveBtn.textContent = '+ 위치 추가';
+                saveBtn.dataset.mode = 'create';
+            }
+            const cancelBtn = document.getElementById('hpEditCancelBtn');
+            if (cancelBtn) cancelBtn.style.display = 'none';
+            if (options.useHeroYears) {
+                const start = document.getElementById('haBirthYear')?.value || '';
+                const end = document.getElementById('haDeathYear')?.value || '';
+                if (document.getElementById('hpStartYear')) document.getElementById('hpStartYear').value = start;
+                if (document.getElementById('hpEndYear')) document.getElementById('hpEndYear').value = end;
+            }
+        }
+
+        function beginPositionEdit(position) {
+            if (!position) return;
+            currentEditingPositionId = String(position._id);
+            document.getElementById('hpStartYear').value = position.start_year ?? position.year ?? '';
+            document.getElementById('hpEndYear').value = position.end_year ?? '';
+            document.getElementById('hpLat').value = position.geometry?.coordinates?.[1] ?? '';
+            document.getElementById('hpLng').value = position.geometry?.coordinates?.[0] ?? '';
+            document.getElementById('hpPlaceSearch').value = position.location_name || '';
+            document.getElementById('hpEventTitle').value = position.event_title || '';
+            document.getElementById('hpSourceText').value = position.source_text || '';
+            document.getElementById('hpType').value = position.type || 'STAY';
+            const saveBtn = document.getElementById('hpAddBtn');
+            saveBtn.textContent = '✓ 위치 수정 저장';
+            saveBtn.dataset.mode = 'edit';
+            document.getElementById('hpEditCancelBtn').style.display = '';
+            document.getElementById('hpPlaceResults').style.display = 'none';
+            document.getElementById('heroPosPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            document.getElementById('hpPlaceSearch').focus({ preventScroll: true });
+            heroSystem._showHeroToast('✏️ 위치 이벤트를 기존 폼에 불러왔습니다.');
+        }
+
         function clearAdminForm() {
             document.getElementById('heroEditId').value = '';
             document.getElementById('haNameKo').value = '';
@@ -29016,7 +29177,7 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('haDeathYear').value = '';
             document.getElementById('haTitle').value = '';
             document.getElementById('haHeroType').value = 'general';
-            document.getElementById('haDesc').value = '';
+            loadHeroDescToEditor('');
             document.getElementById('haAvatarFile').value = '';
             document.getElementById('haIllustFile').value = '';
             document.getElementById('haAvatarPreview').innerHTML = '';
@@ -29028,6 +29189,7 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('haFactionColorHex').value = '#c8860a';
             document.getElementById('heroAdminDelete').style.display = 'none';
             document.getElementById('heroPosPanel').style.display = 'none';
+            resetPositionEditor();
         }
 
         async function editHero(id) {
@@ -29046,7 +29208,7 @@ kingSelect.addEventListener('change', () => {
                 document.getElementById('haDeathYear').value = hero.death_year;
                 document.getElementById('haTitle').value = hero.title || '';
                 document.getElementById('haHeroType').value = hero.hero_type || 'general';
-                document.getElementById('haDesc').value = hero.description || '';
+                loadHeroDescToEditor(hero.description || '');
                 document.getElementById('haFaction').value = hero.faction || '';
                 const fc = hero.faction_color || '#c8860a';
                 document.getElementById('haFactionColor').value = fc;
@@ -29086,6 +29248,7 @@ kingSelect.addEventListener('change', () => {
         }
 
         async function openPosPanel(heroId, heroName) {
+            resetPositionEditor();
             currentAdminHeroId = heroId;
             document.getElementById('heroPosHeroName').textContent = heroName;
             document.getElementById('heroPosPanel').style.display = 'block';
@@ -29120,68 +29283,16 @@ kingSelect.addEventListener('change', () => {
                             <span style="flex:1;margin:0 4px;color:#c8ba9a;">${p.event_title || p.type}${p.location_name ? ' · '+p.location_name : ''}</span>
                             <button class="hp-edit-btn" data-posid="${p._id}" style="font-size:10px;padding:2px 6px;background:rgba(197,150,30,.2);border:1px solid #c5961e;color:#f5c842;border-radius:3px;cursor:pointer;white-space:nowrap;">수정</button>
                             <button class="hp-del-btn" data-posid="${p._id}" style="font-size:10px;padding:2px 6px;background:rgba(231,76,60,.2);border:1px solid #e74c3c;color:#e74c3c;border-radius:3px;cursor:pointer;">삭제</button>
-                        </div>
-                        <div id="hpEditBlock_${p._id}" style="display:none;margin-top:6px;padding:6px;background:rgba(197,150,30,.07);border-radius:4px;border:1px solid rgba(122,90,26,.4);">
-                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:4px;">
-                                <div><label class="hero-admin-label">시작연도</label><input class="hero-admin-input ep-syr" value="${syr ?? ''}" type="number" style="width:100%;"></div>
-                                <div><label class="hero-admin-label">종료연도</label><input class="hero-admin-input ep-eyr" value="${eyr ?? ''}" type="number" style="width:100%;"></div>
-                                <div><label class="hero-admin-label">위도</label><input class="hero-admin-input ep-lat" value="${p.geometry?.coordinates?.[1] ?? ''}" type="number" step="any" style="width:100%;"></div>
-                                <div><label class="hero-admin-label">경도</label><input class="hero-admin-input ep-lng" value="${p.geometry?.coordinates?.[0] ?? ''}" type="number" step="any" style="width:100%;"></div>
-                            </div>
-                            <div style="margin-bottom:4px;"><label class="hero-admin-label">지명</label><input class="hero-admin-input ep-loc" value="${p.location_name ?? ''}" style="width:100%;"></div>
-                            <div style="margin-bottom:4px;"><label class="hero-admin-label">사건명</label><input class="hero-admin-input ep-evt" value="${p.event_title ?? ''}" style="width:100%;"></div>
-                            <div style="margin-bottom:6px;"><label class="hero-admin-label">유형</label>
-                                <select class="hero-admin-input ep-type" style="width:100%;">
-                                    <option value="STAY"${(p.type||'STAY')==='STAY'?' selected':''}>STAY (주둔)</option>
-                                    <option value="MOVE_TO"${p.type==='MOVE_TO'?' selected':''}>MOVE_TO (이동)</option>
-                                </select>
-                            </div>
-                            <div style="display:flex;gap:6px;">
-                                <button class="hp-save-btn hero-admin-btn save" data-posid="${p._id}" style="font-size:11px;padding:4px 10px;">저장</button>
-                                <button class="hp-cancel-btn" data-posid="${p._id}" style="font-size:11px;padding:4px 10px;background:none;border:1px solid #7a5a1a;color:#8a7a5a;border-radius:4px;cursor:pointer;">취소</button>
-                            </div>
                         </div>`;
-                    // 수정 토글
-                    el.querySelector('.hp-edit-btn').onclick = () => {
-                        const blk = el.querySelector(`#hpEditBlock_${p._id}`);
-                        blk.style.display = blk.style.display === 'none' ? 'block' : 'none';
-                    };
-                    // 취소
-                    el.querySelector('.hp-cancel-btn').onclick = () => {
-                        el.querySelector(`#hpEditBlock_${p._id}`).style.display = 'none';
-                    };
-                    // 저장
-                    el.querySelector('.hp-save-btn').onclick = async () => {
-                        const blk = el.querySelector(`#hpEditBlock_${p._id}`);
-                        const body = {
-                            start_year:    blk.querySelector('.ep-syr').value,
-                            end_year:      blk.querySelector('.ep-eyr').value || null,
-                            lat:           blk.querySelector('.ep-lat').value,
-                            lng:           blk.querySelector('.ep-lng').value,
-                            location_name: blk.querySelector('.ep-loc').value.trim(),
-                            event_title:   blk.querySelector('.ep-evt').value.trim(),
-                            type:          blk.querySelector('.ep-type').value,
-                        };
-                        if (!body.start_year || !body.lat || !body.lng) { alert('시작연도, 위도, 경도 필수'); return; }
-                        try {
-                            const res = await fetch(`${API}/admin/positions/${p._id}`, {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                body: JSON.stringify(body)
-                            });
-                            if (!res.ok) throw new Error((await res.json()).message);
-                            await loadPosList(heroId);
-                            _cachedYear = null;
-                            await refreshHeroAdminDerivedState();
-                            renderByYear(_currentYear, _currentMonth);
-                        } catch(e) { alert('수정 실패: ' + e.message); }
-                    };
+                    // 기존 위치 입력 폼에 불러와 지명 검색·지도 선택을 그대로 재사용한다.
+                    el.querySelector('.hp-edit-btn').onclick = () => beginPositionEdit(p);
                     // 삭제
                     el.querySelector('.hp-del-btn').onclick = async () => {
                         if (!confirm('이 위치 이벤트를 삭제하시겠습니까?')) return;
                         await fetch(`${API}/admin/positions/${p._id}`, {
                             method: 'DELETE', headers: { Authorization: `Bearer ${token}` }
                         });
+                        if (currentEditingPositionId === String(p._id)) resetPositionEditor();
                         await loadPosList(heroId);
                         _cachedYear = null;
                         await refreshHeroAdminDerivedState();
@@ -29387,6 +29498,7 @@ kingSelect.addEventListener('change', () => {
                 fd.append('death_year',  document.getElementById('haDeathYear').value);
                 fd.append('title',         document.getElementById('haTitle').value.trim());
                 fd.append('hero_type',     document.getElementById('haHeroType').value);
+                syncHeroDescFromEditor();
                 fd.append('description',   document.getElementById('haDesc').value.trim());
                 fd.append('faction',       document.getElementById('haFaction').value.trim());
                 fd.append('faction_color', document.getElementById('haFactionColor').value || '#c8860a');
@@ -29435,7 +29547,7 @@ kingSelect.addEventListener('change', () => {
                 } catch (e) { alert('삭제 실패: ' + e.message); }
             };
 
-            // 위치 추가
+            // 위치 추가 / 수정 공용 저장
             document.getElementById('hpAddBtn').onclick = async () => {
                 if (!currentAdminHeroId) return;
                 const startYr = document.getElementById('hpStartYear').value;
@@ -29451,23 +29563,28 @@ kingSelect.addEventListener('change', () => {
                     source_text:   document.getElementById('hpSourceText').value.trim()
                 };
                 if (!body.start_year || !body.lat || !body.lng) { alert('시작 연도, 위도, 경도 필수'); return; }
+                const editingId = currentEditingPositionId;
                 try {
-                    const res = await fetch(`${API}/admin/heroes/${encodeURIComponent(currentAdminHeroId)}/positions`, {
-                        method: 'POST',
+                    const url = editingId
+                        ? `${API}/admin/positions/${encodeURIComponent(editingId)}`
+                        : `${API}/admin/heroes/${encodeURIComponent(currentAdminHeroId)}/positions`;
+                    const res = await fetch(url, {
+                        method: editingId ? 'PUT' : 'POST',
                         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                         body: JSON.stringify(body)
                     });
                     if (!res.ok) throw new Error((await res.json()).message);
-                    // 입력 초기화
-                    ['hpStartYear','hpEndYear','hpLat','hpLng','hpPlaceSearch','hpEventTitle','hpSourceText'].forEach(id => {
-                        document.getElementById(id).value = '';
-                    });
-                    document.getElementById('hpPlaceResults').style.display = 'none';
+                    resetPositionEditor();
                     await loadPosList(currentAdminHeroId);
                     _cachedYear = null;
                     await refreshHeroAdminDerivedState();
                     renderByYear(_currentYear, _currentMonth);
-                } catch (e) { alert('위치 추가 실패: ' + e.message); }
+                    heroSystem._showHeroToast(editingId ? '✅ 위치 이벤트를 수정했습니다.' : '✅ 위치 이벤트를 추가했습니다.');
+                } catch (e) { alert((editingId ? '위치 수정' : '위치 추가') + ' 실패: ' + e.message); }
+            };
+            document.getElementById('hpEditCancelBtn').onclick = () => {
+                resetPositionEditor({ useHeroYears: true });
+                heroSystem._showHeroToast('위치 수정을 취소했습니다.');
             };
 
             const bulkTableOpen = document.getElementById('heroBulkTableOpen');
@@ -40870,6 +40987,9 @@ async function castleFormDeleteVoice() {
   var _cache = {};
   var _pending = {};
   var _patched = typeof WeakSet !== 'undefined' ? new WeakSet() : null;
+  var _voiceIds = null;
+  var _voiceIdsPending = [];
+  var _voiceIdsLoading = false;
 
   // ── MongoDB ObjectId 정규화 ───────────────────────────────────────────
   function _normId(raw) {
@@ -40881,6 +41001,37 @@ async function castleFormDeleteVoice() {
   function _getId(d) {
     if (!d) return null;
     return _normId(d._id) || _normId(d.id) || null;
+  }
+
+  // ── 음성 등록 마커 ID 일괄 조회 (배지 표시용) ─────────────────
+  function _loadVoiceIds(cb, retry) {
+    if (_voiceIds) { cb(_voiceIds); return; }
+    _voiceIdsPending.push(cb);
+    if (_voiceIdsLoading) return;
+    _voiceIdsLoading = true;
+
+    fetch('/api/voice/marker-ids')
+      .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(data) {
+        _voiceIds = new Set((data && Array.isArray(data.marker_ids)) ? data.marker_ids.map(String) : []);
+        _voiceIdsLoading = false;
+        var callbacks = _voiceIdsPending.splice(0);
+        callbacks.forEach(function(fn) { fn(_voiceIds); });
+      })
+      .catch(function(err) {
+        _voiceIdsLoading = false;
+        var attempt = retry || 0;
+        if (attempt < 2) {
+          setTimeout(function() {
+            var callbacks = _voiceIdsPending.splice(0);
+            callbacks.forEach(function(fn) { _loadVoiceIds(fn, attempt + 1); });
+          }, 500 * (attempt + 1));
+          return;
+        }
+        console.warn('[VP] 음성 마커 ID 목록 조회 실패', err);
+        var callbacks = _voiceIdsPending.splice(0);
+        callbacks.forEach(function(fn) { fn(new Set()); });
+      });
   }
 
   // ── 음성 URL 조회 (콜백 기반 — async 불필요) ────────────────────────
@@ -41028,8 +41179,8 @@ async function castleFormDeleteVoice() {
     if (d.voice) {
       _attachBadge(marker);
     } else {
-      _fetchUrl(id, function(url) {
-        if (!url) return;
+      _loadVoiceIds(function(ids) {
+        if (!ids.has(String(id))) return;
         _attachBadge(marker);
         // 지명이면 has-voice 클래스도 추가
         if (_isLabel(d) && marker._icon) marker._icon.classList.add('has-voice');

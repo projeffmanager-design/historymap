@@ -899,6 +899,14 @@
             line-height: 1.75;
             white-space: pre-line;
         }
+        .hero-game-description img,
+        .hero-detail-desc img {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            margin: 8px 0;
+            border-radius: 6px;
+        }
         .hero-game-description.is-collapsed {
             display: -webkit-box;
             overflow: hidden;
@@ -3880,6 +3888,34 @@
             }[ch]));
         }
 
+        function sanitizeHeroDescriptionHTML(html) {
+            const template = document.createElement('template');
+            template.innerHTML = String(html || '');
+            const allowedTags = new Set(['B','STRONG','I','EM','U','BR','DIV','P','UL','OL','LI','BLOCKQUOTE','A','IMG','SPAN']);
+            [...template.content.querySelectorAll('*')].forEach(el => {
+                if (!allowedTags.has(el.tagName)) {
+                    el.replaceWith(...el.childNodes);
+                    return;
+                }
+                [...el.attributes].forEach(attr => {
+                    const name = attr.name.toLowerCase();
+                    const keep = (el.tagName === 'A' && ['href','target','rel'].includes(name)) ||
+                        (el.tagName === 'IMG' && ['src','alt'].includes(name));
+                    if (!keep) el.removeAttribute(attr.name);
+                });
+                if (el.tagName === 'A') {
+                    const href = el.getAttribute('href') || '';
+                    if (!/^(https?:|mailto:|\/)/i.test(href)) el.removeAttribute('href');
+                    el.setAttribute('rel', 'noopener noreferrer');
+                }
+                if (el.tagName === 'IMG') {
+                    const src = el.getAttribute('src') || '';
+                    if (!/^(https?:|data:image\/)/i.test(src)) el.remove();
+                }
+            });
+            return template.innerHTML;
+        }
+
         function normalizeHeroDetailText(value) {
             return String(value ?? '').replace(/\s+/g, ' ').trim();
         }
@@ -5157,7 +5193,7 @@
                             ${title ? `<div class="hero-game-title">${escapeHTML(title)}</div>` : ''}
                         </div>
                     </div>
-                    <div class="hero-game-description is-collapsed">${escapeHTML(hero.description || '등록된 인물 설명이 없습니다.')}</div>
+                    <div class="hero-game-description is-collapsed">${sanitizeHeroDescriptionHTML(hero.description || '등록된 인물 설명이 없습니다.')}</div>
                     <button type="button" class="hero-game-description-toggle" aria-expanded="false" hidden>전체보기</button>
                 `;
                 const description = content.querySelector('.hero-game-description');
@@ -5690,7 +5726,7 @@
                         ${isAdmin ? `<button type="button" class="hero-detail-edit-btn" data-hero-id="${escapeHTML(heroId)}">✏️ 바로 편집</button>` : ''}
                         <button type="button" class="hero-detail-copy-link-btn${isAdmin ? '' : ' solo'}" data-hero-id="${escapeHTML(heroId)}" data-hero-name="${escapeHTML(hero.name_ko || '')}">🔗 공유</button>
                     </div>
-                    <div class="hero-detail-desc">${escapeHTML(hero.description || '설명이 아직 없습니다.')}</div>
+                    <div class="hero-detail-desc">${sanitizeHeroDescriptionHTML(hero.description || '설명이 아직 없습니다.')}</div>
                     <h3 style="color:#f0e2c0;margin:18px 0 8px;">행적</h3>
                     <div>${posHtml}</div>
                     <h3 style="color:#f0e2c0;margin:18px 0 8px;">사관들의 평</h3>

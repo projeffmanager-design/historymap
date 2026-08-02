@@ -3371,6 +3371,24 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
 
         // ── 음성 API (realhistory.voice) ─────────────────────────────────────────
 
+        // GET /api/voice/marker-ids — 음성이 등록된 마커 ID 목록 (공개)
+        // 지도 렌더링 시 마커마다 /api/voice를 호출하지 않도록 배지용 ID만 일괄 제공한다.
+        app.get('/api/voice/marker-ids', async (req, res) => {
+            try {
+                const docs = await collections.voice.find(
+                    { audio_url: { $exists: true, $nin: [null, ''] } },
+                    { projection: { _id: 0, castle_id: 1 } }
+                ).toArray();
+                const markerIds = [...new Set(docs
+                    .map(d => d.castle_id ? String(d.castle_id) : '')
+                    .filter(Boolean))];
+                res.json({ marker_ids: markerIds });
+            } catch (err) {
+                console.error('[voice/marker-ids] 조회 오류:', err);
+                res.status(500).json({ message: '서버 오류' });
+            }
+        });
+
         // GET /api/voice?id=<castleId>  — 지도에서 마커 클릭 시 음성 조회 (공개)
         app.get('/api/voice', async (req, res) => {
             try {
