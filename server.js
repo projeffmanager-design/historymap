@@ -2658,6 +2658,9 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                         vote_count: parseInt(king.vote_count || 0) || 0,
                         worst_vote_count: parseInt(king.worst_vote_count || 0) || 0
                     };
+                    if (king.source_kind === 'hero_research' && king.createdBy) {
+                        hero.recorded_by = String(king.createdBy);
+                    }
                     const identity = await getFigureIdentityContext(found);
                     hero.vote_count = Math.max(0, ...identity.records.map(record => parseInt(record.king.vote_count || 0)));
                     hero.worst_vote_count = Math.max(0, ...identity.records.map(record => parseInt(record.king.worst_vote_count || 0)));

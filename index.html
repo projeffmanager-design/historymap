@@ -4961,6 +4961,24 @@ body.force-mobile .marker-type-selector button {
         font-size: 11px;
         color: #7a6a4a;
     }
+    .hero-recorded-by {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin: 12px 0 4px;
+        padding: 9px 11px;
+        border: 1px solid rgba(197,150,30,.28);
+        border-radius: 5px;
+        background: rgba(197,150,30,.07);
+        color: #9c8a62;
+        font-size: 11px;
+        line-height: 1.45;
+    }
+    .hero-recorded-by[hidden] { display: none; }
+    .hero-recorded-by strong {
+        color: #d8c28a;
+        font-weight: 600;
+    }
 
     .hero-vote-btn {
         display: flex;
@@ -9124,6 +9142,10 @@ body.force-mobile .marker-type-selector button {
                     <!-- 위치 히스토리 -->
                     <div class="hero-positions-title">📍 행적 연표</div>
                     <div id="heroPositionList"></div>
+                    <div class="hero-recorded-by" id="heroRecordedBy" hidden>
+                        <span>🖋️ 이 인물을 기록한 사관</span>
+                        <strong id="heroRecordedByName"></strong>
+                    </div>
 
                     <!-- 영웅·빌런 투표 -->
                     <div id="heroVoteGauge" class="hero-vote-gauge"></div>
@@ -26497,9 +26519,15 @@ const loadingMessages = [
             el.style.display = 'block';
 
             try {
-                const response = await fetch(`/api/heroes?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`);
-                if (!response.ok) throw new Error('인물 정보를 불러오지 못했습니다.');
-                const heroes = await response.json();
+                // 지도 영웅 렌더러가 같은 시점의 인물 데이터를 이미 캐시하고 있으므로 재사용한다.
+                // 렌더러가 아직 초기화되지 않은 아주 이른 시점에만 API를 대체 경로로 사용한다.
+                const heroes = typeof window.__codexGetHeroDataForTime === 'function'
+                    ? await window.__codexGetHeroDataForTime(year, month)
+                    : await fetch(`/api/heroes?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`)
+                        .then(response => {
+                            if (!response.ok) throw new Error('인물 정보를 불러오지 못했습니다.');
+                            return response.json();
+                        });
                 if (requestSeq !== _figuresRenderSeq || !_currentCInfo || String(_currentCInfo._id) !== String(cInfo._id)) return;
 
                 const countryId = String(cInfo._id || '');
@@ -28688,6 +28716,12 @@ kingSelect.addEventListener('change', () => {
                         </div>`
                     );
                 });
+                const recordedBy = document.getElementById('heroRecordedBy');
+                const recordedByName = document.getElementById('heroRecordedByName');
+                if (recordedBy && recordedByName) {
+                    recordedByName.textContent = hero.recorded_by || '';
+                    recordedBy.hidden = !hero.recorded_by;
+                }
                 // 투표
                 const voteBtn = document.getElementById('heroVoteBtn');
                 const voted = _votedSet.has(currentHeroIdentityKey) || _votedSet.has(String(hero._id));
