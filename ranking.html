@@ -4465,9 +4465,36 @@
             }, 3000);
         }
 
+        function scheduleAdjacentHeroRankingPrefetch(totalPages) {
+            const currentPage = _heroRankingCurrentPage;
+            const pages = [currentPage - 1, currentPage + 1]
+                .filter(page => page >= 1 && page <= totalPages);
+            if (!pages.length) return;
+            const run = () => pages.forEach(page => {
+                const query = new URLSearchParams({
+                    scope: getHeroEthnicityFilter(),
+                    page: String(page),
+                    limit: String(HERO_RANKING_PAGE_SIZE),
+                    sort: _heroRankingSortColumn,
+                    direction: _heroRankingSortDirection
+                });
+                const searchQuery = getHeroRankingQuery();
+                if (searchQuery) query.set('query', searchQuery);
+                void fetchHeroRankingPageResource(`${API_BASE_URL}/hero-rankings/page?${query}`)
+                    .catch(error => console.warn(`영웅 랭킹 ${page}페이지 미리 로딩 실패:`, error));
+            });
+            if ('requestIdleCallback' in window) {
+                window.requestIdleCallback(run, { timeout: 1200 });
+            } else {
+                window.setTimeout(run, 80);
+            }
+        }
+
         async function fetchAndRenderHeroRankings() {
             const tableBody = document.getElementById('heroRankingTableBody');
-            tableBody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#95a5a6;">영웅 & 빌런 투표를 불러오는 중...</td></tr>';
+            if (!tableBody.querySelector('.hero-rank-row')) {
+                tableBody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#95a5a6;">영웅 & 빌런 투표를 불러오는 중...</td></tr>';
+            }
             const requestId = ++_heroRankingPageRequestId;
             try {
                 // 개인 투표 상태는 동시에 요청하되 공개 랭킹의 첫 렌더를 막지 않는다.
@@ -4532,6 +4559,7 @@
                 renderHeroRankings(heroes);
                 endRankingPerf(firstRenderTimer, { 인물수: heroes.length, 전체수: payload.summary?.total || 0 });
                 scheduleForeignHeroRankingPrefetch();
+                scheduleAdjacentHeroRankingPrefetch(parseInt(payload.total_pages, 10) || 1);
 
                 const voteState = await voteStatePromise;
                 if (voteState) {

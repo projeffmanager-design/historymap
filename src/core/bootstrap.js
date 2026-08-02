@@ -1132,6 +1132,9 @@ function bootHeroRenderer() {
     const { data } = await fetchHeroData(year, month);
     return data;
   };
+  window.__codexPeekHeroDataForTime = (year, month) => (
+    getCachedHeroData(heroCacheKey(year, month)) || null
+  );
   window.__codexSetHeroLayerVisible = setHeroLayerVisible;
   window.__codexIsHeroLayerVisible = () => heroLayerVisible;
   syncInitialHeroLayerVisibility();
