@@ -3928,6 +3928,11 @@ body.force-mobile .marker-type-selector button {
         .cdp-figure-desc {
             font-size: 12px; color: #9aabbd; line-height: 1.7;
         }
+        .cdp-figure-desc p { margin: 4px 0 7px; }
+        .cdp-figure-desc ul,
+        .cdp-figure-desc ol { margin: 5px 0 8px; padding-left: 20px; }
+        .cdp-figure-desc li { margin: 2px 0; }
+        .cdp-figure-desc img { display: block; max-width: 100%; height: auto; margin: 7px 0; border-radius: 4px; }
 
         /* 편집 폼 */
         .cdp-edit-form { padding-top: 4px; }
@@ -26507,7 +26512,7 @@ const loadingMessages = [
                 return figs.map(f => {
                     const name = _esc(f.name || '?');
                     const role = f.role ? `<span class="cdp-figure-role">${_esc(f.role)}</span>` : '';
-                    const desc = f.desc ? `<div class="cdp-figure-desc">${_esc(f.desc)}</div>` : '';
+                    const desc = f.desc ? `<div class="cdp-figure-desc">${sanitizeHeroDescriptionHtml(f.desc)}</div>` : '';
                     return `<div class="cdp-figure-card"><div class="cdp-figure-name">${name}</div>${role}${desc}</div>`;
                 }).join('');
             }
@@ -26622,7 +26627,7 @@ const loadingMessages = [
                                 <span class="cdp-figure-vote-result${voteResult.className}">${voteResult.label}</span>
                                 <span class="cdp-figure-vote-counts">영웅 ${heroVotes}표 · 빌런 ${villainVotes}표</span>
                             </div>
-                            ${desc ? `<div class="cdp-figure-desc">${_esc(desc)}</div>` : ''}
+                            ${desc ? `<div class="cdp-figure-desc">${sanitizeHeroDescriptionHtml(desc)}</div>` : ''}
                         </div>
                     </div>`;
                 }).join('')}`;
@@ -28710,7 +28715,17 @@ kingSelect.addEventListener('change', () => {
             const previewHero = Array.isArray(cachedHeroes)
                 ? cachedHeroes.find(item => String(item?._id) === String(heroId))
                 : null;
-            if (previewHero) showHeroDetailPreview(previewHero);
+            if (previewHero) {
+                const cachedDetail = _heroDetailCache.get(String(heroId));
+                const cachedHero = cachedDetail?.data?.hero;
+                if (cachedHero && (
+                    String(cachedHero.illustration_url || '') !== String(previewHero.illustration_url || '') ||
+                    String(cachedHero.avatar_url || '') !== String(previewHero.avatar_url || '')
+                )) {
+                    _heroDetailCache.delete(String(heroId));
+                }
+                showHeroDetailPreview(previewHero);
+            }
             try {
                 const { hero, positions = [], comments = [] } = await loadHeroDetail(heroId);
                 if (requestSeq !== _heroSidebarRequestSeq) return;
@@ -29643,6 +29658,10 @@ kingSelect.addEventListener('change', () => {
                     });
                     const data = await res.json();
                     if (!res.ok) throw new Error(data.message);
+                    if (id) {
+                        _heroDetailCache.delete(String(id));
+                        _heroDetailRequests.delete(String(id));
+                    }
                     alert(data.message);
                     clearAdminForm();
                     await refreshHeroAdminDerivedState();
