@@ -1540,6 +1540,56 @@
             font: inherit;
         }
         .hero-detail-admin-form .full-row { grid-column: 1 / -1; }
+        .hero-detail-rich-field {
+            display: grid;
+            gap: 6px;
+        }
+        .hero-detail-rich-label {
+            color: #bfe5ef;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .hero-detail-rich-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+        .hero-detail-rich-btn {
+            min-width: 32px;
+            padding: 5px 8px;
+            border: 1px solid rgba(90,160,180,0.34);
+            border-radius: 5px;
+            background: rgba(0,0,0,0.25);
+            color: #d7edf4;
+            font: inherit;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .hero-detail-rich-btn:hover { background: rgba(90,160,180,0.22); }
+        .hero-detail-rich-editor {
+            min-height: 150px;
+            max-height: 360px;
+            overflow-y: auto;
+            padding: 10px;
+            border: 1px solid rgba(90,160,180,0.34);
+            border-radius: 6px;
+            background: rgba(0,0,0,0.28);
+            color: var(--text-main);
+            font-size: 13px;
+            font-weight: 400;
+            line-height: 1.7;
+            outline: none;
+            white-space: pre-wrap;
+        }
+        .hero-detail-rich-editor:focus {
+            border-color: rgba(120,195,215,0.72);
+            box-shadow: 0 0 0 2px rgba(90,160,180,0.12);
+        }
+        .hero-detail-rich-editor p { margin: 3px 0 7px; }
+        .hero-detail-rich-editor ul,
+        .hero-detail-rich-editor ol { margin: 5px 0 8px; padding-left: 22px; }
+        .hero-detail-rich-editor img { display: block; max-width: 100%; height: auto; margin: 7px 0; border-radius: 5px; }
+        .hero-detail-rich-source { display: none; }
         .hero-detail-admin-form-actions {
             display: flex;
             justify-content: flex-end;
@@ -5795,7 +5845,20 @@
                     <label>인물 유형<select name="hero_type">${types.map(([value, label]) => `<option value="${value}" ${hero.hero_type === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
                     <label>소속 국가/세력<input name="faction" value="${escapeHTML(hero.faction || '')}"></label>
                     <label>세력 색상<input name="faction_color" type="color" value="${/^#[0-9a-f]{6}$/i.test(hero.faction_color || '') ? hero.faction_color : '#c8860a'}"></label>
-                    <label class="full-row">인물 설명<textarea name="description" rows="5">${escapeHTML(hero.description || '')}</textarea></label>
+                    <div class="hero-detail-rich-field full-row">
+                        <span class="hero-detail-rich-label">인물 설명</span>
+                        <div class="hero-detail-rich-toolbar" aria-label="인물 설명 서식 도구">
+                            <button type="button" class="hero-detail-rich-btn" data-command="bold" title="굵게"><b>B</b></button>
+                            <button type="button" class="hero-detail-rich-btn" data-command="italic" title="기울임"><i>I</i></button>
+                            <button type="button" class="hero-detail-rich-btn" data-command="underline" title="밑줄"><u>U</u></button>
+                            <button type="button" class="hero-detail-rich-btn" data-command="insertUnorderedList" title="글머리표 목록">• 목록</button>
+                            <button type="button" class="hero-detail-rich-btn" data-command="insertOrderedList" title="번호 목록">1. 목록</button>
+                            <button type="button" class="hero-detail-rich-btn" data-command="createLink" title="링크 삽입">🔗 링크</button>
+                            <button type="button" class="hero-detail-rich-btn" data-command="insertImage" title="이미지 URL 삽입">🖼 이미지</button>
+                        </div>
+                        <div class="hero-detail-rich-editor" contenteditable="true" role="textbox" aria-multiline="true">${sanitizeHeroDescriptionHTML(hero.description || '')}</div>
+                        <textarea class="hero-detail-rich-source" name="description">${escapeHTML(hero.description || '')}</textarea>
+                    </div>
                     <label>아바타 이미지<input name="avatar" type="file" accept="image/*"></label>
                     <label>전신 일러스트<input name="illustration" type="file" accept="image/*"></label>
                     <div class="hero-detail-admin-form-actions full-row">
@@ -5815,6 +5878,11 @@
             }
             const heroId = form.dataset.heroId;
             const saveButton = form.querySelector('.hero-detail-edit-save');
+            const descriptionEditor = form.querySelector('.hero-detail-rich-editor');
+            const descriptionSource = form.querySelector('.hero-detail-rich-source');
+            if (descriptionEditor && descriptionSource) {
+                descriptionSource.value = sanitizeHeroDescriptionHTML(descriptionEditor.innerHTML).trim();
+            }
             const formData = new FormData(form);
             saveButton.disabled = true;
             saveButton.textContent = '저장 중';
@@ -5856,6 +5924,27 @@
                 openHeroAdminEditor(editButton.dataset.heroId);
                 return;
             }
+            const richButton = event.target.closest('.hero-detail-rich-btn');
+            if (richButton) {
+                event.preventDefault();
+                const form = richButton.closest('.hero-detail-admin-form');
+                const editor = form?.querySelector('.hero-detail-rich-editor');
+                if (!editor) return;
+                editor.focus();
+                const command = richButton.dataset.command;
+                if (command === 'createLink') {
+                    const url = window.prompt('연결할 URL을 입력하세요.', 'https://');
+                    if (url && /^https?:\/\//i.test(url.trim())) document.execCommand('createLink', false, url.trim());
+                    return;
+                }
+                if (command === 'insertImage') {
+                    const url = window.prompt('이미지 URL을 입력하세요.', 'https://');
+                    if (url && /^(https?:|data:image\/)/i.test(url.trim())) document.execCommand('insertImage', false, url.trim());
+                    return;
+                }
+                document.execCommand(command, false, null);
+                return;
+            }
             const copyLinkButton = event.target.closest('.hero-detail-copy-link-btn');
             if (copyLinkButton) {
                 copyHeroDeepLink(copyLinkButton);
@@ -5866,6 +5955,10 @@
                 event.target.closest('.hero-detail-admin-form')?.remove();
                 document.querySelector('.hero-detail-edit-btn')?.removeAttribute('disabled');
             }
+        });
+
+        document.getElementById('heroDetailContent')?.addEventListener('mousedown', (event) => {
+            if (event.target.closest('.hero-detail-rich-btn')) event.preventDefault();
         });
 
         document.getElementById('heroDetailContent')?.addEventListener('submit', (event) => {
