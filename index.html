@@ -18165,14 +18165,38 @@ function invalidateCountryLookupCache() {
     function applyKingsPayload(data) {
         if (!Array.isArray(data)) return 0;
         kings = {};
-        let totalKings = 0;
+        const kingKeysByCountry = new Map();
         data.forEach(item => {
             if (item.country_id && Array.isArray(item.kings)) {
-                kings[item.country_id] = item.kings;
-                totalKings += item.kings.length;
+                const countryId = String(item.country_id);
+                if (!Array.isArray(kings[countryId])) kings[countryId] = [];
+                if (!kingKeysByCountry.has(countryId)) kingKeysByCountry.set(countryId, new Set());
+                const seen = kingKeysByCountry.get(countryId);
+
+                item.kings.forEach(king => {
+                    if (!king || typeof king !== 'object') return;
+                    const kingId = king._id || king.person_id || king.source_ref_id;
+                    const fallbackKey = [
+                        king.name_ko || king.name || '',
+                        king.start ?? king.start_year ?? '',
+                        king.start_month ?? 1,
+                        king.end ?? king.end_year ?? '',
+                        king.end_month ?? 12
+                    ].join('|');
+                    const dedupeKey = kingId ? `id:${String(kingId)}` : `period:${fallbackKey}`;
+                    if (seen.has(dedupeKey)) return;
+                    seen.add(dedupeKey);
+                    kings[countryId].push(king);
+                });
             }
         });
-        return totalKings;
+        Object.values(kings).forEach(list => list.sort((a, b) => {
+            const aStart = Number(a.start ?? a.start_year ?? 0);
+            const bStart = Number(b.start ?? b.start_year ?? 0);
+            if (aStart !== bStart) return aStart - bStart;
+            return Number(a.start_month ?? 1) - Number(b.start_month ?? 1);
+        }));
+        return Object.values(kings).reduce((sum, list) => sum + list.length, 0);
     }
     function loadKingsPayloadCache() {
         try {
