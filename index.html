@@ -8499,7 +8499,7 @@ body.force-mobile .marker-type-selector button {
           <label><input type="checkbox" id="menu-layer-resource" onchange="toggleResourceBar(this.checked)"> ⛏ 자원</label>
           <label><input type="checkbox" id="menu-layer-heroes" checked
               onchange="if(window.heroSystem) heroSystem.toggleLayer(this)"> 🦸 영웅</label>
-          <label class="hm-unreleased"><input type="checkbox" id="menu-layer-water-level" disabled> 수위 <span class="hm-badge">미공개</span></label>
+          <label><input type="checkbox" id="menu-layer-water-level"> 🌊 고환경(당·송)</label>
           </div>
       </div>
       
@@ -12242,7 +12242,7 @@ body.force-mobile .marker-type-selector button {
     }
 
     function formatWaterLevelValue(value) {
-        if (typeof value !== 'number' || !isFinite(value)) return '수위값 없음';
+        if (typeof value !== 'number' || !isFinite(value)) return '';
         const sign = value > 0 ? '+' : '';
         return `${sign}${value.toFixed(1)}m`;
     }
@@ -12273,16 +12273,7 @@ body.force-mobile .marker-type-selector button {
 
     function getWaterLevelRecordForYear(year, dataset) {
         const records = dataset?.records || [];
-        const direct = records.find(r => Number(r.start_year) <= year && year <= Number(r.end_year));
-        if (direct) return direct;
-        return records
-            .map(r => {
-                const start = Number(r.start_year);
-                const end = Number(r.end_year);
-                const midpoint = (start + end) / 2;
-                return { record: r, distance: Math.abs(year - midpoint) };
-            })
-            .sort((a, b) => a.distance - b.distance)[0]?.record || null;
+        return records.find(r => Number(r.start_year) <= year && year <= Number(r.end_year)) || null;
     }
 
     function clearWaterLevelOverlay() {
@@ -12291,7 +12282,30 @@ body.force-mobile .marker-type-selector button {
         if (status) status.style.display = 'none';
     }
 
-    function getWaterLevelStyle(record) {
+    function getWaterLevelStyle(record, feature = {}) {
+        const kind = feature?.kind || '';
+        const confidence = feature?.confidence || record?.confidence || '';
+        if (kind === 'river-probable' || kind === 'river-uncertain') {
+            return {
+                color: kind === 'river-uncertain' ? '#9bdcff' : '#38bdf8',
+                weight: kind === 'river-uncertain' ? 3 : 5,
+                opacity: confidence === '낮음' ? 0.58 : 0.82,
+                dashArray: kind === 'river-uncertain' ? '7,7' : null,
+                lineCap: 'round',
+                pane: 'waterLevelPane'
+            };
+        }
+        if (kind === 'coastal-transition') {
+            return {
+                color: '#57c7cf',
+                weight: 1.5,
+                opacity: 0.72,
+                fillColor: '#2f9fa8',
+                fillOpacity: 0.20,
+                dashArray: '5,4',
+                pane: 'waterLevelPane'
+            };
+        }
         const level = Number(record?.relative_level_m || 0);
         const rising = level >= 0;
         const magnitude = Math.min(Math.abs(level), 8);
@@ -12320,36 +12334,39 @@ body.force-mobile .marker-type-selector button {
 
         const status = getWaterLevelStatusEl();
         if (!record) {
-            status.innerHTML = '<strong>연대별 수위</strong>현재 연도에 맞는 수위 데이터가 없습니다.';
+            status.innerHTML = '<strong>당·송대 고환경</strong>현재 연도에는 표시할 시범 복원 데이터가 없습니다.';
             status.style.display = 'block';
             return;
         }
 
-        const areas = Array.isArray(record.areas) ? record.areas : [];
-        areas.forEach(area => {
-            if (!area || !area.geometry) return;
+        const features = Array.isArray(record.features) ? record.features : (Array.isArray(record.areas) ? record.areas : []);
+        features.forEach(item => {
+            if (!item || !item.geometry) return;
             const feature = {
                 type: 'Feature',
-                geometry: area.geometry,
+                geometry: item.geometry,
                 properties: {
-                    name: area.name || record.label || '수위 영향권',
-                    note: area.note || record.note || ''
+                    name: item.name || record.label || '고환경 복원 요소',
+                    kind: item.kind || '',
+                    confidence: item.confidence || record.confidence || '미평가',
+                    note: item.note || record.note || ''
                 }
             };
             const layer = L.geoJSON(feature, {
                 pane: 'waterLevelPane',
-                style: getWaterLevelStyle(record),
+                style: getWaterLevelStyle(record, item),
                 onEachFeature: (f, lyr) => {
-                    const name = f.properties?.name || '수위 영향권';
+                    const name = f.properties?.name || '고환경 복원 요소';
+                    const confidence = f.properties?.confidence || '미평가';
                     const note = f.properties?.note ? `<br>${f.properties.note}` : '';
-                    lyr.bindPopup(`<b>${name}</b><br>${record.label || ''}<br>상대 수위 ${formatWaterLevelValue(Number(record.relative_level_m))}${note}`);
+                    lyr.bindPopup(`<b>${name}</b><br>${record.label || ''}<br>신뢰도: ${confidence}${note}<br><small>연구용 개략 복원 · 확정 경계 아님</small>`);
                 }
             });
             waterLevelLayerGroup.addLayer(layer);
         });
 
         const sourceLabel = dataset.source?.name ? `<br>${dataset.source.name}` : '';
-        status.innerHTML = `<strong>연대별 수위 ${formatWaterLevelValue(Number(record.relative_level_m))}</strong>${record.label || `${record.start_year}~${record.end_year}`} · ${record.confidence || 'confidence n/a'}${sourceLabel}`;
+        status.innerHTML = `<strong>당·송대 고환경</strong>${record.label || `${record.start_year}~${record.end_year}`} · ${record.confidence || '신뢰도 미평가'}${sourceLabel}<br><span>실선: 주 유로 · 점선: 후보 유로 · 면: 해안 전이권</span>`;
         status.style.display = 'block';
     }
 
@@ -14153,17 +14170,21 @@ function getKingByYear(countryName, year, month) {
     function buildCastleIndexPopup({ titleHtml, countryHtml = '', periodText = '', desc = '', photo = '', metaHtml = '', extraHtml = '', castleId, castleName }) {
         const descHtml = desc ? `<p style="margin:0 0 7px 0;font-size:12px;color:#b8c8d4;white-space:pre-wrap;word-wrap:break-word;max-height:108px;overflow-y:auto;">${stripImgTags(desc)}</p>` : '';
         const photoHtml = photo ? `<img src="${toRawImageUrl(photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin:2px 0 7px 0;display:block;">` : '';
+        const primaryMetaHtml = (countryHtml || periodText) ? `<div style="font-size:11px;color:#9aabbd;display:flex;flex-direction:column;gap:3px;border-bottom:1px solid rgba(180,140,80,0.2);padding-bottom:6px;margin-bottom:7px;">
+                ${countryHtml}
+                ${periodText ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>기간:</span><span style="color:#d8cfc4;text-align:right;">${periodText}</span></div>` : ''}
+            </div>` : '';
+        const secondaryMetaHtml = (metaHtml || extraHtml) ? `<div style="font-size:11px;color:#9aabbd;display:flex;flex-direction:column;gap:3px;border-top:1px solid rgba(180,140,80,0.2);padding-top:6px;">
+                ${metaHtml}
+                ${extraHtml}
+            </div>` : '';
         return `<div style="min-width:230px;max-width:310px;line-height:1.5;font-size:12px;white-space:normal;">
             <h4 style="margin:0 0 6px 0;color:#f0e2c0;font-size:13px;border-bottom:1px solid rgba(180,140,80,0.3);padding-bottom:4px;">${titleHtml}</h4>
+            ${primaryMetaHtml}
             ${descHtml}
             ${photoHtml}
             ${buildCastlePopupActions(castleId, castleName)}
-            <div style="font-size:11px;color:#9aabbd;display:flex;flex-direction:column;gap:3px;border-top:1px solid rgba(180,140,80,0.2);padding-top:6px;">
-                ${countryHtml}
-                ${periodText ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>기간:</span><span style="color:#d8cfc4;text-align:right;">${periodText}</span></div>` : ''}
-                ${metaHtml}
-                ${extraHtml}
-            </div>
+            ${secondaryMetaHtml}
         </div>`;
     }
 
@@ -18374,7 +18395,7 @@ function invalidateCountryLookupCache() {
             };
             Object.entries(layerCheckboxMap).forEach(([cbId, layerKey]) => {
                 const cb = document.getElementById(cbId);
-                if (cb) cb.checked = layerKey === 'waterLevel' ? false : layerVisibility[layerKey] === true;
+                if (cb) cb.checked = layerVisibility[layerKey] === true;
             });
             
             return settings;
@@ -18387,8 +18408,6 @@ function invalidateCountryLookupCache() {
     // 🚩 [추가] 레이어 설정 UI 적용 (데이터 로딩 후)
     function applyLayerSettingsToUI(settings) {
         if (!settings) return;
-        settings.waterLevel = false;
-        if (typeof layerVisibility !== 'undefined') layerVisibility.waterLevel = false;
         
         // console.log('🎨 레이어 설정 UI 적용 중...');
         
@@ -18396,9 +18415,7 @@ function invalidateCountryLookupCache() {
         Object.entries(settings).forEach(([layerKey, isEnabled]) => {
             const button = document.querySelector(`.layer-toggle-btn[data-layer="${layerKey}"]`);
             if (button) {
-                if (layerKey === 'waterLevel') {
-                    button.classList.remove('active');
-                } else if (isEnabled) {
+                if (isEnabled) {
                     button.classList.add('active');
                 } else {
                     button.classList.remove('active');
@@ -18411,7 +18428,7 @@ function invalidateCountryLookupCache() {
         mobileCheckboxes.forEach(checkbox => {
             const layerKey = checkbox.dataset.layer;
             if (settings.hasOwnProperty(layerKey)) {
-                checkbox.checked = layerKey === 'waterLevel' ? false : settings[layerKey];
+                checkbox.checked = settings[layerKey];
             }
         });
         
@@ -32479,16 +32496,17 @@ kingSelect.addEventListener('change', () => {
             const checkbox = document.getElementById(checkboxId);
             const layerName = layerCheckboxes[checkboxId];
             if (checkbox) {
-                if (layerName === 'waterLevel') {
-                    checkbox.checked = false;
-                    checkbox.disabled = true;
-                    layerVisibility.waterLevel = false;
-                    return;
-                }
                 checkbox.checked = layerVisibility[layerName] === true;
                 checkbox.addEventListener('change', () => {
                     layerVisibility[layerName] = checkbox.checked;
-                    if (layerName === 'timeline') {
+                    if (layerName === 'waterLevel') {
+                        const { year } = getCurrentYearMonth();
+                        if (checkbox.checked) {
+                            refreshWaterLevelOverlay(year, true);
+                        } else {
+                            clearWaterLevelOverlay();
+                        }
+                    } else if (layerName === 'timeline') {
                         setTimelineLayerVisible(checkbox.checked, { rebuild: checkbox.checked });
                     } else if (layerName === 'kingPanel' || layerName === 'historyPanel') {
                         const panelMap = {
