@@ -14214,6 +14214,22 @@ function getKingByYear(countryName, year, month) {
         </div>`;
     }
 
+    function getMarkerDescriptionAtTime(castle, activeHistoryRecord) {
+        const record = activeHistoryRecord && typeof activeHistoryRecord === 'object'
+            ? activeHistoryRecord
+            : {};
+        const candidates = [
+            record.notes,
+            record.note,
+            record.description,
+            record.desc,
+            record.memo,
+            castle?.desc,
+            castle?.description
+        ];
+        return candidates.find(value => typeof value === 'string' && value.trim())?.trim() || '';
+    }
+
     // 🔭 주변 탐색 버튼 — 팝업 하단에 붙이는 헬퍼 (현재 미사용 — 상세패널로 이전)
     function buildNearbyBtn(lat, lng, name) { return ''; }
 
@@ -17084,6 +17100,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         if (!activeHistoryInfo && !effectiveIsNatural && !castle.is_military_flag) return;
 
         const { record: activeHistoryRecord, startYear: recordStartYear, startMonth: recordStartMonth, endYear: recordEndYear, endMonth: recordEndMonth } = activeHistoryInfo || {};
+        const activeMarkerDescription = getMarkerDescriptionAtTime(castle, activeHistoryRecord);
 
         const castleName = activeHistoryRecord?.name || castle.name;
         const countryId = activeHistoryRecord?.country_id || castle.country_id || castle.countryId;
@@ -17235,7 +17252,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 // 🚩 [v2.0.6] 콤팩트 팝업
                 popupHtml = buildCastleIndexPopup({
                     titleHtml: castleName,
-                    desc: castle.desc || '',
+                    desc: activeMarkerDescription,
                     metaHtml: castle.createdBy ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>사관:</span><span style="color:#d8cfc4;text-align:right;">${castle.createdBy}</span></div>` : '',
                     castleId: castle._id,
                     castleName
@@ -17329,7 +17346,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     const armyMetaHtml = `${countryInfo?.ethnicity ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>민족:</span><span style="color:#d8cfc4;text-align:right;">${countryInfo.ethnicity}</span></div>` : ''}${castle.general_name ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>장수:</span><span style="color:#d8cfc4;text-align:right;">${castle.general_name}</span></div>` : ''}${castle.troop_count ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>병력:</span><span style="color:#d8cfc4;text-align:right;">${Number(castle.troop_count).toLocaleString()}</span></div>` : ''}${castle.createdBy ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>사관:</span><span style="color:#d8cfc4;text-align:right;">${castle.createdBy}</span></div>` : ''}`;
                     popupHtml = buildCastleIndexPopup({
                         titleHtml: `${flagHtml}${countryName}`,
-                        desc: castle.desc || '',
+                        desc: activeMarkerDescription,
                         photo: castle.general_photo || '',
                         metaHtml: armyMetaHtml,
                         castleId: castle._id,
@@ -17444,7 +17461,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
                 popupHtml = buildCastleIndexPopup({
                     titleHtml: `${flagHtml}${countryName}`,
-                    desc: castle.desc || '',
+                    desc: activeMarkerDescription,
                     photo: generalPhotoUrl || '',
                     metaHtml: armyMetaHtml,
                     castleId: castle._id,
@@ -17583,7 +17600,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 titleHtml: `🏯 ${castleName}`,
                 countryHtml: _capCountryHtml,
                 periodText: `${builtText} ~ ${destroyedText}`,
-                desc: castle.desc || '',
+                desc: activeMarkerDescription,
                 photo: castle.photo || '',
                 metaHtml: editorInfoHtml ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>사관:</span><span style="color:#d8cfc4;text-align:right;">${castle.createdBy}</span></div>` : '',
                 castleId: castle._id,
@@ -17700,7 +17717,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 titleHtml: `${ptCfg.hanja} ${castleName}`,
                 countryHtml: _sptCountryHtml,
                 periodText: `${builtText} ~ ${destroyedText}`,
-                desc: castle.desc || '',
+                desc: activeMarkerDescription,
                 photo: castle.photo || '',
                 metaHtml: editorInfoHtml ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>사관:</span><span style="color:#d8cfc4;text-align:right;">${castle.createdBy}</span></div>` : '',
                 castleId: castle._id,
@@ -17795,7 +17812,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             titleHtml: castleName,
             countryHtml: castleCountryMeta,
             periodText: `${builtText} ~ ${destroyedText}`,
-            desc: castle.desc || '',
+            desc: activeMarkerDescription,
             photo: castle.photo || '',
             extraHtml: castleExtraMeta,
             castleId: castle._id,
@@ -34452,8 +34469,9 @@ kingSelect.addEventListener('change', () => {
                         clearTimeout(window._sharedPopupTimer);
                         // 이미 이 마커의 팝업이 열려 있으면 유지
                         if (window._sharedPopup3d && window._sharedPopup3d._castleKey === c._id) return;
+                        const markerDescription3d = getMarkerDescriptionAtTime(c, activeRec);
                         const pop = window._openSharedPopup(_m, [c.lng, c.lat],
-                            `<div style="font-size:13px;color:#e8d9b8;padding:4px 2px;cursor:pointer;"><b>${castleName3d}</b>${ci ? `<br><span style="color:#7eb8e8;font-size:11px;">${ci.name}</span>` : ''}</div>`,
+                            `<div style="font-size:13px;color:#e8d9b8;padding:4px 2px;cursor:pointer;max-width:280px;"><b>${castleName3d}</b>${ci ? `<br><span style="color:#7eb8e8;font-size:11px;">${ci.name}</span>` : ''}${markerDescription3d ? `<div style="margin-top:6px;padding-top:5px;border-top:1px solid rgba(180,140,80,.28);color:#b8c8d4;font-size:12px;white-space:pre-wrap;line-height:1.5;">${stripImgTags(markerDescription3d)}</div>` : ''}</div>`,
                             { offset: { 'bottom': [0, -80], 'bottom-left': [0, -80], 'bottom-right': [0, -80], 'top': [0, 10], 'left': [10, 0], 'right': [-10, 0] } }
                         );
                         pop._castleKey = c._id;
