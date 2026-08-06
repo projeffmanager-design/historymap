@@ -2685,6 +2685,30 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     const identity = await getFigureIdentityContext(found);
                     hero.vote_count = Math.max(0, ...identity.records.map(record => parseInt(record.king.vote_count || 0)));
                     hero.worst_vote_count = Math.max(0, ...identity.records.map(record => parseInt(record.king.worst_vote_count || 0)));
+                    hero.identity_id = identity.storageId;
+                    hero.career_phases = identity.records
+                        .map(record => {
+                            const phase = normalizeKingSchema(record.king, null, record.countryId);
+                            return {
+                                _id: kingHeroId(
+                                    record.countryId,
+                                    record.king._id ? String(record.king._id) : String(record.index)
+                                ),
+                                country_id: record.countryId,
+                                faction: phase.faction,
+                                hero_type: phase.hero_type,
+                                title: phase.title,
+                                description: phase.description,
+                                start_year: phase.start_year,
+                                start_month: phase.start_month,
+                                end_year: phase.end_year,
+                                end_month: phase.end_month
+                            };
+                        })
+                        .sort((a, b) => (
+                            (a.start_year ?? 0) - (b.start_year ?? 0) ||
+                            (a.start_month ?? 1) - (b.start_month ?? 1)
+                        ));
                     const savedPositions = await collections.heroPositions
                         .find({ hero_id: heroId }, { projection: { source_text: 0 } })
                         .sort({ start_year: 1, year: 1 }).toArray();
@@ -4136,17 +4160,40 @@ app.get('/api/kings', async (req, res) => {
             collections.kings.find({}, { projection: { _id: 1, country_id: 1, country_name: 1, kings: 1 } }).toArray()
         ]);
         const countryMap = new Map(countries.map(c => [String(c._id), c]));
-        const payload = kings.map(doc => ({
-            ...doc,
-            kings: (Array.isArray(doc.kings) ? doc.kings : [])
+        const kingsByCountry = new Map();
+        kings.forEach(doc => {
+            const countryId = String(doc.country_id || '');
+            if (!countryId) return;
+            const country = countryMap.get(countryId) || null;
+            if (!kingsByCountry.has(countryId)) {
+                kingsByCountry.set(countryId, {
+                    _id: doc._id,
+                    country_id: doc.country_id,
+                    country_name: doc.country_name || country?.name || '',
+                    kings: []
+                });
+            }
+            const target = kingsByCountry.get(countryId);
+            const seenIds = new Set(target.kings.map(king => String(king._id || king.source_ref_id || '')));
+            (Array.isArray(doc.kings) ? doc.kings : [])
                 .filter(king => {
                     const type = normalizeKingHeroType(king);
                     return type === 'king' || type === 'emperor' || type === 'khan';
                 })
-                .map(king => ({
-                ...king,
-                ...normalizeKingSchema(king, countryMap.get(String(doc.country_id || '')) || null, String(doc.country_id || ''))
-            }))
+                .forEach(king => {
+                    const normalized = {
+                        ...king,
+                        ...normalizeKingSchema(king, country, countryId)
+                    };
+                    const identity = String(normalized._id || normalized.source_ref_id || '');
+                    if (identity && seenIds.has(identity)) return;
+                    if (identity) seenIds.add(identity);
+                    target.kings.push(normalized);
+                });
+        });
+        const payload = [...kingsByCountry.values()].map(item => ({
+            ...item,
+            kings: item.kings.sort(compareKingReignStart)
         }));
         kingsListResponseCache = { at: Date.now(), data: payload };
         res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=600');
