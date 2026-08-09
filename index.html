@@ -7254,11 +7254,19 @@ body.force-mobile .marker-type-selector button {
         backdrop-filter: blur(10px);
         border: 1px solid #5d7185;
         border-radius: 8px;
-        z-index: 1200;
+        z-index: 2147483640;
         display: none;
         font-size: 12px;
         box-shadow: 0 8px 24px rgba(0,0,0,0.4);
         padding-bottom: 4px;
+    }
+
+    /* 상세·역사 패널의 동적 레이어보다 검색 결과가 항상 위에 보이도록 한다. */
+    @media (min-width: 968px) {
+        body:not(.force-mobile) #top-bar-container {
+            overflow: visible !important;
+            z-index: 2147483600 !important;
+        }
     }
 
     #topbarSearchResults .topbar-result-item {
@@ -19055,7 +19063,11 @@ function invalidateCountryLookupCache() {
     function loadKingsPayloadCache() {
         try {
             const cached = JSON.parse(localStorage.getItem(KINGS_PAYLOAD_CACHE_KEY) || 'null');
-            return cached && Array.isArray(cached.data) ? cached : null;
+            const hasKings = cached && Array.isArray(cached.data)
+                && cached.data.some(item => Array.isArray(item?.kings) && item.kings.length > 0);
+            if (hasKings) return cached;
+            localStorage.removeItem(KINGS_PAYLOAD_CACHE_KEY);
+            return null;
         } catch (error) {
             localStorage.removeItem(KINGS_PAYLOAD_CACHE_KEY);
             return null;
@@ -20620,18 +20632,25 @@ const loadingMessages = [
                   updateKingLabel(parseInt(yearInput.value) || 400, parseInt(monthInput.value) || 1);
               }
           }
-          defer(() => {
+          // 왕 목록은 사용자가 곧바로 여는 핵심 UI이므로 idle 시점까지 미루지 않는다.
+          // 프로덕션에서 API가 잠시 실패하더라도 빈 응답으로 정상 캐시를 덮어쓰지 않는다.
+          (() => {
             const cacheAge = cachedKingsPayload ? Date.now() - cachedKingsPayload.at : Infinity;
             if (cachedKingsPayload && cacheAge < _CACHE_TTL.kings) {
-                console.log('⏭️ [idle] 왕 데이터 캐시 유효 → 네트워크 스킵');
+                console.log('⏭️ 왕 데이터 캐시 유효 → 네트워크 스킵');
                 return;
             }
             fetchData('kings').then(data => {
               if (Array.isArray(data)) {
                   const totalKings = applyKingsPayload(data);
+                  if (!totalKings) {
+                      console.warn('⚠️ 왕 데이터가 비어 있어 기존 캐시를 유지합니다.');
+                      if (cachedKingsPayload) applyKingsPayload(cachedKingsPayload.data);
+                      return;
+                  }
                   saveKingsPayloadCache(data);
                   markCacheFresh('kings');
-                  console.log(`✅ [idle] 왕 데이터 로드 완료: ${Object.keys(kings).length}개 국가, 총 ${totalKings}명 왕`);
+                  console.log(`✅ 왕 데이터 로드 완료: ${Object.keys(kings).length}개 국가, 총 ${totalKings}명 왕`);
                   if (yearInput && monthInput) {
                       const _ky = parseInt(yearInput.value) || 400;
                       const _km = parseInt(monthInput.value) || 1;
@@ -20639,10 +20658,10 @@ const loadingMessages = [
                   }
               }
             }).catch(err => {
-              console.warn('⚠️ [idle] kings 로드 실패:', err.message);
-              kings = {};
+              console.warn('⚠️ kings 로드 실패:', err.message);
+              if (cachedKingsPayload) applyKingsPayload(cachedKingsPayload.data);
             });
-          });
+          })();
           
           // 🚀 [idle defer] drawings — TTL 30분, 지우개 저장 직후는 스킵
           defer(() => {
