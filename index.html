@@ -13547,7 +13547,6 @@ body.force-mobile .marker-type-selector button {
             if (open) window.bringAppPanelToFront?.(box, { keepTimeControls:false });
             else window.releaseAppPanel?.(box);
             btn.style.background = open ? 'rgba(30,100,180,0.35)' : 'rgba(255,255,255,0.08)';
-            if (open) setTimeout(() => input.focus(), 50);
         });
         document.addEventListener('click', (e) => {
             if (!document.getElementById('coord-goto-wrap').contains(e.target) && !box.contains(e.target)) {
@@ -34596,7 +34595,6 @@ kingSelect.addEventListener('change', () => {
                 if (coordButton) coordButton.style.background = 'rgba(255,255,255,0.08)';
                 mobileSearchOverlay.classList.add('open');
                 window.bringAppPanelToFront?.(mobileSearchOverlay, { keepTimeControls:false });
-                setTimeout(() => mobileSearchInput && mobileSearchInput.focus(), 80);
             };
             const closeMobileSearch = () => {
                 mobileSearchOverlay.classList.remove('open');
@@ -34735,6 +34733,31 @@ kingSelect.addEventListener('change', () => {
                 if (e.key === 'Enter') { e.preventDefault(); const q=mobileSearchInput.value.trim(); if(q) doMobileSearch(q); }
                 if (e.key === 'Escape') closeMobileSearch();
             });
+        })();
+
+        // 모바일 키보드는 사용자가 실제 입력 요소를 직접 누른 경우에만 연다.
+        (function bindMobileKeyboardFocusPolicy() {
+            if (window.__mobileKeyboardFocusPolicyBound) return;
+            window.__mobileKeyboardFocusPolicyBound = true;
+            const isMobile = () => document.body.classList.contains('force-mobile') || window.innerWidth <= 967 || window.innerHeight > window.innerWidth;
+            const isDirectTextEntry = target => {
+                const field = target?.closest?.('textarea, select, [contenteditable="true"], input');
+                if (!field) return false;
+                if (field.tagName !== 'INPUT') return true;
+                return !['button', 'submit', 'reset', 'checkbox', 'radio', 'range', 'color', 'file', 'hidden'].includes(String(field.type || 'text').toLowerCase());
+            };
+            const blurFocusedEditor = () => {
+                const active = document.activeElement;
+                if (!active || active === document.body) return;
+                if (active.matches?.('input, textarea, select, [contenteditable="true"]')) active.blur();
+            };
+            document.addEventListener('pointerdown', event => {
+                if (!isMobile() || isDirectTextEntry(event.target)) return;
+                blurFocusedEditor();
+                // 버튼 핸들러가 뒤늦게 입력창을 포커스하는 경우도 해제한다.
+                setTimeout(blurFocusedEditor, 0);
+                setTimeout(blurFocusedEditor, 120);
+            }, true);
         })();
         
         // 🍔 메뉴 내 시간 이동 기능 연결
