@@ -1306,6 +1306,18 @@ body.force-mobile.map-detail-panel-open #mobile-year-label {
 .history-source-group[open] > summary::after { content:'−'; }
 .history-source-items { padding:0 9px 7px; }
 .history-source-item { padding:7px 2px; border-top:1px solid rgba(255,255,255,.055); }
+.history-record-card.history-search-target,
+.history-source-item.history-search-target {
+    position: relative;
+    border-color: #f4c75e !important;
+    border-radius: 7px;
+    background: linear-gradient(110deg, rgba(210,148,38,.34), rgba(255,231,161,.08)) !important;
+    box-shadow: 0 0 0 2px rgba(244,199,94,.22), 0 0 22px rgba(224,159,39,.34);
+    animation: history-search-target-pulse 1s ease-in-out 2;
+}
+@keyframes history-search-target-pulse {
+    50% { box-shadow:0 0 0 3px rgba(255,216,112,.5), 0 0 30px rgba(230,167,43,.55); }
+}
 .history-source-item-head { display:flex; align-items:flex-start; gap:7px; }
 .history-source-item-head .history-source-title { flex:1; min-width:0; }
 .history-source-title { color:#d9dde0; font-size:11px; line-height:1.5; }
@@ -11283,16 +11295,16 @@ body.force-mobile .marker-type-selector button {
            · 성/도시: 📜 역사 기록 (국가·이름·기간 복합)
            · 자연·지명·군대: 단순 시작/종료 연도
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
-      <!-- [성/도시·전장] 역사 기록 -->
+      <!-- [성/도시·전장·자연지물] 장소 역사 및 기록 연결 -->
       <div id="castleHistorySection" style="border:1px solid #00aaff; padding:10px; margin-top:10px; border-radius:4px;">
-        <h4>📜 성/도시 역사 기록</h4>
+        <h4>📜 장소 역사 및 기록 연결</h4>
         <div id="castleHistoryList" style="max-height:400px; overflow-y:auto; padding-right:4px;"></div>
         <div style="display:flex; gap:6px; margin-top:5px; flex-wrap:wrap;">
           <button type="button" id="addCastleHistoryBtn">역사 기록 추가</button>
           <button type="button" id="copyHistoryFromCastleBtn" style="background:#1a5276; border-color:#2980b9; font-size:11px;" title="다른 마커의 역사기록을 이 폼에 복사합니다">📋 다른 마커에서 복사</button>
         </div>
       </div>
-      <!-- [자연·지명·군대] 단순 기간 -->
+      <!-- [지명·군대] 단순 기간 -->
       <div id="simpleDateSection" style="display:none;">
         <div class="form-row">
           <label for="simpleStartYear">시작 연도:</label>
@@ -25250,6 +25262,28 @@ const loadingMessages = [
       }
     }
 
+    function _focusRequestedHistoryRecord(renderedYear) {
+      const request = window._historyRecordFocusRequest;
+      if (!request || Number(request.year) !== Number(renderedYear) || Date.now() - request.at > 6000) return false;
+      const selector = request.type === 'source'
+        ? `[data-source-record-id="${CSS.escape(String(request.id))}"]`
+        : `[data-history-record-id="${CSS.escape(String(request.id))}"]`;
+      const target = document.getElementById('map-all-records-content')?.querySelector(selector);
+      if (!target) return false;
+      target.closest('details')?.setAttribute('open', '');
+      target.classList.add('history-search-target');
+      if (!request.scrolled) {
+        request.scrolled = true;
+        request.target = target;
+        target.scrollIntoView({ behavior:'smooth', block:'center' });
+        setTimeout(() => {
+          document.querySelectorAll('.history-search-target').forEach(element => element.classList.remove('history-search-target'));
+          if (window._historyRecordFocusRequest === request) window._historyRecordFocusRequest = null;
+        }, 5000);
+      }
+      return true;
+    }
+
     window.openLinkedHistoryRecord = async function(record) {
       if (!record?.id) return;
       // 인물 상세에서 연결 기록을 열 때는 오른쪽 상세 정보는 유지하고,
@@ -25261,6 +25295,14 @@ const loadingMessages = [
       }
       const year = Number(record.year);
       const month = Number(record.month) || 1;
+      window._historyRecordFocusRequest = {
+        id:String(record.id),
+        type:record.type === 'source' ? 'source' : 'history',
+        year,
+        title:String(record.title || ''),
+        at:Date.now(),
+        scrolled:false
+      };
       if (Number.isFinite(year) && typeof updateTime === 'function') updateTime(year, month);
       layerVisibility.historyPanel = true;
       setHistoryPanelVisibility(true);
@@ -25271,17 +25313,7 @@ const loadingMessages = [
       const menuCheckbox = document.getElementById('menu-layer-history');
       if (menuCheckbox) menuCheckbox.checked = true;
       await updateHistoryPanel(year);
-      const selector = record.type === 'source'
-        ? `[data-source-record-id="${CSS.escape(String(record.id))}"]`
-        : `[data-history-record-id="${CSS.escape(String(record.id))}"]`;
-      const target = document.querySelector(selector);
-      if (!target) return;
-      target.closest('details')?.setAttribute('open', '');
-      target.scrollIntoView({ behavior:'smooth', block:'center' });
-      target.animate([
-        { backgroundColor:'rgba(228,178,72,.42)' },
-        { backgroundColor:'rgba(255,255,255,.025)' }
-      ], { duration:1400, easing:'ease-out' });
+      _focusRequestedHistoryRecord(year);
     };
 
     async function _openHistoryPlaceOnMap(castleId, targetYear, targetMonth) {
@@ -25532,6 +25564,7 @@ const loadingMessages = [
             if (record) openSourceRecordEditor(record, heroFigures);
           });
         });
+        _focusRequestedHistoryRecord(year);
         _renderHistoryPlaceBacklinks(mapAllRecordsContent, historyRecords, sourceRecords);
         updateHistoryCaption(year, historyRecords, sourceRecords);
     }
@@ -25977,7 +26010,7 @@ const loadingMessages = [
             
             // ── 연도 수집 (역사기록 또는 단순기간에서 읽기) ──
             let startYear = '', startMonth = '', endYear = '', endMonth = '';
-            if (prevType === 'normal' || prevType === 'battle') {
+            if (prevType === 'normal' || prevType === 'battle' || prevType === 'natural') {
                 // 역사 기록의 첫 번째 행에서 가져오기
                 const firstRow = document.querySelector('#castleHistoryList .history-record-row');
                 if (firstRow) {
@@ -26024,7 +26057,7 @@ const loadingMessages = [
             }
             
             // 연도
-            if (newType === 'normal' || newType === 'battle') {
+            if (newType === 'normal' || newType === 'battle' || newType === 'natural') {
                 // 역사 기록이 비어있으면 새 행 추가
                 const existingRows = document.querySelectorAll('#castleHistoryList .history-record-row');
                 if (existingRows.length === 0) {
@@ -26206,7 +26239,7 @@ const loadingMessages = [
 
         // 🚩 [수정] 타입에 따라 단일 기간 필드 채우기
         // ⚠️ null/undefined 안전: destroyed_year ?? end_year(구형 필드명 호환) ?? ''
-        if (['natural', 'label', 'military'].includes(currentType)) {
+        if (['label', 'military'].includes(currentType)) {
             document.getElementById('simpleStartYear').value  = castle.built_year  ?? castle.start_year ?? '';
             document.getElementById('simpleStartMonth').value = castle.built_month ?? '';
             document.getElementById('simpleEndYear').value    = castle.destroyed_year ?? castle.end_year ?? '';
@@ -26214,8 +26247,8 @@ const loadingMessages = [
         }
 
         // 🚩 [수정] 타입에 따라 역사 기록 또는 단일 기간 필드 채우기
-        if (currentType === 'normal' || currentType === 'battle') { // 🚩 [수정] 전장 타입도 역사 기록 사용
-            // 성/왕성/전장: 복잡한 역사 기록
+        if (currentType === 'normal' || currentType === 'battle' || currentType === 'natural') {
+            // 성/왕성/전장/사찰·자연지물: 장소 역사와 연결 기록
             const historyListContainer = document.getElementById('castleHistoryList'); 
             historyListContainer.innerHTML = ''; // 초기화 
 
@@ -26253,19 +26286,20 @@ const loadingMessages = [
                 if (Array.isArray(castle.path_data)) {
                     castle.path_data.forEach(point => addPathPoint(point));
                 }
-            } else if (currentType === 'natural') {
-                const naturalTypeFromData = castle.natural_feature_type || 'mountain';
-                const hasOption = Array.from(naturalFeatureType.options).some(opt => opt.value === naturalTypeFromData);
-                naturalFeatureType.value = hasOption ? naturalTypeFromData : 'mountain';
-                // 자연마커 proxy 필드 동기화 (naturalContentDetails 내)
-                const naturalPhotoProxy = document.getElementById('naturalPhotoProxy');
-                const naturalDescProxy = document.getElementById('naturalDescProxy');
-                const naturalDescEditorProxy = document.getElementById('naturalDescEditorProxy');
-                if (naturalPhotoProxy) naturalPhotoProxy.value = castle.photo ?? '';
-                if (naturalDescProxy) naturalDescProxy.value = castle.desc ?? '';
-                // ★ 자연 설명 에디터(contenteditable)에도 내용 로드
-                if (naturalDescEditorProxy) naturalDescEditorProxy.innerHTML = castle.desc ?? '';
             }
+        }
+
+        if (currentType === 'natural') {
+            const naturalTypeFromData = castle.natural_feature_type || 'mountain';
+            const hasOption = Array.from(naturalFeatureType.options).some(opt => opt.value === naturalTypeFromData);
+            naturalFeatureType.value = hasOption ? naturalTypeFromData : 'mountain';
+            // 자연마커 proxy 필드 동기화 (naturalContentDetails 내)
+            const naturalPhotoProxy = document.getElementById('naturalPhotoProxy');
+            const naturalDescProxy = document.getElementById('naturalDescProxy');
+            const naturalDescEditorProxy = document.getElementById('naturalDescEditorProxy');
+            if (naturalPhotoProxy) naturalPhotoProxy.value = castle.photo ?? '';
+            if (naturalDescProxy) naturalDescProxy.value = castle.desc ?? '';
+            if (naturalDescEditorProxy) naturalDescEditorProxy.innerHTML = castle.desc ?? '';
         }
         
         if (editMarker) map.removeLayer(editMarker);
@@ -26328,13 +26362,13 @@ const loadingMessages = [
         document.getElementById('labelSizeRow').style.display  = isLabel ? 'flex' : 'none';
 
         // ── ⑤ 기간 설정 ──────────────────────────────
-        // [성/도시·전장] 역사 기록
-        castleHistorySection.style.display = (isCastle || isBattle) ? 'block' : 'none';
+        // [성/도시·전장·자연지물] 장소 역사 및 기록 연결
+        castleHistorySection.style.display = (isCastle || isBattle || isNatural) ? 'block' : 'none';
         castleHistorySection.querySelectorAll('input[required]').forEach(input => {
             if (!isCastle && !isBattle) input.removeAttribute('required');
         });
-        // [자연·지명·군대] 단순 기간
-        simpleDateSection.style.display = (isCastle || isBattle) ? 'none' : 'block';
+        // [지명·군대] 단순 기간
+        simpleDateSection.style.display = (isCastle || isBattle || isNatural) ? 'none' : 'block';
         document.getElementById('simpleStartMonth').style.display = (isNatural || isLabel) ? 'none' : 'inline-block';
         document.getElementById('simpleEndMonth').style.display   = (isNatural || isLabel) ? 'none' : 'inline-block';
 
@@ -26965,7 +26999,7 @@ const loadingMessages = [
       };
       console.log('📤 Castle 수정 - 전송 데이터:', JSON.stringify(data, null, 2)); // 🚩 [디버그] 전송 데이터 확인
 
-      if (selectedType === 'normal' || selectedType === 'battle') { // 🚩 [수정] 전장 타입도 역사 기록 사용
+      if (selectedType === 'normal' || selectedType === 'battle' || selectedType === 'natural') {
           const historyRows = document.querySelectorAll('#castleHistoryList .history-record-row');
           const historyData = Array.from(historyRows).map(row => {
               const nameVal = row.querySelector('input.history-name').value;
@@ -27010,8 +27044,8 @@ const loadingMessages = [
               };
           });
 
-          // 🚫 [검증] 국가 미지정 기록이 있으면 저장 차단
-          const missingCountryIdx = historyData.findIndex(h => !h.country_id);
+          // 자연지물은 어느 국가에도 속하지 않을 수 있으므로 국가를 선택 사항으로 둔다.
+          const missingCountryIdx = selectedType === 'natural' ? -1 : historyData.findIndex(h => !h.country_id);
           if (missingCountryIdx !== -1) {
               const rowNum = missingCountryIdx + 1;
               // 해당 행의 국가 입력 필드에 포커스
@@ -27028,7 +27062,7 @@ const loadingMessages = [
 
           data.history = historyData;
           // 호환성을 위해 첫 번째 기록을 대표값으로 저장
-          data.country_id = historyData[0]?.country_id;
+          data.country_id = historyData[0]?.country_id || null;
           data.built_year = historyData[0]?.start_year;
           data.built_month = historyData[0]?.start_month;
           data.destroyed_year = historyData[0]?.end_year;
@@ -34275,21 +34309,20 @@ kingSelect.addEventListener('change', () => {
                 if (c) _tbGoToCastle(c);
             };
 
-            // 역사 기록 클릭 전역 핸들러 – 타임슬라이더를 해당 년/월로 이동
-            window._tbGoToHistory = (year, month, label, id) => {
+            // 역사 기록 클릭: 해당 시점으로 이동한 뒤 선택한 카드까지 찾아 강조한다.
+            window._tbGoToHistory = (year, month, label, id, type = 'history') => {
                 document.getElementById('topbarSearchInput').value = label || '';
                 document.getElementById('topbarSearchResults').style.display = 'none';
-                const m = month || 1;
-                const totalMonths = yearMonthToTotalMonths(year, m);
-                const sMin = parseInt(combinedSlider.min);
-                const sMax = parseInt(combinedSlider.max);
-                const clamped = Math.min(sMax, Math.max(sMin, totalMonths));
-                combinedSlider.value = clamped;
-                const mapped = totalMonthsToYearMonth(clamped);
-                document.getElementById('yearInput').value = mapped.year;
-                document.getElementById('monthInput').value = mapped.month;
-                updateTime(mapped.year, mapped.month);
-                updateUI(mapped.year, mapped.month);
+                const mobileOverlay = document.getElementById('mobile-search-overlay');
+                mobileOverlay?.classList.remove('open');
+                window.releaseAppPanel?.(mobileOverlay);
+                window.openLinkedHistoryRecord?.({
+                    id:String(id || ''),
+                    type:type === 'source' ? 'source' : 'history',
+                    year:Number(year),
+                    month:Number(month) || 1,
+                    title:label || ''
+                });
             };
 
             // 실지도 결과 핀 마커 (한 개만 유지)
@@ -34478,7 +34511,7 @@ kingSelect.addEventListener('change', () => {
                         const detailHtml = (isSource && h.subDetail)
                             ? `<span style="font-size:10px;color:#ccc;font-family:serif;margin-top:1px;">${h.subDetail.replace(/</g,'&lt;')}</span>`
                             : '';
-                        return `<div class="topbar-result-item" onclick="_tbGoToHistory(${h.year},${h.month},'${(h.label||'').replace(/'/g,"\\'")}','${(h.id||'').toString()}')" style="display:flex;flex-direction:column;gap:1px;">
+                        return `<div class="topbar-result-item" onclick="_tbGoToHistory(${h.year},${h.month},'${(h.label||'').replace(/'/g,"\\'")}','${(h.id||'').toString()}','${isSource ? 'source' : 'history'}')" style="display:flex;flex-direction:column;gap:1px;">
                             <span>${icon} ${h.label}</span>
                             <span style="font-size:10px;color:${subColor};">${h.sub}</span>
                             ${detailHtml}
@@ -34715,7 +34748,7 @@ kingSelect.addEventListener('change', () => {
                         histHits = hd.map(h => ({
                             label: h.event_name || '(제목 없음)',
                             sub: `${h.year > 0 ? h.year+'년' : 'BC '+Math.abs(h.year)+'년'}${h.month ? ' '+h.month+'월' : ''}`,
-                            year: h.year, month: h.month||1, id: h._id
+                            year: h.year, month: h.month||1, id: h._id, type: h.type || 'history'
                         }));
                     }
                 } catch(e) {}
@@ -34743,7 +34776,7 @@ kingSelect.addEventListener('change', () => {
                     dbHtml += histHits.map(h => {
                         const safeLabel = (h.label||'').replace(/'/g,"\\'");
                         const safeId    = (h.id||'').toString();
-                        return `<div class="topbar-result-item" onclick="_tbGoToHistory(${h.year},${h.month},'${safeLabel}','${safeId}'); document.getElementById('mobile-search-overlay').classList.remove('open');" style="display:flex;flex-direction:column;gap:2px;">
+                        return `<div class="topbar-result-item" onclick="_tbGoToHistory(${h.year},${h.month},'${safeLabel}','${safeId}','${h.type === 'source' ? 'source' : 'history'}');" style="display:flex;flex-direction:column;gap:2px;">
                             <span>📚 ${h.label}</span>
                             <span style="font-size:11px;color:#8868b4;">${h.sub}</span>
                         </div>`;
