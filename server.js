@@ -4488,7 +4488,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                             ] }, { projection:{ event_name:1, year:1, month:1 } }).limit(300).toArray(),
                             collections.sourceRecords.find({ $or:[
                                 { title:containsName }, { content:containsName }, { source:containsName }
-                            ] }, { projection:{ title:1, year:1, month:1 } }).limit(300).toArray()
+                            ] }, { projection:{ title:1, year:1, month:1, link_exclusions:1 } }).limit(300).toArray()
                         ]);
                         const startYear = Number(req.query.startYear);
                         const endYear = Number(req.query.endYear);
@@ -4507,7 +4507,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                                 predicate:'mentions', object:targetPerson,
                                 period:{ year:Number(record.year), month:Number(record.month) || 1 }, source:'automatic_name_match'
                             })),
-                            ...sourceMatches.filter(yearIsActive).map(record => ({
+                            ...sourceMatches.filter(yearIsActive).filter(record => !(Array.isArray(record.link_exclusions) && record.link_exclusions.some(key =>
+                                entityIds.some(id => String(key).startsWith(`person:${id}:`))
+                            ))).map(record => ({
                                 relation_key:`auto:source_record:${record._id}|person:${entityIds[0]}`,
                                 subject:{ type:'source_record', id:String(record._id), label:record.title || '원전 사료' },
                                 predicate:'mentions', object:targetPerson,

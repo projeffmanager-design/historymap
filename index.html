@@ -13420,6 +13420,29 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                 console.warn('마커 상세 최신 데이터 조회 실패, 현재 지도 데이터로 표시합니다.', error);
             }
         }
+        let graphLinkedRecords = [];
+        if (detailCastleId) {
+            try {
+                const relationResponse = await fetch(`/api/historical-relations?entityType=place&entityId=${encodeURIComponent(String(detailCastleId))}`, { cache:'no-store' });
+                if (relationResponse.ok) {
+                    const relations = await relationResponse.json();
+                    graphLinkedRecords = (Array.isArray(relations) ? relations : []).map(relation => {
+                        const placeIsSubject = relation.subject?.type === 'place' && String(relation.subject?.id) === String(detailCastleId);
+                        const recordEntity = placeIsSubject ? relation.object : relation.subject;
+                        if (recordEntity?.type !== 'history_record' && recordEntity?.type !== 'source_record') return null;
+                        return {
+                            id:String(recordEntity.id),
+                            type:recordEntity.type === 'source_record' ? 'source' : 'history',
+                            title:recordEntity.label || '역사 기록',
+                            year:Number(relation.period?.year ?? relation.period?.start_year),
+                            month:Number(relation.period?.month ?? relation.period?.start_month) || 1
+                        };
+                    }).filter(Boolean);
+                }
+            } catch (error) {
+                console.warn('지명과 연결된 역사 관계 조회 실패:', error);
+            }
+        }
         // 현재 열린 패널의 castle id 추적 (저장 후 갱신에 사용)
         window._currentDetailCastleId = castle._id || castle.name;
         // 국가 상세 패널이 열려있으면 닫기
@@ -13532,9 +13555,19 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                 const hName = h.name || castleName;
                 const hNote = h.notes || h.note || '';
                 const hComment = h.comment || '';
-                const hLinkedRecords = Array.isArray(h.linked_records)
+                const storedLinkedRecords = Array.isArray(h.linked_records)
                     ? h.linked_records
                     : (Array.isArray(h.linkedRecords) ? h.linkedRecords : []);
+                const hStartYear = Number(h.start_year);
+                const hEndYear = h.end_year === null || h.end_year === undefined || h.end_year === '' ? Infinity : Number(h.end_year);
+                const relatedGraphRecords = graphLinkedRecords.filter(record => !Number.isFinite(record.year)
+                    || ((!Number.isFinite(hStartYear) || record.year >= hStartYear) && (!Number.isFinite(hEndYear) || record.year <= hEndYear)));
+                const linkedRecordMap = new Map();
+                [...storedLinkedRecords, ...relatedGraphRecords].forEach(record => {
+                    const id = String(record?.id || record?._id || record?.record_id || '');
+                    if (id) linkedRecordMap.set(`${record.type === 'source' ? 'source' : 'history'}:${id}`, record);
+                });
+                const hLinkedRecords = [...linkedRecordMap.values()];
 
                 // 전장 여부: is_battle 플래그 OR place_type:'battle' 둘 다 체크
                 const hIsBattle = !!(h.is_battle || h.place_type === 'battle');
@@ -24247,7 +24280,7 @@ const loadingMessages = [
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
-    function _historyEntityLinks(text, year, month = 1, heroFigures = []) {
+    function _historyEntityLinks(text, year, month = 1, heroFigures = [], options = {}) {
       const rawText = String(text ?? '');
       if (!rawText) return '';
       const manualLinkPattern = /\[\[(person|place|country):([^|\]]+)\|([^\]]+)\]\]/g;
@@ -24257,7 +24290,7 @@ const loadingMessages = [
         let linkedIndex = 0;
         let manualMatch;
         while ((manualMatch = manualLinkPattern.exec(rawText)) !== null) {
-          linkedHtml += _historyEntityLinks(rawText.slice(linkedIndex, manualMatch.index), year, month, heroFigures);
+          linkedHtml += _historyEntityLinks(rawText.slice(linkedIndex, manualMatch.index), year, month, heroFigures, options);
           const [, linkType, targetId, label] = manualMatch;
           linkedHtml += linkType === 'person'
             ? `<button type="button" class="history-person-link" data-hero-id="${_escapeHistoryInline(targetId)}" data-hero-name="${_escapeHistoryInline(label)}" data-year="${Number(year) || 0}" data-month="${Number(month) || 1}" title="${_escapeHistoryInline(label)} 인물 상세 보기">${_escapeHistoryInline(label)}</button>`
@@ -24266,7 +24299,7 @@ const loadingMessages = [
               : `<button type="button" class="history-place-link" data-castle-id="${_escapeHistoryInline(targetId)}" data-year="${Number(year) || 0}" data-month="${Number(month) || 1}" title="지도에서 ${_escapeHistoryInline(label)} 보기">${_escapeHistoryInline(label)}</button>`;
           linkedIndex = manualLinkPattern.lastIndex;
         }
-        return linkedHtml + _historyEntityLinks(rawText.slice(linkedIndex), year, month, heroFigures);
+        return linkedHtml + _historyEntityLinks(rawText.slice(linkedIndex), year, month, heroFigures, options);
       }
       const totalMonths = yearMonthToTotalMonths(Number(year) || 0, Number(month) || 1);
       const entityByName = new Map();
@@ -24397,8 +24430,15 @@ const loadingMessages = [
       placeByName.forEach((target, name) => {
         if (!entityByName.has(name)) entityByName.set(name, { type: 'place', castle: target.castle });
       });
+      const excludedLinks = new Set(Array.isArray(options.excludedLinks) ? options.excludedLinks.map(String) : []);
+      const automaticLinkKey = (target, label) => {
+        if (target?.type === 'person') return `person:${String(target.hero?._id || '')}:${label}`;
+        if (target?.type === 'country') return `country:${String(target.country?._id || '')}:${label}`;
+        return `place:${String(target?.castle?._id || '')}:${label}`;
+      };
       const names = [...entityByName.keys()]
         .filter(name => rawText.includes(name))
+        .filter(name => !excludedLinks.has(automaticLinkKey(entityByName.get(name), name)))
         .sort((a, b) => b.length - a.length)
         .slice(0, 500);
       if (!names.length) return _escapeHistoryInline(rawText);
@@ -24425,13 +24465,13 @@ const loadingMessages = [
       return result + _escapeHistoryInline(rawText.slice(lastIndex));
     }
 
-    function _historyRichContent(value, year, month, heroFigures = []) {
+    function _historyRichContent(value, year, month, heroFigures = [], options = {}) {
       const raw = String(value ?? '');
-      if (!/<\/?[a-z][^>]*>/i.test(raw)) return _historyEntityLinks(raw, year, month, heroFigures);
+      if (!/<\/?[a-z][^>]*>/i.test(raw)) return _historyEntityLinks(raw, year, month, heroFigures, options);
       const documentValue = new DOMParser().parseFromString(`<div>${raw}</div>`, 'text/html');
       const allowedTags = new Set(['P','DIV','BR','PRE','B','STRONG','I','EM','U','S','UL','OL','LI','BLOCKQUOTE','H3','H4','H5','CODE','A']);
       const renderNode = node => {
-        if (node.nodeType === Node.TEXT_NODE) return _historyEntityLinks(node.nodeValue || '', year, month, heroFigures);
+        if (node.nodeType === Node.TEXT_NODE) return _historyEntityLinks(node.nodeValue || '', year, month, heroFigures, options);
         if (node.nodeType !== Node.ELEMENT_NODE) return '';
         const children = [...node.childNodes].map(renderNode).join('');
         const tag = node.tagName.toUpperCase();
@@ -24512,6 +24552,56 @@ const loadingMessages = [
         const countryInfo = getCountryInfoById(activeRecord?.country_id || castle.country_id || castle.countryId);
         if (typeof openDetailPanel === 'function') openDetailPanel(castle, activeRecord, countryInfo);
       }, 650);
+    }
+
+    async function _renderHistoryPlaceBacklinks(container, historyRecords = [], sourceRecords = []) {
+      if (!container) return;
+      const groups = [
+        { type:'history_record', records:historyRecords, selector:'data-history-record-id' },
+        { type:'source_record', records:sourceRecords, selector:'data-source-record-id' }
+      ];
+      for (const group of groups) {
+        const ids = group.records.map(record => String(record?._id || '')).filter(Boolean);
+        if (!ids.length) continue;
+        const relations = [];
+        for (let offset = 0; offset < ids.length; offset += 50) {
+          try {
+            const response = await fetch(`/api/historical-relations?entityType=${group.type}&entityId=${encodeURIComponent(ids.slice(offset, offset + 50).join(','))}`, { cache:'no-store' });
+            if (response.ok) relations.push(...await response.json());
+          } catch (_) { /* 역방향 장소 표시는 보조 정보이므로 패널 렌더를 막지 않는다. */ }
+        }
+        const linksByRecord = new Map();
+        relations.forEach(relation => {
+          const subjectIsRecord = relation.subject?.type === group.type;
+          const recordEntity = subjectIsRecord ? relation.subject : relation.object;
+          const other = subjectIsRecord ? relation.object : relation.subject;
+          if (recordEntity?.type !== group.type || other?.type !== 'place' || !recordEntity.id || !other.id) return;
+          const recordId = String(recordEntity.id);
+          if (!linksByRecord.has(recordId)) linksByRecord.set(recordId, new Map());
+          linksByRecord.get(recordId).set(String(other.id), other.label || '관련 장소');
+        });
+        linksByRecord.forEach((places, recordId) => {
+          const target = container.querySelector(`[${group.selector}="${CSS.escape(recordId)}"]`);
+          if (!target || target.querySelector('.history-place-backlinks')) return;
+          const record = group.records.find(item => String(item?._id) === recordId);
+          const wrap = document.createElement('div');
+          wrap.className = 'history-place-backlinks';
+          wrap.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;';
+          places.forEach((label, placeId) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'history-place-link';
+            button.textContent = label;
+            button.title = `${label} 지도 위치 보기`;
+            button.addEventListener('click', event => {
+              event.stopPropagation();
+              _openHistoryPlaceOnMap(placeId, Number(record?.year), Number(record?.month) || 1);
+            });
+            wrap.appendChild(button);
+          });
+          target.appendChild(wrap);
+        });
+      }
     }
 
     function _renderHistoryPanel(year, historyRecords, sourceRecords, heroFigures = []) {
@@ -24641,13 +24731,13 @@ const loadingMessages = [
             recs.forEach(r => {
               const isChinese = r.content_type === 'chinese_original';
               const titleRow = r.title
-                ? `<div class="history-source-title">${_historyEntityLinks(r.title, year, recordMonth(r), heroFigures)}${isChinese ? ' <span class="history-source-tag">원문</span>' : ''}</div>`
+                ? `<div class="history-source-title">${_historyEntityLinks(r.title, year, recordMonth(r), heroFigures, { excludedLinks:r.link_exclusions })}${isChinese ? ' <span class="history-source-tag">원문</span>' : ''}</div>`
                 : '';
               const sourceEditButton = isAdmin
                 ? `<button type="button" class="history-edit-action history-source-edit" data-source-id="${_escapeHistoryInline(r._id)}" title="이 원전 사료 바로 수정">✏ 수정</button>`
                 : '';
               const content = r.content
-                ? `<div class="history-source-content${isChinese ? ' is-original' : ''}">${_historyRichContent(r.content, year, recordMonth(r), heroFigures)}</div>`
+                ? `<div class="history-source-content${isChinese ? ' is-original' : ''}">${_historyRichContent(r.content, year, recordMonth(r), heroFigures, { excludedLinks:r.link_exclusions })}</div>`
                 : '';
               html += `<div class="history-source-item" data-source-record-id="${_escapeHistoryInline(r._id)}"><div class="history-source-item-head">${titleRow}${sourceEditButton}</div>${content}</div>`;
             });
@@ -24685,9 +24775,10 @@ const loadingMessages = [
           button.addEventListener('click', event => {
             event.stopPropagation();
             const record = sourceRecords.find(item => String(item?._id) === String(button.dataset.sourceId));
-            if (record) openSourceRecordEditor(record);
+            if (record) openSourceRecordEditor(record, heroFigures);
           });
         });
+        _renderHistoryPlaceBacklinks(mapAllRecordsContent, historyRecords, sourceRecords);
         updateHistoryCaption(year, historyRecords, sourceRecords);
     }
 
@@ -31294,7 +31385,7 @@ kingSelect.addEventListener('change', () => {
     });
 
     // 역사 패널의 원전 사료 항목에서 바로 여는 간결 편집기
-    window.openSourceRecordEditor = function(record) {
+    window.openSourceRecordEditor = function(record, heroFigures = []) {
         if (!editMode || !(currentUser?.role === 'superuser' || currentUser?.role === 'admin') || !record?._id) return;
         document.getElementById('source-record-direct-editor')?.remove();
         const overlay = document.createElement('div');
@@ -31335,6 +31426,60 @@ kingSelect.addEventListener('change', () => {
         const contentField = form.elements.content;
         const contentToolbar = buildHistoryHtmlToolbar(contentField);
         if (contentToolbar) contentField.parentNode.insertBefore(contentToolbar, contentField);
+        const sourceLinkExclusions = new Set(Array.isArray(record.link_exclusions) ? record.link_exclusions.map(String) : []);
+        const automaticTagPanel = document.createElement('div');
+        automaticTagPanel.style.cssText = 'margin:8px 0;padding:9px;border:1px solid rgba(108,157,184,.25);border-radius:6px;background:rgba(26,48,61,.34);';
+        contentField.parentNode.appendChild(automaticTagPanel);
+        const collectDetectedLinks = () => {
+            const holder = document.createElement('div');
+            holder.innerHTML = _historyEntityLinks(form.elements.title.value || '', Number(form.elements.year.value), Number(form.elements.month.value) || 1, heroFigures)
+                + _historyRichContent(contentField.value || '', Number(form.elements.year.value), Number(form.elements.month.value) || 1, heroFigures);
+            const explicitKeys = new Set();
+            const explicitPattern = /\[\[(person|place|country):([^|\]]+)\|([^\]]+)\]\]/g;
+            let explicitMatch;
+            const rawEditableText = `${form.elements.title.value || ''}\n${contentField.value || ''}`;
+            while ((explicitMatch = explicitPattern.exec(rawEditableText)) !== null) explicitKeys.add(`${explicitMatch[1]}:${explicitMatch[2]}:${explicitMatch[3]}`);
+            const detected = new Map();
+            holder.querySelectorAll('.history-person-link,.history-place-link,.history-country-link').forEach(link => {
+                const type = link.classList.contains('history-person-link') ? 'person' : link.classList.contains('history-country-link') ? 'country' : 'place';
+                const id = link.dataset.heroId || link.dataset.countryId || link.dataset.castleId || '';
+                const label = link.textContent.trim();
+                const key = `${type}:${id}:${label}`;
+                if (id && label && !explicitKeys.has(key)) detected.set(key, { type, label });
+            });
+            return detected;
+        };
+        const renderAutomaticTags = () => {
+            const detected = collectDetectedLinks();
+            const typeLabel = { person:'인물', country:'국가', place:'장소' };
+            automaticTagPanel.innerHTML = '<div style="color:#a9c5d4;font-size:11px;font-weight:700;margin-bottom:6px;">🏷 자동 연결 태그 <span style="opacity:.65;font-weight:400;">이 원전 사료에만 적용</span></div>';
+            if (!detected.size) {
+                automaticTagPanel.insertAdjacentHTML('beforeend', '<div style="color:#718694;font-size:10px;">감지된 자동 연결이 없습니다.</div>');
+                return;
+            }
+            const tags = document.createElement('div');
+            tags.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap;';
+            detected.forEach((item, key) => {
+                const excluded = sourceLinkExclusions.has(key);
+                const tag = document.createElement('button');
+                tag.type = 'button';
+                tag.title = excluded ? '자동 연결 다시 사용' : '이 사료에서 자동 연결 해제';
+                tag.style.cssText = `padding:3px 7px;border:1px solid ${excluded ? 'rgba(143,121,112,.32)' : 'rgba(93,166,199,.45)'};border-radius:12px;background:${excluded ? 'rgba(80,70,66,.25)' : 'rgba(48,119,153,.18)'};color:${excluded ? '#8f817a' : '#9bd4ea'};font-size:10px;cursor:pointer;text-decoration:${excluded ? 'line-through' : 'none'};`;
+                tag.textContent = `${typeLabel[item.type]} · ${item.label} ${excluded ? '↩' : '×'}`;
+                tag.addEventListener('click', () => {
+                    if (excluded) sourceLinkExclusions.delete(key); else sourceLinkExclusions.add(key);
+                    renderAutomaticTags();
+                });
+                tags.appendChild(tag);
+            });
+            automaticTagPanel.appendChild(tags);
+        };
+        let automaticTagTimer = null;
+        [contentField, form.elements.title, form.elements.year, form.elements.month].forEach(field => field?.addEventListener('input', () => {
+            clearTimeout(automaticTagTimer);
+            automaticTagTimer = setTimeout(renderAutomaticTags, 180);
+        }));
+        renderAutomaticTags();
         const linkTypeField = form.querySelector('[data-link-type]');
         const linkSearchField = form.querySelector('[data-link-search]');
         const linkResults = form.querySelector('[data-link-results]');
@@ -31444,7 +31589,8 @@ kingSelect.addEventListener('change', () => {
                 source: String(fields.get('source') || '').trim(),
                 title: String(fields.get('title') || '').trim(),
                 content_type: String(fields.get('content_type') || 'translation'),
-                content: String(fields.get('content') || '').trim()
+                content: String(fields.get('content') || '').trim(),
+                link_exclusions: [...sourceLinkExclusions]
             };
             if (!Number.isFinite(data.year) || !data.source || !data.title || !data.content) return alert('시점, 출전, 제목, 본문을 입력해주세요.');
             const saveButton = form.querySelector('[type="submit"]');
