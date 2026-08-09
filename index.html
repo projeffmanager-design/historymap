@@ -1315,6 +1315,20 @@ body.force-mobile.map-detail-panel-open #mobile-year-label {
     box-shadow: 0 0 0 2px rgba(244,199,94,.22), 0 0 22px rgba(224,159,39,.34);
     animation: history-search-target-pulse 1s ease-in-out 2;
 }
+.history-record-card.history-search-target::after,
+.history-source-item.history-search-target::after {
+    content: '현재 선택한 기록';
+    display: inline-block;
+    margin-top: 7px;
+    padding: 2px 7px;
+    border: 1px solid rgba(255,216,112,.55);
+    border-radius: 10px;
+    background: rgba(155,102,20,.42);
+    color: #ffe4a0;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .04em;
+}
 @keyframes history-search-target-pulse {
     50% { box-shadow:0 0 0 3px rgba(255,216,112,.5), 0 0 30px rgba(230,167,43,.55); }
 }
@@ -14012,9 +14026,17 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                             type:recordEntity.type === 'source_record' ? 'source' : 'history',
                             title:recordEntity.label || '역사 기록',
                             year:Number(relation.period?.year ?? relation.period?.start_year),
-                            month:Number(relation.period?.month ?? relation.period?.start_month) || 1
+                            month:Number(relation.period?.month ?? relation.period?.start_month) || 1,
+                            exactYear:Number.isFinite(Number(relation.period?.year))
                         };
                     }).filter(Boolean);
+                    const uniqueGraphRecords = new Map();
+                    graphLinkedRecords.forEach(record => {
+                        const key = `${record.type}:${record.id}`;
+                        const previous = uniqueGraphRecords.get(key);
+                        if (!previous || record.exactYear) uniqueGraphRecords.set(key, record);
+                    });
+                    graphLinkedRecords = [...uniqueGraphRecords.values()];
                 }
             } catch (error) {
                 console.warn('지명과 연결된 역사 관계 조회 실패:', error);
@@ -14115,10 +14137,10 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         const histories = Array.isArray(castle.history)
             ? castle.history.slice().sort((a, b) => (a.start_year ?? -Infinity) - (b.start_year ?? -Infinity))
             : [];
-        if (histories.length > 0) {
+        if (histories.length > 0 || graphLinkedRecords.length > 0) {
             histSec.style.display = '';
             const allCountries = (typeof countries !== 'undefined') ? countries : [];
-            tlEl.innerHTML = histories.map((h, idx) => {
+            let timelineHtml = histories.map((h, idx) => {
                 const isActive = (h === activeHistoryRecord);
                 const sy = h.start_year != null ? `${h.start_year < 0 ? `기원전 ${Math.abs(h.start_year)}` : h.start_year}년` : '?';
                 const sm = h.start_month ? ` ${h.start_month}월` : '';
@@ -14189,6 +14211,30 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                     }).join('')}</div>` : ''}
                 </li>`;
             }).join('');
+            // 역사/원전에서 장소를 직접 연결한 관계는 장소 자체의 연혁 행이 없어도
+            // 마커 상세에 역방향으로 표시한다. 연혁 기간에 포함되는 관계는 위 행에서 이미 합쳐진다.
+            const ungroupedGraphRecords = graphLinkedRecords.filter(record => !histories.some(history => {
+                const startYear = Number(history.start_year);
+                const endYear = history.end_year === null || history.end_year === undefined || history.end_year === ''
+                    ? Infinity
+                    : Number(history.end_year);
+                return !Number.isFinite(record.year)
+                    || ((!Number.isFinite(startYear) || record.year >= startYear) && (!Number.isFinite(endYear) || record.year <= endYear));
+            }));
+            if (ungroupedGraphRecords.length) {
+                timelineHtml += `<li class="odp-tl-item odp-linked-history-only">
+                    <div class="odp-tl-dot current"></div>
+                    <div class="odp-tl-period">역사 관계</div>
+                    <div class="odp-tl-name">🔗 연결된 역사 기록</div>
+                    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px;">${ungroupedGraphRecords.map(record => {
+                        const linkedType = record.type === 'source' ? 'source' : 'history';
+                        const linkedYear = Number(record.year);
+                        const periodLabel = Number.isFinite(linkedYear) ? ` · ${linkedYear < 0 ? `기원전 ${Math.abs(linkedYear)}` : linkedYear}년` : '';
+                        return `<button type="button" class="odp-linked-history-record" data-record-id="${_escapeHistoryInline(record.id)}" data-record-type="${linkedType}" data-record-year="${Number(record.year) || 0}" data-record-month="${Number(record.month) || 1}" data-record-title="${_escapeHistoryInline(record.title || '역사 기록')}" style="padding:3px 7px;border:1px solid rgba(205,164,78,.48);border-radius:10px;background:rgba(185,129,35,.16);color:#ecd18c;font-size:10px;cursor:pointer;">${linkedType === 'source' ? '📖' : '📜'} ${_escapeHistoryInline(record.title || '역사 기록')}${periodLabel}</button>`;
+                    }).join('')}</div>
+                </li>`;
+            }
+            tlEl.innerHTML = timelineHtml;
             tlEl.querySelectorAll('.odp-linked-history-record').forEach(button => {
                 button.addEventListener('click', event => {
                     event.preventDefault();
@@ -19371,6 +19417,11 @@ function invalidateCountryLookupCache() {
         if (!visible) {
             panel.classList.remove('history-linked-focus');
             panel.style.removeProperty('z-index');
+            document.querySelectorAll('.history-search-target').forEach(element => {
+                element.classList.remove('history-search-target');
+                element.removeAttribute('aria-current');
+            });
+            window._historyRecordFocusRequest = null;
         }
     }
 
@@ -25264,22 +25315,24 @@ const loadingMessages = [
 
     function _focusRequestedHistoryRecord(renderedYear) {
       const request = window._historyRecordFocusRequest;
-      if (!request || Number(request.year) !== Number(renderedYear) || Date.now() - request.at > 6000) return false;
+      if (!request || Number(request.year) !== Number(renderedYear)) return false;
       const selector = request.type === 'source'
         ? `[data-source-record-id="${CSS.escape(String(request.id))}"]`
         : `[data-history-record-id="${CSS.escape(String(request.id))}"]`;
       const target = document.getElementById('map-all-records-content')?.querySelector(selector);
       if (!target) return false;
       target.closest('details')?.setAttribute('open', '');
+      document.querySelectorAll('.history-search-target').forEach(element => {
+        if (element === target) return;
+        element.classList.remove('history-search-target');
+        element.removeAttribute('aria-current');
+      });
       target.classList.add('history-search-target');
+      target.setAttribute('aria-current', 'true');
       if (!request.scrolled) {
         request.scrolled = true;
         request.target = target;
         target.scrollIntoView({ behavior:'smooth', block:'center' });
-        setTimeout(() => {
-          document.querySelectorAll('.history-search-target').forEach(element => element.classList.remove('history-search-target'));
-          if (window._historyRecordFocusRequest === request) window._historyRecordFocusRequest = null;
-        }, 5000);
       }
       return true;
     }
@@ -25313,7 +25366,31 @@ const loadingMessages = [
       const menuCheckbox = document.getElementById('menu-layer-history');
       if (menuCheckbox) menuCheckbox.checked = true;
       await updateHistoryPanel(year);
-      _focusRequestedHistoryRecord(year);
+      if (!_focusRequestedHistoryRecord(year)) {
+        // 같은 연도에 원전 사료가 100건을 넘으면 연도 목록 응답에서 대상이 잘릴 수 있다.
+        // 단건을 보충해 정확한 연결 기록을 반드시 렌더링한다.
+        try {
+          const endpoint = record.type === 'source'
+            ? `/api/source-records/${encodeURIComponent(String(record.id))}`
+            : `/api/history/${encodeURIComponent(String(record.id))}`;
+          const response = await fetch(endpoint, { cache:'no-store' });
+          if (response.ok) {
+            const exactRecord = await response.json();
+            const cached = _historyPanelCache?.get(year);
+            if (cached) {
+              const historyRecords = [...cached.historyRecords];
+              const sourceRecords = [...cached.sourceRecords];
+              const targetList = record.type === 'source' ? sourceRecords : historyRecords;
+              if (!targetList.some(item => String(item?._id) === String(record.id))) targetList.push(exactRecord);
+              _historyPanelCache.set(year, { ...cached, historyRecords, sourceRecords, ts:Date.now() });
+              _renderHistoryPanel(year, historyRecords, sourceRecords, cached.heroFigures || []);
+            }
+          }
+        } catch (error) {
+          console.warn('연결된 역사 기록 단건 보충 조회 실패:', error);
+        }
+        _focusRequestedHistoryRecord(year);
+      }
     };
 
     async function _openHistoryPlaceOnMap(castleId, targetYear, targetMonth) {
