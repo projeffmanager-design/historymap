@@ -5205,7 +5205,8 @@ body.force-mobile .marker-type-selector button {
         z-index: 149900 !important;
         transition: transform .38s cubic-bezier(.4,.0,.2,1);
         overflow: hidden;
-        display: flex;
+        /* 인물 상세에서는 독립 일러스트 패널을 사용하지 않는다. */
+        display: none !important;
         cursor: pointer;
         flex-direction: column;
         align-items: center;
@@ -19340,10 +19341,7 @@ function invalidateCountryLookupCache() {
         if (visible) window.bringAppPanelToFront?.(panel);
         else window.releaseAppPanel?.(panel);
         if (!visible && window._historyOpenedFromHeroDetail) {
-            const mobile = document.body.classList.contains('force-mobile') || window.innerWidth <= 967 || window.innerHeight > window.innerWidth;
-            if (!mobile && document.getElementById('heroSidebar')?.classList.contains('open')) {
-                document.getElementById('heroIllustWrap')?.classList.add('open');
-            }
+            document.getElementById('heroIllustWrap')?.classList.remove('open');
             window._historyOpenedFromHeroDetail = false;
         }
         if (!visible) {
@@ -22321,6 +22319,7 @@ const loadingMessages = [
           handle.addEventListener('mousedown', (e) => {
               e.preventDefault();
               e.stopPropagation();
+              panel.classList.add('user-positioned');
               isResizing = true;
               startX = e.clientX;
               startY = e.clientY;
@@ -22383,6 +22382,7 @@ const loadingMessages = [
               offsetX = e.clientX - rect.left;
               offsetY = e.clientY - rect.top;
 
+              panel.classList.add('user-positioned');
               isDragging = true;
               needsConversion = true; // style 전환은 첫 mousemove 로 미룸
               header.style.cursor = 'grabbing';
@@ -22473,8 +22473,8 @@ const loadingMessages = [
                       if (cb) cb.checked = false;
                       const mobileCb = document.querySelector('.mobile-layer-checkbox[data-layer="historyPanel"]');
                       if (mobileCb) mobileCb.checked = false;
-                      if (window._historyOpenedFromHeroDetail && !document.body.classList.contains('force-mobile') && window.innerWidth > 967 && window.innerHeight <= window.innerWidth && document.getElementById('heroSidebar')?.classList.contains('open')) {
-                          document.getElementById('heroIllustWrap')?.classList.add('open');
+                      if (window._historyOpenedFromHeroDetail) {
+                          document.getElementById('heroIllustWrap')?.classList.remove('open');
                           window._historyOpenedFromHeroDetail = false;
                       }
                   } else {
@@ -30423,7 +30423,7 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('heroCommentList').innerHTML = '<div class="hero-comment-empty">인물평을 불러오는 중...</div>';
             document.getElementById('heroSidebar').classList.add('open');
             const mobile = document.body.classList.contains('force-mobile') || window.innerWidth <= 967 || window.innerHeight > window.innerWidth;
-            document.getElementById('heroIllustWrap').classList.toggle('open', !mobile);
+            document.getElementById('heroIllustWrap').classList.remove('open');
             document.body.classList.toggle('hero-panel-open', mobile);
             window.bringAppPanelToFront?.(document.getElementById('heroSidebar'), { behind:[document.getElementById('heroIllustWrap')] });
         }
@@ -30749,7 +30749,7 @@ kingSelect.addEventListener('change', () => {
                 if (commentInput) commentInput.value = '';
                 sidebar.classList.add('open');
                 const mobile = document.body.classList.contains('force-mobile') || window.innerWidth <= 967 || window.innerHeight > window.innerWidth;
-                document.getElementById('heroIllustWrap').classList.toggle('open', !mobile);
+                document.getElementById('heroIllustWrap').classList.remove('open');
                 document.body.classList.toggle('hero-panel-open', mobile);
                 window.bringAppPanelToFront?.(document.getElementById('heroSidebar'), { behind:[document.getElementById('heroIllustWrap')] });
                 _ignoreNextMapCloseUntil = Date.now() + 250;
@@ -44692,6 +44692,51 @@ async function castleFormDeleteVoice() {
                 filter: drop-shadow(0 1px 4px rgba(0,0,0,0.7));
                 opacity: 0.92;">
 </div>
+
+<style>
+/* 데스크톱 역사 기록 기본 배치: 탑바 아래부터 좌하단 로고 바로 위까지 */
+@media (min-width: 968px) {
+    body:not(.force-mobile) #map-history-panel.expanded:not(.user-positioned) {
+        top: var(--history-panel-desktop-top, 46px) !important;
+        right: auto !important;
+        bottom: var(--history-panel-desktop-bottom, 230px) !important;
+        left: 0 !important;
+        width: min(372px, calc(100vw - 18px)) !important;
+        height: auto !important;
+        min-width: 0 !important;
+        min-height: 180px !important;
+        max-height: none !important;
+    }
+    body:not(.force-mobile) #history-caption-panel {
+        top: auto !important;
+        right: auto !important;
+        bottom: var(--history-caption-desktop-bottom, 112px) !important;
+        left: var(--history-caption-desktop-left, 82px) !important;
+        transform: none !important;
+        width: min(420px, calc(100vw - var(--history-caption-desktop-left, 82px) - 18px)) !important;
+    }
+}
+</style>
+<script>
+(function syncDesktopHistoryLayoutToLogo() {
+    function sync() {
+        if (window.innerWidth < 968 || document.body.classList.contains('force-mobile')) return;
+        const topbar = document.getElementById('top-bar-container');
+        const logo = document.getElementById('koreamanri-logo');
+        if (!logo) return;
+        const logoRect = logo.getBoundingClientRect();
+        const topbarBottom = topbar?.getBoundingClientRect().bottom || 46;
+        document.documentElement.style.setProperty('--history-panel-desktop-top', `${Math.round(topbarBottom)}px`);
+        document.documentElement.style.setProperty('--history-panel-desktop-bottom', `${Math.round(window.innerHeight - logoRect.top + 8)}px`);
+        document.documentElement.style.setProperty('--history-caption-desktop-left', `${Math.round(logoRect.right + 12)}px`);
+        document.documentElement.style.setProperty('--history-caption-desktop-bottom', `${Math.round(window.innerHeight - logoRect.bottom - 10)}px`);
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', sync);
+    else sync();
+    window.addEventListener('resize', sync, { passive:true });
+    window.addEventListener('load', sync, { once:true });
+})();
+</script>
 
 <!-- ✅ 좌측 하단 미니 BGM 바 --><div id="bgm-mini-bar" style="
     position: fixed;
