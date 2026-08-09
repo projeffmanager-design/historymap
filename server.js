@@ -167,6 +167,7 @@ const normalizeKingSchema = (king = {}, country = null, countryId = '') => {
         name_ko: king.name_ko || king.name || country?.name || '',
         name_zh: king.name_zh || '',
         era_name: king.era_name || '',
+        aliases: Array.isArray(king.aliases) ? king.aliases : String(king.aliases || '').split(/[,\n]/).map(value => value.trim()).filter(Boolean),
         title: king.title || '',
         description: king.description || king.summary || '',
         avatar_url: king.avatar_url || '',
@@ -319,6 +320,9 @@ const buildFigureFromBody = (body = {}, uploads = {}, existing = {}) => {
         name_ko: nameKo,
         name_zh: body.name_zh !== undefined ? String(body.name_zh || '').trim() : (existing.name_zh || ''),
         era_name: body.era_name !== undefined ? String(body.era_name || '').trim() : (existing.era_name || ''),
+        aliases: body.aliases !== undefined
+            ? (Array.isArray(body.aliases) ? body.aliases : String(body.aliases || '').split(/[,\n]/)).map(value => String(value).trim()).filter(Boolean)
+            : (Array.isArray(existing.aliases) ? existing.aliases : []),
         start: Number.isNaN(startYear) ? existing.start : startYear,
         start_month: normalizeMonthValue(body.start_month ?? existing.start_month, 1),
         end: Number.isNaN(endYear) ? (endRaw === '' || endRaw == null ? null : existing.end) : endYear,
@@ -1980,6 +1984,7 @@ async function setupRoutesAndCollections() {
 
                 // 🚩 [수정] 삽입된 전체 문서를 다시 조회해서 반환
                 const insertedDocument = await collections.castle.findOne({ _id: result.insertedId });
+                await syncCastleHistoricalRelations(insertedDocument);
 
                 // ✏️ [v3.8] castles.json 즉시 패치
                 patchCastleInStaticFile('upsert', insertedDocument);
@@ -2108,6 +2113,7 @@ async function setupRoutesAndCollections() {
 
                 // 🚩 [수정] 업데이트된 전체 객체를 다시 조회해서 반환
                 const updatedDocument = await collections.castle.findOne({ _id: _id });
+                await syncCastleHistoricalRelations(updatedDocument);
 
                 // ✏️ [v3.8] castles.json 즉시 패치 — DB와 파일 동기화
                 patchCastleInStaticFile('upsert', updatedDocument);
@@ -2696,6 +2702,10 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                                 ),
                                 country_id: record.countryId,
                                 faction: phase.faction,
+                                name_ko: phase.name_ko,
+                                name_zh: phase.name_zh,
+                                era_name: phase.era_name,
+                                aliases: phase.aliases,
                                 hero_type: phase.hero_type,
                                 title: phase.title,
                                 description: phase.description,
@@ -3909,6 +3919,8 @@ app.post('/api/countries', verifyAdmin, async (req, res) => {
         newCountry.ethnicity = newCountry.ethnicity || null;
         // ✨ NEW: description 필드 추가
         newCountry.description = newCountry.description || null;
+        newCountry.aliases = (Array.isArray(newCountry.aliases) ? newCountry.aliases : String(newCountry.aliases || '').split(/[,\n]/))
+            .map(value => String(value).trim()).filter(Boolean);
         if (newCountry.flag === BLOCKED_FLAG_URL) newCountry.flag = null;
 
         const result = await collections.countries.insertOne(newCountry);
@@ -3961,6 +3973,8 @@ app.put('/api/countries/:name', verifyAdmin, async (req, res) => {
         updatedCountry.ethnicity = updatedCountry.ethnicity || null;
         // ✨ NEW: description 필드 추가
         updatedCountry.description = updatedCountry.description || null;
+        updatedCountry.aliases = (Array.isArray(updatedCountry.aliases) ? updatedCountry.aliases : String(updatedCountry.aliases || '').split(/[,\n]/))
+            .map(value => String(value).trim()).filter(Boolean);
         if (updatedCountry.flag === BLOCKED_FLAG_URL) updatedCountry.flag = null;
         
         // 🚩 [수정] _id 또는 name으로 검색 (이름 변경 시에도 안전)
@@ -4366,7 +4380,208 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
     }
 });
         // ----------------------------------------------------
-        // 📜 HISTORY (역사) API 엔드포인트 (생략 - 기본 기능으로 가정)
+        // 🕸️ HISTORICAL RELATIONS — 인물·장소·국가·사료 관계 그래프
+        // ----------------------------------------------------
+        const normalizeRelationEntity = (entity = {}) => ({
+            type: String(entity.type || '').trim(),
+            id: String(entity.id || '').trim(),
+            label: String(entity.label || '').trim()
+        });
+        const relationKey = (subject, predicate, object, contextKey = '') =>
+            `${subject.type}:${subject.id}|${predicate}|${object.type}:${object.id}|${contextKey}`;
+        const upsertHistoricalRelation = async ({ subject, predicate, object, period = {}, context = {}, source = 'manual' }) => {
+            subject = normalizeRelationEntity(subject);
+            object = normalizeRelationEntity(object);
+            predicate = String(predicate || 'related_to').trim();
+            if (!subject.type || !subject.id || !object.type || !object.id) return null;
+            const contextKey = String(context.key || context.castle_history_id || '');
+            const key = relationKey(subject, predicate, object, contextKey);
+            const now = new Date();
+            await collections.historicalRelations.updateOne(
+                { relation_key: key },
+                { $set: { relation_key:key, subject, predicate, object, period, context, source, updatedAt: now }, $setOnInsert: { createdAt: now } },
+                { upsert: true }
+            );
+            return key;
+        };
+        const syncExplicitRecordRelations = async (recordType, recordId, record = {}) => {
+            const ownerType = recordType === 'source' ? 'source_record' : 'history_record';
+            const owner = { type: ownerType, id: String(recordId), label: record.title || record.event_name || '' };
+            const sourceKey = `${ownerType}:${owner.id}`;
+            await collections.historicalRelations.deleteMany({ source_key: sourceKey });
+            const text = JSON.stringify(record);
+            const pattern = /\[\[(person|place|country):([^|\]]+)\|([^\]]+)\]\]/g;
+            let match;
+            const operations = [];
+            while ((match = pattern.exec(text)) !== null) {
+                const object = { type: match[1], id: match[2], label: match[3] };
+                const key = relationKey(owner, 'mentions', object, sourceKey);
+                operations.push(collections.historicalRelations.updateOne(
+                    { relation_key: key },
+                    { $set: {
+                        relation_key: key, subject: owner, predicate: 'mentions', object,
+                        period: { year: Number(record.year), month: Number(record.month) || 1 },
+                        context: { key: sourceKey }, source: 'explicit_record_link', source_key: sourceKey, updatedAt: new Date()
+                    }, $setOnInsert: { createdAt: new Date() } },
+                    { upsert: true }
+                ));
+            }
+            await Promise.all(operations);
+        };
+        const syncCastleHistoricalRelations = async (castle = {}) => {
+            const castleId = String(castle._id || '');
+            if (!castleId) return;
+            const sourceKey = `castle:${castleId}`;
+            await collections.historicalRelations.deleteMany({ source_key: sourceKey });
+            const place = { type:'place', id:castleId, label:castle.name || '' };
+            const operations = [];
+            (Array.isArray(castle.history) ? castle.history : []).forEach((phase, phaseIndex) => {
+                const phaseKey = `${sourceKey}:phase:${phase._id || phaseIndex}`;
+                if (phase.country_id) {
+                    const country = { type:'country', id:String(phase.country_id), label:phase.country_name || '' };
+                    const key = relationKey(place, 'belonged_to', country, phaseKey);
+                    operations.push(collections.historicalRelations.updateOne({ relation_key:key }, { $set:{
+                        relation_key:key, subject:place, predicate:'belonged_to', object:country,
+                        period:{ start_year:phase.start_year, start_month:phase.start_month || 1, end_year:phase.end_year, end_month:phase.end_month || 12 },
+                        context:{ key:phaseKey, castle_history_id:String(phase._id || '') }, source:'castle_history', source_key:sourceKey, updatedAt:new Date()
+                    }, $setOnInsert:{ createdAt:new Date() } }, { upsert:true }));
+                }
+                (Array.isArray(phase.linked_records) ? phase.linked_records : []).forEach(linked => {
+                    if (!linked?.id) return;
+                    const documentEntity = { type:linked.type === 'source' ? 'source_record' : 'history_record', id:String(linked.id), label:linked.title || '' };
+                    const key = relationKey(place, 'documented_in', documentEntity, phaseKey);
+                    operations.push(collections.historicalRelations.updateOne({ relation_key:key }, { $set:{
+                        relation_key:key, subject:place, predicate:'documented_in', object:documentEntity,
+                        period:{ start_year:phase.start_year, start_month:phase.start_month || 1, end_year:phase.end_year, end_month:phase.end_month || 12 },
+                        context:{ key:phaseKey, castle_history_id:String(phase._id || '') }, source:'castle_history_link', source_key:sourceKey, updatedAt:new Date()
+                    }, $setOnInsert:{ createdAt:new Date() } }, { upsert:true }));
+                });
+            });
+            await Promise.all(operations);
+        };
+
+        app.get('/api/historical-relations', async (req, res) => {
+            try {
+                const entityType = String(req.query.entityType || '').trim();
+                const entityIds = String(req.query.entityId || '').split(',').map(value => value.trim()).filter(Boolean).slice(0, 50);
+                if (!entityType || !entityIds.length) return res.status(400).json({ message:'entityType과 entityId가 필요합니다.' });
+                const storedRelations = await collections.historicalRelations.find({ $or:[
+                    { 'subject.type':entityType, 'subject.id':{ $in:entityIds } },
+                    { 'object.type':entityType, 'object.id':{ $in:entityIds } }
+                ] }).sort({ 'period.start_year':1, 'period.year':1 }).limit(500).toArray();
+                let relations = storedRelations;
+                if (entityType === 'person') {
+                    const rawNames = Array.isArray(req.query.name) ? req.query.name : [req.query.name];
+                    const names = [...new Set(rawNames.flatMap(value => String(value || '').split(/[\n,]/))
+                        .map(value => value.trim()).filter(value => value.length >= 2 && value.length <= 30))]
+                        .sort((a, b) => b.length - a.length).slice(0, 30);
+                    if (names.length) {
+                        const escapedNames = names.map(value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+                        const containsName = { $regex:escapedNames.join('|'), $options:'i' };
+                        const [historyMatches, sourceMatches] = await Promise.all([
+                            collections.history.find({ $or:[
+                                { event_name:containsName }, { comment:containsName },
+                                { 'records.korean.source':containsName }, { 'records.korean.content':containsName },
+                                { 'records.chinese.source':containsName }, { 'records.chinese.content':containsName },
+                                { 'records.foreign.source':containsName }, { 'records.foreign.content':containsName },
+                                { 'records.true_history.content':containsName }
+                            ] }, { projection:{ event_name:1, year:1, month:1 } }).limit(300).toArray(),
+                            collections.sourceRecords.find({ $or:[
+                                { title:containsName }, { content:containsName }, { source:containsName }
+                            ] }, { projection:{ title:1, year:1, month:1 } }).limit(300).toArray()
+                        ]);
+                        const startYear = Number(req.query.startYear);
+                        const endYear = Number(req.query.endYear);
+                        const yearIsActive = record => {
+                            const recordYear = Number(record.year);
+                            if (!Number.isFinite(recordYear)) return true;
+                            if (Number.isFinite(startYear) && recordYear < startYear) return false;
+                            if (Number.isFinite(endYear) && recordYear > endYear) return false;
+                            return true;
+                        };
+                        const targetPerson = { type:'person', id:entityIds[0], label:names[0] || '' };
+                        const automaticRelations = [
+                            ...historyMatches.filter(yearIsActive).map(record => ({
+                                relation_key:`auto:history_record:${record._id}|person:${entityIds[0]}`,
+                                subject:{ type:'history_record', id:String(record._id), label:record.event_name || '역사 기록' },
+                                predicate:'mentions', object:targetPerson,
+                                period:{ year:Number(record.year), month:Number(record.month) || 1 }, source:'automatic_name_match'
+                            })),
+                            ...sourceMatches.filter(yearIsActive).map(record => ({
+                                relation_key:`auto:source_record:${record._id}|person:${entityIds[0]}`,
+                                subject:{ type:'source_record', id:String(record._id), label:record.title || '원전 사료' },
+                                predicate:'mentions', object:targetPerson,
+                                period:{ year:Number(record.year), month:Number(record.month) || 1 }, source:'automatic_name_match'
+                            }))
+                        ];
+                        const seenDocuments = new Set();
+                        relations = [...storedRelations, ...automaticRelations].filter(relation => {
+                            const document = [relation.subject, relation.object].find(entity => entity?.type === 'history_record' || entity?.type === 'source_record');
+                            if (!document) return true;
+                            const key = `${document.type}:${document.id}`;
+                            if (seenDocuments.has(key)) return false;
+                            seenDocuments.add(key);
+                            return true;
+                        }).sort((a, b) => Number(a.period?.year ?? a.period?.start_year ?? Infinity) - Number(b.period?.year ?? b.period?.start_year ?? Infinity));
+                    }
+                }
+                res.set('Cache-Control', 'no-store');
+                res.json(relations);
+            } catch (error) {
+                res.status(500).json({ message:'역사 관계 조회 실패', error:error.message });
+            }
+        });
+
+        app.post('/api/historical-relations', verifyAdmin, async (req, res) => {
+            try {
+                const key = await upsertHistoricalRelation({ ...req.body, source:'manual' });
+                if (!key) return res.status(400).json({ message:'올바른 관계 주체와 대상이 필요합니다.' });
+                const relation = await collections.historicalRelations.findOne({ relation_key:key });
+                res.status(201).json({ relation });
+            } catch (error) {
+                res.status(500).json({ message:'역사 관계 저장 실패', error:error.message });
+            }
+        });
+
+        app.post('/api/historical-relations/rebuild', verifyAdmin, async (req, res) => {
+            try {
+                await collections.historicalRelations.createIndex({ relation_key:1 }, { unique:true });
+                await collections.historicalRelations.createIndex({ 'subject.type':1, 'subject.id':1 });
+                await collections.historicalRelations.createIndex({ 'object.type':1, 'object.id':1 });
+                let castleCount = 0;
+                let recordCount = 0;
+                for await (const castle of collections.castle.find({ 'history.0':{ $exists:true } })) {
+                    await syncCastleHistoricalRelations(castle);
+                    castleCount++;
+                }
+                for await (const record of collections.history.find({})) {
+                    await syncExplicitRecordRelations('history', record._id, record);
+                    recordCount++;
+                }
+                for await (const record of collections.sourceRecords.find({})) {
+                    await syncExplicitRecordRelations('source', record._id, record);
+                    recordCount++;
+                }
+                const relationCount = await collections.historicalRelations.countDocuments({});
+                res.json({ message:'역사 관계 재구축 완료', castleCount, recordCount, relationCount });
+            } catch (error) {
+                res.status(500).json({ message:'역사 관계 재구축 실패', error:error.message });
+            }
+        });
+
+        app.delete('/api/historical-relations/:id', verifyAdmin, async (req, res) => {
+            try {
+                const _id = toObjectId(req.params.id);
+                if (!_id) return res.status(400).json({ message:'잘못된 ID입니다.' });
+                const result = await collections.historicalRelations.deleteOne({ _id });
+                res.json({ deleted:result.deletedCount === 1 });
+            } catch (error) {
+                res.status(500).json({ message:'역사 관계 삭제 실패', error:error.message });
+            }
+        });
+
+        // ----------------------------------------------------
+        // 📜 HISTORY (역사) API 엔드포인트
         // ----------------------------------------------------
         app.get('/api/history', async (req, res) => {
              // 임시로 기본 성공 응답을 가정합니다.
@@ -4399,37 +4614,34 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // GET: 역사 기록 키워드 검색
         app.get('/api/history/search', async (req, res) => {
             try {
-                const { q, limit: limitParam } = req.query;
+                const { q, limit: limitParam, type } = req.query;
                 if (!q || q.trim().length < 1) return res.json([]);
                 const keyword = q.trim();
-                const maxResults = Math.min(parseInt(limitParam) || 10, 30);
-
-                // $text 검색 (텍스트 인덱스 사용 – 빠름) + 짧은 단어나 한자는 $regex 폴백
-                const useText = keyword.length >= 2;
-                const historyQuery = useText
-                    ? { $text: { $search: keyword } }
-                    : { $or: [
-                        { event_name: { $regex: keyword, $options: 'i' } },
-                        { 'records.korean.content': { $regex: keyword, $options: 'i' } },
-                        { 'records.foreign.content': { $regex: keyword, $options: 'i' } },
-                    ]};
-                const sourceQuery = useText
-                    ? { $text: { $search: keyword } }
-                    : { $or: [
-                        { title: { $regex: keyword, $options: 'i' } },
-                        { content: { $regex: keyword, $options: 'i' } },
-                        { source: { $regex: keyword, $options: 'i' } },
-                    ]};
+                const maxResults = Math.min(parseInt(limitParam) || 30, 100);
+                const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                // MongoDB text 검색은 한국어 조사·한자·부분 문자열에 약하다. 관리자 편집 검색은
+                // 전체 1천 건 미만 규모이므로 모든 실제 입력 필드를 정규식으로 확실하게 찾는다.
+                const contains = { $regex: escapedKeyword, $options: 'i' };
+                const historyQuery = { $or: [
+                    { event_name: contains }, { comment: contains },
+                    { 'records.korean.source': contains }, { 'records.korean.content': contains },
+                    { 'records.chinese.source': contains }, { 'records.chinese.content': contains },
+                    { 'records.foreign.source': contains }, { 'records.foreign.content': contains },
+                    { 'records.true_history.content': contains }
+                ]};
+                const sourceQuery = { $or: [
+                    { title: contains }, { content: contains }, { source: contains }
+                ]};
 
                 // 두 컬렉션 동시 검색
                 const [historyResults, sourceResults] = await Promise.all([
                     collections.history.find(historyQuery, {
-                        projection: { event_name: 1, year: 1, month: 1, ...(useText && { score: { $meta: 'textScore' } }) }
-                    }).sort(useText ? { score: { $meta: 'textScore' } } : { year: 1 }).limit(maxResults).toArray(),
+                        projection: { event_name: 1, year: 1, month: 1, comment: 1, records: 1 }
+                    }).sort({ year: -1, month: -1 }).limit(maxResults).toArray(),
 
                     collections.sourceRecords.find(sourceQuery, {
-                        projection: { title: 1, content: 1, source: 1, year: 1, month: 1, ...(useText && { score: { $meta: 'textScore' } }) }
-                    }).sort(useText ? { score: { $meta: 'textScore' } } : { year: 1 }).limit(maxResults).toArray(),
+                        projection: { title: 1, content: 1, source: 1, year: 1, month: 1 }
+                    }).sort({ year: -1, month: -1 }).limit(maxResults).toArray(),
                 ]);
 
                 // 결과 병합
@@ -4445,7 +4657,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         type: 'source'
                     }))
                 ];
-                res.json(merged);
+                res.json(type === 'history' ? merged.filter(item => item.type === 'history') : merged);
             } catch (error) {
                 res.status(500).json({ message: "역사 기록 검색 실패", error: error.message });
             }
@@ -4471,9 +4683,13 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (newHistory._id) delete newHistory._id;
                 // 🚩 [추가] 이벤트 발생 플래그가 boolean 타입인지 확인
                 newHistory.create_event = typeof newHistory.create_event === 'boolean' ? newHistory.create_event : false;
+                newHistory.createdAt = new Date();
+                newHistory.updatedAt = new Date();
 
                 const result = await collections.history.insertOne(newHistory);
-                res.status(201).json({ message: "History 추가 성공", id: result.insertedId.toString() });
+                const insertedHistory = await collections.history.findOne({ _id: result.insertedId });
+                await syncExplicitRecordRelations('history', result.insertedId, insertedHistory);
+                res.status(201).json({ message: "History 추가 성공", id: result.insertedId.toString(), history: insertedHistory });
             } catch (error) {
                 console.error("History 추가 중 오류:", error);
                 res.status(500).json({ message: "History 추가 실패", error: error.message });
@@ -4491,6 +4707,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (updatedHistory._id) delete updatedHistory._id;
                 // 🚩 [추가] 이벤트 발생 플래그가 boolean 타입인지 확인
                 updatedHistory.create_event = typeof updatedHistory.create_event === 'boolean' ? updatedHistory.create_event : false;
+                updatedHistory.updatedAt = new Date();
 
                 const result = await collections.history.updateOne(
                     { _id: _id },
@@ -4501,7 +4718,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     return res.status(404).json({ message: "역사 기록을 찾을 수 없습니다." });
                 }
 
-                res.json({ message: "History 정보 업데이트 성공" });
+                const savedHistory = await collections.history.findOne({ _id });
+                await syncExplicitRecordRelations('history', _id, savedHistory);
+                res.json({ message: "History 정보 업데이트 성공", history: savedHistory });
             } catch (error) {
                 console.error("History 정보 업데이트 중 오류:", error);
                 res.status(500).json({ message: "History 정보 업데이트 실패", error: error.message });
@@ -4737,6 +4956,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const data = req.body;
                 if (data._id) delete data._id;
                 const result = await collections.sourceRecords.insertOne(data);
+                const sourceRecord = await collections.sourceRecords.findOne({ _id:result.insertedId });
+                await syncExplicitRecordRelations('source', result.insertedId, sourceRecord);
                 res.status(201).json({ id: result.insertedId });
             } catch (error) {
                 console.error("Source records 추가 오류:", error);
@@ -4751,11 +4972,15 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
                 const data = req.body;
                 if (data._id) delete data._id;
+                data.updatedAt = new Date();
                 const result = await collections.sourceRecords.updateOne({ _id }, { $set: data });
                 if (result.matchedCount === 0) {
                     return res.status(404).json({ message: "사료 기록을 찾을 수 없습니다." });
                 }
-                res.json({ message: "사료 기록 수정 성공" });
+                const sourceRecord = await collections.sourceRecords.findOne({ _id });
+                await syncExplicitRecordRelations('source', _id, sourceRecord);
+                res.set('Cache-Control', 'no-store');
+                res.json({ message: "사료 기록 수정 성공", sourceRecord });
             } catch (error) {
                 console.error("Source records 수정 오류:", error);
                 res.status(500).json({ message: "사료 기록 수정 실패", error: error.message });
