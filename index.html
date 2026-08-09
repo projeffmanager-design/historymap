@@ -905,6 +905,9 @@ body.force-mobile.timeline-panel-open #mobile-year-label {
 }
 
 /* 인물 상세도 상단바 아래 전체 화면 + 하단 시간 탐색 유지 */
+body.force-mobile #heroIllustWrap {
+    display: none !important;
+}
 body.force-mobile.hero-panel-open #heroSidebar {
     top: 88px !important;
     right: 0 !important;
@@ -19337,7 +19340,8 @@ function invalidateCountryLookupCache() {
         if (visible) window.bringAppPanelToFront?.(panel);
         else window.releaseAppPanel?.(panel);
         if (!visible && window._historyOpenedFromHeroDetail) {
-            if (document.getElementById('heroSidebar')?.classList.contains('open')) {
+            const mobile = document.body.classList.contains('force-mobile') || window.innerWidth <= 967 || window.innerHeight > window.innerWidth;
+            if (!mobile && document.getElementById('heroSidebar')?.classList.contains('open')) {
                 document.getElementById('heroIllustWrap')?.classList.add('open');
             }
             window._historyOpenedFromHeroDetail = false;
@@ -22469,7 +22473,7 @@ const loadingMessages = [
                       if (cb) cb.checked = false;
                       const mobileCb = document.querySelector('.mobile-layer-checkbox[data-layer="historyPanel"]');
                       if (mobileCb) mobileCb.checked = false;
-                      if (window._historyOpenedFromHeroDetail && document.getElementById('heroSidebar')?.classList.contains('open')) {
+                      if (window._historyOpenedFromHeroDetail && !document.body.classList.contains('force-mobile') && window.innerWidth > 967 && window.innerHeight <= window.innerWidth && document.getElementById('heroSidebar')?.classList.contains('open')) {
                           document.getElementById('heroIllustWrap')?.classList.add('open');
                           window._historyOpenedFromHeroDetail = false;
                       }
@@ -30196,6 +30200,15 @@ kingSelect.addEventListener('change', () => {
             return HERO_TYPE_IMAGE_URLS[normalizeHeroTypeForImage(hero)] || DEFAULT_HERO_IMAGE_URL;
         }
 
+        function formatHeroPinLabel(hero) {
+            const clean = value => String(value || '').replace(/\s*[\/／]\s*/g, ' ').replace(/\s+/g, ' ').trim();
+            const name = clean(hero?.name_ko || hero?.name);
+            const title = clean(hero?.title);
+            if (!title || title === name || name.includes(title)) return name;
+            if (title.includes(name)) return title;
+            return `${title} ${name}`.trim();
+        }
+
         // ── 물방울 핀 HTML 생성 (SVG teardrop + faction_color) ──
         function buildPinIcon(hero) {
             // faction_color 없으면 기본 금색
@@ -30213,6 +30226,7 @@ kingSelect.addEventListener('change', () => {
             const darkColor = darken(baseColor, 55);
             const uid = (hero._id || Math.random()).toString().replace(/[^a-z0-9]/gi,'').slice(-6);
             const defaultImageUrl = getHeroTypeImageUrl(hero);
+            const pinLabel = formatHeroPinLabel(hero).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
             // 아바타를 SVG foreignObject로 렌더링 (z-index 문제 없음)
             const avatarInner = hero.avatar_url
@@ -30243,7 +30257,7 @@ kingSelect.addEventListener('change', () => {
       </div>
     </foreignObject>
   </svg>
-  <span class="hero-pin-name">${hero.name_ko}</span>
+  <span class="hero-pin-name">${pinLabel}</span>
 </div></div>`,
                 iconSize:    [34, 41],
                 iconAnchor:  [17, 41],
@@ -30408,8 +30422,8 @@ kingSelect.addEventListener('change', () => {
             }
             document.getElementById('heroCommentList').innerHTML = '<div class="hero-comment-empty">인물평을 불러오는 중...</div>';
             document.getElementById('heroSidebar').classList.add('open');
-            document.getElementById('heroIllustWrap').classList.add('open');
             const mobile = document.body.classList.contains('force-mobile') || window.innerWidth <= 967 || window.innerHeight > window.innerWidth;
+            document.getElementById('heroIllustWrap').classList.toggle('open', !mobile);
             document.body.classList.toggle('hero-panel-open', mobile);
             window.bringAppPanelToFront?.(document.getElementById('heroSidebar'), { behind:[document.getElementById('heroIllustWrap')] });
         }
@@ -30734,8 +30748,8 @@ kingSelect.addEventListener('change', () => {
                 const commentInput = document.getElementById('heroCommentInput');
                 if (commentInput) commentInput.value = '';
                 sidebar.classList.add('open');
-                document.getElementById('heroIllustWrap').classList.add('open');
                 const mobile = document.body.classList.contains('force-mobile') || window.innerWidth <= 967 || window.innerHeight > window.innerWidth;
+                document.getElementById('heroIllustWrap').classList.toggle('open', !mobile);
                 document.body.classList.toggle('hero-panel-open', mobile);
                 window.bringAppPanelToFront?.(document.getElementById('heroSidebar'), { behind:[document.getElementById('heroIllustWrap')] });
                 _ignoreNextMapCloseUntil = Date.now() + 250;
@@ -35428,7 +35442,13 @@ kingSelect.addEventListener('change', () => {
                 const darkColor = _3dHeroDarken(baseColor, 55);
                 const uid = String(hero._id || Math.random()).replace(/[^a-z0-9]/gi, '').slice(-8);
                 const imgSrc = hero.avatar_url || defaultImg;
-                const safeName = _escape3dHeroText(hero.name_ko || '');
+                const cleanLabelPart = value => String(value || '').replace(/\s*[\/／]\s*/g, ' ').replace(/\s+/g, ' ').trim();
+                const heroName = cleanLabelPart(hero.name_ko || hero.name);
+                const heroTitle = cleanLabelPart(hero.title);
+                const label = !heroTitle || heroTitle === heroName || heroName.includes(heroTitle)
+                    ? heroName
+                    : (heroTitle.includes(heroName) ? heroTitle : `${heroTitle} ${heroName}`.trim());
+                const safeName = _escape3dHeroText(label);
                 return `<div class="hero-pin-wrapper"><div class="hero-pin-inner">
                     <svg class="hero-pin-svg" viewBox="0 0 40 52" xmlns="http://www.w3.org/2000/svg">
                         <defs>
