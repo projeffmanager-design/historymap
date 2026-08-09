@@ -26625,23 +26625,45 @@ const loadingMessages = [
     window.openCastleHistoryRecordLinker = function(row) {
         if (!row) return;
         document.getElementById('castle-history-record-linker')?.remove();
+        const markerName = String(document.getElementById('castleName')?.value || row.querySelector('input.history-name')?.value || '').trim();
+        const defaultSearch = markerName.match(/[가-힣]{2,}/)?.[0] || markerName;
+        const selectedRecords = new Map((Array.isArray(row._linkedRecords) ? row._linkedRecords : []).map(record => [
+            `${record.type === 'source' ? 'source' : 'history'}:${String(record.id || '')}`,
+            { ...record, type:record.type === 'source' ? 'source' : 'history' }
+        ]));
         const modal = document.createElement('div');
         modal.id = 'castle-history-record-linker';
         modal.style.cssText = 'position:fixed;inset:0;z-index:10030;display:grid;place-items:center;padding:16px;background:rgba(3,8,12,.68);';
         modal.innerHTML = `<div style="box-sizing:border-box;width:min(520px,100%);padding:14px;border:1px solid rgba(202,161,76,.5);border-radius:8px;background:#18232d;box-shadow:0 16px 45px rgba(0,0,0,.62);">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><strong style="flex:1;color:#ebcb84;">🔗 역사 패널 기록 연결</strong><button type="button" data-close style="border:0;background:transparent;color:#aab7c0;font-size:18px;cursor:pointer;">×</button></div>
-          <input type="search" data-search placeholder="사건명·인물·지명·출전·원문 검색" autocomplete="off" style="box-sizing:border-box;width:100%;padding:7px 9px;border:1px solid #536b7d;border-radius:4px;background:#101a22;color:#e2e8ec;">
+          <input type="search" data-search placeholder="사건명·인물·지명·출전·원문 검색" autocomplete="off" value="${_escapeHistoryInline(defaultSearch)}" style="box-sizing:border-box;width:100%;padding:7px 9px;border:1px solid #536b7d;border-radius:4px;background:#101a22;color:#e2e8ec;">
           <div data-status style="margin:6px 0;color:#8295a3;font-size:10px;">연구 기록과 원전 사료를 함께 검색합니다.</div>
           <div data-results style="display:grid;gap:5px;max-height:300px;overflow:auto;"></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:9px;border-top:1px solid rgba(255,255,255,.1);">
+            <span data-selected-count style="flex:1;color:#9eb1bd;font-size:11px;"></span>
+            <button type="button" data-cancel style="padding:6px 11px;border:1px solid #536b7d;border-radius:5px;background:#25333e;color:#c6d1d8;cursor:pointer;">취소</button>
+            <button type="button" data-apply style="padding:6px 12px;border:1px solid #b98a34;border-radius:5px;background:#79551c;color:#fff0be;font-weight:700;cursor:pointer;">선택 적용</button>
+          </div>
         </div>`;
         document.body.appendChild(modal);
         const search = modal.querySelector('[data-search]');
         const results = modal.querySelector('[data-results]');
         const status = modal.querySelector('[data-status]');
+        const selectedCount = modal.querySelector('[data-selected-count]');
         let timer = null;
         let seq = 0;
         const close = () => modal.remove();
         modal.querySelector('[data-close]').addEventListener('click', close);
+        modal.querySelector('[data-cancel]').addEventListener('click', close);
+        const updateSelectedCount = () => {
+            selectedCount.textContent = `${selectedRecords.size}개 기록 선택됨`;
+        };
+        modal.querySelector('[data-apply]').addEventListener('click', () => {
+            row._linkedRecords = [...selectedRecords.values()];
+            renderCastleHistoryLinkedRecords(row);
+            close();
+        });
+        updateSelectedCount();
         const runSearch = async () => {
             const query = search.value.trim();
             const requestSeq = ++seq;
@@ -26655,29 +26677,40 @@ const loadingMessages = [
                 results.innerHTML = '';
                 status.textContent = `검색 결과 ${records.length}건`;
                 records.forEach(record => {
+                    const id = String(record._id || '');
+                    if (!id) return;
+                    const recordType = record.type === 'source' ? 'source' : 'history';
+                    const recordKey = `${recordType}:${id}`;
                     const button = document.createElement('button');
                     button.type = 'button';
-                    button.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:3px 8px;padding:8px 9px;text-align:left;border:1px solid rgba(255,255,255,.09);border-radius:5px;background:rgba(255,255,255,.035);color:#d6dfe4;cursor:pointer;';
+                    const syncButtonState = () => {
+                        const selected = selectedRecords.has(recordKey);
+                        check.textContent = selected ? '☑' : '☐';
+                        button.setAttribute('aria-pressed', String(selected));
+                        button.style.borderColor = selected ? '#d5aa4d' : 'rgba(255,255,255,.09)';
+                        button.style.background = selected ? 'rgba(181,127,35,.25)' : 'rgba(255,255,255,.035)';
+                        button.style.boxShadow = selected ? 'inset 3px 0 #e4ba5c' : 'none';
+                    };
+                    button.style.cssText = 'display:grid;grid-template-columns:22px 1fr auto;gap:3px 8px;padding:8px 9px;text-align:left;border:1px solid rgba(255,255,255,.09);border-radius:5px;background:rgba(255,255,255,.035);color:#d6dfe4;cursor:pointer;';
                     const title = record.event_name || record.title || '(제목 없음)';
+                    const check = document.createElement('span');
+                    check.style.cssText = 'grid-row:1/3;align-self:center;color:#e5bd62;font-size:15px;';
                     const main = document.createElement('strong');
                     main.textContent = `${record.type === 'source' ? '📖' : '📜'} ${title}`;
                     const period = document.createElement('span');
                     period.style.cssText = 'color:#d2ad62;font-size:10px;';
                     period.textContent = `${record.year}년 ${record.month || 1}월`;
                     const sub = document.createElement('span');
-                    sub.style.cssText = 'grid-column:1/-1;color:#8799a5;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                    sub.style.cssText = 'grid-column:2/-1;color:#8799a5;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
                     sub.textContent = record.source || record.content_preview || record.comment || '';
-                    button.append(main, period, sub);
+                    button.append(check, main, period, sub);
                     button.addEventListener('click', () => {
-                        const id = String(record._id || '');
-                        if (!id) return;
-                        if (!Array.isArray(row._linkedRecords)) row._linkedRecords = [];
-                        if (!row._linkedRecords.some(item => String(item.id) === id && item.type === record.type)) {
-                            row._linkedRecords.push({ id, type:record.type || 'history', title, year:Number(record.year), month:Number(record.month) || 1 });
-                        }
-                        renderCastleHistoryLinkedRecords(row);
-                        close();
+                        if (selectedRecords.has(recordKey)) selectedRecords.delete(recordKey);
+                        else selectedRecords.set(recordKey, { id, type:recordType, title, year:Number(record.year), month:Number(record.month) || 1 });
+                        syncButtonState();
+                        updateSelectedCount();
                     });
+                    syncButtonState();
                     results.appendChild(button);
                 });
             } catch (error) {
@@ -26685,7 +26718,7 @@ const loadingMessages = [
             }
         };
         search.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(runSearch, 220); });
-        search.focus();
+        runSearch();
     };
     // 🚩 [추가] '역사 기록 추가' 버튼 이벤트 리스너
     document.getElementById('addCastleHistoryBtn').addEventListener('click', () => addCastleHistoryRow());
