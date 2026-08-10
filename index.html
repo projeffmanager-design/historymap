@@ -8812,6 +8812,17 @@ body.force-mobile .marker-type-selector button {
         font-size: 10px !important;
     }
 </style>
+    <!-- PC에서는 편집·관리 패널이 역사 기록 패널보다 항상 위에 오도록 한다. -->
+    <style>
+        @media (min-width: 769px) {
+            body:not(.force-mobile) #castleForm.active,
+            body:not(.force-mobile) #historyForm.active,
+            body:not(.force-mobile) #heroAdminPanel.show,
+            body:not(.force-mobile) #source-record-direct-editor {
+                z-index: 160250 !important;
+            }
+        }
+    </style>
 <body>
   <!-- 🏯 Palace Editor Panel — 3D 편집모드, 햄버거 메뉴에서 토글 -->
   <div id="palace-editor-panel" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()">
@@ -26634,11 +26645,12 @@ const loadingMessages = [
         const modal = document.createElement('div');
         modal.id = 'castle-history-record-linker';
         modal.style.cssText = 'position:fixed;inset:0;z-index:10030;display:grid;place-items:center;padding:16px;background:rgba(3,8,12,.68);';
-        modal.innerHTML = `<div style="box-sizing:border-box;width:min(520px,100%);padding:14px;border:1px solid rgba(202,161,76,.5);border-radius:8px;background:#18232d;box-shadow:0 16px 45px rgba(0,0,0,.62);">
+        modal.innerHTML = `<div style="box-sizing:border-box;width:min(680px,100%);max-height:92vh;overflow:auto;padding:14px;border:1px solid rgba(202,161,76,.5);border-radius:8px;background:#18232d;box-shadow:0 16px 45px rgba(0,0,0,.62);">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><strong style="flex:1;color:#ebcb84;">🔗 역사 패널 기록 연결</strong><button type="button" data-close style="border:0;background:transparent;color:#aab7c0;font-size:18px;cursor:pointer;">×</button></div>
           <input type="search" data-search placeholder="사건명·인물·지명·출전·원문 검색" autocomplete="off" value="${_escapeHistoryInline(defaultSearch)}" style="box-sizing:border-box;width:100%;padding:7px 9px;border:1px solid #536b7d;border-radius:4px;background:#101a22;color:#e2e8ec;">
           <div data-status style="margin:6px 0;color:#8295a3;font-size:10px;">연구 기록과 원전 사료를 함께 검색합니다.</div>
           <div data-results style="display:grid;gap:5px;max-height:300px;overflow:auto;"></div>
+          <div data-preview style="display:none;margin-top:9px;padding:11px;border:1px solid rgba(109,158,188,.32);border-radius:6px;background:#101920;color:#cad4da;"></div>
           <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:9px;border-top:1px solid rgba(255,255,255,.1);">
             <span data-selected-count style="flex:1;color:#9eb1bd;font-size:11px;"></span>
             <button type="button" data-cancel style="padding:6px 11px;border:1px solid #536b7d;border-radius:5px;background:#25333e;color:#c6d1d8;cursor:pointer;">취소</button>
@@ -26649,6 +26661,7 @@ const loadingMessages = [
         const search = modal.querySelector('[data-search]');
         const results = modal.querySelector('[data-results]');
         const status = modal.querySelector('[data-status]');
+        const preview = modal.querySelector('[data-preview]');
         const selectedCount = modal.querySelector('[data-selected-count]');
         let timer = null;
         let seq = 0;
@@ -26664,6 +26677,56 @@ const loadingMessages = [
             close();
         });
         updateSelectedCount();
+        const showRecordPreview = async (record, recordType, id) => {
+            preview.style.display = 'block';
+            preview.textContent = '기록 내용을 불러오는 중…';
+            try {
+                const endpoint = recordType === 'source'
+                    ? `/api/source-records/${encodeURIComponent(id)}`
+                    : `/api/history/${encodeURIComponent(id)}`;
+                const response = await fetch(endpoint, { cache:'no-store' });
+                if (!response.ok) throw new Error('기록 조회 실패');
+                const detail = await response.json();
+                preview.innerHTML = '';
+                const header = document.createElement('div');
+                header.style.cssText = 'display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;padding-bottom:7px;border-bottom:1px solid rgba(255,255,255,.1);';
+                const heading = document.createElement('strong');
+                heading.style.cssText = 'flex:1;color:#f0d18a;font-size:13px;line-height:1.5;';
+                heading.textContent = `${recordType === 'source' ? '📖' : '📜'} ${detail.title || detail.event_name || '(제목 없음)'}`;
+                const period = document.createElement('span');
+                period.style.cssText = 'color:#c6a45e;font-size:10px;white-space:nowrap;';
+                period.textContent = `${detail.year}년 ${Number(detail.month) || 1}월`;
+                header.append(heading, period);
+                preview.appendChild(header);
+                const blocks = [];
+                if (recordType === 'source') {
+                    if (detail.source) blocks.push({ label:detail.source, content:detail.content || '' });
+                    else if (detail.content) blocks.push({ label:'원전 사료', content:detail.content });
+                } else {
+                    if (detail.comment) blocks.push({ label:'설명', content:detail.comment });
+                    const labels = { korean:'한국어 기록', chinese:'한문 원문', foreign:'외국 기록', true_history:'연구 기록' };
+                    Object.entries(detail.records || {}).forEach(([key, value]) => {
+                        if (value?.content) blocks.push({ label:value.source || labels[key] || key, content:value.content });
+                    });
+                }
+                if (!blocks.length) blocks.push({ label:'내용', content:record.content_preview || record.comment || '표시할 본문이 없습니다.' });
+                blocks.forEach(block => {
+                    const section = document.createElement('div');
+                    section.style.cssText = 'margin-top:7px;padding:8px 9px;border-left:2px solid rgba(198,158,77,.55);background:rgba(255,255,255,.025);';
+                    const label = document.createElement('div');
+                    label.style.cssText = 'margin-bottom:4px;color:#d2b875;font-size:10px;font-weight:700;';
+                    label.textContent = block.label;
+                    const content = document.createElement('div');
+                    content.style.cssText = 'max-height:180px;overflow:auto;color:#bbc6cc;font-size:11px;line-height:1.7;white-space:pre-wrap;word-break:break-word;';
+                    content.textContent = block.content;
+                    section.append(label, content);
+                    preview.appendChild(section);
+                });
+                preview.scrollIntoView({ behavior:'smooth', block:'nearest' });
+            } catch (error) {
+                preview.textContent = '기록 내용을 불러오지 못했습니다.';
+            }
+        };
         const runSearch = async () => {
             const query = search.value.trim();
             const requestSeq = ++seq;
@@ -26681,37 +26744,44 @@ const loadingMessages = [
                     if (!id) return;
                     const recordType = record.type === 'source' ? 'source' : 'history';
                     const recordKey = `${recordType}:${id}`;
-                    const button = document.createElement('button');
-                    button.type = 'button';
+                    const item = document.createElement('div');
+                    const selectButton = document.createElement('button');
+                    selectButton.type = 'button';
                     const syncButtonState = () => {
                         const selected = selectedRecords.has(recordKey);
-                        check.textContent = selected ? '☑' : '☐';
-                        button.setAttribute('aria-pressed', String(selected));
-                        button.style.borderColor = selected ? '#d5aa4d' : 'rgba(255,255,255,.09)';
-                        button.style.background = selected ? 'rgba(181,127,35,.25)' : 'rgba(255,255,255,.035)';
-                        button.style.boxShadow = selected ? 'inset 3px 0 #e4ba5c' : 'none';
+                        selectButton.textContent = selected ? '☑' : '☐';
+                        selectButton.setAttribute('aria-pressed', String(selected));
+                        item.style.borderColor = selected ? '#d5aa4d' : 'rgba(255,255,255,.09)';
+                        item.style.background = selected ? 'rgba(181,127,35,.2)' : 'rgba(255,255,255,.035)';
+                        item.style.boxShadow = selected ? 'inset 3px 0 #e4ba5c' : 'none';
                     };
-                    button.style.cssText = 'display:grid;grid-template-columns:22px 1fr auto;gap:3px 8px;padding:8px 9px;text-align:left;border:1px solid rgba(255,255,255,.09);border-radius:5px;background:rgba(255,255,255,.035);color:#d6dfe4;cursor:pointer;';
+                    item.style.cssText = 'display:grid;grid-template-columns:34px minmax(0,1fr);gap:5px;padding:5px;border:1px solid rgba(255,255,255,.09);border-radius:5px;background:rgba(255,255,255,.035);color:#d6dfe4;';
+                    selectButton.title = '연결 대상으로 선택';
+                    selectButton.style.cssText = 'grid-row:1;align-self:stretch;border:0;border-radius:4px;background:rgba(0,0,0,.2);color:#e5bd62;font-size:16px;cursor:pointer;';
+                    const previewButton = document.createElement('button');
+                    previewButton.type = 'button';
+                    previewButton.title = '기록 내용 미리보기';
+                    previewButton.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;padding:3px 5px;text-align:left;border:0;background:transparent;color:inherit;cursor:pointer;';
                     const title = record.event_name || record.title || '(제목 없음)';
-                    const check = document.createElement('span');
-                    check.style.cssText = 'grid-row:1/3;align-self:center;color:#e5bd62;font-size:15px;';
                     const main = document.createElement('strong');
                     main.textContent = `${record.type === 'source' ? '📖' : '📜'} ${title}`;
                     const period = document.createElement('span');
                     period.style.cssText = 'color:#d2ad62;font-size:10px;';
                     period.textContent = `${record.year}년 ${record.month || 1}월`;
                     const sub = document.createElement('span');
-                    sub.style.cssText = 'grid-column:2/-1;color:#8799a5;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                    sub.style.cssText = 'grid-column:1/-1;color:#8799a5;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
                     sub.textContent = record.source || record.content_preview || record.comment || '';
-                    button.append(check, main, period, sub);
-                    button.addEventListener('click', () => {
+                    previewButton.append(main, period, sub);
+                    selectButton.addEventListener('click', () => {
                         if (selectedRecords.has(recordKey)) selectedRecords.delete(recordKey);
                         else selectedRecords.set(recordKey, { id, type:recordType, title, year:Number(record.year), month:Number(record.month) || 1 });
                         syncButtonState();
                         updateSelectedCount();
                     });
+                    previewButton.addEventListener('click', () => showRecordPreview(record, recordType, id));
                     syncButtonState();
-                    results.appendChild(button);
+                    item.append(selectButton, previewButton);
+                    results.appendChild(item);
                 });
             } catch (error) {
                 if (requestSeq === seq) status.textContent = '검색에 실패했습니다.';
