@@ -2135,16 +2135,35 @@ async function setupRoutesAndCollections() {
                 const q = (req.query.q || '').trim();
                 if (!q) return res.json([]);
                 const limit = Math.min(parseInt(req.query.limit) || 10, 30);
-                const regex = new RegExp(q, 'i');
+                const escapedQuery = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp(escapedQuery, 'i');
                 const results = await collections.castle.find(
                     {
-                        $or: [{ deleted: { $exists: false } }, { deleted: false }],
-                        name: regex
+                        $and: [
+                            { $or: [{ deleted: { $exists: false } }, { deleted: false }] },
+                            { $or: [
+                                { name: regex },
+                                { 'history.name': regex }
+                            ] }
+                        ]
                     },
                     { projection: { _id: 1, name: 1, name_zh: 1, lat: 1, lng: 1,
-                        'location.coordinates': 1 } }
+                        'location.coordinates': 1, 'history.name': 1,
+                        'history.start_year': 1, 'history.end_year': 1 } }
                 ).limit(limit).toArray();
-                res.json(results);
+                res.json(results.map(castle => {
+                    const currentNameMatches = typeof castle.name === 'string' && regex.test(castle.name);
+                    const matchedHistory = !currentNameMatches && Array.isArray(castle.history)
+                        ? castle.history.find(entry => typeof entry?.name === 'string' && regex.test(entry.name))
+                        : null;
+                    const { history, ...result } = castle;
+                    return {
+                        ...result,
+                        matched_history_name: matchedHistory?.name || null,
+                        matched_history_start_year: matchedHistory?.start_year ?? null,
+                        matched_history_end_year: matchedHistory?.end_year ?? null
+                    };
+                }));
             } catch (err) {
                 res.status(500).json({ message: '검색 오류' });
             }

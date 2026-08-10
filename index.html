@@ -32577,7 +32577,9 @@ kingSelect.addEventListener('change', () => {
             }
             items.slice(0, 20).forEach(item => {
                 const id = String(item._id || '');
-                const label = String(item.name_ko || item.name || '이름 없음');
+                const label = String(type === 'place' && item.matched_history_name
+                    ? item.matched_history_name
+                    : item.name_ko || item.name || '이름 없음');
                 if (!id) return;
                 const button = document.createElement('button');
                 button.type = 'button';
@@ -32586,7 +32588,16 @@ kingSelect.addEventListener('change', () => {
                 name.textContent = `${type === 'place' ? '⌖' : type === 'country' ? '⚑' : '♟'} ${label}`;
                 const meta = document.createElement('span');
                 meta.style.opacity = '.65';
-                meta.textContent = type === 'place' ? (item.name_zh || '지도 장소') : type === 'country' ? (item.ethnicity || '국가 상세') : (item.title || item.faction || '인물');
+                if (type === 'place') {
+                    const period = item.matched_history_name && (item.matched_history_start_year != null || item.matched_history_end_year != null)
+                        ? ` · ${item.matched_history_start_year ?? '?'}~${item.matched_history_end_year ?? '?'}년`
+                        : '';
+                    meta.textContent = item.matched_history_name
+                        ? `현재 마커: ${item.name || '이름 없음'}${period}`
+                        : (item.name_zh || '지도 장소');
+                } else {
+                    meta.textContent = type === 'country' ? (item.ethnicity || '국가 상세') : (item.title || item.faction || '인물');
+                }
                 button.append(name, meta);
                 button.addEventListener('click', () => insertSourceLink(type, id, label));
                 linkResults.appendChild(button);
