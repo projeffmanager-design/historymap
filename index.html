@@ -8860,6 +8860,14 @@ body.force-mobile .marker-type-selector button {
                 height: calc(100dvh - var(--topbar-h, 46px)) !important;
             }
         }
+
+        /* 사관청 팝업은 지도 위의 모든 기록·목록·상세 패널보다 앞에 표시한다. */
+        #newsletter-popup-overlay {
+            z-index: 2147483000 !important;
+        }
+        #newsletter-popup-close {
+            z-index: 2147483001 !important;
+        }
     </style>
 <body>
   <!-- 🏯 Palace Editor Panel — 3D 편집모드, 햄버거 메뉴에서 토글 -->
@@ -19482,12 +19490,17 @@ function invalidateCountryLookupCache() {
     window.bringAppPanelToFront = function(panelOrId, options = {}) {
         const panel = typeof panelOrId === 'string' ? document.getElementById(panelOrId) : panelOrId;
         if (!panel) return;
+        const isPriorityOverlay = panel.id === 'newsletter-popup-overlay';
         appPanelStackOrder += 10;
         const behind = Array.isArray(options.behind) ? options.behind.filter(Boolean) : [];
         behind.forEach((element, index) => {
             element.style.setProperty('z-index', String(appPanelStackOrder + index + 1), 'important');
         });
-        panel.style.setProperty('z-index', String(appPanelStackOrder + behind.length + 2), 'important');
+        panel.style.setProperty(
+            'z-index',
+            isPriorityOverlay ? '2147483000' : String(appPanelStackOrder + behind.length + 2),
+            'important'
+        );
         const previousIndex = appPanelStack.indexOf(panel);
         if (previousIndex >= 0) appPanelStack.splice(previousIndex, 1);
         appPanelStack.push(panel);
