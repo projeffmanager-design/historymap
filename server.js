@@ -1994,7 +1994,7 @@ async function setupRoutesAndCollections() {
                     'castle_create',
                     req.user.username,
                     req.user.position || '',
-                    newCastle.name || '새 오브젝트',
+                    insertedDocument.name || '새 마커',
                     {
                         castle_id: result.insertedId.toString(),
                         category: 'geography'

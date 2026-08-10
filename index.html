@@ -11230,7 +11230,7 @@ body.force-mobile .marker-type-selector button {
     <div id="castleForm">
         <div class="edit-panel-header">
             <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0; overflow:hidden;">
-                <h3 style="white-space:nowrap; margin:0;">🏯 오브젝트 추가/편집</h3>
+                <h3 style="white-space:nowrap; margin:0;">🏯 마커 관리</h3>
                 <div id="castleSourceBadges" style="display:none; gap:4px; align-items:center;">
                     <span id="castleSourceBadge-db"   style="font-size:10px; font-weight:bold; padding:2px 7px; border-radius:10px; background:#2c3e50; color:#7f8c8d; white-space:nowrap;">DB</span>
                     <span id="castleSourceBadge-json" style="font-size:10px; font-weight:bold; padding:2px 7px; border-radius:10px; background:#2c3e50; color:#7f8c8d; white-space:nowrap;">JSON</span>
@@ -12405,6 +12405,7 @@ body.force-mobile .marker-type-selector button {
     // 🚩 [수정] 로그인 후 항상 일반 뷰 모드로 시작 (편집모드 자동 복원 제거)
     // localStorage의 editMode는 사용하지 않음
     let editingCastleKey = null;
+    let cloningCastleOriginalName = null;
     let editingHistoryKey = null;
     let editMarker = null; // 드래그 가능한 편집용 마커
     let mouseOutTimer = null; // 팝업 닫기 지연 타이머
@@ -19491,6 +19492,7 @@ function invalidateCountryLookupCache() {
         const panel = typeof panelOrId === 'string' ? document.getElementById(panelOrId) : panelOrId;
         if (!panel) return;
         const isPriorityOverlay = panel.id === 'newsletter-popup-overlay';
+        const isBackgroundHistoryPanel = panel.id === 'map-history-panel';
         appPanelStackOrder += 10;
         const behind = Array.isArray(options.behind) ? options.behind.filter(Boolean) : [];
         behind.forEach((element, index) => {
@@ -19498,7 +19500,11 @@ function invalidateCountryLookupCache() {
         });
         panel.style.setProperty(
             'z-index',
-            isPriorityOverlay ? '2147483000' : String(appPanelStackOrder + behind.length + 2),
+            isPriorityOverlay
+                ? '2147483000'
+                : isBackgroundHistoryPanel
+                    ? '160100'
+                    : String(appPanelStackOrder + behind.length + 2),
             'important'
         );
         const previousIndex = appPanelStack.indexOf(panel);
@@ -25905,6 +25911,7 @@ const loadingMessages = [
       map.closePopup();
       // 🚩 [추가] 성 추가 폼을 여는 로직
       editingCastleKey = null;
+      cloningCastleOriginalName = null;
       closeAllFormsExcept('castleForm');
       openForm('castleForm'); // 🚩 [수정] openForm 함수 사용
       addCastleForm.reset();
@@ -26231,6 +26238,7 @@ const loadingMessages = [
         const countryInfo = getCountryInfoById(castle.country_id); 
 
         editingCastleKey = id;
+        cloningCastleOriginalName = null;
         closeAllFormsExcept('castleForm');
         openForm('castleForm'); // 🚩 [수정] openForm 함수 사용
         document.getElementById('cloneCastle').style.display = 'inline-block'; // 🚩 [추가] 편집 시 복제 버튼 표시
@@ -26696,7 +26704,7 @@ const loadingMessages = [
         ]));
         const modal = document.createElement('div');
         modal.id = 'castle-history-record-linker';
-        modal.style.cssText = 'position:fixed;inset:0;z-index:10030;display:grid;place-items:center;padding:16px;background:rgba(3,8,12,.68);';
+        modal.style.cssText = 'position:fixed;inset:0;z-index:2147482000;display:grid;place-items:center;padding:16px;background:rgba(3,8,12,.68);';
         modal.innerHTML = `<div style="box-sizing:border-box;width:min(680px,100%);max-height:92vh;overflow:auto;padding:14px;border:1px solid rgba(202,161,76,.5);border-radius:8px;background:#18232d;box-shadow:0 16px 45px rgba(0,0,0,.62);">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><strong style="flex:1;color:#ebcb84;">🔗 역사 패널 기록 연결</strong><button type="button" data-close style="border:0;background:transparent;color:#aab7c0;font-size:18px;cursor:pointer;">×</button></div>
           <input type="search" data-search placeholder="사건명·인물·지명·출전·원문 검색" autocomplete="off" value="${_escapeHistoryInline(defaultSearch)}" style="box-sizing:border-box;width:100%;padding:7px 9px;border:1px solid #536b7d;border-radius:4px;background:#101a22;color:#e2e8ec;">
@@ -26859,6 +26867,7 @@ const loadingMessages = [
         // 기존 로직: 일반 기여는 성으로 변환
         // 성 편집 폼 열기 (새 오브젝트 모드)
         editingCastleKey = null;
+        cloningCastleOriginalName = null;
         closeAllFormsExcept('castleForm');
         openForm('castleForm');
         addCastleForm.reset();
@@ -27314,6 +27323,18 @@ const loadingMessages = [
           data.end_year   = data.destroyed_year;
       }
 
+      // 복제본에서 대표 history 이름만 바꾼 경우에도 새 마커명과 활동 로그에 반영한다.
+      if (cloningCastleOriginalName && !data.is_military_flag) {
+          const enteredName = String(data.name || '').trim();
+          const primaryHistoryName = String(data.history?.[0]?.name || '').trim();
+          if (enteredName === cloningCastleOriginalName
+              && primaryHistoryName
+              && primaryHistoryName !== cloningCastleOriginalName) {
+              data.name = primaryHistoryName;
+              document.getElementById('castleName').value = primaryHistoryName;
+          }
+      }
+
       // 🚩 [추가] 생성자 및 수정자 정보 추가
       if (isUpdate) {
         data.lastModifiedBy = currentUser.username;
@@ -27480,6 +27501,7 @@ const loadingMessages = [
           } else {
               console.log('🌳 자연 지형지물 업데이트 완료, 전체 맵 갱신 생략');
           }
+          cloningCastleOriginalName = null;
       } catch (error) {
         console.error("Castle 저장 중 오류:", error);
         alert(`Castle 저장 실패: ${error.message}`);
@@ -27489,6 +27511,7 @@ const loadingMessages = [
     // 성 폼 취소
     cancelCastle.addEventListener('click', () => {
       closeEditPanel('castleForm');
+      cloningCastleOriginalName = null;
       // 🚩 [추가] 마커의 팝업을 명시적으로 닫은 후 레이어를 제거합니다.
       if (editMarker && map.hasLayer(editMarker) && editMarker.getPopup()) {
           editMarker.closePopup();
@@ -27549,9 +27572,10 @@ const loadingMessages = [
         
         // 복제 모드로 전환
         editingCastleKey = null; // 새 항목으로 저장하기 위해 키를 null로 설정
+        cloningCastleOriginalName = originalCastleName;
 
         // UI 업데이트
-        document.querySelector('#castleForm h3').textContent = `'${originalCastleName}' 복제하여 정보 추가`;
+        document.querySelector('#castleForm h3').textContent = '🏯 마커 관리';
         document.getElementById('deleteCastle').style.display = 'none';
         document.getElementById('cloneCastle').style.display = 'none';
         document.getElementById('registerAsContributionBtn').style.display = 'none';
@@ -40027,6 +40051,7 @@ kingSelect.addEventListener('change', () => {
 
             // castleForm을 새 항목 모드로 초기화
             editingCastleKey = null;
+            cloningCastleOriginalName = null;
             closeAllFormsExcept('castleForm');
             openForm('castleForm');
             document.getElementById('cloneCastle').style.display = 'none';
