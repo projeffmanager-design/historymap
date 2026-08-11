@@ -2579,11 +2579,12 @@ body.force-mobile .marker-type-selector button {
     #timeline-sidebar {
         display: none;
         position: fixed;
-        bottom: calc(56px + var(--ad-bottom-h, 0px));
-        left: 50%;
-        transform: translateX(-50%);
+        top: calc(var(--topbar-h, 46px) + 2px);
+        bottom: auto;
+        left: 9px;
+        transform: none;
         width: min(1180px, calc(100vw - 32px));
-        height: min(62vh, 720px);
+        height: calc(100dvh - var(--topbar-h, 46px) - 66px - var(--ad-bottom-h, 0px));
         min-width: 560px;
         min-height: 260px;
         max-width: calc(100vw - 18px);
@@ -2592,8 +2593,7 @@ body.force-mobile .marker-type-selector button {
         backdrop-filter: blur(14px) saturate(1.6);
         -webkit-backdrop-filter: blur(14px) saturate(1.6);
         border: 1px solid rgba(210, 175, 80, 0.28);
-        border-bottom: none;
-        border-radius: 14px 14px 0 0;
+        border-radius: 10px;
         z-index: 9995;
         pointer-events: auto;
         flex-direction: column;
@@ -2804,6 +2804,26 @@ body.force-mobile .marker-type-selector button {
         white-space: normal;
         line-height: 1.12;
     }
+    .tl-label-row .tl-ethnic-toggle {
+        appearance: none;
+        width: 76px;
+        flex-shrink: 0;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: rgba(255,210,100,0.9);
+        font: inherit;
+        font-size: 10px;
+        font-weight: 800;
+        line-height: 1.12;
+        text-align: left;
+        cursor: pointer;
+    }
+    .tl-label-row .tl-ethnic-toggle:hover,
+    .tl-label-row .tl-ethnic-toggle:focus-visible {
+        color: #ffe09a;
+        outline: none;
+    }
     .tl-label-row .tl-ethnic-name.is-continuation {
         opacity: 0.28;
     }
@@ -2816,6 +2836,24 @@ body.force-mobile .marker-type-selector button {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+    .tl-country-link {
+        appearance: none;
+        border: 0;
+        padding: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+        text-decoration: underline;
+        text-decoration-color: rgba(120,190,235,0.35);
+        text-underline-offset: 2px;
+    }
+    .tl-country-link:hover,
+    .tl-country-link:focus-visible {
+        color: #9ed8ff;
+        text-decoration-color: currentColor;
+        outline: none;
     }
 
     #tl-right-pane {
@@ -2920,7 +2958,7 @@ body.force-mobile .marker-type-selector button {
         position: absolute;
         height: 16px;
         border-radius: 4px;
-        cursor: grab;
+        cursor: pointer;
         pointer-events: auto;
         touch-action: pan-y;
         color: rgba(255,255,255,0.95);
@@ -2950,7 +2988,7 @@ body.force-mobile .marker-type-selector button {
         transform: scaleY(1.15);
     }
     .timeline-bar:active {
-        cursor: grabbing;
+        cursor: pointer;
     }
     .timeline-bar.main-dynasty {
         height: 16px;
@@ -8024,6 +8062,20 @@ body.force-mobile .marker-type-selector button {
         flex-shrink: 0;
     }
 
+    #top-right-auth #bgm-mini-bar {
+        position: static !important;
+        inset: auto !important;
+        z-index: auto !important;
+        flex: 0 1 auto;
+        max-width: 220px;
+        height: 32px !important;
+        padding: 0 4px !important;
+        gap: 5px !important;
+    }
+    #top-right-auth #bgm-mini-title {
+        max-width: 105px !important;
+    }
+
     /* 🚩 [추가] 고지도 드롭다운 아이템 고딕 폰트 */
     #topbar-ancient-maps-dropdown-menu button,
     #topbar-ancient-maps-dropdown-menu a,
@@ -8654,6 +8706,13 @@ body.force-mobile .marker-type-selector button {
             white-space: nowrap !important;
             padding: 0 3px !important;
             font-size: 11px !important;
+        }
+        #top-right-auth #bgm-mini-title {
+            display: none !important;
+        }
+        #top-right-auth #bgm-mini-bar {
+            flex: 0 0 auto !important;
+            padding: 0 !important;
         }
         #top-right-auth #topbar-ancient-maps-btn,
         #top-right-auth #topbar-ancient-maps-dropdown-container,
@@ -14927,13 +14986,11 @@ function getKingByYear(countryName, year, month) {
             const rawKingName = String(king.name_ko || king.name || '이름 미상').trim();
             const rawKingHanja = String(king.name_zh || '').trim();
             const rawKingTitle = String(king.title || '').trim();
-            let kingDisplayName = rawKingName;
-            if (rawKingHanja && !kingDisplayName.includes(rawKingHanja)) {
-                kingDisplayName += ` (${rawKingHanja})`;
-            }
-            if (rawKingTitle && !kingDisplayName.includes(rawKingTitle)) {
-                kingDisplayName += ` ${rawKingTitle}`;
-            }
+            const titledKingName = rawKingTitle && !rawKingName.includes(rawKingTitle)
+                ? `${rawKingTitle} ${rawKingName}`
+                : rawKingName;
+            let kingDisplayName = titledKingName;
+            if (rawKingHanja && !kingDisplayName.includes(rawKingHanja)) kingDisplayName += ` (${rawKingHanja})`;
             const countryDisplayName = escapeKingListText(country.name || '국가명 미상');
             const kingDisplayText = escapeKingListText(kingDisplayName);
             let kingHtml = `${iconHtml} <span class="country-name-link" style="cursor: pointer; text-decoration: underline;" onclick="zoomToCountryCapital('${country._id}')">${countryDisplayName}</span> : <span class="king-name">${kingDisplayText}</span> (${period})${summaryBadge}`;
@@ -23266,10 +23323,12 @@ const loadingMessages = [
               if (isVisible) {
                   topbarAncientMapsDropdown.style.display = 'none';
               } else {
-                  // 버튼 위치 기준으로 fixed 좌표 계산
+                  // 드롭다운이 높은 탑바 뒤에 가려지지 않도록 탑바 하단을 기준으로 배치
                   const btnRect = topbarAncientMapsBtn.getBoundingClientRect();
+                  const topbarRect = document.getElementById('top-bar-container')?.getBoundingClientRect();
+                  const dropdownTop = Math.max(btnRect.bottom, topbarRect?.bottom || 0) + 2;
                   topbarAncientMapsDropdown.style.position = 'fixed';
-                  topbarAncientMapsDropdown.style.top = btnRect.bottom + 'px';
+                  topbarAncientMapsDropdown.style.top = dropdownTop + 'px';
                   topbarAncientMapsDropdown.style.right = (window.innerWidth - btnRect.right) + 'px';
                   topbarAncientMapsDropdown.style.left = 'auto';
                   topbarAncientMapsDropdown.style.display = 'block';
@@ -23375,6 +23434,7 @@ const loadingMessages = [
     // 연대표 데이터 범위 (createDynastyTimeline이 계산 후 저장, updateTimelineScroll에서 사용)
     var timelineDataMin = null;
     var timelineDataMax = null;
+    var collapsedTimelineEthnicities = new Set();
 
         // 🚩 [추가] 슬라이더 눈금을 동적으로 생성하는 함수
     function createSliderTicks() {
@@ -23830,8 +23890,17 @@ const loadingMessages = [
                 placedBars.push({ country, laneIndex, clampedLeft, clampedWidth, startMonths, endMonths });
             });
 
-            groups.push({ ethnicity, startRow: groupStartRow, rowCount: Math.max(lanes.length, 1), bars: placedBars });
-            currentRow += Math.max(lanes.length, 1);
+            const isCollapsed = collapsedTimelineEthnicities.has(ethnicity);
+            const visibleRowCount = isCollapsed ? 1 : Math.max(lanes.length, 1);
+            groups.push({
+                ethnicity,
+                startRow: groupStartRow,
+                rowCount: visibleRowCount,
+                bars: isCollapsed ? [] : placedBars,
+                allCountries: groupCountries,
+                isCollapsed
+            });
+            currentRow += visibleRowCount;
         });
 
         const totalRows = currentRow;
@@ -23849,21 +23918,47 @@ const loadingMessages = [
             groups.forEach(g => {
                 for (let row = 0; row < g.rowCount; row++) {
                     const labelEl = document.createElement('div');
-                    const rowCountries = g.bars
-                        .filter(item => item.laneIndex === row)
-                        .map(item => item.country.name)
-                        .filter(Boolean);
+                    const rowCountryItems = g.isCollapsed
+                        ? []
+                        : g.bars
+                            .filter(item => item.laneIndex === row)
+                            .map(item => item.country)
+                            .filter(country => country?.name);
+                    const rowCountries = rowCountryItems.map(country => country.name);
+                    const countryLinks = rowCountryItems.map(country => (
+                        `<button type="button" class="tl-country-link" data-country-id="${tlEsc(country._id)}" title="${tlEsc(country.name)} 시작 연대로 이동">${tlEsc(country.name)}</button>`
+                    )).join(' · ');
                     labelEl.className = 'tl-label-row';
                     labelEl.style.height = `${ROW_H}px`;
                     labelEl.style.minHeight = `${ROW_H}px`;
                     labelEl.title = `${g.ethnicity}${rowCountries.length ? ` · ${rowCountries.join(', ')}` : ''}`;
                     labelEl.innerHTML = `
-                        <span class="tl-ethnic-name${row > 0 ? ' is-continuation' : ''}">${row === 0 ? tlEsc(g.ethnicity) : '·'}</span>
-                        <span class="tl-country-names">${tlEsc(rowCountries.join(' · ') || '-')}</span>
+                        ${row === 0
+                            ? `<button type="button" class="tl-ethnic-toggle" data-ethnicity="${tlEsc(g.ethnicity)}" aria-expanded="${g.isCollapsed ? 'false' : 'true'}" title="${tlEsc(g.ethnicity)} ${g.isCollapsed ? '펼치기' : '접기'}">${g.isCollapsed ? '▸' : '▾'} ${tlEsc(g.ethnicity)}</button>`
+                            : '<span class="tl-ethnic-name is-continuation">·</span>'}
+                        <span class="tl-country-names">${g.isCollapsed ? `${g.allCountries.length}개 국가` : (countryLinks || '-')}</span>
                     `;
                     tlLabelCol.appendChild(labelEl);
                 }
             });
+            if (tlLabelCol.dataset.countryLinksBound !== '1') {
+                tlLabelCol.dataset.countryLinksBound = '1';
+                tlLabelCol.addEventListener('click', event => {
+                    const toggle = event.target.closest('.tl-ethnic-toggle');
+                    if (toggle) {
+                        event.stopPropagation();
+                        const ethnicity = toggle.dataset.ethnicity;
+                        if (collapsedTimelineEthnicities.has(ethnicity)) collapsedTimelineEthnicities.delete(ethnicity);
+                        else collapsedTimelineEthnicities.add(ethnicity);
+                        createDynastyTimeline();
+                        return;
+                    }
+                    const link = event.target.closest('.tl-country-link');
+                    if (!link) return;
+                    event.stopPropagation();
+                    navigateTimelineToCountry(link.dataset.countryId);
+                });
+            }
             syncTimelineFixedLabels();
         }
 
@@ -23923,9 +24018,14 @@ const loadingMessages = [
                 bar.style.backgroundColor = country.color || '#7f8c8d';
                 bar.textContent = country.name;
                 const endYearText = country.end ? `${country.end}년` : '현재';
-                bar.title = `${country.name}${country.ethnicity ? ` (${country.ethnicity})` : ''}\n${country.start}년 ~ ${endYearText}`;
+                bar.title = `${country.name}${country.ethnicity ? ` (${country.ethnicity})` : ''}\n${country.start}년 ~ ${endYearText}\n막대의 원하는 시점을 클릭하여 지도 이동`;
                 bar.dataset.countryId = country._id;
                 bar.dataset.countryName = country.name || '';
+                bar.dataset.startMonths = String(yearMonthToTotalMonths(country.start, country.start_month || 1));
+                const barEndYear = (country.end === null || country.end === undefined || isNaN(Number(country.end)))
+                    ? totalMonthsToYearMonth(sliderMax).year
+                    : Number(country.end);
+                bar.dataset.endMonths = String(yearMonthToTotalMonths(barEndYear, country.end_month || 12));
                 timelineContent.appendChild(bar);
             });
         });
@@ -24259,7 +24359,7 @@ const loadingMessages = [
         if (!target) return false;
 
         if (target.start !== null && target.start !== undefined && !isNaN(Number(target.start))) {
-            updateTime(target.start, target.start_month || 1, false);
+            navigateTimelineToCountry(target._id, yearMonthToTotalMonths(target.start, target.start_month || 1));
         }
         createDynastyTimeline();
 
@@ -24273,6 +24373,60 @@ const loadingMessages = [
             scroll.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
             syncTimelineFixedLabels();
         });
+        return true;
+    }
+
+    function navigateTimelineToCountry(countryId, requestedMonths) {
+        const target = (countries || []).find(country => String(country._id || '') === String(countryId || ''));
+        if (!target) return false;
+
+        let totalMonths = Number(requestedMonths);
+        if (!Number.isFinite(totalMonths)) {
+            totalMonths = yearMonthToTotalMonths(target.start, target.start_month || 1);
+        }
+        const { year, month } = totalMonthsToYearMonth(Math.round(totalMonths));
+        updateTime(year, month, false);
+        updateTimelineScroll();
+
+        const countryCastles = (castles || []).filter(castle => {
+            if (String(castle.country_id || '') !== String(target._id || '')) return false;
+            const built = yearMonthToTotalMonths(castle.built_year ?? -99999, castle.built_month || 1);
+            const destroyed = castle.destroyed_year === null || castle.destroyed_year === undefined || castle.destroyed_year === ''
+                ? Infinity
+                : yearMonthToTotalMonths(castle.destroyed_year, castle.destroyed_month || 12);
+            return built <= totalMonths && totalMonths <= destroyed;
+        });
+        const activeCapital = countryCastles.find(castle => (
+            castle.is_capital === true || castle.place_type === 'capital' || castle.place_type === 'hwangseong'
+        ));
+        const fallbackCastle = activeCapital || countryCastles.find(castle => (
+            Number.isFinite(Number(castle.lat)) && Number.isFinite(Number(castle.lng))
+        ));
+
+        const focusCountry = () => {
+            const countryKey = String(target._id || '');
+            const patch = _renderedCountryLargestPatch?.get(countryKey);
+            const centroid = _renderedCountryCentroids?.get(countryKey);
+            const renderedCenter = patch || (centroid ? {
+                lat: centroid.lat / Math.max(centroid.count || 1, 1),
+                lng: centroid.lng / Math.max(centroid.count || 1, 1)
+            } : null);
+            const focus = renderedCenter || fallbackCastle;
+            if (!focus || !Number.isFinite(Number(focus.lat)) || !Number.isFinite(Number(focus.lng))) return false;
+            const lat = Number(focus.lat);
+            const lng = Number(focus.lng);
+            const zoom = renderedCenter ? 6 : 9;
+            if (window._is3dMode && window.mlMap3d) {
+                window.mlMap3d.flyTo({ center: [lng, lat], zoom: Math.max(window.mlMap3d.getZoom(), zoom), duration: 800 });
+            } else {
+                map.flyTo([lat, lng], Math.max(map.getZoom(), zoom), { animate: true, duration: 0.8 });
+            }
+            return true;
+        };
+
+        // 지도 갱신 직후 새 시점의 영토 중심이 만들어지면 그 위치로 확대한다.
+        focusCountry();
+        setTimeout(focusCountry, 300);
         return true;
     }
 
@@ -24314,7 +24468,7 @@ const loadingMessages = [
             }, { passive: type !== 'wheel' && type !== 'contextmenu' });
         });
 
-        const storageKey = 'kh_timeline_panel_bounds_v1';
+        const storageKey = 'kh_timeline_panel_bounds_v2';
         const margin = 9;
 
         const clampPanel = (left, top, width, height) => {
@@ -24345,12 +24499,23 @@ const loadingMessages = [
             return safe;
         };
 
+        let restoredBounds = false;
         try {
             const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
             if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
                 applyBounds(saved, false);
+                restoredBounds = true;
             }
         } catch (_) {}
+        if (!restoredBounds) {
+            const topbarBottom = document.getElementById('top-bar-container')?.getBoundingClientRect().bottom || 46;
+            applyBounds({
+                left: margin,
+                top: topbarBottom + 2,
+                width: Math.min(1180, window.innerWidth - margin * 2),
+                height: Math.max(260, window.innerHeight - topbarBottom - 66)
+            }, false);
+        }
 
         let dragState = null;
         const endPanelDrag = () => {
@@ -28427,13 +28592,11 @@ const loadingMessages = [
                 const rawName = String(k.name_ko || k.name || '이름 미상').trim();
                 const rawHanja = String(k.name_zh || '').trim();
                 const rawTitle = String(k.title || '').trim();
-                let displayName = rawName;
-                if (rawHanja && !displayName.includes(rawHanja)) {
-                    displayName += ` (${rawHanja})`;
-                }
-                if (rawTitle && !displayName.includes(rawTitle)) {
-                    displayName += ` ${rawTitle}`;
-                }
+                const titledName = rawTitle && !rawName.includes(rawTitle)
+                    ? `${rawTitle} ${rawName}`
+                    : rawName;
+                let displayName = titledName;
+                if (rawHanja && !displayName.includes(rawHanja)) displayName += ` (${rawHanja})`;
                 const name    = _esc(displayName);
                 const sy      = k.start;
                 const ey      = k.end;
@@ -30511,8 +30674,23 @@ kingSelect.addEventListener('change', () => {
 
         function formatHeroPinLabel(hero) {
             const clean = value => String(value || '').replace(/\s*[\/／]\s*/g, ' ').replace(/\s+/g, ' ').trim();
-            const name = clean(hero?.name_ko || hero?.name);
-            const title = clean(hero?.title);
+            const primaryName = clean(hero?.name_ko || hero?.name);
+            const aliases = (Array.isArray(hero?.aliases) ? hero.aliases : [hero?.aliases])
+                .flatMap(value => String(value || '').split(','))
+                .map(clean).filter(Boolean);
+            const storedTitleCandidates = [hero?.era_name, hero?.regnal_name, hero?.temple_name, ...aliases]
+                .map(clean).filter(Boolean);
+            const isRoyalTitle = value => /(?:태조|세조|고조|성조|[가-힣]{1,8}(?:태왕|대왕|성왕|명왕|왕|황제|대제|대군)|[가-힣]{1,5}[조종])$/.test(value);
+            let title = clean(hero?.title);
+            let name = primaryName;
+            if (!title && isRoyalTitle(primaryName)) {
+                const personalAlias = aliases.find(alias => !isRoyalTitle(alias) && /^[가-힣]{2,6}$/.test(alias));
+                if (personalAlias) {
+                    title = primaryName;
+                    name = personalAlias;
+                }
+            }
+            if (!title) title = storedTitleCandidates.find(isRoyalTitle) || '';
             if (!title || title === name || name.includes(title)) return name;
             if (title.includes(name)) return title;
             return `${title} ${name}`.trim();
@@ -32496,17 +32674,8 @@ kingSelect.addEventListener('change', () => {
             </div>
             <div class="history-editor-section">
               <div class="form-row"><label>기록 유형</label><select name="content_type"><option value="translation" ${record.content_type !== 'chinese_original' ? 'selected' : ''}>번역·해설</option><option value="chinese_original" ${record.content_type === 'chinese_original' ? 'selected' : ''}>한문 원문</option></select></div>
-              <div class="form-row" style="display:block;"><label style="display:block;margin-bottom:6px;">본문</label><textarea name="content" rows="10" required style="box-sizing:border-box;width:100%;">${_escapeHistoryInline(record.content || '')}</textarea></div>
+              <div class="form-row" style="display:block;position:relative;"><label style="display:block;margin-bottom:6px;">본문 <small style="color:#78abc5;font-weight:400;">@를 입력해 지명·인물·국가 연결</small></label><textarea name="content" rows="10" required style="box-sizing:border-box;width:100%;">${_escapeHistoryInline(record.content || '')}</textarea><div data-mention-results style="display:none;position:absolute;left:0;right:0;top:100%;z-index:30;max-height:230px;overflow:auto;margin-top:3px;padding:4px;border:1px solid rgba(93,166,199,.5);border-radius:7px;background:#101a22;box-shadow:0 10px 28px rgba(0,0,0,.65);"></div></div>
             </div>
-            <details class="history-editor-section history-editor-tools">
-              <summary>🔗 지명·인물 링크 삽입 <small>본문 커서 위치에 추가</small></summary>
-              <div class="history-link-help">본문에서 링크를 넣을 위치를 클릭한 다음 대상 유형을 선택하고 검색하세요.</div>
-              <div class="history-link-builder">
-                <select data-link-type><option value="place">지도 장소</option><option value="person">인물</option><option value="country">국가</option></select>
-                <input type="search" data-link-search placeholder="지명 또는 인물 검색" autocomplete="off">
-              </div>
-              <div class="history-link-results" data-link-results></div>
-            </details>
             <div style="display:flex;gap:8px;justify-content:flex-end;">
               <button type="button" data-action="delete" class="danger" style="margin-right:auto;">삭제</button>
               <button type="button" data-action="close">취소</button>
@@ -32572,34 +32741,38 @@ kingSelect.addEventListener('change', () => {
             automaticTagTimer = setTimeout(renderAutomaticTags, 180);
         }));
         renderAutomaticTags();
-        const linkTypeField = form.querySelector('[data-link-type]');
-        const linkSearchField = form.querySelector('[data-link-search]');
-        const linkResults = form.querySelector('[data-link-results]');
+        const mentionResults = form.querySelector('[data-mention-results]');
         let sourceLinkSearchTimer = null;
         let sourceLinkSearchSeq = 0;
         let sourceHeroBasePromise = null;
-        let contentSelectionStart = contentField.value.length;
-        let contentSelectionEnd = contentField.value.length;
-        const rememberContentSelection = () => {
-            contentSelectionStart = contentField.selectionStart ?? contentField.value.length;
-            contentSelectionEnd = contentField.selectionEnd ?? contentSelectionStart;
+        let mentionStart = -1;
+        let mentionActiveIndex = -1;
+        let mentionItems = [];
+        const closeMentionResults = () => {
+            mentionResults.style.display = 'none';
+            mentionResults.innerHTML = '';
+            mentionItems = [];
+            mentionActiveIndex = -1;
+            mentionStart = -1;
         };
-        ['click', 'keyup', 'select', 'focus'].forEach(type => contentField.addEventListener(type, rememberContentSelection));
-        const insertSourceLink = (type, id, label) => {
+        const insertSourceLink = (type, id, label, replaceStart, replaceEnd) => {
             const token = `[[${type}:${id}|${label}]]`;
-            contentField.setRangeText(token, contentSelectionStart, contentSelectionEnd, 'end');
-            contentSelectionStart = contentSelectionEnd = contentField.selectionStart;
+            contentField.setRangeText(token, replaceStart, replaceEnd, 'end');
             contentField.focus();
-            linkSearchField.value = '';
-            linkResults.innerHTML = '';
+            closeMentionResults();
+            contentField.dispatchEvent(new Event('input', { bubbles:true }));
         };
-        const renderSourceLinkResults = (items, type) => {
-            linkResults.innerHTML = '';
+        const renderSourceMentionResults = (items, replaceStart, replaceEnd) => {
+            mentionResults.innerHTML = '';
+            mentionItems = items.slice(0, 24);
             if (!items.length) {
-                linkResults.innerHTML = '<div style="padding:7px;color:#82919c;font-size:11px;">검색 결과가 없습니다.</div>';
+                mentionResults.style.display = 'block';
+                mentionResults.innerHTML = '<div style="padding:7px;color:#82919c;font-size:11px;">관련 지명·인물·국가가 없습니다.</div>';
                 return;
             }
-            items.slice(0, 20).forEach(item => {
+            mentionResults.style.display = 'block';
+            mentionItems.forEach((entry, index) => {
+                const { item, type } = entry;
                 const id = String(item._id || '');
                 const label = String(type === 'place' && item.matched_history_name
                     ? item.matched_history_name
@@ -32608,10 +32781,13 @@ kingSelect.addEventListener('change', () => {
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = 'history-link-result';
+                button.dataset.mentionIndex = String(index);
+                button.style.cssText = 'width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;border:0;border-radius:4px;background:transparent;color:#d8e5ec;text-align:left;cursor:pointer;';
                 const name = document.createElement('span');
-                name.textContent = `${type === 'place' ? '⌖' : type === 'country' ? '⚑' : '♟'} ${label}`;
+                name.textContent = `${type === 'place' ? '📍 지명' : type === 'country' ? '🚩 국가' : '👤 인물'} · ${label}`;
                 const meta = document.createElement('span');
                 meta.style.opacity = '.65';
+                meta.style.fontSize = '10px';
                 if (type === 'place') {
                     const period = item.matched_history_name && (item.matched_history_start_year != null || item.matched_history_end_year != null)
                         ? ` · ${item.matched_history_start_year ?? '?'}~${item.matched_history_end_year ?? '?'}년`
@@ -32623,52 +32799,85 @@ kingSelect.addEventListener('change', () => {
                     meta.textContent = type === 'country' ? (item.ethnicity || '국가 상세') : (item.title || item.faction || '인물');
                 }
                 button.append(name, meta);
-                button.addEventListener('click', () => insertSourceLink(type, id, label));
-                linkResults.appendChild(button);
+                button.addEventListener('mouseenter', () => setMentionActive(index));
+                button.addEventListener('mousedown', event => event.preventDefault());
+                button.addEventListener('click', () => insertSourceLink(type, id, label, replaceStart, replaceEnd));
+                mentionResults.appendChild(button);
             });
+            setMentionActive(0);
         };
-        const searchSourceLinkTargets = async () => {
-            const query = linkSearchField.value.trim();
-            const type = linkTypeField.value;
+        const setMentionActive = index => {
+            const buttons = [...mentionResults.querySelectorAll('[data-mention-index]')];
+            if (!buttons.length) return;
+            mentionActiveIndex = (index + buttons.length) % buttons.length;
+            buttons.forEach((button, buttonIndex) => {
+                button.style.background = buttonIndex === mentionActiveIndex ? 'rgba(56,126,158,.3)' : 'transparent';
+            });
+            buttons[mentionActiveIndex]?.scrollIntoView({ block:'nearest' });
+        };
+        const searchSourceMentions = async (query, replaceStart, replaceEnd) => {
             const requestSeq = ++sourceLinkSearchSeq;
-            if (!query) { linkResults.innerHTML = ''; return; }
-            linkResults.innerHTML = '<div style="padding:7px;color:#82919c;font-size:11px;">검색 중…</div>';
+            mentionResults.style.display = 'block';
+            mentionResults.innerHTML = '<div style="padding:7px;color:#82919c;font-size:11px;">검색 중…</div>';
             try {
-                let items;
-                if (type === 'place') {
-                    const response = await fetch(`/api/castle/search?q=${encodeURIComponent(query)}&limit=20`);
+                const normalized = query.toLowerCase();
+                const placePromise = fetch(`/api/castle/search?q=${encodeURIComponent(query)}&limit=12`).then(async response => {
                     if (!response.ok) throw new Error('지명 검색 실패');
-                    items = await response.json();
-                } else if (type === 'country') {
-                    const normalized = query.toLowerCase();
-                    items = (countries || []).filter(country => [country.name, country.name_kor, country.name_chi, ...(Array.isArray(country.aliases) ? country.aliases : [])]
-                        .filter(Boolean).join(' ').toLowerCase().includes(normalized));
-                } else {
-                    if (!sourceHeroBasePromise) sourceHeroBasePromise = fetch('/api/heroes/base', { cache:'force-cache' }).then(response => {
-                        if (!response.ok) throw new Error('인물 검색 실패');
-                        return response.json();
-                    });
-                    const base = await sourceHeroBasePromise;
-                    const normalized = query.toLowerCase();
-                    const identities = new Set();
-                    items = (Array.isArray(base?.figures) ? base.figures : []).filter(hero => {
+                    return response.json();
+                }).catch(() => []);
+                if (!sourceHeroBasePromise) sourceHeroBasePromise = fetch('/api/heroes/base', { cache:'force-cache' }).then(response => {
+                    if (!response.ok) throw new Error('인물 검색 실패');
+                    return response.json();
+                }).catch(() => ({ figures:[] }));
+                const [places, base] = await Promise.all([placePromise, sourceHeroBasePromise]);
+                const countryItems = (countries || []).filter(country => [country.name, country.name_kor, country.name_chi, ...(Array.isArray(country.aliases) ? country.aliases : [])]
+                    .filter(Boolean).join(' ').toLowerCase().includes(normalized)).slice(0, 8);
+                const identities = new Set();
+                const people = (Array.isArray(base?.figures) ? base.figures : []).filter(hero => {
                         const identity = String(hero.person_id || hero._id);
                         const matches = [hero.name_ko, hero.name, hero.name_zh, hero.title, ...(Array.isArray(hero.aliases) ? hero.aliases : [])].filter(Boolean).join(' ').toLowerCase().includes(normalized);
                         if (!matches || identities.has(identity)) return false;
                         identities.add(identity);
                         return true;
-                    });
-                }
-                if (requestSeq === sourceLinkSearchSeq) renderSourceLinkResults(Array.isArray(items) ? items : [], type);
+                    }).slice(0, 10);
+                const items = [
+                    ...(Array.isArray(places) ? places : []).map(item => ({ type:'place', item })),
+                    ...people.map(item => ({ type:'person', item })),
+                    ...countryItems.map(item => ({ type:'country', item }))
+                ];
+                if (requestSeq === sourceLinkSearchSeq) renderSourceMentionResults(items, replaceStart, replaceEnd);
             } catch (error) {
-                if (requestSeq === sourceLinkSearchSeq) linkResults.innerHTML = '<div style="padding:7px;color:#e08b80;font-size:11px;">검색에 실패했습니다.</div>';
+                if (requestSeq === sourceLinkSearchSeq) mentionResults.innerHTML = '<div style="padding:7px;color:#e08b80;font-size:11px;">검색에 실패했습니다.</div>';
             }
         };
-        linkSearchField.addEventListener('input', () => {
+        const updateMentionFromCaret = () => {
             clearTimeout(sourceLinkSearchTimer);
-            sourceLinkSearchTimer = setTimeout(searchSourceLinkTargets, 180);
+            const caret = contentField.selectionStart ?? 0;
+            const beforeCaret = contentField.value.slice(0, caret);
+            const match = beforeCaret.match(/(?:^|\s)@([^\s@\[\]]{1,30})$/);
+            if (!match) { closeMentionResults(); return; }
+            mentionStart = caret - match[1].length - 1;
+            sourceLinkSearchTimer = setTimeout(() => searchSourceMentions(match[1], mentionStart, caret), 160);
+        };
+        contentField.addEventListener('input', updateMentionFromCaret);
+        contentField.addEventListener('click', updateMentionFromCaret);
+        contentField.addEventListener('keyup', event => {
+            if (['ArrowDown','ArrowUp','Enter','Escape'].includes(event.key)) return;
+            updateMentionFromCaret();
         });
-        linkTypeField.addEventListener('change', searchSourceLinkTargets);
+        contentField.addEventListener('keydown', event => {
+            if (mentionResults.style.display === 'none') return;
+            if (event.key === 'Escape') { event.preventDefault(); closeMentionResults(); return; }
+            if (event.key === 'ArrowDown') { event.preventDefault(); setMentionActive(mentionActiveIndex + 1); return; }
+            if (event.key === 'ArrowUp') { event.preventDefault(); setMentionActive(mentionActiveIndex - 1); return; }
+            if (event.key === 'Enter' && mentionActiveIndex >= 0) {
+                event.preventDefault();
+                mentionResults.querySelector(`[data-mention-index="${mentionActiveIndex}"]`)?.click();
+            }
+        });
+        form.addEventListener('mousedown', event => {
+            if (event.target !== contentField && !mentionResults.contains(event.target)) closeMentionResults();
+        });
         const initialFormState = new URLSearchParams(new FormData(form)).toString();
         const hasUnsavedChanges = () => new URLSearchParams(new FormData(form)).toString() !== initialFormState;
         const close = (force = false) => {
@@ -35762,8 +35971,23 @@ kingSelect.addEventListener('change', () => {
                 const uid = String(hero._id || Math.random()).replace(/[^a-z0-9]/gi, '').slice(-8);
                 const imgSrc = hero.avatar_url || defaultImg;
                 const cleanLabelPart = value => String(value || '').replace(/\s*[\/／]\s*/g, ' ').replace(/\s+/g, ' ').trim();
-                const heroName = cleanLabelPart(hero.name_ko || hero.name);
-                const heroTitle = cleanLabelPart(hero.title);
+                const primaryName = cleanLabelPart(hero.name_ko || hero.name);
+                const aliases = (Array.isArray(hero.aliases) ? hero.aliases : [hero.aliases])
+                    .flatMap(value => String(value || '').split(','))
+                    .map(cleanLabelPart).filter(Boolean);
+                const storedTitleCandidates = [hero.era_name, hero.regnal_name, hero.temple_name, ...aliases]
+                    .map(cleanLabelPart).filter(Boolean);
+                const isRoyalTitle = value => /(?:태조|세조|고조|성조|[가-힣]{1,8}(?:태왕|대왕|성왕|명왕|왕|황제|대제|대군)|[가-힣]{1,5}[조종])$/.test(value);
+                let heroTitle = cleanLabelPart(hero.title);
+                let heroName = primaryName;
+                if (!heroTitle && isRoyalTitle(primaryName)) {
+                    const personalAlias = aliases.find(alias => !isRoyalTitle(alias) && /^[가-힣]{2,6}$/.test(alias));
+                    if (personalAlias) {
+                        heroTitle = primaryName;
+                        heroName = personalAlias;
+                    }
+                }
+                if (!heroTitle) heroTitle = storedTitleCandidates.find(isRoyalTitle) || '';
                 const label = !heroTitle || heroTitle === heroName || heroName.includes(heroTitle)
                     ? heroName
                     : (heroTitle.includes(heroName) ? heroTitle : `${heroTitle} ${heroName}`.trim());
@@ -38955,7 +39179,7 @@ kingSelect.addEventListener('change', () => {
              }
          });
 
-        // 🚩 [추가] 연대표 막대 클릭 시 해당 국가의 시작 연도로 이동
+        // 연대표 막대 클릭: 막대 안에서 누른 위치의 시점과 해당 국가로 지도 이동
         const timelineContainer = document.getElementById('timeline-container');
         timelineContainer.addEventListener('click', (e) => {
             if (e.target.classList.contains('timeline-bar')) {
@@ -38965,26 +39189,14 @@ kingSelect.addEventListener('change', () => {
                 }
                 
                 const bar = e.target;
-                const startYear = parseInt(bar.dataset.startYear);
-                const startMonth = parseInt(bar.dataset.startMonth);
-                const countryId = bar.dataset.countryId;
-
-                // 1. 시간 이동
-                updateTime(startYear, startMonth);
-
-                // 🚩 [추가] 연대표도 해당 시점으로 스크롤
-                updateTimelineScroll();
-
-                // 2. 🚩 [추가] 해당 국가의 수도를 찾아 클로즈업
-                if (countryId) {
-                    const startTime = yearMonthToTotalMonths(startYear, startMonth);
-                    // 해당 국가의 시작 시점에 유효한 수도를 찾습니다.
-                    const capital = castles.find(c => c.country_id === countryId && c.is_capital && yearMonthToTotalMonths(c.built_year, c.built_month || 1) <= startTime && (c.destroyed === null || yearMonthToTotalMonths(c.destroyed, c.destroyed_month || 12) >= startTime));
-                    
-                    if (capital) {
-                        map.flyTo([capital.lat, capital.lng], 10);
-                    }
-                }
+                const startMonths = Number(bar.dataset.startMonths);
+                const endMonths = Number(bar.dataset.endMonths);
+                const rect = bar.getBoundingClientRect();
+                const clickRatio = rect.width > 0
+                    ? Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+                    : 0;
+                const clickedMonths = startMonths + ((endMonths - startMonths) * clickRatio);
+                navigateTimelineToCountry(bar.dataset.countryId, clickedMonths);
             }
         });
 
@@ -45125,6 +45337,20 @@ async function castleFormDeleteVoice() {
     </button>
 </div>
 
+<script>
+(function mountMiniBgmBesideUsername() {
+    const mount = () => {
+        const username = document.getElementById('usernameDisplay');
+        const controller = document.getElementById('bgm-mini-bar');
+        if (username && controller && username.nextElementSibling !== controller) {
+            username.insertAdjacentElement('afterend', controller);
+        }
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true });
+    else mount();
+})();
+</script>
+
 <!-- ── 이미지 라이트박스 ── -->
 <div id="img-lightbox" onclick="if(event.target===this)closeLightbox()">
     <button id="img-lightbox-close" onclick="closeLightbox()">✕</button>
@@ -46476,7 +46702,7 @@ window.toggleResourceBar = function(btn, forceState) {
 })();
 </script>
 
-  <script type="module" src="./src/core/bootstrap.js?v=20260802-royal-position-override"></script>
+  <script type="module" src="./src/core/bootstrap.js?v=20260811-hero-title-label"></script>
   <script async type="text/javascript" charset="utf-8" src="https://t1.kakaocdn.net/kas/static/ba.min.js"></script>
 </body>
 </html>

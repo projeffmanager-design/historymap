@@ -95,6 +95,39 @@ function getHeroTypeImageUrl(hero) {
   return HERO_TYPE_IMAGE_URLS[type] || DEFAULT_HERO_IMAGE_URL;
 }
 
+function formatHeroMarkerLabel(hero) {
+  const clean = (value) => String(value || '')
+    .replace(/[（(][^）)]*[）)]/g, '')
+    .replace(/\s*[\/／]\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const primaryName = clean(hero?.name_ko || hero?.name);
+  const aliases = (Array.isArray(hero?.aliases) ? hero.aliases : [hero?.aliases])
+    .flatMap((value) => String(value || '').split(','))
+    .map(clean)
+    .filter(Boolean);
+  const isRoyalTitle = (value) => /(?:태조|세조|고조|성조|[가-힣]{1,8}(?:태왕|대왕|성왕|명왕|왕|황제|대제|대군)|[가-힣]{1,5}[조종])$/.test(value);
+  let title = clean(hero?.title);
+  let name = primaryName;
+
+  if (!title && isRoyalTitle(primaryName)) {
+    const personalAlias = aliases.find((alias) => !isRoyalTitle(alias) && /^[가-힣]{2,6}$/.test(alias));
+    if (personalAlias) {
+      title = primaryName;
+      name = personalAlias;
+    }
+  }
+  if (!title) {
+    title = [hero?.regnal_name, hero?.temple_name, hero?.era_name, ...aliases]
+      .map(clean)
+      .find(isRoyalTitle) || '';
+  }
+  const label = !title || title === name || name.includes(title)
+    ? name
+    : (title.includes(name) ? title : `${title} ${name}`.trim());
+  return label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function primeHeroTypeImages() {
   Object.values(HERO_TYPE_IMAGE_URLS).forEach((url) => {
     const img = new Image();
@@ -370,7 +403,7 @@ function buildHeroIcon(hero) {
           <div xmlns="http://www.w3.org/1999/xhtml" style="width:34px;height:34px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;">${avatarInner}</div>
         </foreignObject>
       </svg>
-      <span class="hero-pin-name">${hero.name_ko || ''}</span>
+      <span class="hero-pin-name">${formatHeroMarkerLabel(hero)}</span>
     </div></div>`,
     iconSize: [34, 41],
     iconAnchor: [17, 41],
