@@ -25327,6 +25327,15 @@ const loadingMessages = [
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
+    // 공용 @링크 모듈이 지연 로드되기 전에도 댓글·활동 소식의 첫 렌더에서
+    // 내부 저장 토큰이 노출되지 않도록 기본 렌더러를 먼저 제공한다.
+    window.renderEntityLinkTokens = window.renderEntityLinkTokens || function(value) {
+      return _escapeHistoryInline(value).replace(/\[\[(person|place|country):([^|\]]+)\|([^\]]+)\]\]/g, (_token, type, id, label) => {
+        const className = type === 'person' ? 'person' : type === 'country' ? 'country' : 'place';
+        return `<button type="button" class="history-${className}-link global-entity-token-link" data-entity-type="${_escapeHistoryInline(type)}" data-entity-id="${_escapeHistoryInline(id)}">${_escapeHistoryInline(label)}</button>`;
+      });
+    };
+
     function _historyEntityLinks(text, year, month = 1, heroFigures = [], options = {}) {
       const rawText = String(text ?? '');
       if (!rawText) return '';
