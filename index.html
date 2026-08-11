@@ -14945,12 +14945,22 @@ function getKingByYear(countryName, year, month) {
     }
 
     /** 현재 연도와 월의 왕 정보를 패널에 업데이트합니다. */
-    function updateKingLabel(year, month) {
+function updateKingLabel(year, month) {
       // console.log(`🔍 [왕 패널] updateKingLabel 호출: ${year}년 ${month}월, kings 개수: ${Object.keys(kings).length}`);
       let html = "";
+      // 같은 이름의 국가 레코드가 중복되어도 동일 왕이 패널에 두 번 나타나지 않게 한다.
+      const renderedKingRows = new Set();
       countries.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko')).forEach(country => { // 🚩 [수정] 국가명 가나다순 정렬
         const king = getKingByYear(country.name, year, month); // <-- THIS LINE WAS MISSING OR MISPLACED
        if (king) { // <-- Now the 'if' statement works because 'king' is defined
+            const rowKey = [
+                String(country.name || '').normalize('NFKC').replace(/\s+/g, ''),
+                String(king._id || king.person_id || king.source_ref_id || king.name_ko || king.name || ''),
+                king.start ?? '', king.start_month ?? 1,
+                king.end ?? '', king.end_month ?? 12
+            ].join('|');
+            if (renderedKingRows.has(rowKey)) return;
+            renderedKingRows.add(rowKey);
             // 🚩 [디버그] 왕 데이터 확인
             if (king.name === '태조' || king.name === '광개토왕') {
                 // console.log('왕 데이터 확인:', king.name, 'summary:', king.summary);
@@ -32697,18 +32707,63 @@ kingSelect.addEventListener('change', () => {
         const contentField = form.elements.content;
         contentField.dataset.entityMentionBound = '1';
         const sourceMentionLinks = [];
-        contentField.value = contentField.value.replace(/\[\[(person|place|country):([^|\]]+)\|([^\]]+)\]\]/g, (token, type, id, label) => {
+        const sourceMentionRawValue = contentField.value;
+        let sourceMentionPlainValue = '';
+        let sourceMentionCursor = 0;
+        sourceMentionRawValue.replace(/\[\[(person|place|country):([^|\]]+)\|([^\]]+)\]\]/g, (token, type, id, label, offset) => {
+            sourceMentionPlainValue += sourceMentionRawValue.slice(sourceMentionCursor, offset);
             const marker = `@${label}`;
-            sourceMentionLinks.push({ marker, token: `[[${type}:${id}|${label}]]` });
-            return marker;
+            const start = sourceMentionPlainValue.length;
+            sourceMentionPlainValue += marker;
+            sourceMentionLinks.push({ marker, token: `[[${type}:${id}|${label}]]`, type, id, start, end:sourceMentionPlainValue.length });
+            sourceMentionCursor = offset + token.length;
+            return token;
         });
+        contentField.value = sourceMentionPlainValue + sourceMentionRawValue.slice(sourceMentionCursor);
+        let sourceMentionPreviousValue = contentField.value;
         const serializeSourceMentions = value => {
             let serialized = String(value || '');
-            sourceMentionLinks.forEach(({ marker, token }) => {
-                const index = serialized.indexOf(marker);
-                if (index >= 0) serialized = serialized.slice(0, index) + token + serialized.slice(index + marker.length);
+            sourceMentionLinks.slice().sort((a, b) => b.start - a.start).forEach(link => {
+                const visible = serialized.slice(link.start, link.end);
+                if (!visible.startsWith('@') || visible.length < 2) return;
+                const label = visible.slice(1);
+                const token = `[[${link.type}:${link.id}|${label}]]`;
+                serialized = serialized.slice(0, link.start) + token + serialized.slice(link.end);
             });
             return serialized;
+        };
+        const reconcileSourceMentionRanges = () => {
+            const next = contentField.value;
+            const previous = sourceMentionPreviousValue;
+            if (previous === next) return;
+            let prefix = 0;
+            while (prefix < previous.length && prefix < next.length && previous[prefix] === next[prefix]) prefix++;
+            let suffix = 0;
+            while (suffix < previous.length - prefix && suffix < next.length - prefix
+                && previous[previous.length - 1 - suffix] === next[next.length - 1 - suffix]) suffix++;
+            const oldEnd = previous.length - suffix;
+            const newEnd = next.length - suffix;
+            const delta = newEnd - oldEnd;
+            for (let index = sourceMentionLinks.length - 1; index >= 0; index--) {
+                const link = sourceMentionLinks[index];
+                if (oldEnd <= link.start) {
+                    link.start += delta; link.end += delta;
+                } else if (prefix >= link.end) {
+                    const appended = prefix === link.end && oldEnd === link.end && delta > 0
+                        ? next.slice(prefix, newEnd) : '';
+                    if (appended && !/\s/.test(appended)) link.end += delta;
+                } else {
+                    if (prefix < link.start || oldEnd > link.end) {
+                        sourceMentionLinks.splice(index, 1);
+                        continue;
+                    }
+                    link.end += delta;
+                }
+                if (next.slice(link.start, link.start + 1) !== '@' || link.end <= link.start + 1) {
+                    sourceMentionLinks.splice(index, 1);
+                }
+            }
+            sourceMentionPreviousValue = next;
         };
         const contentToolbar = buildHistoryHtmlToolbar(contentField);
         if (contentToolbar) contentField.parentNode.insertBefore(contentToolbar, contentField);
@@ -32783,8 +32838,13 @@ kingSelect.addEventListener('change', () => {
         const insertSourceLink = (type, id, label, replaceStart, replaceEnd) => {
             const token = `[[${type}:${id}|${label}]]`;
             const marker = `@${label}`;
-            sourceMentionLinks.push({ marker, token });
+            const delta = marker.length - (replaceEnd - replaceStart);
+            sourceMentionLinks.forEach(link => {
+                if (link.start >= replaceEnd) { link.start += delta; link.end += delta; }
+            });
+            sourceMentionLinks.push({ marker, token, type, id, start:replaceStart, end:replaceStart + marker.length });
             contentField.setRangeText(marker, replaceStart, replaceEnd, 'end');
+            sourceMentionPreviousValue = contentField.value;
             contentField.focus();
             closeMentionResults();
             contentField.dispatchEvent(new Event('input', { bubbles:true }));
@@ -32886,7 +32946,10 @@ kingSelect.addEventListener('change', () => {
             mentionStart = caret - match[1].length - 1;
             sourceLinkSearchTimer = setTimeout(() => searchSourceMentions(match[1], mentionStart, caret), 160);
         };
-        contentField.addEventListener('input', updateMentionFromCaret);
+        contentField.addEventListener('input', () => {
+            reconcileSourceMentionRanges();
+            updateMentionFromCaret();
+        });
         contentField.addEventListener('click', updateMentionFromCaret);
         contentField.addEventListener('keyup', event => {
             if (['ArrowDown','ArrowUp','Enter','Escape'].includes(event.key)) return;

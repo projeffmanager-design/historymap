@@ -30,11 +30,50 @@ function valueAndCaret(field) {
 
 function serializeLinks(value, links) {
   let serialized = String(value || '');
-  links.forEach(({ marker, token }) => {
+  const positional = links.filter((link) => Number.isInteger(link.start) && Number.isInteger(link.end))
+    .sort((a, b) => b.start - a.start);
+  positional.forEach((link) => {
+    const visible = serialized.slice(link.start, link.end);
+    if (!visible.startsWith('@') || visible.length < 2) return;
+    const label = visible.slice(1);
+    const token = `[[${link.type}:${link.id}|${label}]]`;
+    serialized = serialized.slice(0, link.start) + token + serialized.slice(link.end);
+  });
+  links.filter((link) => !Number.isInteger(link.start) || !Number.isInteger(link.end)).forEach(({ marker, token }) => {
     const index = serialized.indexOf(marker);
     if (index >= 0) serialized = serialized.slice(0, index) + token + serialized.slice(index + marker.length);
   });
   return serialized;
+}
+
+function reconcileLinkRanges(state, nextValue) {
+  const previous = String(state.previousValue ?? nextValue);
+  const next = String(nextValue || '');
+  if (previous === next) return;
+  let prefix = 0;
+  while (prefix < previous.length && prefix < next.length && previous[prefix] === next[prefix]) prefix++;
+  let suffix = 0;
+  while (suffix < previous.length - prefix && suffix < next.length - prefix
+    && previous[previous.length - 1 - suffix] === next[next.length - 1 - suffix]) suffix++;
+  const oldEnd = previous.length - suffix;
+  const newEnd = next.length - suffix;
+  const delta = newEnd - oldEnd;
+  state.links = state.links.filter((link) => {
+    if (!Number.isInteger(link.start) || !Number.isInteger(link.end)) return true;
+    if (oldEnd <= link.start) {
+      link.start += delta; link.end += delta;
+    } else if (prefix >= link.end) {
+      const appended = prefix === link.end && oldEnd === link.end && delta > 0
+        ? next.slice(prefix, newEnd) : '';
+      if (appended && !/\s/.test(appended)) link.end += delta;
+    } else {
+      // 표시 이름 내부를 수정한 경우 링크 범위만 늘이거나 줄이고 대상 ID는 보존한다.
+      if (prefix < link.start || oldEnd > link.end) return false;
+      link.end += delta;
+    }
+    return next.slice(link.start, link.start + 1) === '@' && link.end > link.start + 1;
+  });
+  state.previousValue = next;
 }
 
 window.serializeEntityMentionsForField = (field) => {
@@ -42,7 +81,7 @@ window.serializeEntityMentionsForField = (field) => {
   return serializeLinks(field?.value ?? field?.textContent ?? '', state?.links || []);
 };
 
-function insertToken(field, start, end, marker, token, state) {
+function insertToken(field, start, end, marker, token, state, type, id) {
   if (field.matches('textarea,input')) {
     field.setRangeText(marker, start, end, 'end');
   } else {
@@ -62,7 +101,13 @@ function insertToken(field, start, end, marker, token, state) {
       range.collapse(false); selection.removeAllRanges(); selection.addRange(range);
     }
   }
-  state.links.push({ marker, token });
+  const delta = marker.length - (end - start);
+  state.links.forEach((link) => {
+    if (!Number.isInteger(link.start) || link.start < end) return;
+    link.start += delta; link.end += delta;
+  });
+  state.links.push({ marker, token, type, id, start, end: start + marker.length });
+  state.previousValue = field.value ?? field.textContent ?? '';
   field.dispatchEvent(new Event('input', { bubbles: true }));
   field.focus();
 }
@@ -103,14 +148,23 @@ function bind(field) {
   popup.className = 'global-entity-mention-results';
   popup.style.cssText = 'display:none;position:fixed;z-index:2147482500;max-width:min(520px,calc(100vw - 16px));max-height:240px;overflow:auto;padding:4px;border:1px solid rgba(93,166,199,.55);border-radius:7px;background:#101a22;box-shadow:0 10px 28px rgba(0,0,0,.7);';
   document.body.appendChild(popup);
-  const state = { popup, seq: 0, active: -1, buttons: [], links: [] };
+  const state = { popup, seq: 0, active: -1, buttons: [], links: [], previousValue: field.value ?? field.textContent ?? '' };
   mentionState.set(field, state);
   if (field.matches('textarea,input')) {
-    field.value = field.value.replace(/\[\[(person|place|country):([^|\]]+)\|([^\]]+)\]\]/g, (token, type, id, label) => {
+    const source = field.value;
+    let plain = '';
+    let cursor = 0;
+    source.replace(/\[\[(person|place|country):([^|\]]+)\|([^\]]+)\]\]/g, (token, type, id, label, offset) => {
+      plain += source.slice(cursor, offset);
       const marker = `@${label}`;
-      state.links.push({ marker, token: `[[${type}:${id}|${label}]]` });
-      return marker;
+      const start = plain.length;
+      plain += marker;
+      state.links.push({ marker, token: `[[${type}:${id}|${label}]]`, type, id, start, end: plain.length });
+      cursor = offset + token.length;
+      return token;
     });
+    field.value = plain + source.slice(cursor);
+    state.previousValue = field.value;
   }
   const ownerForm = field.closest('form');
   if (ownerForm && field.name) {
@@ -153,7 +207,7 @@ function bind(field) {
       button.addEventListener('mousedown', (event) => event.preventDefault());
       button.addEventListener('click', () => {
         const marker = `@${label}`;
-        insertToken(field, start, caret, marker, `[[${type}:${id}|${label}]]`, state);
+        insertToken(field, start, caret, marker, `[[${type}:${id}|${label}]]`, state, type, id);
         close();
       });
       popup.appendChild(button); return button;
@@ -161,7 +215,10 @@ function bind(field) {
     if (!state.buttons.length) popup.innerHTML = '<div style="padding:7px;color:#82919c;font-size:11px;">관련 지명·인물·국가가 없습니다.</div>';
     else activate(0);
   };
-  field.addEventListener('input', update);
+  field.addEventListener('input', () => {
+    reconcileLinkRanges(state, field.value ?? field.textContent ?? '');
+    update();
+  });
   field.addEventListener('click', update);
   field.addEventListener('keydown', (event) => {
     if (popup.style.display === 'none') return;
