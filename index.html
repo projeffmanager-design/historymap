@@ -14512,7 +14512,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                             ${delBtn}
                             <span style="font-size:11px; color:#d4a843; font-weight:600;">${_esc(c.author)}</span>
                             <span style="font-size:10px; color:#6a7f8e; margin-left:6px;">${date}</span>
-                            <div style="font-size:12px; color:#c8d8e8; margin-top:2px; white-space:pre-wrap;">${_esc(c.text)}</div>
+                            <div style="font-size:12px; color:#c8d8e8; margin-top:2px; white-space:pre-wrap;">${window.renderEntityLinkTokens ? window.renderEntityLinkTokens(c.text) : _esc(c.text)}</div>
                         </div>`;
                     }).join('');
                     commentsMoreBtn.style.display = 'none';
@@ -31344,7 +31344,7 @@ kingSelect.addEventListener('change', () => {
                     `<div class="hero-comment-item ${stance}">
                         <span class="hero-comment-author">${escapeHeroCommentText(stanceLabel)} · ${escapeHeroCommentText(c.author || '사관')}</span>
                         <span class="hero-comment-date">${dt}</span>
-                        <div class="hero-comment-text">${escapeHeroCommentText(c.content || '')}</div>
+                        <div class="hero-comment-text">${window.renderEntityLinkTokens ? window.renderEntityLinkTokens(c.content || '') : escapeHeroCommentText(c.content || '')}</div>
                         ${(c.can_edit || c.can_delete) ? `
                             <div class="hero-comment-actions">
                                 ${c.can_edit ? `<button type="button" class="hero-comment-action edit" data-action="edit" data-comment-id="${escapeHeroCommentText(commentId)}">수정</button>` : ''}
@@ -32686,6 +32686,21 @@ kingSelect.addEventListener('change', () => {
         document.body.appendChild(overlay);
         const form = overlay.querySelector('#source-record-direct-form');
         const contentField = form.elements.content;
+        contentField.dataset.entityMentionBound = '1';
+        const sourceMentionLinks = [];
+        contentField.value = contentField.value.replace(/\[\[(person|place|country):([^|\]]+)\|([^\]]+)\]\]/g, (token, type, id, label) => {
+            const marker = `@${label}`;
+            sourceMentionLinks.push({ marker, token: `[[${type}:${id}|${label}]]` });
+            return marker;
+        });
+        const serializeSourceMentions = value => {
+            let serialized = String(value || '');
+            sourceMentionLinks.forEach(({ marker, token }) => {
+                const index = serialized.indexOf(marker);
+                if (index >= 0) serialized = serialized.slice(0, index) + token + serialized.slice(index + marker.length);
+            });
+            return serialized;
+        };
         const contentToolbar = buildHistoryHtmlToolbar(contentField);
         if (contentToolbar) contentField.parentNode.insertBefore(contentToolbar, contentField);
         const sourceLinkExclusions = new Set(Array.isArray(record.link_exclusions) ? record.link_exclusions.map(String) : []);
@@ -32758,7 +32773,9 @@ kingSelect.addEventListener('change', () => {
         };
         const insertSourceLink = (type, id, label, replaceStart, replaceEnd) => {
             const token = `[[${type}:${id}|${label}]]`;
-            contentField.setRangeText(token, replaceStart, replaceEnd, 'end');
+            const marker = `@${label}`;
+            sourceMentionLinks.push({ marker, token });
+            contentField.setRangeText(marker, replaceStart, replaceEnd, 'end');
             contentField.focus();
             closeMentionResults();
             contentField.dispatchEvent(new Event('input', { bubbles:true }));
@@ -32842,9 +32859,9 @@ kingSelect.addEventListener('change', () => {
                         return true;
                     }).slice(0, 10);
                 const items = [
-                    ...(Array.isArray(places) ? places : []).map(item => ({ type:'place', item })),
+                    ...countryItems.map(item => ({ type:'country', item })),
                     ...people.map(item => ({ type:'person', item })),
-                    ...countryItems.map(item => ({ type:'country', item }))
+                    ...(Array.isArray(places) ? places : []).map(item => ({ type:'place', item }))
                 ];
                 if (requestSeq === sourceLinkSearchSeq) renderSourceMentionResults(items, replaceStart, replaceEnd);
             } catch (error) {
@@ -32902,7 +32919,7 @@ kingSelect.addEventListener('change', () => {
                 source: String(fields.get('source') || '').trim(),
                 title: String(fields.get('title') || '').trim(),
                 content_type: String(fields.get('content_type') || 'translation'),
-                content: String(fields.get('content') || '').trim(),
+                content: serializeSourceMentions(String(fields.get('content') || '').trim()),
                 link_exclusions: [...sourceLinkExclusions]
             };
             if (!Number.isFinite(data.year) || !data.source || !data.title || !data.content) return alert('시점, 출전, 제목, 본문을 입력해주세요.');
@@ -40164,7 +40181,7 @@ kingSelect.addEventListener('change', () => {
                             <span style="font-weight:600; color:${isOwn ? '#d4a843' : '#8ec8e8'};">${c.author}${isOwn ? ' 👤' : ''}</span>
                             <span style="color:#4a6070;">${dateStr}</span>
                         </div>
-                        <div style="font-size:13px; color:#d0e0f0; word-break:break-word; white-space:pre-wrap;">${c.text}</div>
+                        <div style="font-size:13px; color:#d0e0f0; word-break:break-word; white-space:pre-wrap;">${window.renderEntityLinkTokens ? window.renderEntityLinkTokens(c.text) : escapeHtml(c.text)}</div>
                         ${isOwn ? `<div style="text-align:right; margin-top:5px;"><button onclick="deleteCCMComment('${contribId}','${c._id}')" style="background:none;border:none;color:#c0392b;font-size:11px;cursor:pointer;">🗑️ 삭제</button></div>` : ''}
                     </div>`;
                 }).join('');
@@ -42323,7 +42340,7 @@ kingSelect.addEventListener('change', () => {
                     ${delBtnR}
                     <span class="mc-comment-author">↪ ${escapeHtml(r.author)}</span>
                     <span class="mc-comment-date">${rDate}</span>
-                    <div class="mc-comment-text">${escapeHtml(r.text)}</div>
+                    <div class="mc-comment-text">${window.renderEntityLinkTokens ? window.renderEntityLinkTokens(r.text) : escapeHtml(r.text)}</div>
                 </div>`;
             }).join('');
 
@@ -42344,7 +42361,7 @@ kingSelect.addEventListener('change', () => {
                 <span class="mc-comment-author">${escapeHtml(c.author)}</span>
                 <span class="mc-comment-date">${date}</span>
                 ${replyBtn}
-                <div class="mc-comment-text">${escapeHtml(c.text)}</div>
+                <div class="mc-comment-text">${window.renderEntityLinkTokens ? window.renderEntityLinkTokens(c.text) : escapeHtml(c.text)}</div>
                 ${repliesHtml}
                 ${replyInputHtml}
             </div>`;
@@ -42387,7 +42404,7 @@ kingSelect.addEventListener('change', () => {
                 const div = document.createElement('div');
                 div.className = 'mc-reply-item';
                 div.id = `mc-item-${newReply._id}`;
-                div.innerHTML = `${delBtnR}<span class="mc-comment-author">↪ ${escapeHtml(newReply.author)}</span><span class="mc-comment-date">${rDate}</span><div class="mc-comment-text">${escapeHtml(newReply.text)}</div>`;
+                div.innerHTML = `${delBtnR}<span class="mc-comment-author">↪ ${escapeHtml(newReply.author)}</span><span class="mc-comment-date">${rDate}</span><div class="mc-comment-text">${window.renderEntityLinkTokens ? window.renderEntityLinkTokens(newReply.text) : escapeHtml(newReply.text)}</div>`;
                 repliesDiv.appendChild(div);
             }
             toggleReplyInput(parentId);
@@ -42997,8 +43014,11 @@ body.guest-mode #activity-feed-panel { display: none !important; }
             : '';
 
         // 검토 의견 (있을 경우)
+        const renderedComment = window.renderEntityLinkTokens
+            ? window.renderEntityLinkTokens(extra.comment || '')
+            : e(extra.comment || '');
         const commentTxt = extra.comment
-            ? `<div style="font-size:9.5px;color:rgba(220,200,160,0.85);margin-top:2px;padding-left:14px;font-style:italic;">"${e(extra.comment)}"</div>`
+            ? `<div style="font-size:9.5px;color:rgba(220,200,160,0.85);margin-top:2px;padding-left:14px;font-style:italic;">"${renderedComment}"</div>`
             : '';
 
         switch (log.type) {
@@ -43106,7 +43126,7 @@ body.guest-mode #activity-feed-panel { display: none !important; }
         if (ticker.dataset.signature === signature) return;
         const noticeText = notices.map(log => String(log.extra.text).trim()).join('   ◆   ');
         ticker.dataset.signature = signature;
-        track.textContent = noticeText;
+        track.innerHTML = window.renderEntityLinkTokens ? window.renderEntityLinkTokens(noticeText) : e(noticeText);
         track.style.animationDuration = `${Math.min(90, Math.max(18, 12 + noticeText.length * 0.18))}s`;
     }
 
@@ -43130,7 +43150,8 @@ body.guest-mode #activity-feed-panel { display: none !important; }
         // 서버는 최신순(-1 정렬)으로 줌 → 그대로 렌더하면 column-reverse에 의해 최신이 아래에 표시됨
         list.innerHTML = logs.map(log => {
             if (log.type === 'notice') {
-                const text = e((log.extra && log.extra.text) ? log.extra.text : '');
+                const rawText = (log.extra && log.extra.text) ? log.extra.text : '';
+                const text = window.renderEntityLinkTokens ? window.renderEntityLinkTokens(rawText) : e(rawText);
                 const isAdmin = _isAdminUser();
                 const delBtn = isAdmin
                     ? `<button class="af-notice-del" data-notice-id="${e(String(log._id))}" title="공지 삭제">&times;</button>`
@@ -43147,7 +43168,8 @@ body.guest-mode #activity-feed-panel { display: none !important; }
                 const pos   = log.actorPosition
                     ? `<span style="color:rgba(205,182,144,0.78);font-size:9px;">[${e(log.actorPosition)}]</span> `
                     : '';
-                const text  = e((log.extra && log.extra.text) ? log.extra.text : '');
+                const rawText = (log.extra && log.extra.text) ? log.extra.text : '';
+                const text  = window.renderEntityLinkTokens ? window.renderEntityLinkTokens(rawText) : e(rawText);
                 return `<div class="af-item af-chat">
                     <span class="af-icon">💬</span>
                     <span class="af-chat-text">${pos}${actor}: ${text}</span>
@@ -43331,7 +43353,9 @@ body.guest-mode #activity-feed-panel { display: none !important; }
         const noticeSendBtn = document.getElementById('activity-notice-send');
         const noticeInput   = document.getElementById('activity-notice-input');
         async function doSendNotice() {
-            const text = noticeInput?.value?.trim();
+            const text = (window.serializeEntityMentionsForField
+                ? window.serializeEntityMentionsForField(noticeInput)
+                : noticeInput?.value)?.trim();
             if (!text) return;
             noticeInput.value = '';
             noticeInput.disabled = true;
@@ -43373,7 +43397,9 @@ body.guest-mode #activity-feed-panel { display: none !important; }
         const sendBtn = document.getElementById('activity-chat-send');
         const chatInput = document.getElementById('activity-chat-input');
         async function doSend() {
-            const text = chatInput?.value?.trim();
+            const text = (window.serializeEntityMentionsForField
+                ? window.serializeEntityMentionsForField(chatInput)
+                : chatInput?.value)?.trim();
             if (!text) return;
             chatInput.value = '';
             chatInput.disabled = true;
@@ -46704,6 +46730,7 @@ window.toggleResourceBar = function(btn, forceState) {
 </script>
 
   <script type="module" src="./src/core/bootstrap.js?v=20260811-hero-title-label"></script>
+  <script type="module" src="./src/core/entity-mentions.js?v=20260811-global-mentions"></script>
   <script async type="text/javascript" charset="utf-8" src="https://t1.kakaocdn.net/kas/static/ba.min.js"></script>
 </body>
 </html>
