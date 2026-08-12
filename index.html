@@ -8976,7 +8976,7 @@ body.force-mobile .marker-type-selector button {
             z-index: 2147483001 !important;
         }
     </style>
-<body>
+<body class="app-initial-loading">
   <!-- 🏯 Palace Editor Panel — 3D 편집모드, 햄버거 메뉴에서 토글 -->
   <div id="palace-editor-panel" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()">
       <div class="pe-title" style="display:flex;align-items:center;justify-content:space-between;">
@@ -9138,6 +9138,17 @@ body.force-mobile .marker-type-selector button {
   </svg>
   
   <!-- 🚀 [v2.0.5] 초기 로딩 화면 (JavaScript 실행 전부터 표시) -->
+  <style>
+    body.app-initial-loading { overflow:hidden !important; }
+    body.app-initial-loading #top-bar-container { display:none !important; }
+    body.app-initial-loading #initial-loading-screen {
+      inset:0 !important;
+      width:100vw !important;
+      height:100vh !important;
+      height:100dvh !important;
+      z-index:2147483647 !important;
+    }
+  </style>
   <div id="initial-loading-screen" style="
     position: fixed;
     top: 0;
@@ -20443,8 +20454,13 @@ const loadingMessages = [
             setTimeout(() => {
                 initialScreen.style.transition = 'opacity 0.25s ease-out';
                 initialScreen.style.opacity = '0';
-                setTimeout(() => { initialScreen.remove(); }, 260);
+                setTimeout(() => {
+                    initialScreen.remove();
+                    document.body.classList.remove('app-initial-loading');
+                }, 260);
             }, 150); // 100% 표시 후 잠깐 보여주고 닫기
+        } else {
+            document.body.classList.remove('app-initial-loading');
         }
     }
 
@@ -31212,6 +31228,20 @@ kingSelect.addEventListener('change', () => {
                     _heroDetailCache.delete(String(heroId));
                 }
                 showHeroDetailPreview(previewHero);
+            } else {
+                // 다른 연도의 역사 링크처럼 현재 지도 캐시에 없는 인물도 패널부터 즉시 연다.
+                document.getElementById('heroNameZh').textContent = '';
+                document.getElementById('heroNameKo').textContent = '인물 정보를 불러오는 중…';
+                document.getElementById('heroTitleBadge').textContent = '';
+                document.getElementById('heroYears').textContent = '';
+                document.getElementById('heroDesc').textContent = '';
+                document.getElementById('heroPositionList').innerHTML = '';
+                document.getElementById('heroCommentList').innerHTML = '<div class="hero-comment-empty">인물평을 불러오는 중...</div>';
+                sidebar.classList.add('open');
+                document.getElementById('heroIllustWrap').classList.remove('open');
+                const mobile = document.body.classList.contains('force-mobile') || window.innerWidth <= 967 || window.innerHeight > window.innerWidth;
+                document.body.classList.toggle('hero-panel-open', mobile);
+                window.bringAppPanelToFront?.(sidebar, { behind:[document.getElementById('heroIllustWrap')] });
             }
             try {
                 const { hero, positions = [], comments = [] } = await loadHeroDetail(heroId);
@@ -32866,7 +32896,9 @@ kingSelect.addEventListener('change', () => {
                     }
                     link.end += delta;
                 }
-                if (next.slice(link.start, link.start + 1) !== '@' || link.end <= link.start + 1) {
+                // 모바일 IME의 선택문구 교체는 삭제와 입력이 별도 이벤트로 발생하므로,
+                // 잠깐 빈 @만 남아도 대상 ID 연결은 유지한다.
+                if (next.slice(link.start, link.start + 1) !== '@' || link.end < link.start + 1) {
                     sourceMentionLinks.splice(index, 1);
                 }
             }
@@ -32878,11 +32910,35 @@ kingSelect.addEventListener('change', () => {
         const automaticTagPanel = document.createElement('div');
         automaticTagPanel.style.cssText = 'margin:8px 0;padding:9px;border:1px solid rgba(108,157,184,.25);border-radius:6px;background:rgba(26,48,61,.34);';
         contentField.parentNode.appendChild(automaticTagPanel);
+        const renameSourceMention = link => {
+            const currentMarker = contentField.value.slice(link.start, link.end);
+            const currentLabel = currentMarker.startsWith('@') ? currentMarker.slice(1) : '';
+            const nextLabel = prompt('화면에 표시할 이름을 입력하세요. 연결된 대상은 바뀌지 않습니다.', currentLabel);
+            if (nextLabel === null) return;
+            const cleanLabel = String(nextLabel).trim().replace(/^@+/, '');
+            if (!cleanLabel) return alert('표시 이름을 입력해주세요.');
+            const nextMarker = `@${cleanLabel}`;
+            const oldEnd = link.end;
+            const delta = nextMarker.length - (oldEnd - link.start);
+            contentField.setRangeText(nextMarker, link.start, oldEnd, 'end');
+            sourceMentionLinks.forEach(other => {
+                if (other !== link && other.start >= oldEnd) { other.start += delta; other.end += delta; }
+            });
+            link.end = link.start + nextMarker.length;
+            link.marker = nextMarker;
+            link.token = `[[${link.type}:${link.id}|${cleanLabel}]]`;
+            sourceMentionPreviousValue = contentField.value;
+            contentField.dispatchEvent(new Event('input', { bubbles:true }));
+            renderAutomaticTags();
+        };
         const collectDetectedLinks = () => {
             const holder = document.createElement('div');
             holder.innerHTML = _historyEntityLinks(form.elements.title.value || '', Number(form.elements.year.value), Number(form.elements.month.value) || 1, heroFigures)
                 + _historyRichContent(contentField.value || '', Number(form.elements.year.value), Number(form.elements.month.value) || 1, heroFigures);
-            const explicitKeys = new Set();
+            const explicitKeys = new Set(sourceMentionLinks.map(link => {
+                const marker = contentField.value.slice(link.start, link.end);
+                return `${link.type}:${link.id}:${marker.startsWith('@') ? marker.slice(1) : ''}`;
+            }));
             const explicitPattern = /\[\[(person|place|country):([^|\]]+)\|([^\]]+)\]\]/g;
             let explicitMatch;
             const rawEditableText = `${form.elements.title.value || ''}\n${contentField.value || ''}`;
@@ -32900,7 +32956,24 @@ kingSelect.addEventListener('change', () => {
         const renderAutomaticTags = () => {
             const detected = collectDetectedLinks();
             const typeLabel = { person:'인물', country:'국가', place:'장소' };
-            automaticTagPanel.innerHTML = '<div style="color:#a9c5d4;font-size:11px;font-weight:700;margin-bottom:6px;">🏷 자동 연결 태그 <span style="opacity:.65;font-weight:400;">이 원전 사료에만 적용</span></div>';
+            automaticTagPanel.innerHTML = '<div style="color:#a9c5d4;font-size:11px;font-weight:700;margin-bottom:6px;">🔗 직접 연결 태그 <span style="opacity:.65;font-weight:400;">✎를 눌러 표시 이름 수정</span></div>';
+            if (sourceMentionLinks.length) {
+                const linkedTags = document.createElement('div');
+                linkedTags.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap;margin-bottom:9px;';
+                sourceMentionLinks.forEach(link => {
+                    const marker = contentField.value.slice(link.start, link.end);
+                    if (!marker.startsWith('@')) return;
+                    const renameButton = document.createElement('button');
+                    renameButton.type = 'button';
+                    renameButton.title = '연결은 유지하고 표시 이름만 수정';
+                    renameButton.style.cssText = 'padding:4px 8px;border:1px solid rgba(224,178,83,.5);border-radius:12px;background:rgba(190,132,33,.14);color:#f0c66d;font-size:11px;cursor:pointer;';
+                    renameButton.textContent = `${typeLabel[link.type]} · ${marker.slice(1)} ✎`;
+                    renameButton.addEventListener('click', () => renameSourceMention(link));
+                    linkedTags.appendChild(renameButton);
+                });
+                automaticTagPanel.appendChild(linkedTags);
+            }
+            automaticTagPanel.insertAdjacentHTML('beforeend', '<div style="color:#a9c5d4;font-size:11px;font-weight:700;margin-bottom:6px;">🏷 자동 연결 태그 <span style="opacity:.65;font-weight:400;">×는 자동 연결 해제</span></div>');
             if (!detected.size) {
                 automaticTagPanel.insertAdjacentHTML('beforeend', '<div style="color:#718694;font-size:10px;">감지된 자동 연결이 없습니다.</div>');
                 return;
@@ -46912,7 +46985,7 @@ window.toggleResourceBar = function(btn, forceState) {
 </script>
 
   <script type="module" src="./src/core/bootstrap.js?v=20260811-hero-title-label"></script>
-  <script type="module" src="./src/core/entity-mentions.js?v=20260812-editable-labels"></script>
+  <script type="module" src="./src/core/entity-mentions.js?v=20260812-editable-labels-2"></script>
   <script async type="text/javascript" charset="utf-8" src="https://t1.kakaocdn.net/kas/static/ba.min.js"></script>
 </body>
 </html>

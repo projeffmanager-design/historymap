@@ -71,7 +71,9 @@ function reconcileLinkRanges(state, nextValue) {
       if (prefix < link.start || oldEnd > link.end) return false;
       link.end += delta;
     }
-    return next.slice(link.start, link.start + 1) === '@' && link.end > link.start + 1;
+    // 모바일 IME는 선택 영역 교체를 '기존 글자 삭제 → 새 글자 입력' 두 단계로 보낸다.
+    // 중간의 빈 @ 상태에서도 링크 ID를 유지해야 다음 입력이 같은 링크의 표시명이 된다.
+    return next.slice(link.start, link.start + 1) === '@' && link.end >= link.start + 1;
   });
   state.previousValue = next;
 }

@@ -2685,9 +2685,18 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     const heroId = kingHeroId(countryId, sourceRefId);
                     const countryIdObject = toObjectId(countryId);
                     const capitalCountryIds = countryIdObject ? [countryIdObject, countryId] : [countryId];
-                    const capitalCandidates = await collections.castles.find({
+                    const capitalCandidatesPromise = collections.castles.find({
                         country_id: { $in: capitalCountryIds }
                     }, { projection: { _id: 1, name: 1, country_id: 1, lat: 1, lng: 1, built_year: 1, built_month: 1, destroyed_year: 1, destroyed_month: 1, is_capital: 1, place_type: 1, history: 1 } }).toArray();
+                    const identityPromise = getFigureIdentityContext(found);
+                    const savedPositionsPromise = collections.heroPositions
+                        .find({ hero_id: heroId }, { projection: { source_text: 0 } })
+                        .sort({ start_year: 1, year: 1 }).toArray();
+                    const [capitalCandidates, identity, savedPositions] = await Promise.all([
+                        capitalCandidatesPromise,
+                        identityPromise,
+                        savedPositionsPromise
+                    ]);
                     const capitalEntry = capitalCandidates
                         .map(c => currentCapitalEntryForCastle(c, startYear, normalized.start_month || 1, countryId))
                         .filter(Boolean)
@@ -2707,7 +2716,6 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     if (king.source_kind === 'hero_research' && king.createdBy) {
                         hero.recorded_by = String(king.createdBy);
                     }
-                    const identity = await getFigureIdentityContext(found);
                     hero.vote_count = Math.max(0, ...identity.records.map(record => parseInt(record.king.vote_count || 0)));
                     hero.worst_vote_count = Math.max(0, ...identity.records.map(record => parseInt(record.king.worst_vote_count || 0)));
                     hero.identity_id = identity.storageId;
@@ -2738,9 +2746,6 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                             (a.start_year ?? 0) - (b.start_year ?? 0) ||
                             (a.start_month ?? 1) - (b.start_month ?? 1)
                         ));
-                    const savedPositions = await collections.heroPositions
-                        .find({ hero_id: heroId }, { projection: { source_text: 0 } })
-                        .sort({ start_year: 1, year: 1 }).toArray();
                     const positions = savedPositions.slice();
                     if (!positions.length && capital && Number.isFinite(Number(capital.lat)) && Number.isFinite(Number(capital.lng))) {
                         positions.push({
