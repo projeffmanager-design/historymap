@@ -14101,6 +14101,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     async function openDetailPanel(castle, activeHistoryRecord, countryInfo) {
         const panel = document.getElementById('object-detail-panel');
         if (!panel) return;
+        window.prepareMobilePanelTransition?.('object');
         // 지도 마커는 생성 당시의 castle 객체를 클로저로 보관한다. 편집 직후에는 이 객체가
         // 이전 history를 가리킬 수 있으므로 상세를 열 때 DB의 최신 연결 기록을 다시 읽는다.
         const detailCastleId = castle?._id || castle?.id;
@@ -14544,6 +14545,32 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
 
         window._odpReloadComments();
     }
+
+    // 성/장소 상세 본문에 렌더된 @연결도 역사 패널과 같은 탐색 동작을 사용한다.
+    // 동적으로 다시 그려지는 내용까지 처리하기 위해 상세 패널에서 위임한다.
+    document.getElementById('object-detail-panel')?.addEventListener('click', event => {
+        const personLink = event.target.closest('.history-person-link[data-hero-id]');
+        if (personLink) {
+            event.preventDefault();
+            event.stopPropagation();
+            _openHistoryPerson(personLink.dataset.heroId, personLink.dataset.heroName || personLink.textContent.trim(), personLink.dataset.year, personLink.dataset.month);
+            return;
+        }
+        const placeLink = event.target.closest('.history-place-link[data-castle-id]');
+        if (placeLink) {
+            event.preventDefault();
+            event.stopPropagation();
+            _openHistoryPlaceOnMap(placeLink.dataset.castleId, placeLink.dataset.year, placeLink.dataset.month);
+            return;
+        }
+        const countryLink = event.target.closest('.history-country-link[data-country-id]');
+        if (countryLink) {
+            event.preventDefault();
+            event.stopPropagation();
+            const linkedCountry = getCountryInfoById(countryLink.dataset.countryId);
+            if (linkedCountry) showCountryInfoModal(linkedCountry);
+        }
+    });
 
     function openEditPanel(formId) {
         const panel = document.getElementById(formId);
@@ -19623,6 +19650,20 @@ function invalidateCountryLookupCache() {
         if (panelType === 'person') {
             window.bringAppPanelToFront(heroSidebar, { behind:[heroIllustration] });
         }
+    };
+
+    // 모바일에서는 패널을 겹쳐 쌓지 않고 상세 화면처럼 하나씩 전환한다.
+    window.prepareMobilePanelTransition = function(target) {
+        const mobile = document.body.classList.contains('force-mobile') || window.innerWidth <= 967 || window.innerHeight > window.innerWidth;
+        if (!mobile) return false;
+        if (target !== 'history') setHistoryPanelVisibility(false);
+        if (target !== 'object') closeDetailPanel();
+        if (target !== 'country') window.closeCountryPanel?.();
+        if (target !== 'person') window.heroSystem?.closeSidebar?.();
+        if (target !== 'king') setKingPanelVisibility(false);
+        document.getElementById('timeline-sidebar')?.classList.remove('open', 'active');
+        document.body.classList.remove('timeline-panel-open');
+        return true;
     };
 
     function setKingPanelVisibility(visible) {
@@ -25556,6 +25597,7 @@ const loadingMessages = [
     function _openHistoryPerson(heroId, heroName, targetYear, targetMonth) {
       const year = Number(targetYear);
       const month = Number(targetMonth) || 1;
+      window.prepareMobilePanelTransition?.('person');
       window.bringLinkedDetailPanelToFront?.('person');
       if (typeof window._tbGoToHero === 'function') {
         window._tbGoToHero(String(heroId), heroName || '', year, month);
@@ -25593,6 +25635,7 @@ const loadingMessages = [
 
     window.openLinkedHistoryRecord = async function(record) {
       if (!record?.id) return;
+      window.prepareMobilePanelTransition?.('history');
       // 인물 상세에서 연결 기록을 열 때는 오른쪽 상세 정보는 유지하고,
       // 왼쪽 전신 일러스트만 접어 역사 패널의 내용을 가리지 않게 한다.
       const linkedHeroIllustration = document.getElementById('heroIllustWrap');
@@ -25652,17 +25695,16 @@ const loadingMessages = [
       if (!castle || !Number.isFinite(Number(castle.lat)) || !Number.isFinite(Number(castle.lng))) return;
       const year = Number(targetYear);
       const month = Number(targetMonth) || 1;
+      const mobileTransition = window.prepareMobilePanelTransition?.('map') === true;
       if (Number.isFinite(year) && typeof updateTime === 'function') updateTime(year, month);
       map.flyTo([Number(castle.lat), Number(castle.lng)], Math.max(map.getZoom(), 9), { animate:true, duration:.8 });
-      if (document.body.classList.contains('force-mobile')) {
-        document.getElementById('map-history-panel')?.classList.remove('expanded');
-      }
       setTimeout(() => {
         const marker = (allCastleMarkers || []).find(item => String(item?._castleData?._id) === String(castleId));
         if (marker) {
           marker.openPopup();
           return;
         }
+        if (mobileTransition) return;
         const activeRecord = getActiveHistoryInfo(
           castle.history || [], yearMonthToTotalMonths(year, month)
         )?.record || null;
@@ -25670,6 +25712,7 @@ const loadingMessages = [
         if (typeof openDetailPanel === 'function') openDetailPanel(castle, activeRecord, countryInfo);
       }, 650);
     }
+    window._openHistoryPlaceOnMap = _openHistoryPlaceOnMap;
 
     async function _renderHistoryPlaceBacklinks(container, historyRecords = [], sourceRecords = []) {
       if (!container) return;
@@ -28861,6 +28904,7 @@ const loadingMessages = [
         // ── 공개 함수: 패널 열기 ──
         function showCountryInfoModal(cInfo) {
             if (!cInfo) return;
+            window.prepareMobilePanelTransition?.('country');
             _currentCInfo = cInfo;
             const isAdmin = currentUser && (currentUser.role === 'admin' || currentUser.role === 'superuser');
 
@@ -31085,6 +31129,7 @@ kingSelect.addEventListener('change', () => {
 
         // ── 사이드바 열기 ──
         async function openSidebar(heroId) {
+            window.prepareMobilePanelTransition?.('person');
             currentHeroId = heroId;
             const sidebar = document.getElementById('heroSidebar');
             const requestSeq = ++_heroSidebarRequestSeq;
@@ -32431,6 +32476,7 @@ kingSelect.addEventListener('change', () => {
         return {
             toggleLayer,
             openSidebar,
+            closeSidebar: closeHeroDetail,
             editHero,
             openPosPanel,
             renderByYear,
