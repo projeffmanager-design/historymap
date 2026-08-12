@@ -82,7 +82,8 @@ window.serializeEntityMentionsForField = (field) => {
 };
 
 function insertToken(field, start, end, marker, token, state, type, id) {
-  if (field.matches('textarea,input')) {
+  const plainTextField = field.matches('textarea,input');
+  if (plainTextField) {
     field.setRangeText(marker, start, end, 'end');
   } else {
     const selection = window.getSelection();
@@ -110,6 +111,10 @@ function insertToken(field, start, end, marker, token, state, type, id) {
   state.previousValue = field.value ?? field.textContent ?? '';
   field.dispatchEvent(new Event('input', { bubbles: true }));
   field.focus();
+  // 연결 대상 ID는 유지하되, 선택 직후에는 @ 뒤의 표시 이름을 바로 덮어쓸 수 있게 한다.
+  if (plainTextField && typeof field.setSelectionRange === 'function') {
+    field.setSelectionRange(start + 1, start + marker.length);
+  }
 }
 
 async function searchAll(query) {
