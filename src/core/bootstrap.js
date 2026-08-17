@@ -227,7 +227,9 @@ function syncInitialHeroLayerVisibility() {
 }
 
 function getOverlapShiftPx() {
-  return window.innerWidth < 768 ? 22 : 28;
+  // Keep capital seals and hero portraits independently legible. The previous
+  // offset was smaller than the combined half-width of the two markers.
+  return window.innerWidth < 768 ? 34 : 42;
 }
 
 function getHeroClusterDistancePx() {
