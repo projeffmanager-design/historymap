@@ -4714,7 +4714,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (!text) return res.status(400).json({ message: '댓글 내용을 입력하세요.' });
                 if (text.length > 500) return res.status(400).json({ message: '댓글은 500자까지 작성할 수 있습니다.' });
                 const targetCollection = recordType === 'history' ? collections.history : collections.sourceRecords;
-                const target = await targetCollection.findOne({ _id: recordId }, { projection: { event_name: 1, title: 1 } });
+                const target = await targetCollection.findOne({ _id: recordId }, { projection: {
+                    event_name:1, title:1, author_id:1, userId:1, createdBy:1, author:1, username:1, created_by:1
+                } });
                 if (!target) return res.status(404).json({ message: '기사를 찾을 수 없습니다.' });
                 const comment = {
                     record_type: recordType,
@@ -4727,7 +4729,44 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 };
                 const result = await collections.historyComments.insertOne(comment);
                 await logActivity('comment', req.user.username, req.user.position || '', target.event_name || target.title || '역사 기록', { record_type: recordType, record_id: String(recordId) }, req.user.userId);
-                res.status(201).json({ ...comment, _id: result.insertedId, can_delete: true });
+
+                // 마커 의견과 공통 규칙: 30자 이상, 하루 합산 5회, 자기 기록 제외 시 +1P
+                let pointAwarded = false;
+                try {
+                    const userId = String(req.user.userId || req.user.id || req.user._id || '');
+                    const userObjectId = toObjectId(userId);
+                    const targetOwnerId = String(target.author_id || target.userId || '');
+                    const targetOwnerName = String(target.author || target.username || target.created_by || target.createdBy || '');
+                    const isOwnRecord = (targetOwnerId && targetOwnerId === userId)
+                        || (targetOwnerName && targetOwnerName === String(req.user.username || ''));
+                    if (text.length >= RANK_CONFIG.limits.commentMinLength && !isOwnRecord && userObjectId) {
+                        const todayStart = new Date();
+                        todayStart.setHours(0, 0, 0, 0);
+                        const authorIds = [userId, userObjectId];
+                        const [markerScoreCount, historyScoreCount] = await Promise.all([
+                            collections.markerComments.countDocuments({
+                                author_id:{ $in:authorIds }, created_at:{ $gte:todayStart }, scored:true
+                            }),
+                            collections.historyComments.countDocuments({
+                                author_id:{ $in:authorIds }, created_at:{ $gte:todayStart }, scored:true,
+                                _id:{ $ne:result.insertedId }
+                            })
+                        ]);
+                        if (markerScoreCount + historyScoreCount < RANK_CONFIG.limits.dailyComments) {
+                            await collections.users.updateOne(
+                                { _id:userObjectId },
+                                { $inc:{ commentScore:RANK_CONFIG.scoreWeights.commentCount } }
+                            );
+                            await collections.historyComments.updateOne(
+                                { _id:result.insertedId },
+                                { $set:{ scored:true } }
+                            );
+                            pointAwarded = true;
+                        }
+                    }
+                } catch (_) { /* 점수 처리 실패가 의견 등록을 막지 않도록 한다. */ }
+
+                res.status(201).json({ ...comment, _id: result.insertedId, can_delete: true, pointAwarded });
             } catch (error) {
                 res.status(500).json({ message: '댓글 등록 실패', error: error.message });
             }
@@ -9442,12 +9481,23 @@ app.post('/api/marker-comments', verifyToken, async (req, res) => {
             if (trimmedText.length >= minLen) {
                 // 오늘 이미 몇 번 점수를 받았는지 확인
                 const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-                const todayComments = await collections.markerComments.countDocuments({
-                    author_id: req.user.userId,
-                    created_at: { $gte: todayStart },
-                    _id: { $ne: result.insertedId },  // 방금 insert 제외
-                    scored: true
-                });
+                const markerAuthorIds = [req.user.userId];
+                const markerAuthorObjectId = toObjectId(req.user.userId);
+                if (markerAuthorObjectId) markerAuthorIds.push(markerAuthorObjectId);
+                const [todayMarkerComments, todayHistoryComments] = await Promise.all([
+                    collections.markerComments.countDocuments({
+                        author_id: { $in:markerAuthorIds },
+                        created_at: { $gte: todayStart },
+                        _id: { $ne: result.insertedId },  // 방금 insert 제외
+                        scored: true
+                    }),
+                    collections.historyComments.countDocuments({
+                        author_id: { $in:markerAuthorIds },
+                        created_at: { $gte:todayStart },
+                        scored:true
+                    })
+                ]);
+                const todayComments = todayMarkerComments + todayHistoryComments;
                 if (todayComments < dailyMax) {
                     // 자기 사료 여부 확인
                     const castleOwner = await collections.castle.findOne(

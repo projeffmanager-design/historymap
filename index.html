@@ -10669,6 +10669,7 @@ body.force-mobile .marker-type-selector button {
           </form>
       </div>
       <div id="rankInfoModal" style="display:none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #2c3e50; color: #ecf0f1; border: 2px solid #f1c40f; padding: 20px; z-index: 99999; border-radius: 12px; width: 700px; max-height: 80vh; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
+          <button type="button" onclick="closeRankInfoModal()" aria-label="직급 체계 안내 닫기" title="닫기" style="position:sticky;top:0;float:right;z-index:2;width:30px;height:30px;margin:-10px -10px 0 8px;border:1px solid rgba(241,196,15,.42);border-radius:50%;background:#253746;color:#f3d36b;font-size:18px;line-height:1;cursor:pointer;">×</button>
           <h3 style="color: #f1c40f; text-align: center; margin-top: 0;">📜 고려만리지도 사관(史館) 직급 체계 안내</h3>
           <div style="margin-bottom: 15px; text-align: center; font-size: 14px; color: #bdc3c7; font-style: italic;">
               "사관의 붓 끝에서 대륙의 강역이 되살아납니다."
@@ -10925,7 +10926,7 @@ body.force-mobile .marker-type-selector button {
               <p>시강학사(侍講學士)부터는 직접 사료를 찾는 것보다 하급 사관들의 기초 데이터를 다듬어 승인 가능한 수준으로 끌어올리는 것이 더 효율적입니다. 검토 행위 자체에 5점의 보상이 주어지며, 승인 권고가 최종 승인되면 추가 점수를 얻을 수 있습니다.</p>
 
               <div style="text-align: center; margin-top: 20px;">
-                  <button type="button" id="closeRankInfoBtn" style="background: #8e44ad; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">닫기</button>
+                  <button type="button" id="closeRankInfoBtn" onclick="closeRankInfoModal()" style="background: #8e44ad; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">닫기</button>
               </div>
           </div>
       </div>
@@ -26318,6 +26319,7 @@ const loadingMessages = [
         const response = await fetch('/api/history-comments', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${tok}` }, body:JSON.stringify({ recordType:widget.dataset.recordType, recordId:widget.dataset.recordId, text }) });
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || '댓글을 등록하지 못했습니다.');
+        if (data.pointAwarded && typeof showToast === 'function') showToast('💬 사관 의견 등록 +1P 획득!', 'point');
         await _toggleHistoryComments(widget, true);
       } catch (error) { alert(error.message); submit.disabled = false; }
     }
@@ -41804,6 +41806,18 @@ kingSelect.addEventListener('change', () => {
         rankInfoModal.style.display = 'block';
       }
     }
+
+    function closeRankInfoModal() {
+      const rankInfoModal = document.getElementById('rankInfoModal');
+      if (rankInfoModal) rankInfoModal.style.display = 'none';
+    }
+    window.closeRankInfoModal = closeRankInfoModal;
+
+    document.addEventListener('keydown', function(event) {
+      if (event.key !== 'Escape') return;
+      const rankInfoModal = document.getElementById('rankInfoModal');
+      if (rankInfoModal && rankInfoModal.style.display !== 'none') closeRankInfoModal();
+    });
     
     // 🚩 event-sidebar에만 이벤트 전파 방지 적용 (timeline-container는 JS pointer-events로 제어)
     const eventSidebar = document.getElementById('event-sidebar');
