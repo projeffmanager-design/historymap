@@ -7805,6 +7805,40 @@ body.force-mobile .marker-type-selector button {
         background: rgba(255,255,255,0.035);
         box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
     }
+    .hm-font-size-row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) 46px 54px;
+        align-items: center;
+        gap: 9px;
+    }
+    #hamburger-menu-panel .hm-font-size-row > label {
+        margin: 0;
+        color: #d9c58e;
+        font-size: 12px;
+        font-weight: 700;
+    }
+    #menu-font-size-slider {
+        width: 100%;
+        accent-color: #d4a843;
+        cursor: pointer;
+    }
+    #menu-font-size-value {
+        color: #f5d98b;
+        font-size: 11px;
+        text-align: right;
+    }
+    #hamburger-menu-panel #menu-font-size-reset {
+        min-height: 30px;
+        margin: 0;
+        padding: 4px 7px;
+        font-size: 10px;
+    }
+    .hm-font-size-preview {
+        margin-top: 8px;
+        color: #9eacb9;
+        font-size: 11px;
+        line-height: 1.5;
+    }
     .hm-field-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -9444,6 +9478,17 @@ body.force-mobile .marker-type-selector button {
           <p style="margin:0;color:#aeb9c4;font-size:11px;line-height:1.65;">고려만리지도는 연도와 월을 이동하며 한국과 동아시아의 국가·영토·도시·인물·사건을 한 지도에서 비교하는 역사 탐색 서비스입니다.</p>
           <div style="display:flex;gap:10px;margin-top:8px;font-size:11px;"><a href="/about" style="color:#d4af37;">프로젝트 소개</a><a href="/guide" style="color:#8fc7e8;">이용안내</a></div>
       </section>
+      <h3>화면 글자 크기</h3>
+      <div class="menu-section hm-font-size-section">
+          <div class="hm-font-size-row">
+              <label for="menu-font-size-slider">가</label>
+              <input type="range" id="menu-font-size-slider" min="100" max="150" step="5" value="100"
+                     aria-label="전체 화면 글자 크기">
+              <strong id="menu-font-size-value">100%</strong>
+              <button type="button" id="menu-font-size-reset">초기화</button>
+          </div>
+          <div class="hm-font-size-preview" aria-live="polite">지도와 기록의 글자를 크게 볼 수 있습니다.</div>
+      </div>
       <h3>필터</h3>
       <div class="menu-section">
           <div class="hm-field-grid">
@@ -35210,6 +35255,72 @@ kingSelect.addEventListener('change', () => {
         const hamburgerPanel = document.getElementById('hamburger-menu-panel');
         const hamburgerOverlay = document.getElementById('hamburger-menu-overlay');
 
+        // 접근성: 지도 마커 크기는 유지하고 화면의 읽기용 텍스트만 확대한다.
+        const UI_FONT_SCALE_KEY = 'koreamanri-ui-font-scale';
+        const fontScaleSlider = document.getElementById('menu-font-size-slider');
+        const fontScaleValue = document.getElementById('menu-font-size-value');
+        const fontScaleReset = document.getElementById('menu-font-size-reset');
+        const fontScaleExclusion = 'script, style, svg, canvas';
+        const mapMarkerContainer = '.leaflet-marker-pane, .maplibregl-marker';
+        const scalableMapText = '.city-name, .cm-name, .hero-pin-name, .feature-name, .location-label-marker, .label-text-marker, .macro-country-name, .ml3d-txt';
+        let currentUiFontScale = Math.min(1.5, Math.max(1, Number(localStorage.getItem(UI_FONT_SCALE_KEY)) || 1));
+        let fontScaleFrame = 0;
+
+        function isReadableTextElement(el) {
+            if (!(el instanceof HTMLElement) || el.matches(fontScaleExclusion) || el.closest(fontScaleExclusion)) return false;
+            if (el.matches('.capital-seal, .place-glyph-seal, .flag-icon-symbol, .af-icon')) return false;
+            if (el.closest(mapMarkerContainer) && !el.matches(scalableMapText) && !el.closest(scalableMapText)) return false;
+            if (/^(INPUT|TEXTAREA|SELECT|BUTTON|OPTION)$/.test(el.tagName)) return true;
+            return Array.from(el.childNodes).some(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+        }
+
+        function scaleReadableElement(el, dynamicallyAdded = false) {
+            if (!isReadableTextElement(el)) return;
+            if (!el.dataset.uiFontBase) {
+                const size = parseFloat(getComputedStyle(el).fontSize);
+                if (!Number.isFinite(size) || size <= 0) return;
+                const parentSize = el.parentElement ? parseFloat(getComputedStyle(el.parentElement).fontSize) : NaN;
+                const inheritsScaledSize = dynamicallyAdded && currentUiFontScale !== 1
+                    && Number.isFinite(parentSize) && Math.abs(parentSize - size) < 0.05 && !el.style.fontSize;
+                el.dataset.uiFontBase = String(inheritsScaledSize ? size / currentUiFontScale : size);
+                el.dataset.uiFontOriginal = el.style.fontSize || '';
+            }
+            if (currentUiFontScale === 1) {
+                if (el.dataset.uiFontOriginal) el.style.fontSize = el.dataset.uiFontOriginal;
+                else el.style.removeProperty('font-size');
+            } else {
+                el.style.setProperty('font-size', `${(Number(el.dataset.uiFontBase) * currentUiFontScale).toFixed(2)}px`, 'important');
+            }
+        }
+
+        function applyUiFontScale(scale, persist = true) {
+            currentUiFontScale = Math.min(1.5, Math.max(1, Number(scale) || 1));
+            document.querySelectorAll('body *').forEach(el => scaleReadableElement(el, false));
+            const percent = Math.round(currentUiFontScale * 100);
+            if (fontScaleSlider) fontScaleSlider.value = String(percent);
+            if (fontScaleValue) fontScaleValue.textContent = `${percent}%`;
+            if (persist) localStorage.setItem(UI_FONT_SCALE_KEY, String(currentUiFontScale));
+        }
+
+        function scheduleUiFontScale(percent) {
+            cancelAnimationFrame(fontScaleFrame);
+            fontScaleFrame = requestAnimationFrame(() => applyUiFontScale(Number(percent) / 100));
+        }
+
+        fontScaleSlider?.addEventListener('input', event => scheduleUiFontScale(event.target.value));
+        fontScaleReset?.addEventListener('click', () => applyUiFontScale(1));
+        applyUiFontScale(currentUiFontScale, false);
+
+        // 비동기로 추가되는 활동 기록·팝업·패널 텍스트에도 현재 배율을 적용한다.
+        new MutationObserver(mutations => {
+            if (currentUiFontScale === 1) return;
+            mutations.forEach(mutation => mutation.addedNodes.forEach(node => {
+                if (!(node instanceof HTMLElement)) return;
+                scaleReadableElement(node, true);
+                node.querySelectorAll('*').forEach(el => scaleReadableElement(el, true));
+            }));
+        }).observe(document.body, { childList: true, subtree: true });
+
         // 메뉴를 다른 코드에서 직접 닫는 경우까지 모바일 레이아웃 상태를 동기화한다.
         const syncHamburgerMobileLayout = () => {
             const mobile = document.body.classList.contains('force-mobile') || window.innerWidth <= 967 || window.innerHeight > window.innerWidth;
@@ -43285,6 +43396,8 @@ kingSelect.addEventListener('change', () => {
 </div>
 
 <div id="activity-feed-panel">
+    <div id="activity-feed-resize-handle" role="separator" aria-orientation="horizontal"
+         aria-label="사관 활동 소식 높이 조절" title="위아래로 드래그하여 높이 조절"></div>
     <div id="activity-feed-header">
         <span>📜 사관 활동 소식</span>
         <button id="activity-feed-close" class="app-panel-close-btn" title="닫기">&times;</button>
@@ -43459,7 +43572,7 @@ body.guest-mode #activity-feed-panel { display: none !important; }
     max-width: 100vw;
     height: 180px;
     min-height: 100px;
-    max-height: calc(100vh - 300px);
+    max-height: calc(100vh - 140px);
     z-index: 999;
     pointer-events: auto;
     font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
@@ -43477,6 +43590,36 @@ body.guest-mode #activity-feed-panel { display: none !important; }
     overflow: hidden;
     text-shadow: 1px 1px 3px rgba(0,0,0,0.9);
 }
+#activity-feed-resize-handle {
+    position: absolute;
+    z-index: 8;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 8px;
+    cursor: ns-resize;
+    touch-action: none;
+}
+#activity-feed-resize-handle::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 50%;
+    width: 44px;
+    height: 3px;
+    border-radius: 3px;
+    background: rgba(235,196,100,.38);
+    transform: translateX(-50%);
+    transition: background .15s, width .15s;
+}
+#activity-feed-resize-handle:hover::after,
+#activity-feed-resize-handle.is-resizing::after {
+    width: 62px;
+    background: rgba(245,211,126,.82);
+}
+#activity-feed-panel.is-resizing {
+    user-select: none;
+}
 #activity-feed-panel:hover {
     background: rgba(26, 26, 26, 0.95);
     box-shadow: 0 2px 12px rgba(0,0,0,0.45);
@@ -43490,7 +43633,7 @@ body.guest-mode #activity-feed-panel { display: none !important; }
     font-size: 12px;
     font-weight: normal;
     color: rgba(235,196,100,0.95);
-    padding: 5px 10px 4px 10px;
+    padding: 9px 10px 4px 10px;
     letter-spacing: 0.5px;
     text-shadow: 1px 1px 3px rgba(0,0,0,0.9);
     border-bottom: 1px solid rgba(241,196,15,0.15);
@@ -43993,6 +44136,48 @@ body.guest-mode #activity-feed-panel { display: none !important; }
     }
 
     document.addEventListener('DOMContentLoaded', function() {
+        // 상단 손잡이를 위아래로 끌어 활동 소식 패널 높이를 조절한다.
+        const activityPanel = document.getElementById('activity-feed-panel');
+        const activityResizeHandle = document.getElementById('activity-feed-resize-handle');
+        const activityHeightKey = 'koreamanri-activity-feed-height';
+        const clampActivityHeight = value => Math.round(Math.min(
+            Math.max(120, window.innerHeight - 140),
+            Math.max(120, Number(value) || 180)
+        ));
+        const setActivityHeight = (value, persist = true) => {
+            if (!activityPanel) return;
+            const height = clampActivityHeight(value);
+            activityPanel.style.height = `${height}px`;
+            if (persist) localStorage.setItem(activityHeightKey, String(height));
+        };
+        setActivityHeight(localStorage.getItem(activityHeightKey) || 180, false);
+        if (activityResizeHandle && activityPanel) {
+            let resizeStartY = 0;
+            let resizeStartHeight = 0;
+            activityResizeHandle.addEventListener('pointerdown', event => {
+                resizeStartY = event.clientY;
+                resizeStartHeight = activityPanel.getBoundingClientRect().height;
+                activityResizeHandle.setPointerCapture(event.pointerId);
+                activityResizeHandle.classList.add('is-resizing');
+                activityPanel.classList.add('is-resizing');
+                event.preventDefault();
+            });
+            activityResizeHandle.addEventListener('pointermove', event => {
+                if (!activityResizeHandle.hasPointerCapture(event.pointerId)) return;
+                setActivityHeight(resizeStartHeight + resizeStartY - event.clientY, false);
+            });
+            const finishActivityResize = event => {
+                if (activityResizeHandle.hasPointerCapture(event.pointerId)) activityResizeHandle.releasePointerCapture(event.pointerId);
+                activityResizeHandle.classList.remove('is-resizing');
+                activityPanel.classList.remove('is-resizing');
+                setActivityHeight(activityPanel.getBoundingClientRect().height, true);
+            };
+            activityResizeHandle.addEventListener('pointerup', finishActivityResize);
+            activityResizeHandle.addEventListener('pointercancel', finishActivityResize);
+            activityResizeHandle.addEventListener('dblclick', () => setActivityHeight(180, true));
+            window.addEventListener('resize', () => setActivityHeight(activityPanel.getBoundingClientRect().height, false));
+        }
+
         fetchLogs();
         setInterval(fetchLogs, POLL_INTERVAL);
 
