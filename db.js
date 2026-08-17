@@ -67,6 +67,7 @@ async function connectToDatabase() {
             collections.adMarkers = db.collection("ad_markers"); // 📢 [추가] 관리자 생성 지도 광고 마커 컬렉션
             collections.heroPositions = db.collection("hero_positions"); // 🦸 [추가] 영웅 연도별 위치 컬렉션
             collections.heroComments = db.collection("hero_comments");   // 🦸 [추가] 영웅 사관 댓글 컬렉션
+            collections.historyComments = db.collection("history_comments"); // 📜 역사기록 패널 기사 댓글
             collections.historicalRelations = db.collection("historical_relations"); // 인물·장소·국가·사료 관계 그래프
 
             // 인덱스는 영구 자산이므로 서버 시작 경로에서 확인하지 않는다.

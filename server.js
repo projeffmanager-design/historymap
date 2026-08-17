@@ -4637,6 +4637,120 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // 역사기록 패널의 연구 기록·원전 사료별 사관 댓글
+        app.get('/api/history-comments/counts', async (req, res) => {
+            try {
+                // 초기 버전과 운영 데이터에 record_id가 ObjectId/문자열로 섞여 있을 수 있다.
+                // 문자열로 정규화해 목록 API와 동일한 기사를 확실히 집계한다.
+                const parseIds = value => String(value || '')
+                    .split(',')
+                    .map(id => id.trim())
+                    .filter(id => ObjectId.isValid(id))
+                    .slice(0, 200);
+                const historyIds = parseIds(req.query.historyIds);
+                const sourceIds = parseIds(req.query.sourceIds);
+                const conditions = [];
+                if (historyIds.length) conditions.push({
+                    record_type:'history',
+                    $expr:{ $in:[{ $toString:'$record_id' }, historyIds] }
+                });
+                if (sourceIds.length) conditions.push({
+                    record_type:'source',
+                    $expr:{ $in:[{ $toString:'$record_id' }, sourceIds] }
+                });
+                if (!conditions.length) return res.json({ history:{}, source:{} });
+                const rows = await collections.historyComments.aggregate([
+                    { $match: { $or:conditions } },
+                    { $group: { _id:{ type:'$record_type', id:{ $toString:'$record_id' } }, count:{ $sum:1 } } }
+                ]).toArray();
+                const counts = { history:{}, source:{} };
+                rows.forEach(row => {
+                    if (counts[row._id.type]) counts[row._id.type][String(row._id.id)] = row.count;
+                });
+                res.set('Cache-Control', 'no-store');
+                res.json(counts);
+            } catch (error) {
+                res.status(500).json({ message:'댓글 수 조회 실패', error:error.message });
+            }
+        });
+
+        app.get('/api/history-comments', async (req, res) => {
+            try {
+                const recordType = String(req.query.recordType || '');
+                const recordId = toObjectId(req.query.recordId);
+                if (!['history', 'source'].includes(recordType) || !recordId) {
+                    return res.status(400).json({ message: '올바르지 않은 기사 정보입니다.' });
+                }
+                const user = getOptionalAuthUser(req);
+                const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
+                const userId = String(user?.userId || user?.id || user?._id || '');
+                const comments = await collections.historyComments
+                    .find({ record_type: recordType, record_id: recordId })
+                    .sort({ created_at: 1 })
+                    .limit(200)
+                    .toArray();
+                res.json(comments.map(comment => ({
+                    _id: comment._id,
+                    author: comment.author,
+                    author_position: comment.author_position || '',
+                    text: comment.text,
+                    created_at: comment.created_at,
+                    can_delete: Boolean(isAdmin || (userId && userId === String(comment.author_id || '')))
+                })));
+            } catch (error) {
+                res.status(500).json({ message: '댓글 조회 실패', error: error.message });
+            }
+        });
+
+        app.post('/api/history-comments', verifyToken, async (req, res) => {
+            try {
+                if (req.user?.isGuest) return res.status(403).json({ message: '게스트 계정은 댓글을 작성할 수 없습니다.' });
+                const recordType = String(req.body?.recordType || '');
+                const recordId = toObjectId(req.body?.recordId);
+                const text = String(req.body?.text || '').trim();
+                if (!['history', 'source'].includes(recordType) || !recordId) {
+                    return res.status(400).json({ message: '올바르지 않은 기사 정보입니다.' });
+                }
+                if (!text) return res.status(400).json({ message: '댓글 내용을 입력하세요.' });
+                if (text.length > 500) return res.status(400).json({ message: '댓글은 500자까지 작성할 수 있습니다.' });
+                const targetCollection = recordType === 'history' ? collections.history : collections.sourceRecords;
+                const target = await targetCollection.findOne({ _id: recordId }, { projection: { event_name: 1, title: 1 } });
+                if (!target) return res.status(404).json({ message: '기사를 찾을 수 없습니다.' });
+                const comment = {
+                    record_type: recordType,
+                    record_id: recordId,
+                    author: req.user.username,
+                    author_id: String(req.user.userId || req.user.id || req.user._id || ''),
+                    author_position: req.user.position || '',
+                    text,
+                    created_at: new Date()
+                };
+                const result = await collections.historyComments.insertOne(comment);
+                await logActivity('comment', req.user.username, req.user.position || '', target.event_name || target.title || '역사 기록', { record_type: recordType, record_id: String(recordId) }, req.user.userId);
+                res.status(201).json({ ...comment, _id: result.insertedId, can_delete: true });
+            } catch (error) {
+                res.status(500).json({ message: '댓글 등록 실패', error: error.message });
+            }
+        });
+
+        app.delete('/api/history-comments/:commentId', verifyToken, async (req, res) => {
+            try {
+                const commentId = toObjectId(req.params.commentId);
+                if (!commentId) return res.status(400).json({ message: '올바르지 않은 댓글 ID입니다.' });
+                const comment = await collections.historyComments.findOne({ _id: commentId });
+                if (!comment) return res.status(404).json({ message: '댓글을 찾을 수 없습니다.' });
+                const userId = String(req.user.userId || req.user.id || req.user._id || '');
+                const isAdmin = req.user.role === 'admin' || req.user.role === 'superuser';
+                if (!isAdmin && (!userId || userId !== String(comment.author_id || ''))) {
+                    return res.status(403).json({ message: '삭제 권한이 없습니다.' });
+                }
+                await collections.historyComments.deleteOne({ _id: commentId });
+                res.json({ message: '댓글을 삭제했습니다.' });
+            } catch (error) {
+                res.status(500).json({ message: '댓글 삭제 실패', error: error.message });
+            }
+        });
+
         // GET: 역사 기록 키워드 검색
         app.get('/api/history/search', async (req, res) => {
             try {
