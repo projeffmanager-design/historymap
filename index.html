@@ -10269,6 +10269,17 @@ body.force-mobile .marker-type-selector button {
                             oninput="document.getElementById('haFactionColor').value=this.value||'#c8860a'">
                     </div>
                 </div>
+                <div class="full-col" style="border:1px solid rgba(197,150,30,.38);border-radius:6px;padding:10px;background:rgba(197,150,30,.06);">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
+                        <div>
+                            <label class="hero-admin-label" style="margin:0;">🪶 신분·소속 변화 이력</label>
+                            <div style="font-size:10px;color:#97886c;margin-top:3px;">한 인물 안에서 시대별 국적·신분·직함·당시 이름을 관리합니다.</div>
+                        </div>
+                        <button type="button" id="haCareerAddBtn" class="hero-admin-btn save" style="padding:5px 10px;white-space:nowrap;">+ 이력 추가</button>
+                    </div>
+                    <div id="haCareerHistoryList" style="display:grid;gap:8px;"></div>
+                    <div id="haCareerHistoryEmpty" style="padding:12px;text-align:center;color:#766a56;border:1px dashed rgba(255,255,255,.13);font-size:11px;">등록된 변화 이력이 없습니다. 기존 기본 소속과 신분이 전 기간에 적용됩니다.</div>
+                </div>
                 <div class="full-col">
                     <label class="hero-admin-label">인물 설명</label>
                     <div id="haDescToolbar" style="display:flex;gap:4px;flex-wrap:wrap;margin:4px 0 3px;">
@@ -18705,13 +18716,13 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         // place_type별 아이콘 설정 (capital은 별도 낙관 마커로 처리)
         const PLACE_TYPE_CONFIG = {
             hwangseong: { icon: '/public/assets/ui/map-emperor.webp', size: 40, hanja: '皇', label: '천자' },
-            ju:       { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E5%B7%9E.png?raw=true',             size: 25, hanja: '州', label: '주'   },
-            gun:      { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E9%83%A1.png?raw=true',             size: 15, hanja: '郡', label: '군'   },
-            hyeon:    { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E7%B8%A3.png?raw=true',             size: 15, hanja: '縣', label: '현'   },
-            seong:    { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E5%9F%8E.png?raw=true', size: 20, hanja: '城', label: '성'  },
-            jin:      { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E9%8E%AD.png?raw=true', size: 20, hanja: '鎭', label: '진'  },
-            gateway:  { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E1%84%80%E1%85%AA%E1%86%AB.png?raw=true', size: 20, hanja: '關', label: '관' },
-            battle:   { icon: 'https://github.com/projeffmanager-design/img/blob/main/%E1%84%8E%E1%85%A5%E1%86%AF%E5%9F%8E.png?raw=true', size: 35, hanja: '戰', label: '전장' },
+            ju:       { icon: 'https://wumvyfnefyefzo3c.public.blob.vercel-storage.com/map-icons/map-province.png', size: 25, hanja: '州', label: '주'   },
+            gun:      { icon: 'https://wumvyfnefyefzo3c.public.blob.vercel-storage.com/map-icons/map-county.png',   size: 15, hanja: '郡', label: '군'   },
+            hyeon:    { icon: 'https://wumvyfnefyefzo3c.public.blob.vercel-storage.com/map-icons/map-district.png', size: 15, hanja: '縣', label: '현'   },
+            seong:    { icon: 'https://wumvyfnefyefzo3c.public.blob.vercel-storage.com/map-icons/map-castle.png',   size: 20, hanja: '城', label: '성'   },
+            jin:      { icon: 'https://wumvyfnefyefzo3c.public.blob.vercel-storage.com/map-icons/map-garrison.png', size: 20, hanja: '鎭', label: '진'   },
+            gateway:  { icon: 'https://wumvyfnefyefzo3c.public.blob.vercel-storage.com/map-icons/map-gateway.png',  size: 20, hanja: '關', label: '관'   },
+            battle:   { icon: 'https://wumvyfnefyefzo3c.public.blob.vercel-storage.com/map-icons/map-battle.png',   size: 35, hanja: '戰', label: '전장' },
             chon:     { icon: '/public/assets/ui/map-village.webp', size: 15, hanja: '村', label: '마을' },
         };
 
@@ -31569,8 +31580,20 @@ kingSelect.addEventListener('change', () => {
                 window.bringAppPanelToFront?.(sidebar, { behind:[document.getElementById('heroIllustWrap')] });
             }
             try {
-                const { hero, positions = [], comments = [] } = await loadHeroDetail(heroId);
+                const detail = await loadHeroDetail(heroId);
+                let hero = detail.hero;
+                const positions = detail.positions || [];
+                const comments = detail.comments || [];
                 if (requestSeq !== _heroSidebarRequestSeq) return;
+                // 지도에 표시된 시점의 이름·소속·신분을 상세 패널에도 동일하게 적용한다.
+                if (previewHero) {
+                    hero = {
+                        ...hero,
+                        ...previewHero,
+                        career_phases: hero.career_phases,
+                        career_history: hero.career_history
+                    };
+                }
                 currentHeroIdentityKey = hero.person_id ? `person:${hero.person_id}` : String(hero._id);
                 // 일러스트
                 const illImg = document.getElementById('heroIllustImg');
@@ -31616,7 +31639,12 @@ kingSelect.addEventListener('change', () => {
                             const end = fmtHeroYear(phase.end_year);
                             const role = labels[phase.hero_type] || phase.hero_type || '인물';
                             const detail = [phase.faction, role, phase.title].filter(Boolean).join(' · ');
-                            const activeClass = String(phase._id) === String(hero._id) ? ' hero-career-current' : '';
+                            const phaseStart = Number(phase.start_year) * 12 + (Number(phase.start_month || 1) - 1);
+                            const phaseEnd = phase.end_year == null || phase.end_year === ''
+                                ? Infinity
+                                : Number(phase.end_year) * 12 + (Number(phase.end_month || 12) - 1);
+                            const viewedAt = Number(currentTime.year) * 12 + (Number(currentTime.month || 1) - 1);
+                            const activeClass = phaseStart <= viewedAt && viewedAt <= phaseEnd ? ' hero-career-current' : '';
                             return `<div class="hero-position-item${activeClass}">
                                 <span class="hero-pos-year">${escapeHeroCommentText(start)}~${escapeHeroCommentText(end)}</span>
                                 <div><div class="hero-pos-detail">${escapeHeroCommentText(detail)}</div></div>
@@ -31912,6 +31940,107 @@ kingSelect.addEventListener('change', () => {
             return labels[value] || value || '-';
         }
 
+        let _heroCareerCountries = [];
+        const HERO_CAREER_TYPES = [
+            ['king','왕'],['emperor','황제'],['president','대통령'],['general','장군'],
+            ['civilian','문관'],['hojok','호족'],['khan','칸'],['brigand','도적']
+        ];
+
+        async function ensureHeroCareerCountries() {
+            if (_heroCareerCountries.length) return _heroCareerCountries;
+            _heroCareerCountries = await _loadCountries();
+            return _heroCareerCountries;
+        }
+
+        async function renderHeroCareerHistory(rows = []) {
+            const list = document.getElementById('haCareerHistoryList');
+            const empty = document.getElementById('haCareerHistoryEmpty');
+            if (!list || !empty) return;
+            const countries = await ensureHeroCareerCountries().catch(() => []);
+            list.innerHTML = '';
+            (Array.isArray(rows) ? rows : []).forEach(row => addHeroCareerRow(row, countries));
+            empty.style.display = list.children.length ? 'none' : '';
+        }
+
+        function addHeroCareerRow(row = {}, countries = _heroCareerCountries) {
+            const list = document.getElementById('haCareerHistoryList');
+            const empty = document.getElementById('haCareerHistoryEmpty');
+            if (!list) return;
+            const phaseId = row.phase_id || `phase-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
+            const countryOptions = ['<option value="">국가/세력 선택</option>'].concat((countries || []).map(country => (
+                `<option value="${escapeHeroAdminText(country._id)}" data-name="${escapeHeroAdminText(country.name || '')}" data-color="${escapeHeroAdminText(country.color || '#c8860a')}"${String(row.country_id || '') === String(country._id) ? ' selected' : ''}>${escapeHeroAdminText(country.name || '')}</option>`
+            ))).join('');
+            const typeOptions = HERO_CAREER_TYPES.map(([value,label]) => `<option value="${value}"${String(row.hero_type || 'general') === value ? ' selected' : ''}>${label}</option>`).join('');
+            const wrap = document.createElement('div');
+            wrap.className = 'ha-career-row';
+            wrap.dataset.phaseId = phaseId;
+            wrap.style.cssText = 'border:1px solid rgba(255,255,255,.14);border-left:3px solid #a77a28;border-radius:5px;padding:8px;background:rgba(0,0,0,.18);';
+            wrap.innerHTML = `
+                <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) auto;gap:6px;align-items:end;">
+                    <div><label class="hero-admin-label">시작 연도 *</label><input class="hero-admin-input hc-start" type="number" value="${escapeHeroAdminText(row.start_year ?? '')}"></div>
+                    <div><label class="hero-admin-label">시작 월</label><input class="hero-admin-input hc-start-month" type="number" min="1" max="12" value="${escapeHeroAdminText(row.start_month ?? 1)}"></div>
+                    <div><label class="hero-admin-label">종료 연도</label><input class="hero-admin-input hc-end" type="number" value="${escapeHeroAdminText(row.end_year ?? '')}" placeholder="현재까지"></div>
+                    <div><label class="hero-admin-label">종료 월</label><input class="hero-admin-input hc-end-month" type="number" min="1" max="12" value="${escapeHeroAdminText(row.end_month ?? 12)}"></div>
+                    <button type="button" class="hero-admin-btn danger hc-remove" style="padding:6px 9px;">삭제</button>
+                </div>
+                <div style="display:grid;grid-template-columns:1.2fr .7fr 1fr 1fr;gap:6px;margin-top:6px;">
+                    <div><label class="hero-admin-label">국가·세력 *</label><select class="hero-admin-input hc-country">${countryOptions}</select></div>
+                    <div><label class="hero-admin-label">신분</label><select class="hero-admin-input hc-type">${typeOptions}</select></div>
+                    <div><label class="hero-admin-label">직함·칭호</label><input class="hero-admin-input hc-title" value="${escapeHeroAdminText(row.title || '')}" placeholder="예: 대장군, 태조"></div>
+                    <div><label class="hero-admin-label">당시 이름</label><input class="hero-admin-input hc-name" value="${escapeHeroAdminText(row.name_ko || '')}" placeholder="비우면 기본 이름"></div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;">
+                    <div><label class="hero-admin-label">변화 설명</label><input class="hero-admin-input hc-desc" value="${escapeHeroAdminText(row.description || '')}" placeholder="예: 고려 왕조를 세우고 즉위"></div>
+                    <div><label class="hero-admin-label">근거 사료</label><input class="hero-admin-input hc-source" value="${escapeHeroAdminText(row.source || '')}" placeholder="예: 고려사 태조세가"></div>
+                </div>`;
+            wrap.querySelector('.hc-remove').onclick = () => {
+                wrap.remove();
+                if (empty) empty.style.display = list.children.length ? 'none' : '';
+            };
+            const countrySelect = wrap.querySelector('.hc-country');
+            countrySelect.addEventListener('change', () => {
+                const option = countrySelect.selectedOptions[0];
+                wrap.style.borderLeftColor = option?.dataset.color || '#a77a28';
+            });
+            countrySelect.dispatchEvent(new Event('change'));
+            list.appendChild(wrap);
+            if (empty) empty.style.display = 'none';
+        }
+
+        function collectHeroCareerHistory() {
+            const rows = [...document.querySelectorAll('#haCareerHistoryList .ha-career-row')].map(wrap => {
+                const startYear = parseInt(wrap.querySelector('.hc-start').value, 10);
+                const endText = wrap.querySelector('.hc-end').value.trim();
+                const endYear = endText === '' ? null : parseInt(endText, 10);
+                const country = wrap.querySelector('.hc-country');
+                const option = country.selectedOptions[0];
+                if (!Number.isFinite(startYear)) throw new Error('신분 이력의 시작 연도를 입력하세요.');
+                if (!country.value) throw new Error('신분 이력의 국가·세력을 선택하세요.');
+                if (endYear != null && endYear < startYear) throw new Error('신분 이력의 종료 연도는 시작 연도보다 빠를 수 없습니다.');
+                return {
+                    phase_id: wrap.dataset.phaseId,
+                    start_year: startYear,
+                    start_month: Math.min(12, Math.max(1, parseInt(wrap.querySelector('.hc-start-month').value,10) || 1)),
+                    end_year: endYear,
+                    end_month: Math.min(12, Math.max(1, parseInt(wrap.querySelector('.hc-end-month').value,10) || 12)),
+                    country_id: country.value,
+                    faction: option?.dataset.name || option?.textContent || '',
+                    faction_color: option?.dataset.color || '',
+                    hero_type: wrap.querySelector('.hc-type').value,
+                    title: wrap.querySelector('.hc-title').value.trim(),
+                    name_ko: wrap.querySelector('.hc-name').value.trim(),
+                    description: wrap.querySelector('.hc-desc').value.trim(),
+                    source: wrap.querySelector('.hc-source').value.trim()
+                };
+            }).sort((a,b) => a.start_year-b.start_year || a.start_month-b.start_month);
+            for (let i=1;i<rows.length;i++) {
+                const previousEnd = rows[i-1].end_year == null ? Infinity : rows[i-1].end_year*12+(rows[i-1].end_month-1);
+                const currentStart = rows[i].start_year*12+(rows[i].start_month-1);
+                if (currentStart <= previousEnd) throw new Error('신분·소속 이력의 기간이 서로 겹칩니다. 종료 시점을 조정하세요.');
+            }
+            return rows;
+        }
+
         function updateHeroBulkSelectedCount() {
             const count = document.querySelectorAll('.hero-bulk-check:checked').length;
             const el = document.getElementById('heroBulkSelectedCount');
@@ -32198,6 +32327,7 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('haFactionColorHex').value = '#c8860a';
             document.getElementById('heroAdminDelete').style.display = 'none';
             document.getElementById('heroPosPanel').style.display = 'none';
+            renderHeroCareerHistory([]);
             resetPositionEditor();
         }
 
@@ -32224,6 +32354,7 @@ kingSelect.addEventListener('change', () => {
                 document.getElementById('haFactionColor').value = fc;
                 document.getElementById('haFactionColorHex').value = fc;
                 document.getElementById('haFactionInput').value = hero.faction || '';
+                await renderHeroCareerHistory(hero.career_history || []);
                 if (hero.faction) document.getElementById('haFactionInput').style.borderLeftColor = fc;
                 if (hero.avatar_url) document.getElementById('haAvatarPreview').innerHTML =
                     `<img src="${hero.avatar_url}" style="width:50px;height:50px;border-radius:50%;border:1px solid #7a5a1a;object-fit:cover;margin-top:4px;">`;
@@ -32508,6 +32639,10 @@ kingSelect.addEventListener('change', () => {
                 document.getElementById('haIllustPreview').innerHTML =
                     `<img src="${url}" style="width:80px;height:60px;object-fit:cover;border:1px solid #7a5a1a;border-radius:4px;margin-top:4px;">`;
             };
+            document.getElementById('haCareerAddBtn').onclick = async () => {
+                const countries = await ensureHeroCareerCountries().catch(() => []);
+                addHeroCareerRow({}, countries);
+            };
 
             // 저장
             document.getElementById('heroAdminSave').onclick = async () => {
@@ -32525,6 +32660,12 @@ kingSelect.addEventListener('change', () => {
                 fd.append('description',   document.getElementById('haDesc').value.trim());
                 fd.append('faction',       document.getElementById('haFaction').value.trim());
                 fd.append('faction_color', document.getElementById('haFactionColor').value || '#c8860a');
+                try {
+                    fd.append('career_history', JSON.stringify(collectHeroCareerHistory()));
+                } catch (careerError) {
+                    alert(careerError.message);
+                    return;
+                }
                 const avFile = document.getElementById('haAvatarFile').files[0];
                 const ilFile = document.getElementById('haIllustFile').files[0];
                 if (avFile) fd.append('avatar', avFile);

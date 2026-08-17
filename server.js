@@ -150,6 +150,67 @@ const normalizeMonthValue = (value, fallback = 1) => {
     const month = parseInt(value);
     return month >= 1 && month <= 12 ? month : fallback;
 };
+const normalizeCareerHistory = (value) => {
+    let rows = value;
+    if (typeof rows === 'string') {
+        try { rows = JSON.parse(rows); } catch (_) { rows = []; }
+    }
+    if (!Array.isArray(rows)) return [];
+    return rows.map((row, index) => {
+        const startYear = parseInt(row?.start_year);
+        const endRaw = row?.end_year;
+        const endYear = endRaw === null || endRaw === undefined || endRaw === '' ? null : parseInt(endRaw);
+        if (Number.isNaN(startYear)) return null;
+        return {
+            phase_id: String(row.phase_id || `phase-${index + 1}`),
+            start_year: startYear,
+            start_month: normalizeMonthValue(row.start_month, 1),
+            end_year: endYear == null || Number.isNaN(endYear) ? null : endYear,
+            end_month: normalizeMonthValue(row.end_month, 12),
+            country_id: String(row.country_id || row.source_country_id || ''),
+            faction: String(row.faction || '').trim(),
+            faction_color: /^#[0-9a-f]{6}$/i.test(String(row.faction_color || '')) ? String(row.faction_color) : '',
+            hero_type: normalizeHeroType(row.hero_type || row.type || 'general'),
+            title: String(row.title || '').trim(),
+            name_ko: String(row.name_ko || row.display_name || '').trim(),
+            name_zh: String(row.name_zh || '').trim(),
+            description: String(row.description || row.note || '').trim(),
+            source: String(row.source || '').trim()
+        };
+    }).filter(Boolean).sort((a, b) => (
+        a.start_year - b.start_year || a.start_month - b.start_month
+    ));
+};
+const careerPhaseStartTotal = (phase = {}) => (
+    (parseInt(phase.start_year) || 0) * 12 + (normalizeMonthValue(phase.start_month, 1) - 1)
+);
+const careerPhaseEndTotal = (phase = {}) => (
+    phase.end_year === null || phase.end_year === undefined || phase.end_year === ''
+        ? Infinity
+        : (parseInt(phase.end_year) || 0) * 12 + (normalizeMonthValue(phase.end_month, 12) - 1)
+);
+const selectActiveCareerPhase = (king = {}, year = 0, month = 1) => {
+    const current = (parseInt(year) || 0) * 12 + (normalizeMonthValue(month, 1) - 1);
+    return normalizeCareerHistory(king.career_history)
+        .filter(phase => careerPhaseStartTotal(phase) <= current && current <= careerPhaseEndTotal(phase))
+        .sort((a, b) => careerPhaseStartTotal(b) - careerPhaseStartTotal(a))[0] || null;
+};
+const applyCareerPhase = (normalized, phase, countryMap = null) => {
+    if (!phase) return normalized;
+    const country = phase.country_id && countryMap ? countryMap.get(String(phase.country_id)) : null;
+    return {
+        ...normalized,
+        active_career_phase: phase,
+        name_ko: phase.name_ko || normalized.name_ko,
+        name_zh: phase.name_zh || normalized.name_zh,
+        title: phase.title || normalized.title,
+        description: phase.description || normalized.description,
+        hero_type: phase.hero_type || normalized.hero_type,
+        faction: phase.faction || country?.name || normalized.faction,
+        faction_color: phase.faction_color || country?.color || normalized.faction_color,
+        source_country_id: phase.country_id || normalized.source_country_id
+    };
+};
 
 const heroTypeLabel = (value) => HERO_TYPE_LABELS[normalizeHeroType(value)] || '장군';
 const isRoyalHeroType = (value) => {
@@ -183,7 +244,8 @@ const normalizeKingSchema = (king = {}, country = null, countryId = '') => {
         start_year: Number.isNaN(startYear) ? null : startYear,
         end_year: endYear == null || Number.isNaN(endYear) ? null : endYear,
         start_month: startMonth,
-        end_month: endMonth
+        end_month: endMonth,
+        career_history: normalizeCareerHistory(king.career_history)
     };
 };
 const totalMonthsFromKing = (king = {}) => (
@@ -336,6 +398,9 @@ const buildFigureFromBody = (body = {}, uploads = {}, existing = {}) => {
         faction_color: body.faction_color || existing.faction_color || '#c8860a',
         avatar_url: uploads.avatar_url !== undefined ? uploads.avatar_url : (existing.avatar_url || ''),
         illustration_url: uploads.illustration_url !== undefined ? uploads.illustration_url : (existing.illustration_url || ''),
+        career_history: body.career_history !== undefined
+            ? normalizeCareerHistory(body.career_history)
+            : normalizeCareerHistory(existing.career_history),
         vote_count: parseInt(existing.vote_count || 0),
         updatedAt: new Date()
     };
@@ -2557,31 +2622,37 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                 for (const countryDoc of kingDocs) {
                     const countryId = String(countryDoc.country_id || '');
                     const country = countryMap.get(countryId) || null;
-                    const capitalEntry = capitalByCountry.get(countryId) || null;
-                    const capital = capitalEntry?.castle || null;
-                    const capitalRecord = capitalEntry?.record || null;
                     const kingsList = Array.isArray(countryDoc.kings) ? countryDoc.kings : [];
                     const activeKings = kingsList.filter(king => isKingActiveAtYearMonth(king, year, month));
                     if (!activeKings.length) continue;
 
                     const royalKings = activeKings.filter(king => {
-                        const type = normalizeKingHeroType(king);
+                        const type = selectActiveCareerPhase(king, year, month)?.hero_type || normalizeKingHeroType(king);
                         return type === 'emperor' || type === 'king' || type === 'khan';
                     });
                     const selectedRoyalKing = royalKings.length ? royalKings.slice().sort(compareKingReignStart).pop() : null;
 
                     const visibleKings = activeKings.filter(king => {
-                        const type = normalizeKingHeroType(king);
+                        const type = selectActiveCareerPhase(king, year, month)?.hero_type || normalizeKingHeroType(king);
                         return type !== 'emperor' && type !== 'king' && type !== 'khan';
                     });
                     if (selectedRoyalKing) visibleKings.push(selectedRoyalKing);
 
                     visibleKings.forEach((king, index) => {
-                        const normalized = normalizeKingSchema(king, country, countryId);
+                        const activeCareerPhase = selectActiveCareerPhase(king, year, month);
+                        const normalized = applyCareerPhase(
+                            normalizeKingSchema(king, country, countryId),
+                            activeCareerPhase,
+                            countryMap
+                        );
+                        const activeCountryId = String(normalized.source_country_id || countryId);
+                        const activeCapitalEntry = capitalByCountry.get(activeCountryId) || null;
+                        const capital = activeCapitalEntry?.castle || null;
+                        const capitalRecord = activeCapitalEntry?.record || null;
                         const startYear = normalized.start_year;
                         const endYear = normalized.end_year;
                         const heroId = `king:${countryId}:${king._id ? String(king._id) : index}`;
-                        const heroType = normalizeKingHeroType(king);
+                        const heroType = normalized.hero_type;
                         const capitalPosition = isRoyalHeroType(heroType) && capital && Number.isFinite(Number(capital.lat)) && Number.isFinite(Number(capital.lng))
                             ? {
                                 hero_id: heroId,
@@ -2720,9 +2791,27 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     hero.worst_vote_count = Math.max(0, ...identity.records.map(record => parseInt(record.king.worst_vote_count || 0)));
                     hero.identity_id = identity.storageId;
                     hero.career_phases = identity.records
-                        .map(record => {
+                        .flatMap(record => {
                             const phase = normalizeKingSchema(record.king, null, record.countryId);
-                            return {
+                            const embedded = normalizeCareerHistory(record.king.career_history);
+                            if (embedded.length) return embedded.map((career, careerIndex) => ({
+                                _id: `${kingHeroId(record.countryId, record.king._id ? String(record.king._id) : String(record.index))}#${career.phase_id || careerIndex}`,
+                                country_id: career.country_id || record.countryId,
+                                faction: career.faction || phase.faction,
+                                name_ko: career.name_ko || phase.name_ko,
+                                name_zh: career.name_zh || phase.name_zh,
+                                era_name: phase.era_name,
+                                aliases: phase.aliases,
+                                hero_type: career.hero_type || phase.hero_type,
+                                title: career.title || phase.title,
+                                description: career.description || phase.description,
+                                source: career.source || '',
+                                start_year: career.start_year,
+                                start_month: career.start_month,
+                                end_year: career.end_year,
+                                end_month: career.end_month
+                            }));
+                            return [{
                                 _id: kingHeroId(
                                     record.countryId,
                                     record.king._id ? String(record.king._id) : String(record.index)
@@ -2740,7 +2829,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                                 start_month: phase.start_month,
                                 end_year: phase.end_year,
                                 end_month: phase.end_month
-                            };
+                            }];
                         })
                         .sort((a, b) => (
                             (a.start_year ?? 0) - (b.start_year ?? 0) ||
@@ -9548,6 +9637,223 @@ app.delete('/api/marker-comments/:commentId', verifyToken, async (req, res) => {
         res.json({ message: '의견이 삭제되었습니다.' });
     } catch (error) {
         res.status(500).json({ message: '의견 삭제 실패', error: error.message });
+    }
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// 🏛️ 사관 개인 페이지 — 프로필·연구 성과·전서구
+// ══════════════════════════════════════════════════════════════════════
+
+const historianAvatarUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 3 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (/^image\/(jpeg|png|webp)$/.test(file.mimetype)) cb(null, true);
+        else cb(new Error('프로필 사진은 jpg, png, webp 형식만 가능합니다.'));
+    }
+}).single('avatar');
+
+const historianUserQuery = (identifier) => {
+    const value = normalizeRouteId(identifier).trim();
+    const objectId = toObjectId(value);
+    return objectId ? { $or: [{ _id: objectId }, { username: value }] } : { username: value };
+};
+
+app.get('/api/historians/directory', verifyToken, async (req, res) => {
+    try {
+        await setupRoutesAndCollections();
+        const users = await collections.users.find(
+            { isGuest: { $ne: true } },
+            { projection: { username: 1, position: 1, 'historianProfile.displayName': 1, 'historianProfile.avatarUrl': 1 } }
+        ).sort({ username: 1 }).limit(300).toArray();
+        res.json(users.map(user => ({
+            _id: String(user._id),
+            username: user.username,
+            displayName: user.historianProfile?.displayName || user.username,
+            position: user.position || '',
+            avatarUrl: user.historianProfile?.avatarUrl || ''
+        })));
+    } catch (error) {
+        res.status(500).json({ message: '사관 명부 조회 실패', error: error.message });
+    }
+});
+
+app.get('/api/historians/:identifier', async (req, res) => {
+    try {
+        await setupRoutesAndCollections();
+        const user = await collections.users.findOne(historianUserQuery(req.params.identifier), {
+            projection: { password: 0, email: 0, resetToken: 0, resetExpires: 0 }
+        });
+        if (!user || user.isGuest) return res.status(404).json({ message: '사관을 찾을 수 없습니다.' });
+
+        const ownerMatch = { $or: [{ userId: user._id }, { username: user.username }] };
+        const contributions = await collections.contributions.find(ownerMatch, {
+            projection: {
+                name: 1, category: 1, status: 1, source: 1, year: 1, evidence: 1,
+                description: 1, content: 1, lat: 1, lng: 1, start_year: 1, end_year: 1, createdAt: 1, reviewedAt: 1,
+                votes: 1, heroResearch: 1
+            }
+        }).sort({ createdAt: -1 }).limit(250).toArray();
+
+        const byStatus = { pending: 0, reviewed: 0, approved: 0, rejected: 0 };
+        const byCategory = {};
+        let totalVotes = 0;
+        contributions.forEach(item => {
+            const status = item.status || 'pending';
+            byStatus[status] = (byStatus[status] || 0) + 1;
+            const category = item.category || 'other';
+            byCategory[category] = (byCategory[category] || 0) + 1;
+            totalVotes += Number(item.votes || 0);
+        });
+        const approvedCount = byStatus.approved || 0;
+        const score = contributions.length * RANK_CONFIG.scoreWeights.submitCount
+            + approvedCount * RANK_CONFIG.scoreWeights.approvedCount
+            + totalVotes
+            + Number(user.reviewScore || 0)
+            + Number(user.approvalScore || 0)
+            + Number(user.attendancePoints || 0);
+
+        const mapPoints = contributions
+            .filter(item => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng)))
+            .map(item => ({
+                _id: String(item._id), name: item.name || '이름 없는 기록',
+                lat: Number(item.lat), lng: Number(item.lng), category: item.category || 'other',
+                status: item.status || 'pending', year: item.year ?? item.start_year ?? null
+            }));
+        const heroes = contributions
+            .filter(item => item.category === 'hero_research')
+            .map(item => ({
+                _id: String(item._id),
+                name: item.heroResearch?.name_ko || item.name || '이름 없는 인물',
+                name_zh: item.heroResearch?.name_zh || '',
+                hero_type: item.heroResearch?.hero_type || 'general',
+                faction: item.heroResearch?.faction || '',
+                title: item.heroResearch?.title || '',
+                start_year: item.heroResearch?.start_year ?? item.year ?? null,
+                end_year: item.heroResearch?.end_year ?? null,
+                status: item.status || 'pending'
+            }));
+
+        res.json({
+            user: {
+                _id: String(user._id), username: user.username,
+                displayName: user.historianProfile?.displayName || user.username,
+                position: user.position || '', joinedAt: user.createdAt || user.joinedAt || null,
+                avatarUrl: user.historianProfile?.avatarUrl || '',
+                bio: user.historianProfile?.bio || '',
+                specialties: user.historianProfile?.specialties || [],
+                focusRegions: user.historianProfile?.focusRegions || [],
+                website: user.historianProfile?.website || ''
+            },
+            stats: { total: contributions.length, approved: approvedCount, byStatus, byCategory, totalVotes, score },
+            contributions: contributions.map(item => ({ ...item, _id: String(item._id) })),
+            mapPoints,
+            heroes,
+            honors: []
+        });
+    } catch (error) {
+        res.status(500).json({ message: '사관 개인 페이지 조회 실패', error: error.message });
+    }
+});
+
+app.put('/api/historians/me/profile', verifyToken, async (req, res) => {
+    try {
+        await setupRoutesAndCollections();
+        if (req.user.isGuest) return res.status(403).json({ message: '게스트는 프로필을 편집할 수 없습니다.' });
+        const cleanList = value => (Array.isArray(value) ? value : String(value || '').split(','))
+            .map(item => String(item).trim()).filter(Boolean).slice(0, 12);
+        const displayName = String(req.body.displayName || '').trim().slice(0, 40);
+        const bio = String(req.body.bio || '').trim().slice(0, 1000);
+        const websiteValue = String(req.body.website || '').trim().slice(0, 300);
+        const website = /^https?:\/\//i.test(websiteValue) ? websiteValue : '';
+        const update = {
+            'historianProfile.displayName': displayName || req.user.username,
+            'historianProfile.bio': bio,
+            'historianProfile.specialties': cleanList(req.body.specialties),
+            'historianProfile.focusRegions': cleanList(req.body.focusRegions),
+            'historianProfile.website': website,
+            'historianProfile.updatedAt': new Date()
+        };
+        await collections.users.updateOne({ _id: toObjectId(req.user.userId) }, { $set: update });
+        res.json({ ok: true, message: '프로필을 저장했습니다.' });
+    } catch (error) {
+        res.status(500).json({ message: '프로필 저장 실패', error: error.message });
+    }
+});
+
+app.post('/api/historians/me/avatar', verifyToken, (req, res) => {
+    historianAvatarUpload(req, res, async error => {
+        if (error) return res.status(400).json({ message: error.message });
+        try {
+            await setupRoutesAndCollections();
+            if (!req.file) return res.status(400).json({ message: '프로필 사진을 선택해주세요.' });
+            const ext = req.file.mimetype.split('/')[1].replace('jpeg', 'jpg');
+            const name = `historian-profiles/${req.user.userId}_${Date.now()}.${ext}`;
+            const blob = await blobPut(name, req.file.buffer, {
+                access: 'public', contentType: req.file.mimetype, token: process.env.BLOB_READ_WRITE_TOKEN
+            });
+            const user = await collections.users.findOne({ _id: toObjectId(req.user.userId) }, { projection: { 'historianProfile.avatarUrl': 1 } });
+            await collections.users.updateOne(
+                { _id: toObjectId(req.user.userId) },
+                { $set: { 'historianProfile.avatarUrl': blob.url, 'historianProfile.updatedAt': new Date() } }
+            );
+            const oldUrl = user?.historianProfile?.avatarUrl;
+            if (oldUrl && oldUrl !== blob.url) blobDel(oldUrl, { token: process.env.BLOB_READ_WRITE_TOKEN }).catch(() => {});
+            res.json({ ok: true, avatarUrl: blob.url });
+        } catch (uploadError) {
+            res.status(500).json({ message: '프로필 사진 업로드 실패', error: uploadError.message });
+        }
+    });
+});
+
+app.get('/api/historian-messages', verifyToken, async (req, res) => {
+    try {
+        await setupRoutesAndCollections();
+        const myId = String(req.user.userId);
+        const box = req.query.box === 'outbox' ? 'outbox' : 'inbox';
+        const query = box === 'outbox' ? { senderId: myId } : { recipientId: myId };
+        const messages = await collections.historianMessages.find(query).sort({ createdAt: -1 }).limit(80).toArray();
+        res.json(messages.map(message => ({ ...message, _id: String(message._id) })));
+    } catch (error) {
+        res.status(500).json({ message: '전서구 조회 실패', error: error.message });
+    }
+});
+
+app.post('/api/historian-messages', verifyToken, async (req, res) => {
+    try {
+        await setupRoutesAndCollections();
+        if (req.user.isGuest) return res.status(403).json({ message: '게스트는 전서구를 보낼 수 없습니다.' });
+        const recipientId = String(req.body.recipientId || '').trim();
+        const body = String(req.body.body || '').trim().slice(0, 1000);
+        const recipientObjectId = toObjectId(recipientId);
+        if (!recipientObjectId || !body) return res.status(400).json({ message: '받는 사관과 내용을 입력해주세요.' });
+        if (recipientId === String(req.user.userId)) return res.status(400).json({ message: '자신에게는 전서구를 보낼 수 없습니다.' });
+        const recipient = await collections.users.findOne({ _id: recipientObjectId, isGuest: { $ne: true } }, { projection: { username: 1 } });
+        if (!recipient) return res.status(404).json({ message: '받는 사관을 찾을 수 없습니다.' });
+        const message = {
+            senderId: String(req.user.userId), senderName: req.user.username,
+            recipientId, recipientName: recipient.username, body,
+            createdAt: new Date(), readAt: null
+        };
+        const result = await collections.historianMessages.insertOne(message);
+        res.status(201).json({ ...message, _id: String(result.insertedId) });
+    } catch (error) {
+        res.status(500).json({ message: '전서구 발송 실패', error: error.message });
+    }
+});
+
+app.put('/api/historian-messages/:id/read', verifyToken, async (req, res) => {
+    try {
+        await setupRoutesAndCollections();
+        const id = toObjectId(req.params.id);
+        if (!id) return res.status(400).json({ message: '잘못된 전서구 ID입니다.' });
+        const result = await collections.historianMessages.updateOne(
+            { _id: id, recipientId: String(req.user.userId) }, { $set: { readAt: new Date() } }
+        );
+        if (!result.matchedCount) return res.status(404).json({ message: '전서구를 찾을 수 없습니다.' });
+        res.json({ ok: true });
+    } catch (error) {
+        res.status(500).json({ message: '전서구 상태 변경 실패', error: error.message });
     }
 });
 

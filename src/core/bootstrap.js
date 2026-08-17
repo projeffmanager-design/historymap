@@ -583,6 +583,39 @@ function isFigureActiveAt(hero, year, month) {
   return start <= current && current < end;
 }
 
+function selectHeroCareerPhase(hero, year, month) {
+  const current = heroTotalMonths(year, month);
+  return (Array.isArray(hero?.career_history) ? hero.career_history : [])
+    .filter((phase) => {
+      const startYear = parseInt(phase?.start_year, 10);
+      if (Number.isNaN(startYear)) return false;
+      const start = heroTotalMonths(startYear, phase.start_month || 1);
+      const end = phase.end_year === null || phase.end_year === undefined || phase.end_year === ''
+        ? Infinity
+        : heroTotalMonths(phase.end_year, phase.end_month || 12);
+      return start <= current && current <= end;
+    })
+    .sort((a, b) => heroTotalMonths(b.start_year, b.start_month || 1) - heroTotalMonths(a.start_year, a.start_month || 1))[0] || null;
+}
+
+function applyHeroCareerPhase(hero, phase, countriesById) {
+  if (!phase) return hero;
+  const countryId = idToString(phase.country_id || hero.source_country_id || hero.country_id);
+  const country = countriesById.get(countryId);
+  return {
+    ...hero,
+    active_career_phase: phase,
+    source_country_id: countryId,
+    name_ko: phase.name_ko || hero.name_ko,
+    name_zh: phase.name_zh || hero.name_zh,
+    title: phase.title || hero.title,
+    description: phase.description || hero.description,
+    hero_type: phase.hero_type || hero.hero_type,
+    faction: phase.faction || country?.name || hero.faction,
+    faction_color: phase.faction_color || country?.color || hero.faction_color,
+  };
+}
+
 function isHeroPositionActiveAt(pos, year, month) {
   if (Number.isFinite(pos?.__startTotal) || pos?.__endTotal === Infinity) {
     const currentPrepared = heroTotalMonths(year, month);
@@ -683,16 +716,20 @@ function buildHeroesFromBaseDataset(base, year, month) {
   const prepared = base?.__heroPrepared || null;
   const figures = Array.isArray(base?.figures) ? base.figures : [];
   const capitals = Array.isArray(base?.capitals) ? base.capitals : [];
+  const countriesById = new Map((Array.isArray(base?.countries) ? base.countries : [])
+    .map(country => [idToString(country?._id), country]));
   const current = heroTotalMonths(year, month);
   const activeByCountry = new Map();
   figures.forEach((hero) => {
-    const countryId = hero.__countryId || idToString(hero.source_country_id || hero.country_id);
-    if (!countryId) return;
     if ((Number.isFinite(hero.__startTotal) || hero.__endTotal === Infinity)
       ? !(hero.__startTotal <= current && current < hero.__endTotal)
       : !isFigureActiveAt(hero, year, month)) return;
+    const phase = selectHeroCareerPhase(hero, year, month);
+    const effectiveHero = applyHeroCareerPhase(hero, phase, countriesById);
+    const countryId = idToString(effectiveHero.source_country_id || effectiveHero.country_id);
+    if (!countryId) return;
     if (!activeByCountry.has(countryId)) activeByCountry.set(countryId, []);
-    activeByCountry.get(countryId).push(hero);
+    activeByCountry.get(countryId).push(effectiveHero);
   });
 
   const result = [];
@@ -700,7 +737,7 @@ function buildHeroesFromBaseDataset(base, year, month) {
     let selectedRoyal = null;
     const visibleHeroes = [];
     activeHeroes.forEach((hero) => {
-      const type = hero.__heroType || normalizeType(hero.hero_type || hero.type, hero.name_ko || hero.name || hero.title || '');
+      const type = normalizeType(hero.hero_type || hero.type, hero.name_ko || hero.name || hero.title || '');
       if (!royalTypes.has(type)) {
         visibleHeroes.push(hero);
         return;
@@ -723,7 +760,7 @@ function buildHeroesFromBaseDataset(base, year, month) {
     const indexedCapitals = prepared ? { __entriesByCountry: prepared.capitalEntriesByCountry } : capitals;
     const capitalEntry = getCurrentCapitalEntry(indexedCapitals, countryId, year, month);
     visibleHeroes.forEach((hero) => {
-      const type = hero.__heroType || normalizeType(hero.hero_type || hero.type, hero.name_ko || hero.name || hero.title || '');
+      const type = normalizeType(hero.hero_type || hero.type, hero.name_ko || hero.name || hero.title || '');
       const nextHero = { ...hero };
       const capital = capitalEntry?.castle;
       if (royalTypes.has(type) && capital && Number.isFinite(Number(capital.lat)) && Number.isFinite(Number(capital.lng))) {

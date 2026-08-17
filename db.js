@@ -69,6 +69,7 @@ async function connectToDatabase() {
             collections.heroComments = db.collection("hero_comments");   // 🦸 [추가] 영웅 사관 댓글 컬렉션
             collections.historyComments = db.collection("history_comments"); // 📜 역사기록 패널 기사 댓글
             collections.historicalRelations = db.collection("historical_relations"); // 인물·장소·국가·사료 관계 그래프
+            collections.historianMessages = db.collection("historian_messages"); // 🕊️ 사관 간 전서구
 
             // 인덱스는 영구 자산이므로 서버 시작 경로에서 확인하지 않는다.
             // 변경이 필요할 때 scripts/check_and_fix_indexes.js를 배포 단계에서 실행한다.
