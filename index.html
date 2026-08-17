@@ -18074,7 +18074,16 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             if (!_isMacro && !_isMid && castle.is_natural_feature && map.getZoom() < 7.5) return;
             if (_isMid   && !castle.is_natural_feature && !castle.is_label && !_isCapital) return;
             
-            const baseCountryId = castle.country_id || castle.countryId || (Array.isArray(castle.history) && castle.history.length > 0 ? castle.history[0]?.country_id : null);
+            // 국가 필터는 장소 문서의 최상위 국가가 아니라 현재 시점의 연혁 국가를 우선한다.
+            // 한 장소가 책성→무창→장춘처럼 시대별로 소속이 바뀌는 경우에도 올바르게 표시한다.
+            const _filterHistoryInfo = getActiveHistoryInfo(
+                castle.history,
+                yearMonthToTotalMonths(year, month)
+            );
+            const baseCountryId = _filterHistoryInfo?.record?.country_id
+                || castle.country_id
+                || castle.countryId
+                || (Array.isArray(castle.history) && castle.history.length > 0 ? castle.history[0]?.country_id : null);
 
             // 🚩 [추가] 국가 필터링 로직
             if (selectedCountryId !== 'all' && baseCountryId && baseCountryId !== selectedCountryId) {
