@@ -32050,9 +32050,11 @@ kingSelect.addEventListener('change', () => {
             const empty = document.getElementById('haCareerHistoryEmpty');
             if (!list) return;
             const phaseId = row.phase_id || `phase-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
-            const countryOptions = ['<option value="">국가/세력 선택</option>'].concat((countries || []).map(country => (
-                `<option value="${escapeHeroAdminText(country._id)}" data-name="${escapeHeroAdminText(country.name || '')}" data-color="${escapeHeroAdminText(country.color || '#c8860a')}"${String(row.country_id || '') === String(country._id) ? ' selected' : ''}>${escapeHeroAdminText(country.name || '')}</option>`
-            ))).join('');
+            const selectedCountry = (countries || []).find(country => String(country._id) === String(row.country_id || ''))
+                || (countries || []).find(country => normalizeHeroAdminSearchText(country.name) === normalizeHeroAdminSearchText(row.faction || ''));
+            const selectedCountryId = selectedCountry?._id || row.country_id || '';
+            const selectedCountryName = selectedCountry?.name || row.faction || '';
+            const selectedCountryColor = selectedCountry?.color || row.faction_color || '#a77a28';
             const typeOptions = HERO_CAREER_TYPES.map(([value,label]) => `<option value="${value}"${String(row.hero_type || 'general') === value ? ' selected' : ''}>${label}</option>`).join('');
             const wrap = document.createElement('div');
             wrap.className = 'ha-career-row';
@@ -32067,7 +32069,13 @@ kingSelect.addEventListener('change', () => {
                     <button type="button" class="hero-admin-btn danger hc-remove" style="padding:6px 9px;">삭제</button>
                 </div>
                 <div style="display:grid;grid-template-columns:1.2fr .7fr 1fr 1fr;gap:6px;margin-top:6px;">
-                    <div><label class="hero-admin-label">국가·세력 *</label><select class="hero-admin-input hc-country">${countryOptions}</select></div>
+                    <div><label class="hero-admin-label">국가·세력 *</label>
+                        <div class="hc-country-picker" style="position:relative;">
+                            <input class="hero-admin-input hc-country-input" value="${escapeHeroAdminText(selectedCountryName)}" placeholder="국가·세력명 입력..." autocomplete="off" style="width:100%;box-sizing:border-box;border-left:3px solid ${escapeHeroAdminText(selectedCountryColor)};">
+                            <input type="hidden" class="hc-country" value="${escapeHeroAdminText(selectedCountryId)}" data-name="${escapeHeroAdminText(selectedCountryName)}" data-color="${escapeHeroAdminText(selectedCountryColor)}">
+                            <div class="hc-country-results" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:10020;max-height:180px;overflow-y:auto;background:#0e0a02;border:1px solid #7a5a1a;border-radius:0 0 5px 5px;box-shadow:0 8px 18px rgba(0,0,0,.55);"></div>
+                        </div>
+                    </div>
                     <div><label class="hero-admin-label">신분</label><select class="hero-admin-input hc-type">${typeOptions}</select></div>
                     <div><label class="hero-admin-label">직함·칭호</label><input class="hero-admin-input hc-title" value="${escapeHeroAdminText(row.title || '')}" placeholder="예: 대장군, 태조"></div>
                     <div><label class="hero-admin-label">당시 이름</label><input class="hero-admin-input hc-name" value="${escapeHeroAdminText(row.name_ko || '')}" placeholder="비우면 기본 이름"></div>
@@ -32080,14 +32088,96 @@ kingSelect.addEventListener('change', () => {
                 wrap.remove();
                 if (empty) empty.style.display = list.children.length ? 'none' : '';
             };
-            const countrySelect = wrap.querySelector('.hc-country');
-            countrySelect.addEventListener('change', () => {
-                const option = countrySelect.selectedOptions[0];
-                wrap.style.borderLeftColor = option?.dataset.color || '#a77a28';
-            });
-            countrySelect.dispatchEvent(new Event('change'));
+            bindHeroCareerCountryPicker(wrap, countries || []);
             list.appendChild(wrap);
             if (empty) empty.style.display = 'none';
+        }
+
+        function bindHeroCareerCountryPicker(wrap, countries) {
+            const input = wrap.querySelector('.hc-country-input');
+            const hidden = wrap.querySelector('.hc-country');
+            const results = wrap.querySelector('.hc-country-results');
+            if (!input || !hidden || !results) return;
+            let highlightedIndex = -1;
+            let visibleCountries = [];
+
+            const chooseCountry = country => {
+                if (!country) return;
+                const color = country.color || '#a77a28';
+                input.value = country.name || '';
+                input.style.borderLeftColor = color;
+                hidden.value = country._id || '';
+                hidden.dataset.name = country.name || '';
+                hidden.dataset.color = color;
+                wrap.style.borderLeftColor = color;
+                results.style.display = 'none';
+                highlightedIndex = -1;
+            };
+
+            const renderCountryResults = query => {
+                const normalizedQuery = normalizeHeroAdminSearchText(query || '');
+                visibleCountries = (countries || []).filter(country => {
+                    if (!normalizedQuery) return true;
+                    return normalizeHeroAdminSearchText(country.name || '').includes(normalizedQuery);
+                }).slice(0, 40);
+                results.innerHTML = '';
+                highlightedIndex = -1;
+                if (!visibleCountries.length) {
+                    const emptyResult = document.createElement('div');
+                    emptyResult.textContent = '일치하는 국가·세력이 없습니다.';
+                    emptyResult.style.cssText = 'padding:8px;color:#85775d;font-size:11px;';
+                    results.appendChild(emptyResult);
+                } else {
+                    visibleCountries.forEach((country, index) => {
+                        const item = document.createElement('button');
+                        item.type = 'button';
+                        item.className = 'hc-country-result';
+                        item.dataset.index = String(index);
+                        item.textContent = country.name || '';
+                        item.style.cssText = `display:block;width:100%;margin:0;padding:7px 9px;text-align:left;border:0;border-bottom:1px solid rgba(122,90,26,.38);border-left:3px solid ${country.color || '#c8860a'};border-radius:0;background:transparent;color:#d7c9a8;font-size:12px;cursor:pointer;`;
+                        item.addEventListener('mousedown', event => event.preventDefault());
+                        item.addEventListener('click', () => chooseCountry(country));
+                        results.appendChild(item);
+                    });
+                }
+                results.style.display = 'block';
+            };
+
+            const highlightResult = index => {
+                const items = [...results.querySelectorAll('.hc-country-result')];
+                if (!items.length) return;
+                highlightedIndex = (index + items.length) % items.length;
+                items.forEach((item, itemIndex) => {
+                    item.style.background = itemIndex === highlightedIndex ? 'rgba(197,150,30,.22)' : 'transparent';
+                });
+                items[highlightedIndex].scrollIntoView({ block: 'nearest' });
+            };
+
+            input.addEventListener('focus', () => renderCountryResults(input.value));
+            input.addEventListener('input', () => {
+                hidden.value = '';
+                hidden.dataset.name = '';
+                hidden.dataset.color = '';
+                input.style.borderLeftColor = '#6c604b';
+                renderCountryResults(input.value);
+            });
+            input.addEventListener('keydown', event => {
+                if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    if (results.style.display === 'none') renderCountryResults(input.value);
+                    highlightResult(highlightedIndex + 1);
+                } else if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    highlightResult(highlightedIndex - 1);
+                } else if (event.key === 'Enter' && highlightedIndex >= 0) {
+                    event.preventDefault();
+                    chooseCountry(visibleCountries[highlightedIndex]);
+                } else if (event.key === 'Escape') {
+                    results.style.display = 'none';
+                }
+            });
+            input.addEventListener('blur', () => setTimeout(() => { results.style.display = 'none'; }, 120));
+            wrap.style.borderLeftColor = hidden.dataset.color || '#a77a28';
         }
 
         function collectHeroCareerHistory() {
@@ -32096,7 +32186,6 @@ kingSelect.addEventListener('change', () => {
                 const endText = wrap.querySelector('.hc-end').value.trim();
                 const endYear = endText === '' ? null : parseInt(endText, 10);
                 const country = wrap.querySelector('.hc-country');
-                const option = country.selectedOptions[0];
                 if (!Number.isFinite(startYear)) throw new Error('신분 이력의 시작 연도를 입력하세요.');
                 if (!country.value) throw new Error('신분 이력의 국가·세력을 선택하세요.');
                 if (endYear != null && endYear < startYear) throw new Error('신분 이력의 종료 연도는 시작 연도보다 빠를 수 없습니다.');
@@ -32107,8 +32196,8 @@ kingSelect.addEventListener('change', () => {
                     end_year: endYear,
                     end_month: Math.min(12, Math.max(1, parseInt(wrap.querySelector('.hc-end-month').value,10) || 12)),
                     country_id: country.value,
-                    faction: option?.dataset.name || option?.textContent || '',
-                    faction_color: option?.dataset.color || '',
+                    faction: country.dataset.name || wrap.querySelector('.hc-country-input')?.value.trim() || '',
+                    faction_color: country.dataset.color || '',
                     hero_type: wrap.querySelector('.hc-type').value,
                     title: wrap.querySelector('.hc-title').value.trim(),
                     name_ko: wrap.querySelector('.hc-name').value.trim(),
