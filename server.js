@@ -305,16 +305,46 @@ const compareKingReignStart = (a = {}, b = {}) => (
 const kingHeroId = (countryId, refId) => `king:${String(countryId)}:${String(refId)}`;
 const findKingFigure = async (countryId, sourceRefId) => {
     const countryObjectId = toObjectId(countryId);
-    const kingDoc = await collections.kings.findOne({
+    const kingDocs = await collections.kings.find({
         country_id: { $in: countryIdQueryValues(countryId) }
-    });
-    const kings = Array.isArray(kingDoc?.kings) ? kingDoc.kings : [];
-    const index = kings.findIndex((k, i) => (
-        String(k._id) === String(sourceRefId) ||
-        String(k._id?.toString?.() || k._id) === String(sourceRefId) ||
-        (!k._id && String(i) === String(sourceRefId))
-    ));
-    if (index < 0) return null;
+    }).toArray();
+    let kingDoc = null;
+    let kings = [];
+    let index = -1;
+
+    // 한 국가의 인물 배열이 여러 kings 문서로 나뉜 레거시 데이터가 있다.
+    // findOne()으로 첫 문서만 검사하면 관리자 목록에는 보이지만 상세 조회는
+    // 404가 되므로, 모든 문서에서 안정적인 인물 고유 ID를 먼저 찾는다.
+    for (const candidate of kingDocs) {
+        const candidateKings = Array.isArray(candidate?.kings) ? candidate.kings : [];
+        const candidateIndex = candidateKings.findIndex(k => (
+            k?._id != null && String(k._id?.toString?.() || k._id) === String(sourceRefId)
+        ));
+        if (candidateIndex >= 0) {
+            kingDoc = candidate;
+            kings = candidateKings;
+            index = candidateIndex;
+            break;
+        }
+    }
+
+    // _id가 없던 구형 항목은 기존 배열 인덱스 ID도 계속 지원한다.
+    if (index < 0) {
+        for (const candidate of kingDocs) {
+            const candidateKings = Array.isArray(candidate?.kings) ? candidate.kings : [];
+            const candidateIndex = candidateKings.findIndex((k, i) => (
+                !k?._id && String(i) === String(sourceRefId)
+            ));
+            if (candidateIndex >= 0) {
+                kingDoc = candidate;
+                kings = candidateKings;
+                index = candidateIndex;
+                break;
+            }
+        }
+    }
+
+    if (!kingDoc || index < 0) return null;
     const country = await collections.countries.findOne({ _id: countryObjectId || countryId });
     return { kingDoc, country, king: kings[index], index, countryId: String(countryId), sourceRefId: String(sourceRefId) };
 };
