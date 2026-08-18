@@ -13,7 +13,8 @@ const HERO_TYPE_IMAGE_URLS = {
   hojok: '/public/assets/ui/hero-hojok.png',
 };
 const DEFAULT_HERO_IMAGE_URL = HERO_TYPE_IMAGE_URLS.general;
-const royalTypes = new Set(['emperor', 'king', 'khan']);
+// 국가 원수 유형: 현재 시점에 국가별 한 명만 기본 수도 위치에 노출한다.
+const royalTypes = new Set(['emperor', 'king', 'khan', 'president']);
 const knownHeroTypes = new Set([...royalTypes, 'president', 'general', 'civilian', 'brigand', 'hojok']);
 let heroLayer = null;
 let heroLayerVisible = true;
@@ -86,7 +87,8 @@ function isRoyalHero(king) {
   const raw = String(king && (king.hero_type || king.type || king.role_type) || '').trim().toLowerCase();
   if (raw) return royalTypes.has(normalizeType(raw, king && (king.name || king.summary || king.title || '')));
   const hint = king && (king.name || king.summary || king.title || '');
-  if (/대통령|장군|대장군|총관|문관|재상|상서|대신|승상|관리|호족|족장|수장|토호|豪族|도적|적벽|강도|유민/.test(hint)) return false;
+  if (/대통령/.test(hint)) return true;
+  if (/장군|대장군|총관|문관|재상|상서|대신|승상|관리|호족|족장|수장|토호|豪族|도적|적벽|강도|유민/.test(hint)) return false;
   return true;
 }
 

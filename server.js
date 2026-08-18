@@ -215,7 +215,7 @@ const applyCareerPhase = (normalized, phase, countryMap = null) => {
 const heroTypeLabel = (value) => HERO_TYPE_LABELS[normalizeHeroType(value)] || '장군';
 const isRoyalHeroType = (value) => {
     const type = normalizeHeroType(value);
-    return type === 'emperor' || type === 'king' || type === 'khan';
+    return type === 'emperor' || type === 'king' || type === 'khan' || type === 'president';
 };
 const normalizeKingSchema = (king = {}, country = null, countryId = '') => {
     const startYear = parseInt(king.start);
@@ -2561,7 +2561,8 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
         // Multer: 메모리 스토리지 → Vercel Blob 업로드 패턴 (voice와 동일 방식)
         const heroUpload = multer({
             storage: multer.memoryStorage(),
-            limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+            // Vercel 요청 본문 한도보다 충분히 낮게 유지한다. 클라이언트에서도 자동 압축한다.
+            limits: { fileSize: 3 * 1024 * 1024 }, // 파일당 3 MB
             fileFilter: (req, file, cb) => {
                 if (/^image\/(jpeg|png|webp|gif)$/.test(file.mimetype)) cb(null, true);
                 else cb(new Error('이미지 파일(jpg/png/webp/gif)만 업로드 가능합니다.'));
@@ -2628,13 +2629,13 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
 
                     const royalKings = activeKings.filter(king => {
                         const type = selectActiveCareerPhase(king, year, month)?.hero_type || normalizeKingHeroType(king);
-                        return type === 'emperor' || type === 'king' || type === 'khan';
+                        return type === 'emperor' || type === 'king' || type === 'khan' || type === 'president';
                     });
                     const selectedRoyalKing = royalKings.length ? royalKings.slice().sort(compareKingReignStart).pop() : null;
 
                     const visibleKings = activeKings.filter(king => {
                         const type = selectActiveCareerPhase(king, year, month)?.hero_type || normalizeKingHeroType(king);
-                        return type !== 'emperor' && type !== 'king' && type !== 'khan';
+                        return type !== 'emperor' && type !== 'king' && type !== 'khan' && type !== 'president';
                     });
                     if (selectedRoyalKing) visibleKings.push(selectedRoyalKing);
 
@@ -3017,7 +3018,9 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
         // POST /api/admin/heroes — 영웅 생성 (이미지 업로드 포함)
         app.post('/api/admin/heroes', verifyAdmin, (req, res) => {
             heroUpload(req, res, async (err) => {
-                if (err) return res.status(400).json({ message: err.message });
+                if (err) return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({
+                    message: err.code === 'LIMIT_FILE_SIZE' ? '이미지 한 장의 크기는 3MB 이하여야 합니다.' : err.message
+                });
                 try {
                     const { name_ko, name_zh, birth_year, death_year, title, description } = req.body;
                     if (!name_ko || !birth_year || !death_year)
@@ -3071,7 +3074,9 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
         // PUT /api/admin/heroes/:id — 영웅 수정 (이미지 재업로드 가능)
         app.put('/api/admin/heroes/:id', verifyAdmin, (req, res) => {
             heroUpload(req, res, async (err) => {
-                if (err) return res.status(400).json({ message: err.message });
+                if (err) return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({
+                    message: err.code === 'LIMIT_FILE_SIZE' ? '이미지 한 장의 크기는 3MB 이하여야 합니다.' : err.message
+                });
                 try {
                     const id = normalizeRouteId(req.params.id);
                     const kingMatch = parseKingHeroId(id);

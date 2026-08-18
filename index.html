@@ -29278,7 +29278,7 @@ const loadingMessages = [
                 if (requestSeq !== _figuresRenderSeq || !_currentCInfo || String(_currentCInfo._id) !== String(cInfo._id)) return;
 
                 const countryId = String(cInfo._id || '');
-                const royalTypes = new Set(['emperor', 'king', 'khan']);
+                const royalTypes = new Set(['emperor', 'king', 'khan', 'president']);
                 const periodFigures = (Array.isArray(heroes) ? heroes : [])
                     .filter(hero => String(hero.source_country_id || hero.country_id || '') === countryId)
                     .filter(hero => {
@@ -32816,6 +32816,49 @@ kingSelect.addEventListener('change', () => {
                 addHeroCareerRow({}, countries);
             };
 
+            async function optimizeHeroUploadImage(file, { maxWidth, maxHeight, maxBytes, prefix }) {
+                if (!file || file.size <= maxBytes) return file;
+                let bitmap;
+                try {
+                    bitmap = await createImageBitmap(file);
+                    const ratio = Math.min(1, maxWidth / bitmap.width, maxHeight / bitmap.height);
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.max(1, Math.round(bitmap.width * ratio));
+                    canvas.height = Math.max(1, Math.round(bitmap.height * ratio));
+                    const context = canvas.getContext('2d', { alpha: true });
+                    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                    const encode = quality => new Promise(resolve => canvas.toBlob(resolve, 'image/webp', quality));
+                    let blob = null;
+                    for (const quality of [0.84, 0.74, 0.64, 0.54]) {
+                        blob = await encode(quality);
+                        if (blob && blob.size <= maxBytes) break;
+                    }
+                    if (!blob || blob.size > maxBytes) {
+                        throw new Error(`${prefix} 이미지가 너무 큽니다. 더 작은 이미지를 선택해 주세요.`);
+                    }
+                    const baseName = String(file.name || prefix).replace(/\.[^.]+$/, '');
+                    return new File([blob], `${baseName}.webp`, { type: 'image/webp', lastModified: Date.now() });
+                } catch (error) {
+                    if (error?.message?.includes('너무 큽니다')) throw error;
+                    throw new Error(`${prefix} 이미지를 처리할 수 없습니다. JPG, PNG 또는 WEBP 파일을 사용해 주세요.`);
+                } finally {
+                    bitmap?.close?.();
+                }
+            }
+
+            async function readHeroAdminResponse(response) {
+                const raw = await response.text();
+                let data = {};
+                try { data = raw ? JSON.parse(raw) : {}; } catch (_) { /* 프록시의 텍스트 오류 응답 */ }
+                if (!response.ok) {
+                    if (response.status === 413 || /request entity too large|payload too large/i.test(raw)) {
+                        throw new Error('이미지 용량이 너무 큽니다. 자동 압축 후에도 업로드 한도를 초과했습니다.');
+                    }
+                    throw new Error(data.message || raw.trim().slice(0, 160) || `서버 오류 (${response.status})`);
+                }
+                return data;
+            }
+
             // 저장
             document.getElementById('heroAdminSave').onclick = async () => {
                 const id = document.getElementById('heroEditId').value.trim();
@@ -32838,15 +32881,18 @@ kingSelect.addEventListener('change', () => {
                     alert(careerError.message);
                     return;
                 }
-                const avFile = document.getElementById('haAvatarFile').files[0];
-                const ilFile = document.getElementById('haIllustFile').files[0];
-                if (avFile) fd.append('avatar', avFile);
-                if (ilFile) fd.append('illustration', ilFile);
-
                 if (!fd.get('name_ko') || !fd.get('birth_year') || !fd.get('death_year')) {
                     alert('이름, 등장 연도, 퇴장 연도는 필수입니다.'); return;
                 }
                 try {
+                    const avFile = document.getElementById('haAvatarFile').files[0];
+                    const ilFile = document.getElementById('haIllustFile').files[0];
+                    if (avFile) fd.append('avatar', await optimizeHeroUploadImage(avFile, {
+                        maxWidth: 512, maxHeight: 512, maxBytes: 700 * 1024, prefix: '아바타'
+                    }));
+                    if (ilFile) fd.append('illustration', await optimizeHeroUploadImage(ilFile, {
+                        maxWidth: 1400, maxHeight: 1800, maxBytes: 2400 * 1024, prefix: '전신 일러스트'
+                    }));
                     const url    = id ? `${API}/admin/heroes/${encodeURIComponent(id)}` : `${API}/admin/heroes`;
                     const method = id ? 'PUT' : 'POST';
                     const res = await fetch(url, {
@@ -32854,8 +32900,7 @@ kingSelect.addEventListener('change', () => {
                         headers: { Authorization: `Bearer ${token}` },
                         body: fd
                     });
-                    const data = await res.json();
-                    if (!res.ok) throw new Error(data.message);
+                    const data = await readHeroAdminResponse(res);
                     if (id) {
                         _heroDetailCache.delete(String(id));
                         _heroDetailRequests.delete(String(id));
