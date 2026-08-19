@@ -4254,6 +4254,13 @@ body.force-mobile .marker-type-selector button {
             border-radius: 12px; cursor: pointer; transition: background 0.2s;
         }
         .cdp-edit-btn:hover { background: rgba(52,152,219,0.4); }
+        .cdp-full-edit-btn {
+            position:absolute; top:42px; right:10px; z-index:10;
+            background:rgba(212,168,67,.18); border:1px solid rgba(212,168,67,.5);
+            color:#e2bf6b; font-size:10px; padding:4px 9px; border-radius:12px;
+            cursor:pointer; transition:background .2s;
+        }
+        .cdp-full-edit-btn:hover { background:rgba(212,168,67,.32); }
 
         /* 탭 바 */
         .cdp-tab-bar {
@@ -11276,6 +11283,7 @@ body.force-mobile .marker-type-selector button {
             </div>
             <!-- 관리자 편집 버튼 -->
             <button class="cdp-edit-btn" id="cdp-edit-btn" style="display:none;" title="국가 정보 편집">✏️ 편집</button>
+            <button class="cdp-full-edit-btn" id="cdp-full-edit-btn" style="display:none;" title="국가정보 편집 에디터에서 전체 정보 수정">⚙ 국가 편집</button>
         </div>
 
         <!-- 탭 바 -->
@@ -29322,6 +29330,23 @@ const loadingMessages = [
             // 개요 섹션 편집 폼 열기
             _openDescEdit(_currentCInfo);
         });
+        const fullEditBtn = document.getElementById('cdp-full-edit-btn');
+        fullEditBtn.addEventListener('click', () => {
+            if (!_currentCInfo) return;
+            const currentId = String(_currentCInfo._id || _currentCInfo.id || '');
+            const rawCountry = (countries || []).find(country => String(country._id || country.id) === currentId) || _currentCInfo;
+            closeAllFormsExcept('countryForm');
+            openEditPanel('countryForm');
+            const countrySelect = document.getElementById('countrySelectForEdit');
+            if (countrySelect) {
+                updateCountrySelectForEdit();
+                countrySelect.value = rawCountry.name || '';
+                countrySelect.dispatchEvent(new Event('change'));
+            }
+            const searchInput = document.getElementById('countrySearchForEdit');
+            if (searchInput) searchInput.value = rawCountry.name || '';
+            closeCountryPanel();
+        });
 
         // 개요 본문 편집
         function _openDescEdit(cInfo) {
@@ -29935,6 +29960,7 @@ const loadingMessages = [
 
             // 편집 버튼 표시/숨김
             document.getElementById('cdp-edit-btn').style.display = isAdmin ? 'block' : 'none';
+            document.getElementById('cdp-full-edit-btn').style.display = isAdmin ? 'block' : 'none';
 
             // 첫 탭(개요)으로 초기화
             panel.querySelectorAll('.cdp-tab').forEach(b => b.classList.remove('active'));
