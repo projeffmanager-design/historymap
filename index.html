@@ -29940,7 +29940,11 @@ const loadingMessages = [
             const dataAttr = clickable ? ` data-country-id="${_esc(countryId)}"` : '';
             if (!phases.length) {
                 const effective = getEffectiveCountryInfo(rawCountry);
-                return `<${tag}${typeAttr} class="${root ? 'cdp-lineage-root' : 'cdp-lineage-node'}"${dataAttr}>
+                const startYear = Number(rawCountry?.start);
+                const endYear = rawCountry?.end === null || rawCountry?.end === undefined || rawCountry?.end === '' ? null : Number(rawCountry.end);
+                const startPoint = Number.isFinite(startYear) ? yearMonthToTotalMonths(startYear, Number(rawCountry?.start_month) || 1) : -Infinity;
+                const endPoint = Number.isFinite(endYear) ? yearMonthToTotalMonths(endYear, Number(rawCountry?.end_month) || 12) : Infinity;
+                return `<${tag}${typeAttr} class="${root ? 'cdp-lineage-root' : 'cdp-lineage-node'}"${dataAttr} data-lineage-phase-start="${startPoint}" data-lineage-phase-end="${endPoint}">
                     <span class="cdp-lineage-node-name">${_esc(effective?.name || rawCountry?.name || '국가명 미상')}</span>
                 </${tag}>`;
             }
@@ -29956,7 +29960,7 @@ const loadingMessages = [
                 const period = `${formatYear(startYear)}.${startMonth} ~ ${Number.isFinite(endYear) ? `${formatYear(endYear)}.${endMonth}` : '현재'}`;
                 const nodeClass = `${root ? 'cdp-lineage-root' : 'cdp-lineage-node'}${active ? ' cdp-lineage-phase-current' : ''}`;
                 return `${index ? '<div class="cdp-lineage-phase-edge">정통 계승</div>' : ''}
-                    <${tag}${typeAttr} class="${nodeClass}"${dataAttr}>
+                    <${tag}${typeAttr} class="${nodeClass}"${dataAttr} data-lineage-phase-id="${_esc(phase._id || '')}" data-lineage-phase-start="${startPoint}" data-lineage-phase-end="${endPoint}">
                         <span class="cdp-lineage-node-name">${_esc(phase.name || rawCountry.name || '국호 미상')}${phase.name_zh ? ` (${_esc(phase.name_zh)})` : ''}</span>
                         <span class="cdp-lineage-phase-period">${_esc(period)}</span>
                         ${index === 0 ? `<span class="cdp-lineage-node-base">동일 국가 객체 · ${_esc(rawCountry.name || '')}</span>` : ''}
@@ -30004,23 +30008,60 @@ const loadingMessages = [
                 continuation:'#b58b3d', split:'#5797ba', merge:'#8e73bd', conquest:'#bb6259',
                 migration:'#5d9f85', restoration:'#c08b55', influence:'#7d8d98'
             };
+            const phaseNodeAt = (wrapper, point, preferLast = false) => {
+                const nodes = [...wrapper.querySelectorAll('[data-lineage-phase-start]')];
+                if (!nodes.length) return wrapper;
+                const exact = nodes.find(node => {
+                    const start = Number(node.dataset.lineagePhaseStart);
+                    const end = Number(node.dataset.lineagePhaseEnd);
+                    return point >= start && point <= end;
+                });
+                if (exact) return exact;
+                const prior = nodes.filter(node => Number(node.dataset.lineagePhaseStart) <= point)
+                    .sort((a, b) => Number(b.dataset.lineagePhaseStart) - Number(a.dataset.lineagePhaseStart))[0];
+                return prior || (preferLast ? nodes[nodes.length - 1] : nodes[0]);
+            };
             edges.forEach(edge => {
                 const from = canvas.querySelector(`[data-lineage-country="${CSS.escape(edge.fromId)}"]`);
                 const to = canvas.querySelector(`[data-lineage-country="${CSS.escape(edge.toId)}"]`);
                 if (!from || !to) return;
-                const fromRect = from.getBoundingClientRect();
-                const toRect = to.getBoundingClientRect();
-                const x1 = fromRect.left - canvasRect.left + fromRect.width / 2;
-                const y1 = fromRect.bottom - canvasRect.top + 3;
-                const x2 = toRect.left - canvasRect.left + toRect.width / 2;
-                const y2 = toRect.top - canvasRect.top - 5;
-                const midY = y1 + (y2 - y1) / 2;
+                const successor = _lineageCountry(edge.toId);
+                const relationYearRaw = edge.relation?.year;
+                const hasRelationYear = relationYearRaw !== null && relationYearRaw !== undefined
+                    && relationYearRaw !== '' && Number.isFinite(Number(relationYearRaw));
+                const branchYear = hasRelationYear ? Number(relationYearRaw) : Number(successor?.start);
+                const branchMonth = hasRelationYear
+                    ? (Number(edge.relation?.month) || 1)
+                    : (Number(successor?.start_month) || 1);
+                const branchPoint = Number.isFinite(branchYear)
+                    ? yearMonthToTotalMonths(branchYear, branchMonth)
+                    : Infinity;
+                // 관계 연도가 있으면 그것을, 없으면 후속 국가의 시작 연월을 사용해
+                // 전신 객체 안에서 실제로 분기한 국호 단계를 자동 선택한다.
+                const fromPhase = phaseNodeAt(from, branchPoint, true);
+                const toPhase = phaseNodeAt(to, branchPoint, false);
+                const fromRect = fromPhase.getBoundingClientRect();
+                const toRect = toPhase.getBoundingClientRect();
+                const fromWrapRect = from.getBoundingClientRect();
+                const toWrapRect = to.getBoundingClientRect();
+                const fromCenterX = fromRect.left + fromRect.width / 2;
+                const toCenterX = toRect.left + toRect.width / 2;
+                const exitsRight = toCenterX >= fromCenterX;
+                const entersLeft = fromCenterX <= toCenterX;
+                const x1 = (exitsRight ? fromRect.right : fromRect.left) - canvasRect.left;
+                const y1 = fromRect.top - canvasRect.top + fromRect.height / 2;
+                const sourceLaneX = (exitsRight ? fromWrapRect.right + 14 : fromWrapRect.left - 14) - canvasRect.left;
+                const x2 = (entersLeft ? toRect.left : toRect.right) - canvasRect.left;
+                const y2 = toRect.top - canvasRect.top + toRect.height / 2;
+                const targetLaneX = (entersLeft ? toWrapRect.left - 14 : toWrapRect.right + 14) - canvasRect.left;
+                const midY = (fromWrapRect.bottom + toWrapRect.top) / 2 - canvasRect.top;
                 const color = relationColors[edge.relation?.relation_type] || '#8d7445';
                 const path = document.createElementNS(ns, 'path');
-                path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`);
+                path.setAttribute('d', `M ${x1} ${y1} H ${sourceLaneX} V ${midY} H ${targetLaneX} V ${y2} H ${x2}`);
                 path.setAttribute('fill', 'none');
                 path.setAttribute('stroke', color);
                 path.setAttribute('stroke-width', edge.relation?.confidence === 'disputed' ? '1.2' : '1.8');
+                path.setAttribute('stroke-linejoin', 'miter');
                 if (edge.relation?.confidence === 'hypothesis' || edge.relation?.confidence === 'disputed') {
                     path.setAttribute('stroke-dasharray', '5 4');
                 }
@@ -30028,13 +30069,12 @@ const loadingMessages = [
                 svg.appendChild(path);
 
                 const label = document.createElementNS(ns, 'text');
-                label.setAttribute('x', String((x1 + x2) / 2));
+                label.setAttribute('x', String((sourceLaneX + targetLaneX) / 2));
                 label.setAttribute('y', String(midY - 4));
                 label.setAttribute('text-anchor', 'middle');
                 label.setAttribute('class', 'cdp-lineage-edge-label');
                 const typeLabel = COUNTRY_RELATION_LABELS[edge.relation?.relation_type] || '계승 관계';
-                const year = Number(edge.relation?.year);
-                label.textContent = `${typeLabel}${Number.isFinite(year) ? ` · ${year}년` : ''}`;
+                label.textContent = `${typeLabel}${Number.isFinite(branchYear) ? ` · ${branchYear}년` : ''}`;
                 svg.appendChild(label);
             });
         }
