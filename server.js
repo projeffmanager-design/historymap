@@ -155,10 +155,14 @@ const normalizeCountryPredecessors = (relations) => {
         const yearValue = relation?.year ?? relation?.start_year;
         const year = yearValue === null || yearValue === undefined || yearValue === ''
             ? null : Number.parseInt(yearValue, 10);
+        const endYearValue = relation?.end_year;
+        const endYear = endYearValue === null || endYearValue === undefined || endYearValue === ''
+            ? null : Number.parseInt(endYearValue, 10);
         const relationType = String(relation?.relation_type || relation?.type || 'continuation').trim();
         const normalizedRelationType = COUNTRY_RELATION_TYPES.has(relationType) ? relationType : 'continuation';
         const month = Math.min(12, Math.max(1, Number.parseInt(relation?.month, 10) || 1));
-        const relationKey = `${predecessorCountryId}:${normalizedRelationType}:${Number.isFinite(year) ? year : ''}:${month}`;
+        const endMonth = Math.min(12, Math.max(1, Number.parseInt(relation?.end_month, 10) || 12));
+        const relationKey = `${predecessorCountryId}:${normalizedRelationType}:${Number.isFinite(year) ? year : ''}:${month}:${Number.isFinite(endYear) ? endYear : ''}:${endMonth}`;
         if (!predecessorCountryId || seen.has(relationKey)) return null;
         seen.add(relationKey);
         const confidence = String(relation?.confidence || 'probable').trim();
@@ -171,6 +175,8 @@ const normalizeCountryPredecessors = (relations) => {
             relation_type: normalizedRelationType,
             year: Number.isFinite(year) ? year : null,
             month,
+            end_year: Number.isFinite(endYear) ? endYear : null,
+            end_month: endMonth,
             confidence: COUNTRY_RELATION_CONFIDENCE.has(confidence) ? confidence : 'probable',
             label: String(relation?.label || '').trim(),
             description: String(relation?.description || relation?.note || '').trim(),
@@ -4203,6 +4209,8 @@ app.get('/api/country-relations', async (req, res) => {
                     relation_type: relation.relation_type,
                     year: relation.year,
                     month: relation.month,
+                    end_year: relation.end_year,
+                    end_month: relation.end_month,
                     confidence: relation.confidence,
                     label: relation.label,
                     description: relation.description,

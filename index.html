@@ -4483,6 +4483,7 @@ body.force-mobile .marker-type-selector button {
         }
         .cdp-lineage-node:hover { border-color:#d4a843; color:#f1d083; transform:translateY(-1px); }
         .cdp-lineage-node-name { display:block; font-size:12px; font-weight:700; }
+        .cdp-lineage-vassal-prefix { color:#91b37a; }
         .cdp-lineage-node-base { display:block; margin-top:2px; color:#718895; font-size:9px; }
         .cdp-lineage-phase-chain { display:flex; flex-direction:column; align-items:center; }
         .cdp-lineage-phase-edge { padding:4px 0; color:#b58b3d; font-size:9px; line-height:1.15; text-align:center; }
@@ -9631,6 +9632,13 @@ body.force-mobile .marker-type-selector button {
 
       <h3>표시 레이어</h3>
       <div class="menu-section">
+          <div class="hm-field" style="margin-bottom:10px;">
+              <label for="menu-territory-view">영토 표시 방식</label>
+              <select id="menu-territory-view">
+                  <option value="independent">기본 국가·속국</option>
+                  <option value="suzerain">종주국 통합 뷰</option>
+              </select>
+          </div>
           <div class="hm-layer-grid">
           <label><input type="checkbox" id="menu-layer-city" checked> 성/도시</label>
           <label><input type="checkbox" id="menu-layer-territory" checked> 영토</label>
@@ -12829,6 +12837,8 @@ body.force-mobile .marker-type-selector button {
     let selectedCountryId = 'all';
     // 🚩 [추가] 민족 필터 상태
     let selectedEthnicity = 'all';
+    // 영토 표시: independent=각 국가 그대로, suzerain=활성 속국 영토를 최상위 종주국으로 통합
+    let territoryRelationView = localStorage.getItem('territoryRelationView') === 'suzerain' ? 'suzerain' : 'independent';
 
     // 🚩 [추가] 레이어 가시성 상태
     let layerVisibility = {
@@ -12874,6 +12884,33 @@ body.force-mobile .marker-type-selector button {
     // 🚩 [추가] 영토 색칠 방식 지정 (specify)
     // 가능한 값: 'country' (기본), 'ethnicity', 'random', 'grayscale', 또는 사용자 정의 함수
     window.territoryColorSpec = 'country';
+
+    function resolveTerritoryDisplayCountryId(countryId, year, month) {
+        let resolvedId = String(countryId || '');
+        if (territoryRelationView !== 'suzerain' || !resolvedId) return resolvedId;
+        const point = yearMonthToTotalMonths(year, month);
+        const visited = new Set();
+        while (resolvedId && !visited.has(resolvedId)) {
+            visited.add(resolvedId);
+            const country = getCountryInfoById(resolvedId);
+            const activeSuzerains = (Array.isArray(country?.predecessor_relations) ? country.predecessor_relations : [])
+                .filter(relation => {
+                    if (relation.relation_type !== 'vassal' || !relation.predecessor_country_id) return false;
+                    const start = relation.year == null
+                        ? -Infinity : yearMonthToTotalMonths(Number(relation.year), Number(relation.month) || 1);
+                    const end = relation.end_year == null
+                        ? Infinity : yearMonthToTotalMonths(Number(relation.end_year), Number(relation.end_month) || 12);
+                    return point >= start && point <= end;
+                })
+                // 심플 뷰에서는 복수 종주국 중 가장 최근에 성립한 관계를 대표 종주국으로 사용한다.
+                .sort((a, b) => Number(b.year ?? -Infinity) - Number(a.year ?? -Infinity));
+            if (!activeSuzerains.length) break;
+            const nextId = String(activeSuzerains[0].predecessor_country_id);
+            if (!nextId || visited.has(nextId)) break;
+            resolvedId = nextId;
+        }
+        return resolvedId;
+    }
 
     // 셋팅 함수: 문자열 또는 함수(territory, countryInfo, year, month) -> 스타일 객체
     window.setTerritoryColorSpec = function(spec) {
@@ -17223,7 +17260,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     return;
                 }
                 
-                const dominantCountryId = dominantResult.countryId;
+                const sourceCountryId = dominantResult.countryId;
+                const dominantCountryId = resolveTerritoryDisplayCountryId(sourceCountryId, year, month);
                 let countryInfo = getCountryInfoById(dominantCountryId);
                 if (!countryInfo) {
                     skipReasons.countryNotFound++;
@@ -17273,7 +17311,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         _id: territory._id,
                         country_id: dominantCountryId,
                         isExclusive: dominantResult.isExclusive,
-                        countriesInZone: dominantResult.countriesInZone,
+                        countriesInZone: territoryRelationView === 'suzerain'
+                            ? [...new Set((dominantResult.countriesInZone || []).map(id => resolveTerritoryDisplayCountryId(id, year, month)))]
+                            : dominantResult.countriesInZone,
                         level: territory.level || 'city',
                         hasActiveCastle: getTerritoryHasActiveCastle(territory, geometry, year, month)
                     }
@@ -23647,7 +23687,8 @@ const loadingMessages = [
                   return;
               }
 
-              const dominantCountryId = dominantResult.countryId;
+              const sourceCountryId = dominantResult.countryId;
+              const dominantCountryId = resolveTerritoryDisplayCountryId(sourceCountryId, year, month);
               const countryInfo = getCountryInfoById(dominantCountryId);
               if (!countryInfo) {
                   // 🔍 [DEBUG] 서남아/유럽 지역 country not found 로그
@@ -29029,6 +29070,8 @@ const loadingMessages = [
                         <select data-field="relation_type">${Object.entries(COUNTRY_RELATION_LABELS).map(([value, label]) => `<option value="${value}" ${relation.relation_type === value ? 'selected' : ''}>${label}</option>`).join('')}</select>
                         <input data-field="year" type="number" value="${countryHistoryEscape(relation.year ?? '')}" placeholder="관계 발생 연도">
                         <input data-field="month" type="number" min="1" max="12" value="${countryHistoryEscape(relation.month || 1)}" placeholder="월">
+                        <input data-field="end_year" type="number" value="${countryHistoryEscape(relation.end_year ?? '')}" placeholder="관계 종료 연도 (계속이면 비움)">
+                        <input data-field="end_month" type="number" min="1" max="12" value="${countryHistoryEscape(relation.end_month || 12)}" placeholder="종료 월">
                         <select data-field="confidence">${Object.entries(COUNTRY_CONFIDENCE_LABELS).map(([value, label]) => `<option value="${value}" ${relation.confidence === value ? 'selected' : ''}>${label}</option>`).join('')}</select>
                         <input data-field="label" value="${countryHistoryEscape(relation.label)}" placeholder="관계 제목 선택사항">
                         <textarea data-field="description" rows="2" placeholder="계승·분화 배경 설명" style="grid-column:1 / -1; resize:vertical;">${countryHistoryEscape(relation.description)}</textarea>
@@ -29075,6 +29118,8 @@ const loadingMessages = [
                 relation_type: value('relation_type') || 'continuation',
                 year: value('year') ? Number.parseInt(value('year'), 10) : null,
                 month: Number.parseInt(value('month'), 10) || 1,
+                end_year: value('end_year') ? Number.parseInt(value('end_year'), 10) : null,
+                end_month: Number.parseInt(value('end_month'), 10) || 12,
                 confidence: value('confidence') || 'probable',
                 label: value('label'),
                 description: value('description'),
@@ -29086,7 +29131,7 @@ const loadingMessages = [
     document.getElementById('addCountryPredecessorBtn')?.addEventListener('click', () => {
         const currentCountryId = document.getElementById('countryOriginalId').value;
         const draft = collectCountryPredecessors();
-        draft.push({ predecessor_country_id: '', relation_type: 'continuation', year: null, month: 1,
+        draft.push({ predecessor_country_id: '', relation_type: 'continuation', year: null, month: 1, end_year:null, end_month:12,
             confidence: 'probable', label: '', description: '', sources: [] });
         renderCountryPredecessorEditor(draft, currentCountryId);
     });
@@ -29216,13 +29261,19 @@ const loadingMessages = [
             (phase.end_year === phase.start_year && phase.end_month < phase.start_month)
         ));
         if (invalidRange) return alert(`'${invalidRange.name}' 이력의 종료 시점이 시작 시점보다 빠릅니다.`);
+        const invalidRelationRange = data.predecessor_relations.find(relation => relation.end_year != null && relation.year != null && (
+            relation.end_year < relation.year ||
+            (relation.end_year === relation.year && relation.end_month < relation.month)
+        ));
+        if (invalidRelationRange) return alert('국가 관계의 종료 시점이 시작 시점보다 빠릅니다.');
         const unresolvedRelation = data.predecessor_relations.find(relation => !relation.predecessor_country_id);
         if (unresolvedRelation) return alert(`관계 국가 '${unresolvedRelation.predecessor_country_name || '이름 없음'}'를 국가 목록에서 정확히 선택해 주세요.`);
         if (originalId && data.predecessor_relations.some(relation => String(relation.predecessor_country_id) === String(originalId))) {
             return alert('자기 자신을 관계 국가로 연결할 수 없습니다.');
         }
         const relationKeys = data.predecessor_relations.map(relation => [
-            relation.predecessor_country_id, relation.relation_type, relation.year ?? '', relation.month || 1
+            relation.predecessor_country_id, relation.relation_type, relation.year ?? '', relation.month || 1,
+            relation.end_year ?? '', relation.end_month || 12
         ].join(':'));
         if (new Set(relationKeys).size !== relationKeys.length) {
             return alert('같은 국가·관계 유형·시점은 한 번만 연결할 수 있습니다.');
@@ -30003,7 +30054,7 @@ const loadingMessages = [
             ));
         }
 
-        function _lineageCountryPhaseHtml(rawCountry, { clickable = true, root = false } = {}) {
+        function _lineageCountryPhaseHtml(rawCountry, { clickable = true, root = false, namePrefix = '' } = {}) {
             const countryId = String(rawCountry?._id || rawCountry?.id || '');
             const phases = (Array.isArray(rawCountry?.history) ? rawCountry.history : [])
                 .filter(phase => Number.isFinite(Number(phase.start_year ?? phase.start)))
@@ -30024,7 +30075,7 @@ const loadingMessages = [
                 const startPoint = Number.isFinite(startYear) ? yearMonthToTotalMonths(startYear, Number(rawCountry?.start_month) || 1) : -Infinity;
                 const endPoint = Number.isFinite(endYear) ? yearMonthToTotalMonths(endYear, Number(rawCountry?.end_month) || 12) : Infinity;
                 return `<${tag}${typeAttr} class="${root ? 'cdp-lineage-root' : 'cdp-lineage-node'}"${dataAttr} data-lineage-phase-start="${startPoint}" data-lineage-phase-end="${endPoint}">
-                    <span class="cdp-lineage-node-name">${_esc(effective?.name || rawCountry?.name || '국가명 미상')}</span>
+                    <span class="cdp-lineage-node-name">${namePrefix ? `<span class="cdp-lineage-vassal-prefix">${_esc(namePrefix)}:</span>` : ''}${_esc(effective?.name || rawCountry?.name || '국가명 미상')}</span>
                 </${tag}>`;
             }
             return `<div class="cdp-lineage-phase-chain">${phases.map((phase, index) => {
@@ -30042,7 +30093,7 @@ const loadingMessages = [
                 const transitionLabel = transitionType === 'usurpation' ? '찬탈' : '정통 계승';
                 return `${index ? `<div class="cdp-lineage-phase-edge ${transitionType}">${transitionLabel}</div>` : ''}
                     <${tag}${typeAttr} class="${nodeClass}"${dataAttr} data-lineage-phase-id="${_esc(phase._id || '')}" data-lineage-phase-start="${startPoint}" data-lineage-phase-end="${endPoint}">
-                        <span class="cdp-lineage-node-name">${_esc(phase.name || rawCountry.name || '국호 미상')}${phase.name_zh ? ` (${_esc(phase.name_zh)})` : ''}</span>
+                        <span class="cdp-lineage-node-name">${namePrefix ? `<span class="cdp-lineage-vassal-prefix">${_esc(namePrefix)}:</span>` : ''}${_esc(phase.name || rawCountry.name || '국호 미상')}${phase.name_zh ? ` (${_esc(phase.name_zh)})` : ''}</span>
                         <span class="cdp-lineage-phase-period">${_esc(period)}</span>
                         ${index === 0 ? `<span class="cdp-lineage-node-base">동일 국가 객체 · ${_esc(rawCountry.name || '')}</span>` : ''}
                     </${tag}>`;
@@ -30316,12 +30367,29 @@ const loadingMessages = [
                 rows.get(level).push(_lineageCountry(id));
             });
             rows.forEach(row => row.sort((a, b) => Number(a?.start ?? Infinity) - Number(b?.start ?? Infinity)));
+            const activeSuzerainNamesFor = countryId => {
+                const { year: currentYear, month: currentMonth } = getCurrentYearMonth();
+                const currentPoint = yearMonthToTotalMonths(currentYear, currentMonth);
+                return [...new Set(edges.filter(edge => {
+                    if (edge.toId !== countryId || edge.relation?.relation_type !== 'vassal') return false;
+                    const startPoint = edge.relation.year == null
+                        ? -Infinity : yearMonthToTotalMonths(Number(edge.relation.year), Number(edge.relation.month) || 1);
+                    const endPoint = edge.relation.end_year == null
+                        ? Infinity : yearMonthToTotalMonths(Number(edge.relation.end_year), Number(edge.relation.end_month) || 12);
+                    return currentPoint >= startPoint && currentPoint <= endPoint;
+                }).map(edge => {
+                    const master = _lineageCountry(edge.fromId);
+                    return master ? (getEffectiveCountryInfo(master)?.name || master.name) : '';
+                }).filter(Boolean))];
+            };
             const lineageNodeHtml = (country, extraClass = '') => {
                 const id = String(country._id || country.id || '');
                 const incomingTypes = edges.filter(edge => edge.toId === id).map(edge => edge.relation?.relation_type);
                 const subordinate = incomingTypes.includes('split');
+                const activeSuzerainNames = activeSuzerainNamesFor(id);
+                const namePrefix = activeSuzerainNames.join('·');
                 return `<div class="cdp-lineage-unified-node${id === currentId ? ' selected' : ''}${subordinate ? ' subordinate' : ''}${extraClass}" data-lineage-country="${_esc(id)}">
-                    ${_lineageCountryPhaseHtml(country, { clickable:id !== currentId })}
+                    ${_lineageCountryPhaseHtml(country, { clickable:id !== currentId, namePrefix })}
                 </div>`;
             };
             const lineageRowHtml = row => {
@@ -30334,13 +30402,11 @@ const loadingMessages = [
                 const clusters = new Map();
                 validRow.filter(country => vassalIds.has(String(country._id || country.id))).forEach(country => {
                     const id = String(country._id || country.id);
-                    const masterEdge = edges.find(edge => edge.toId === id && edge.relation?.relation_type === 'vassal');
-                    const masterId = masterEdge?.fromId || '';
-                    if (!clusters.has(masterId)) clusters.set(masterId, []);
-                    clusters.get(masterId).push(country);
+                    const clusterName = activeSuzerainNamesFor(id).join('·') || '종주국';
+                    if (!clusters.has(clusterName)) clusters.set(clusterName, []);
+                    clusters.get(clusterName).push(country);
                 });
-                const clusterHtml = [...clusters.entries()].map(([masterId, members]) => {
-                    const masterName = _lineageCountry(masterId)?.name || '종주국';
+                const clusterHtml = [...clusters.entries()].map(([masterName, members]) => {
                     return `<div class="cdp-lineage-vassal-cluster" data-cluster-label="${_esc(masterName)}의 속국">
                         ${members.map(country => lineageNodeHtml(country, ' vassal')).join('')}
                     </div>`;
@@ -35926,6 +35992,9 @@ kingSelect.addEventListener('change', () => {
                     updateMap(_sliderLastMapYear, _sliderLastMapMonth);
                     if (typeof refreshWaterLevelOverlay === 'function') refreshWaterLevelOverlay(_sliderLastMapYear);
                     refreshHeroPinsForTime(_sliderLastMapYear, _sliderLastMapMonth, false);
+                    if (_currentCInfo && document.getElementById('cdp-tab-lineage')?.classList.contains('active')) {
+                        _renderLineage(_currentCInfo);
+                    }
                 });
             }
         });
@@ -37371,6 +37440,20 @@ kingSelect.addEventListener('change', () => {
             menuMonthInput.addEventListener('keydown', e => { if (e.key === 'Enter') doMenuGoToTime(); });
         }
         
+        // 🍔 영토 관계 뷰: 속국 영토를 현재 종주국 영토로 간단히 통합 표시
+        const territoryViewSelect = document.getElementById('menu-territory-view');
+        if (territoryViewSelect) {
+            territoryViewSelect.value = territoryRelationView;
+            territoryViewSelect.addEventListener('change', () => {
+                territoryRelationView = territoryViewSelect.value === 'suzerain' ? 'suzerain' : 'independent';
+                localStorage.setItem('territoryRelationView', territoryRelationView);
+                _territoryStyleCache.clear();
+                _dominantCountryCache.clear();
+                const { year, month } = getCurrentYearMonth();
+                updateMap(year, month, false, true);
+            });
+        }
+
         // 🍔 메뉴 내 레이어 토글 연결
         const layerCheckboxes = {
             'menu-layer-city': 'city',
