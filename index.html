@@ -11141,11 +11141,6 @@ body.force-mobile .marker-type-selector button {
                     <ul class="odp-timeline" id="odp-timeline"></ul>
                 </div>
 
-                <div id="odp-country-name-history-section" style="display:none; margin-top:14px;">
-                    <div class="odp-section-title">🏷️ 국가 국호 변화</div>
-                    <div id="odp-country-name-history" style="display:flex; flex-direction:column; gap:7px;"></div>
-                </div>
-
                 <!-- 사관 의견 섹션 -->
                 <div id="odp-comments-section" style="display:none;">
                     <div class="odp-section-title">💬 사관 의견</div>
@@ -14330,19 +14325,34 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         sync();
     })();
 
-    function renderMarkerCountryNameHistory(castle, activeHistoryRecord, fallbackCountryInfo) {
-        const section = document.getElementById('odp-country-name-history-section');
-        const container = document.getElementById('odp-country-name-history');
-        if (!section || !container) return;
+    function getMarkerCountryNameHistoryRecords(castle, activeHistoryRecord, fallbackCountryInfo) {
         const countryIds = new Set();
+        const markerHistories = Array.isArray(castle?.history) ? castle.history : [];
+        const ownershipRanges = new Map();
+        const addOwnershipRange = (countryId, record) => {
+            if (!countryId) return;
+            const startYear = Number(record?.start_year ?? castle?.built_year ?? -999999);
+            const startMonth = Number(record?.start_month ?? castle?.built_month) || 1;
+            const endRaw = record?.end_year ?? castle?.destroyed_year;
+            const endYear = endRaw === null || endRaw === undefined || endRaw === '' ? null : Number(endRaw);
+            const endMonth = Number(record?.end_month ?? castle?.destroyed_month) || 12;
+            const key = String(countryId);
+            if (!ownershipRanges.has(key)) ownershipRanges.set(key, []);
+            ownershipRanges.get(key).push({
+                start: yearMonthToTotalMonths(startYear, startMonth),
+                end: Number.isFinite(endYear) ? yearMonthToTotalMonths(endYear, endMonth) : Infinity
+            });
+        };
+        markerHistories.forEach(record => addOwnershipRange(record?.country_id, record));
+        if (!markerHistories.length) {
+            addOwnershipRange(castle?.country_id || castle?.countryId || fallbackCountryInfo?._id, castle);
+        }
         [activeHistoryRecord?.country_id, castle?.country_id, castle?.countryId, fallbackCountryInfo?._id]
             .filter(Boolean).forEach(id => countryIds.add(String(id)));
-        (Array.isArray(castle?.history) ? castle.history : []).forEach(record => {
+        markerHistories.forEach(record => {
             if (record?.country_id) countryIds.add(String(record.country_id));
         });
-        const { year: mapYear, month: mapMonth } = getCurrentYearMonth();
-        const currentPoint = yearMonthToTotalMonths(mapYear, mapMonth);
-        const blocks = [];
+        const records = [];
         countryIds.forEach(countryId => {
             const rawCountry = (countries || []).find(country => String(country._id || country.id) === countryId);
             const phases = (Array.isArray(rawCountry?.history) ? rawCountry.history : [])
@@ -14351,49 +14361,37 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                     Number(a.start_month || 1) - Number(b.start_month || 1)
                 ));
             if (!rawCountry || !phases.length) return;
-            const phaseRows = phases.map(phase => {
+            phases.forEach(phase => {
                 const startYear = Number(phase.start_year ?? phase.start);
+                if (!Number.isFinite(startYear)) return;
                 const startMonth = Number(phase.start_month) || 1;
                 const endRaw = phase.end_year ?? phase.end;
                 const endYear = endRaw === null || endRaw === undefined || endRaw === '' ? null : Number(endRaw);
                 const endMonth = Number(phase.end_month) || 12;
-                const startPoint = yearMonthToTotalMonths(startYear, startMonth);
-                const endPoint = Number.isFinite(endYear) ? yearMonthToTotalMonths(endYear, endMonth) : Infinity;
-                const active = currentPoint >= startPoint && currentPoint <= endPoint;
-                const formatYear = value => value < 0 ? `기원전 ${Math.abs(value)}` : `${value}`;
-                const period = `${formatYear(startYear)}년 ${startMonth}월 ~ ${Number.isFinite(endYear) ? `${formatYear(endYear)}년 ${endMonth}월` : '현재'}`;
-                const colorCandidate = phase.color || rawCountry.color || '';
-                const color = /^#[0-9a-f]{6}$/i.test(String(colorCandidate)) ? colorCandidate : '#c8a850';
-                const name = phase.name || rawCountry.name || '국호 미상';
-                const nameZh = phase.name_zh ? ` (${phase.name_zh})` : '';
-                return `<button type="button" class="odp-country-phase-jump" data-year="${startYear}" data-month="${startMonth}"
-                    style="width:100%;text-align:left;padding:7px 9px;border-radius:6px;cursor:pointer;
-                    border:1px solid ${active ? color : 'rgba(180,140,80,.22)'};
-                    background:${active ? 'rgba(180,140,80,.16)' : 'rgba(255,255,255,.025)'};color:#d8e1e8;">
-                    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${countryHistoryEscape(color)};margin-right:6px;"></span>
-                    <strong style="color:${active ? '#f1d083' : '#cad5dc'};">${countryHistoryEscape(name)}${countryHistoryEscape(nameZh)}</strong>
-                    ${active ? '<span style="margin-left:5px;font-size:9px;color:#f1c40f;">현재 지도 시점</span>' : ''}
-                    <div style="margin:3px 0 0 15px;font-size:10px;color:#8295a3;">${countryHistoryEscape(period)}${phase.label ? ` · ${countryHistoryEscape(phase.label)}` : ''}</div>
-                    ${phase.description ? `<div style="margin:4px 0 0 15px;font-size:11px;color:#aab9c3;line-height:1.45;">${countryHistoryEscape(phase.description)}</div>` : ''}
-                </button>`;
-            }).join('');
-            blocks.push(`<div style="padding:9px;border:1px solid rgba(180,140,80,.2);border-radius:7px;background:rgba(13,22,29,.45);">
-                <div style="font-size:10px;color:#8295a3;margin-bottom:6px;">국가 객체 · ${countryHistoryEscape(rawCountry.name || '')}</div>
-                <div style="display:flex;flex-direction:column;gap:5px;">${phaseRows}</div>
-            </div>`);
-        });
-        container.innerHTML = blocks.join('');
-        section.style.display = blocks.length ? '' : 'none';
-        container.querySelectorAll('.odp-country-phase-jump').forEach(button => {
-            button.addEventListener('click', () => {
-                const targetYear = Number(button.dataset.year);
-                const targetMonth = Number(button.dataset.month) || 1;
-                const slider = document.getElementById('combinedSlider');
-                if (slider) slider.value = yearMonthToTotalMonths(targetYear, targetMonth);
-                if (typeof updateUI === 'function') updateUI(targetYear, targetMonth);
-                if (typeof updateMap === 'function') updateMap(targetYear, targetMonth);
+                const phaseStart = yearMonthToTotalMonths(startYear, startMonth);
+                const phaseEnd = Number.isFinite(endYear) ? yearMonthToTotalMonths(endYear, endMonth) : Infinity;
+                (ownershipRanges.get(countryId) || []).forEach(range => {
+                    const clippedStart = Math.max(phaseStart, range.start);
+                    const clippedEnd = Math.min(phaseEnd, range.end);
+                    if (clippedStart > clippedEnd) return;
+                    const clippedStartDate = totalMonthsToYearMonth(clippedStart);
+                    const clippedEndDate = Number.isFinite(clippedEnd) ? totalMonthsToYearMonth(clippedEnd) : null;
+                    records.push({
+                        _country_name_change: true,
+                        _country_base_name: rawCountry.name || '',
+                        country_id: String(rawCountry._id || rawCountry.id),
+                        country_name: phase.name || rawCountry.name || '',
+                        name: `${phase.name || rawCountry.name || '국호 미상'}${phase.name_zh ? ` (${phase.name_zh})` : ''}`,
+                        notes: phase.description || phase.label || '',
+                        start_year: clippedStartDate.year,
+                        start_month: clippedStartDate.month,
+                        end_year: clippedEndDate?.year ?? null,
+                        end_month: clippedEndDate?.month ?? 12
+                    });
+                });
             });
         });
+        return records;
     }
 
     async function openDetailPanel(castle, activeHistoryRecord, countryInfo) {
@@ -14554,11 +14552,24 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         const histories = Array.isArray(castle.history)
             ? castle.history.slice().sort((a, b) => (a.start_year ?? -Infinity) - (b.start_year ?? -Infinity))
             : [];
-        if (histories.length > 0 || graphLinkedRecords.length > 0) {
+        const countryNameHistoryRecords = getMarkerCountryNameHistoryRecords(castle, activeHistoryRecord, countryInfo);
+        const timelineRecords = [...histories, ...countryNameHistoryRecords].sort((a, b) => (
+            yearMonthToTotalMonths(Number(a.start_year ?? -999999), Number(a.start_month) || 1)
+            - yearMonthToTotalMonths(Number(b.start_year ?? -999999), Number(b.start_month) || 1) ||
+            (a._country_name_change ? 1 : 0) - (b._country_name_change ? 1 : 0)
+        ));
+        if (timelineRecords.length > 0 || graphLinkedRecords.length > 0) {
             histSec.style.display = '';
             const allCountries = (typeof countries !== 'undefined') ? countries : [];
-            let timelineHtml = histories.map((h, idx) => {
-                const isActive = (h === activeHistoryRecord);
+            const { year: detailMapYear, month: detailMapMonth } = getCurrentYearMonth();
+            const detailMapPoint = yearMonthToTotalMonths(detailMapYear, detailMapMonth);
+            let timelineHtml = timelineRecords.map((h, idx) => {
+                const recordStartPoint = yearMonthToTotalMonths(Number(h.start_year ?? -999999), Number(h.start_month) || 1);
+                const recordEndPoint = h.end_year === null || h.end_year === undefined || h.end_year === ''
+                    ? Infinity : yearMonthToTotalMonths(Number(h.end_year), Number(h.end_month) || 12);
+                const isActive = h._country_name_change
+                    ? detailMapPoint >= recordStartPoint && detailMapPoint <= recordEndPoint
+                    : (h === activeHistoryRecord);
                 const sy = h.start_year != null ? `${h.start_year < 0 ? `기원전 ${Math.abs(h.start_year)}` : h.start_year}년` : '?';
                 const sm = h.start_month ? ` ${h.start_month}월` : '';
                 const ey = h.end_year != null ? `${h.end_year < 0 ? `기원전 ${Math.abs(h.end_year)}` : h.end_year}년` : '현재';
@@ -14569,7 +14580,9 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                 const hCountry = rawHistoryCountry
                     ? getEffectiveCountryInfo(rawHistoryCountry, h.start_year ?? builtY ?? 0, h.start_month || 1)
                     : null;
-                const hCountryName = hCountry?.name || h.country_name || '';
+                const hCountryName = h._country_name_change
+                    ? `${h._country_base_name || hCountry?.name || h.country_name || ''} · 국가 이력`
+                    : (hCountry?.name || h.country_name || '');
                 const hFlag = hCountry?.flag ? `<img src="${hCountry.flag}" style="height:11px;vertical-align:middle;margin-right:3px;">` : '';
                 const hName = h.name || castleName;
                 const hNote = h.notes || h.note || '';
@@ -14579,7 +14592,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                     : (Array.isArray(h.linkedRecords) ? h.linkedRecords : []);
                 const hStartYear = Number(h.start_year);
                 const hEndYear = h.end_year === null || h.end_year === undefined || h.end_year === '' ? Infinity : Number(h.end_year);
-                const relatedGraphRecords = graphLinkedRecords.filter(record => !Number.isFinite(record.year)
+                const relatedGraphRecords = h._country_name_change ? [] : graphLinkedRecords.filter(record => !Number.isFinite(record.year)
                     || ((!Number.isFinite(hStartYear) || record.year >= hStartYear) && (!Number.isFinite(hEndYear) || record.year <= hEndYear)));
                 const linkedRecordMap = new Map();
                 [...storedLinkedRecords, ...relatedGraphRecords].forEach(record => {
@@ -14600,6 +14613,9 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                 } else if (h.place_type && h.place_type !== 'normal') {
                     plLabel = ` <span style="font-size:10px;color:#8099ae;">[${PLACE_LABELS[h.place_type]||h.place_type}]</span>`;
                 }
+                if (h._country_name_change) {
+                    plLabel = ' <span style="display:inline-block;font-size:9px;font-weight:700;color:#e7c46e;background:rgba(185,129,35,.16);border:1px solid rgba(205,164,78,.38);padding:1px 6px;border-radius:8px;vertical-align:middle;">🏷️ 국호 변경</span>';
+                }
 
                 // 전장 시점엔 타임라인 dot도 빨간색으로 구분
                 const dotExtra = hIsBattle ? ' battle-dot' : '';
@@ -14617,7 +14633,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                         if (typeof updateMap === 'function') updateMap(${_jumpYear}, ${_jumpMonth});
                     })()"`
                     : `style="cursor:default;"`;
-                return `<li class="odp-tl-item${isActive ? ' active-record' : ''}${hIsBattle ? ' battle-record' : ''}" ${_clickAttr}>
+                return `<li class="odp-tl-item${isActive ? ' active-record' : ''}${hIsBattle ? ' battle-record' : ''}${h._country_name_change ? ' country-name-record' : ''}" ${_clickAttr}>
                     <div class="odp-tl-dot${isActive ? ' current' : ''}${dotExtra}"></div>
                     <div class="odp-tl-period">${period}</div>
                     <div class="odp-tl-name">${hName}${plLabel}</div>
@@ -14671,7 +14687,6 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         } else {
             histSec.style.display = 'none';
         }
-        renderMarkerCountryNameHistory(castle, activeHistoryRecord, countryInfo);
 
         // ── 편집 버튼 ──
         const editBar = document.getElementById('odp-edit-bar');
