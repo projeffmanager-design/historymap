@@ -165,6 +165,9 @@ const normalizeCountryPredecessors = (relations) => {
         return {
             _id: String(relation?._id || crypto.randomUUID()),
             predecessor_country_id: predecessorCountryId,
+            // 같은 객체 안의 특정 시대 국호(예: 북부여)를 검색·선택한 경우 편집기에 그대로 유지한다.
+            predecessor_name: String(relation?.predecessor_name || relation?.predecessor_country_name || '').trim(),
+            predecessor_phase_id: String(relation?.predecessor_phase_id || '').trim(),
             relation_type: normalizedRelationType,
             year: Number.isFinite(year) ? year : null,
             month,
@@ -4192,7 +4195,9 @@ app.get('/api/country-relations', async (req, res) => {
                 return {
                     _id: relation._id,
                     from_country_id: String(relation.predecessor_country_id),
-                    from_country_name: predecessor?.name || '',
+                    from_country_name: relation.predecessor_name || predecessor?.name || '',
+                    predecessor_name: relation.predecessor_name || '',
+                    predecessor_phase_id: relation.predecessor_phase_id || '',
                     to_country_id: String(successor._id),
                     to_country_name: successor.name || '',
                     relation_type: relation.relation_type,

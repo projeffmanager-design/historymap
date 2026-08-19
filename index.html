@@ -4509,6 +4509,14 @@ body.force-mobile .marker-type-selector button {
         .cdp-lineage-level { position:relative; z-index:1; display:flex; justify-content:center; align-items:flex-start; gap:42px; }
         .cdp-lineage-unified-node { position:relative; min-width:150px; display:flex; justify-content:center; }
         .cdp-lineage-unified-node.subordinate { margin-top:28px; }
+        .cdp-lineage-vassal-cluster {
+            position:relative; display:flex; align-items:flex-start; gap:18px; padding:24px 14px 12px;
+            border:1px dashed rgba(123,159,98,.55); border-radius:12px; background:rgba(64,91,55,.1);
+        }
+        .cdp-lineage-vassal-cluster::before {
+            content:attr(data-cluster-label); position:absolute; top:5px; left:12px;
+            color:#91b37a; font-size:9px; font-weight:700; letter-spacing:.04em;
+        }
         .cdp-lineage-unified-node.selected::after {
             content:'현재 선택'; position:absolute; top:-9px; left:50%; transform:translateX(-50%);
             padding:1px 7px; border-radius:8px; background:#b78327; color:#fff3cf; font-size:8px; white-space:nowrap;
@@ -28952,19 +28960,49 @@ const loadingMessages = [
     function refreshCountryPredecessorOptions(currentCountryId = '') {
         const options = document.getElementById('countryPredecessorOptions');
         if (!options) return;
-        options.innerHTML = countries
+        const entries = countries
             .filter(country => String(country._id) !== String(currentCountryId))
             .slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ko'))
-            .map(country => `<option value="${countryHistoryEscape(country.name)}">${countryHistoryEscape(country.ethnicity || '')}</option>`)
-            .join('');
+            .flatMap(country => {
+                const countryAliases = Array.isArray(country.aliases)
+                    ? country.aliases : String(country.aliases || '').split(/[,\n]/).map(value => value.trim()).filter(Boolean);
+                const phaseNames = (Array.isArray(country.history) ? country.history : [])
+                    .flatMap(phase => [phase.name, phase.name_zh, ...(Array.isArray(phase.aliases)
+                        ? phase.aliases : String(phase.aliases || '').split(/[,\n]/).map(value => value.trim()).filter(Boolean))])
+                    .filter(Boolean);
+                const names = [...new Set([country.name, country.name_zh, ...countryAliases, ...phaseNames].filter(Boolean))];
+                return names.map((name, index) => ({
+                    name,
+                    detail: index === 0
+                        ? (country.ethnicity || '국가 기본명')
+                        : `${country.name || '국가'} · 시대별 국호`
+                }));
+            });
+        options.innerHTML = entries.map(entry => (
+            `<option value="${countryHistoryEscape(entry.name)}">${countryHistoryEscape(entry.detail)}</option>`
+        )).join('');
+    }
+
+    function countryRelationMatch(value) {
+        const key = String(value || '').normalize('NFKC').trim().toLocaleLowerCase('ko-KR');
+        if (!key) return null;
+        for (const country of countries) {
+            const aliases = Array.isArray(country.aliases) ? country.aliases : String(country.aliases || '').split(/[,\n]/);
+            const baseMatch = [country.name, country.name_zh, ...aliases]
+                .some(name => String(name || '').normalize('NFKC').trim().toLocaleLowerCase('ko-KR') === key);
+            if (baseMatch) return { country, phase:null };
+            for (const phase of (Array.isArray(country.history) ? country.history : [])) {
+                const phaseAliases = Array.isArray(phase.aliases) ? phase.aliases : String(phase.aliases || '').split(/[,\n]/);
+                const phaseMatch = [phase.name, phase.name_zh, ...phaseAliases]
+                    .some(name => String(name || '').normalize('NFKC').trim().toLocaleLowerCase('ko-KR') === key);
+                if (phaseMatch) return { country, phase };
+            }
+        }
+        return null;
     }
 
     function countryByRelationInput(value) {
-        const key = String(value || '').normalize('NFKC').trim().toLocaleLowerCase('ko-KR');
-        if (!key) return null;
-        return countries.find(country => [country.name, country.name_zh, ...(country.aliases || []),
-            ...(country.history || []).flatMap(phase => [phase.name, phase.name_zh, ...(phase.aliases || [])])]
-            .some(name => String(name || '').normalize('NFKC').trim().toLocaleLowerCase('ko-KR') === key)) || null;
+        return countryRelationMatch(value)?.country || null;
     }
 
     function renderCountryPredecessorEditor(relations = countryPredecessorDraft, currentCountryId = '') {
@@ -28980,12 +29018,13 @@ const loadingMessages = [
                 return `
                 <div class="country-predecessor-row" data-index="${index}" style="margin-top:9px; padding:10px; border:1px solid #695532; border-radius:6px; background:#2d281f;">
                     <input type="hidden" data-field="predecessor_country_id" value="${countryHistoryEscape(relation.predecessor_country_id)}">
+                    <input type="hidden" data-field="predecessor_phase_id" value="${countryHistoryEscape(relation.predecessor_phase_id || '')}">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                         <strong style="font-size:12px; color:#dfbc70;">국가 관계 ${index + 1}</strong>
                         <button type="button" class="remove-country-predecessor" data-index="${index}" style="padding:3px 8px; color:#ff9a90;">삭제</button>
                     </div>
                     <div style="display:grid; grid-template-columns:minmax(140px,1.2fr) minmax(110px,.8fr); gap:7px;">
-                        <input data-field="country_name" list="countryPredecessorOptions" value="${countryHistoryEscape(predecessor?.name || '')}" placeholder="전신·종주 국가명 입력·검색">
+                        <input data-field="country_name" list="countryPredecessorOptions" value="${countryHistoryEscape(relation.predecessor_name || relation.predecessor_country_name || predecessor?.name || '')}" placeholder="시대별 국호로도 입력·검색">
                         <select data-field="relation_type">${Object.entries(COUNTRY_RELATION_LABELS).map(([value, label]) => `<option value="${value}" ${relation.relation_type === value ? 'selected' : ''}>${label}</option>`).join('')}</select>
                         <input data-field="year" type="number" value="${countryHistoryEscape(relation.year ?? '')}" placeholder="관계 발생 연도">
                         <input data-field="month" type="number" min="1" max="12" value="${countryHistoryEscape(relation.month || 1)}" placeholder="월">
@@ -28998,8 +29037,10 @@ const loadingMessages = [
             }).join('');
             list.querySelectorAll('[data-field="country_name"]').forEach(input => {
                 input.addEventListener('input', () => {
-                    const matched = countryByRelationInput(input.value);
-                    input.closest('.country-predecessor-row').querySelector('[data-field="predecessor_country_id"]').value = matched?._id || '';
+                    const matched = countryRelationMatch(input.value);
+                    const row = input.closest('.country-predecessor-row');
+                    row.querySelector('[data-field="predecessor_country_id"]').value = matched?.country?._id || '';
+                    row.querySelector('[data-field="predecessor_phase_id"]').value = matched?.phase?._id || '';
                 });
             });
             list.querySelectorAll('.remove-country-predecessor').forEach(button => {
@@ -29023,11 +29064,13 @@ const loadingMessages = [
     function collectCountryPredecessors() {
         return [...document.querySelectorAll('#countryPredecessorList .country-predecessor-row')].map((row, index) => {
             const value = field => row.querySelector(`[data-field="${field}"]`)?.value?.trim() || '';
-            const matched = countryByRelationInput(value('country_name'));
+            const matched = countryRelationMatch(value('country_name'));
             return {
                 _id: countryPredecessorDraft[index]?._id || (window.crypto?.randomUUID?.() || `country-relation-${Date.now()}-${index}`),
-                predecessor_country_id: matched?._id || value('predecessor_country_id'),
+                predecessor_country_id: matched?.country?._id || value('predecessor_country_id'),
                 predecessor_country_name: value('country_name'),
+                predecessor_name: value('country_name'),
+                predecessor_phase_id: matched?.phase?._id || value('predecessor_phase_id'),
                 relation_type: value('relation_type') || 'continuation',
                 year: value('year') ? Number.parseInt(value('year'), 10) : null,
                 month: Number.parseInt(value('month'), 10) || 1,
@@ -30075,7 +30118,10 @@ const loadingMessages = [
                     : Infinity;
                 // 관계 연도가 있으면 그것을, 없으면 후속 국가의 시작 연월을 사용해
                 // 전신 객체 안에서 실제로 분기한 국호 단계를 자동 선택한다.
-                const fromPhase = phaseNodeAt(from, branchPoint, true);
+                const selectedPhaseId = String(edge.relation?.predecessor_phase_id || '');
+                const fromPhase = (selectedPhaseId
+                    ? from.querySelector(`[data-lineage-phase-id="${CSS.escape(selectedPhaseId)}"]`)
+                    : null) || phaseNodeAt(from, branchPoint, true);
                 const toPhase = phaseNodeAt(to, branchPoint, false);
                 const fromRect = fromPhase.getBoundingClientRect();
                 const toRect = toPhase.getBoundingClientRect();
@@ -30098,8 +30144,16 @@ const loadingMessages = [
                     ? Math.max(fromWrapRect.bottom, toWrapRect.bottom) - canvasRect.top + 24
                     : (fromWrapRect.bottom + toWrapRect.top) / 2 - canvasRect.top;
                 const color = relationColors[edge.relation?.relation_type] || '#8d7445';
+                const relationType = edge.relation?.relation_type || 'continuation';
+                const verticalContinuation = relationType === 'continuation' && !sameEraRow;
+                const pathData = verticalContinuation
+                    ? `M ${fromCenterX - canvasRect.left} ${fromRect.bottom - canvasRect.top} V ${midY} H ${toCenterX - canvasRect.left} V ${toRect.top - canvasRect.top}`
+                    : `M ${x1} ${y1} H ${sourceLaneX} V ${midY} H ${targetLaneX} V ${y2} H ${x2}`;
+                const labelX = verticalContinuation
+                    ? (fromCenterX + toCenterX) / 2 - canvasRect.left
+                    : (sourceLaneX + targetLaneX) / 2;
                 const path = document.createElementNS(ns, 'path');
-                path.setAttribute('d', `M ${x1} ${y1} H ${sourceLaneX} V ${midY} H ${targetLaneX} V ${y2} H ${x2}`);
+                path.setAttribute('d', pathData);
                 path.setAttribute('fill', 'none');
                 path.setAttribute('stroke', color);
                 path.setAttribute('stroke-width', edge.relation?.confidence === 'disputed' ? '1.2' : '1.8');
@@ -30112,7 +30166,7 @@ const loadingMessages = [
                 svg.appendChild(path);
 
                 const label = document.createElementNS(ns, 'text');
-                label.setAttribute('x', String((sourceLaneX + targetLaneX) / 2));
+                label.setAttribute('x', String(labelX));
                 label.setAttribute('y', String(midY - 4));
                 label.setAttribute('text-anchor', 'middle');
                 label.setAttribute('class', 'cdp-lineage-edge-label');
@@ -30243,39 +30297,15 @@ const loadingMessages = [
                 let changed = false;
                 edges.forEach(edge => {
                     if (!levels.has(edge.fromId)) return;
-                    const nextLevel = levels.get(edge.fromId) + 1;
+                    // 정통 계승은 다음 행으로, 분화·속국은 원 국가와 같은 행의 옆 가지로 배치한다.
+                    const horizontalBranch = edge.relation?.relation_type === 'split' || edge.relation?.relation_type === 'vassal';
+                    const nextLevel = levels.get(edge.fromId) + (horizontalBranch ? 0 : 1);
                     if (!levels.has(edge.toId) || levels.get(edge.toId) < nextLevel) {
                         levels.set(edge.toId, nextLevel);
                         changed = true;
                     }
                 });
                 if (!changed) break;
-            }
-            if (_lineageViewMode === 'all') {
-                const eraBands = [];
-                [...componentIds]
-                    .map(id => ({ id, country:_lineageCountry(id) }))
-                    .filter(item => Number.isFinite(Number(item.country?.start)))
-                    .sort((a, b) => Number(a.country.start) - Number(b.country.start))
-                    .forEach(item => {
-                        const start = Number(item.country.start);
-                        const endRaw = item.country.end;
-                        const end = endRaw === null || endRaw === undefined || endRaw === '' ? Infinity : Number(endRaw);
-                        const band = eraBands.find(candidate => (
-                            Math.abs(start - candidate.anchor) <= 120 &&
-                            start <= candidate.end && end >= candidate.start
-                        ));
-                        if (band) {
-                            band.ids.push(item.id);
-                            band.start = Math.min(band.start, start);
-                            band.end = Math.max(band.end, end);
-                        } else {
-                            eraBands.push({ anchor:start, start, end, ids:[item.id] });
-                        }
-                    });
-                eraBands.sort((a, b) => a.anchor - b.anchor).forEach((band, rowIndex) => {
-                    band.ids.forEach(id => levels.set(id, rowIndex));
-                });
             }
             [...componentIds].forEach(id => { if (!levels.has(id)) levels.set(id, 0); });
             const rows = new Map();
@@ -30285,6 +30315,37 @@ const loadingMessages = [
                 rows.get(level).push(_lineageCountry(id));
             });
             rows.forEach(row => row.sort((a, b) => Number(a?.start ?? Infinity) - Number(b?.start ?? Infinity)));
+            const lineageNodeHtml = (country, extraClass = '') => {
+                const id = String(country._id || country.id || '');
+                const incomingTypes = edges.filter(edge => edge.toId === id).map(edge => edge.relation?.relation_type);
+                const subordinate = incomingTypes.includes('split');
+                return `<div class="cdp-lineage-unified-node${id === currentId ? ' selected' : ''}${subordinate ? ' subordinate' : ''}${extraClass}" data-lineage-country="${_esc(id)}">
+                    ${_lineageCountryPhaseHtml(country, { clickable:id !== currentId })}
+                </div>`;
+            };
+            const lineageRowHtml = row => {
+                const validRow = row.filter(Boolean);
+                const vassalIds = new Set(edges.filter(edge => (
+                    edge.relation?.relation_type === 'vassal' && validRow.some(country => String(country._id || country.id) === edge.toId)
+                )).map(edge => edge.toId));
+                const normalHtml = validRow.filter(country => !vassalIds.has(String(country._id || country.id)))
+                    .map(country => lineageNodeHtml(country)).join('');
+                const clusters = new Map();
+                validRow.filter(country => vassalIds.has(String(country._id || country.id))).forEach(country => {
+                    const id = String(country._id || country.id);
+                    const masterEdge = edges.find(edge => edge.toId === id && edge.relation?.relation_type === 'vassal');
+                    const masterId = masterEdge?.fromId || '';
+                    if (!clusters.has(masterId)) clusters.set(masterId, []);
+                    clusters.get(masterId).push(country);
+                });
+                const clusterHtml = [...clusters.entries()].map(([masterId, members]) => {
+                    const masterName = _lineageCountry(masterId)?.name || '종주국';
+                    return `<div class="cdp-lineage-vassal-cluster" data-cluster-label="${_esc(masterName)}의 속국">
+                        ${members.map(country => lineageNodeHtml(country, ' vassal')).join('')}
+                    </div>`;
+                }).join('');
+                return normalHtml + clusterHtml;
+            };
             const maxRowSize = Math.max(1, ...[...rows.values()].map(row => row.length));
             const canvasMinWidth = Math.max(460, maxRowSize * 225);
             const noRelations = edges.length === 0;
@@ -30301,14 +30362,7 @@ const loadingMessages = [
                         <div class="cdp-lineage-unified" style="min-width:${canvasMinWidth}px;">
                             <svg class="cdp-lineage-svg" aria-hidden="true"></svg>
                             ${[...rows.entries()].sort((a,b) => a[0]-b[0]).map(([level, row]) => `
-                                <div class="cdp-lineage-level" data-level="${level}">${row.filter(Boolean).map(country => {
-                                    const id = String(country._id || country.id || '');
-                                    const incomingTypes = edges.filter(edge => edge.toId === id).map(edge => edge.relation?.relation_type);
-                                    const subordinate = _lineageViewMode === 'all' && incomingTypes.some(type => type === 'split' || type === 'vassal');
-                                    return `<div class="cdp-lineage-unified-node${id === currentId ? ' selected' : ''}${subordinate ? ' subordinate' : ''}" data-lineage-country="${_esc(id)}">
-                                        ${_lineageCountryPhaseHtml(country, { clickable:id !== currentId })}
-                                    </div>`;
-                                }).join('')}</div>`).join('')}
+                                <div class="cdp-lineage-level" data-level="${level}">${lineageRowHtml(row)}</div>`).join('')}
                         </div>
                     </div>
                     ${noRelations ? '<div class="cdp-lineage-empty" style="margin-top:14px;">아직 등록된 전신·후속 국가 관계가 없습니다.<br>국가 정보 편집에서 전신 국가를 연결할 수 있습니다.</div>' : ''}
