@@ -141,6 +141,62 @@ const normalizeCountryHistory = (history) => (Array.isArray(history) ? history :
     .filter(phase => phase.name && Number.isFinite(phase.start_year))
     .sort((a, b) => a.start_year - b.start_year || a.start_month - b.start_month);
 
+const COUNTRY_RELATION_TYPES = new Set([
+    'continuation', 'split', 'merge', 'conquest', 'migration', 'restoration', 'influence'
+]);
+const COUNTRY_RELATION_CONFIDENCE = new Set(['confirmed', 'probable', 'hypothesis', 'disputed']);
+const normalizeCountryPredecessors = (relations) => {
+    const seen = new Set();
+    return (Array.isArray(relations) ? relations : []).map((relation) => {
+        const predecessorCountryId = String(
+            relation?.predecessor_country_id || relation?.country_id || relation?.entityId || ''
+        ).trim();
+        if (!predecessorCountryId || seen.has(predecessorCountryId)) return null;
+        seen.add(predecessorCountryId);
+        const yearValue = relation?.year ?? relation?.start_year;
+        const year = yearValue === null || yearValue === undefined || yearValue === ''
+            ? null : Number.parseInt(yearValue, 10);
+        const relationType = String(relation?.relation_type || relation?.type || 'continuation').trim();
+        const confidence = String(relation?.confidence || 'probable').trim();
+        return {
+            _id: String(relation?._id || crypto.randomUUID()),
+            predecessor_country_id: predecessorCountryId,
+            relation_type: COUNTRY_RELATION_TYPES.has(relationType) ? relationType : 'continuation',
+            year: Number.isFinite(year) ? year : null,
+            month: Math.min(12, Math.max(1, Number.parseInt(relation?.month, 10) || 1)),
+            confidence: COUNTRY_RELATION_CONFIDENCE.has(confidence) ? confidence : 'probable',
+            label: String(relation?.label || '').trim(),
+            description: String(relation?.description || relation?.note || '').trim(),
+            sources: (Array.isArray(relation?.sources) ? relation.sources : String(relation?.sources || '').split(/[,\n]/))
+                .map(value => String(value).trim()).filter(Boolean)
+        };
+    }).filter(Boolean);
+};
+const countryPredecessorCycleExists = async (countryId, proposedRelations) => {
+    const target = String(countryId || '');
+    if (!target) return false;
+    const docs = await collections.countries.find({}, { projection: { _id: 1, predecessor_relations: 1 } }).toArray();
+    const predecessorMap = new Map(docs.map(doc => [
+        String(doc._id),
+        normalizeCountryPredecessors(doc.predecessor_relations).map(relation => String(relation.predecessor_country_id))
+    ]));
+    predecessorMap.set(target, proposedRelations.map(relation => String(relation.predecessor_country_id)));
+    const visiting = new Set();
+    const visited = new Set();
+    const hasCycle = (id) => {
+        if (visiting.has(id)) return true;
+        if (visited.has(id)) return false;
+        visiting.add(id);
+        for (const predecessorId of predecessorMap.get(id) || []) {
+            if (hasCycle(predecessorId)) return true;
+        }
+        visiting.delete(id);
+        visited.add(id);
+        return false;
+    };
+    return hasCycle(target);
+};
+
 const normalizeHeroType = (value, fallbackText = '') => {
     const raw = String(value || '').trim().toLowerCase();
     if (HERO_TYPE_LABELS[raw]) return raw;
@@ -4096,6 +4152,14 @@ app.post('/api/countries', verifyAdmin, async (req, res) => {
         newCountry.aliases = (Array.isArray(newCountry.aliases) ? newCountry.aliases : String(newCountry.aliases || '').split(/[,\n]/))
             .map(value => String(value).trim()).filter(Boolean);
         newCountry.history = normalizeCountryHistory(newCountry.history);
+        newCountry.predecessor_relations = normalizeCountryPredecessors(newCountry.predecessor_relations);
+        const predecessorIds = newCountry.predecessor_relations.map(relation => toObjectId(relation.predecessor_country_id));
+        if (predecessorIds.some(id => !id)) {
+            return res.status(400).json({ message: '전신 국가 ID 형식이 올바르지 않습니다.' });
+        }
+        if (predecessorIds.length && await collections.countries.countDocuments({ _id: { $in: predecessorIds } }) !== predecessorIds.length) {
+            return res.status(400).json({ message: '존재하지 않는 전신 국가가 포함되어 있습니다.' });
+        }
         if (newCountry.flag === BLOCKED_FLAG_URL) newCountry.flag = null;
 
         const result = await collections.countries.insertOne(newCountry);
@@ -4107,6 +4171,42 @@ app.post('/api/countries', verifyAdmin, async (req, res) => {
     } catch (error) {
         logCRUD('ERROR', 'Country', 'POST', error.message);
         res.status(500).json({ message: "Country 추가 실패", error: error.message });
+    }
+});
+
+// 국가 계보도용 표준 간선 목록. 전신 관계만 저장하고 후속 관계는 이 목록에서 역산한다.
+app.get('/api/country-relations', async (req, res) => {
+    try {
+        const countryDocs = await collections.countries.find({}, {
+            projection: { _id: 1, name: 1, start: 1, end: 1, predecessor_relations: 1 }
+        }).toArray();
+        const countryMap = new Map(countryDocs.map(country => [String(country._id), country]));
+        const relations = countryDocs.flatMap(successor => (
+            normalizeCountryPredecessors(successor.predecessor_relations).map(relation => {
+                const predecessor = countryMap.get(String(relation.predecessor_country_id));
+                return {
+                    _id: relation._id,
+                    from_country_id: String(relation.predecessor_country_id),
+                    from_country_name: predecessor?.name || '',
+                    to_country_id: String(successor._id),
+                    to_country_name: successor.name || '',
+                    relation_type: relation.relation_type,
+                    year: relation.year,
+                    month: relation.month,
+                    confidence: relation.confidence,
+                    label: relation.label,
+                    description: relation.description,
+                    sources: relation.sources
+                };
+            })
+        ));
+        res.set('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=1800');
+        res.json({ countries: countryDocs.map(country => ({
+            _id: String(country._id), name: country.name || '', start: country.start, end: country.end
+        })), relations });
+    } catch (error) {
+        console.error('국가 관계 조회 중 오류:', error);
+        res.status(500).json({ message: '국가 관계 조회 실패', error: error.message });
     }
 });
 
@@ -4154,6 +4254,9 @@ app.put('/api/countries/:name', verifyAdmin, async (req, res) => {
         if (Object.prototype.hasOwnProperty.call(updatedCountry, 'history')) {
             updatedCountry.history = normalizeCountryHistory(updatedCountry.history);
         }
+        if (Object.prototype.hasOwnProperty.call(updatedCountry, 'predecessor_relations')) {
+            updatedCountry.predecessor_relations = normalizeCountryPredecessors(updatedCountry.predecessor_relations);
+        }
         if (updatedCountry.flag === BLOCKED_FLAG_URL) updatedCountry.flag = null;
         
         // 🚩 [수정] _id 또는 name으로 검색 (이름 변경 시에도 안전)
@@ -4163,6 +4266,22 @@ app.put('/api/countries/:name', verifyAdmin, async (req, res) => {
             query = { _id: objectId };
         } else {
             query = { name: decodeURIComponent(name) };
+        }
+
+        if (updatedCountry.predecessor_relations) {
+            const predecessorIds = updatedCountry.predecessor_relations.map(relation => toObjectId(relation.predecessor_country_id));
+            if (predecessorIds.some(id => !id)) {
+                return res.status(400).json({ message: '전신 국가 ID 형식이 올바르지 않습니다.' });
+            }
+            if (objectId && predecessorIds.some(id => id.equals(objectId))) {
+                return res.status(400).json({ message: '자기 자신을 전신 국가로 연결할 수 없습니다.' });
+            }
+            if (predecessorIds.length && await collections.countries.countDocuments({ _id: { $in: predecessorIds } }) !== predecessorIds.length) {
+                return res.status(400).json({ message: '존재하지 않는 전신 국가가 포함되어 있습니다.' });
+            }
+            if (objectId && await countryPredecessorCycleExists(objectId, updatedCountry.predecessor_relations)) {
+                return res.status(400).json({ message: '국가 계승 관계에 순환 연결이 생기므로 저장할 수 없습니다.' });
+            }
         }
         
         // 업데이트할 데이터에서 _id 제거 (MongoDB는 _id 변경 불가)
