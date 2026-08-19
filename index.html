@@ -12129,6 +12129,16 @@ body.force-mobile .marker-type-selector button {
             <label for="countryDescription" style="line-height:1.3; padding-top: 6px;">국가 소개:<br><small style="color:#95a5a6; font-weight:400;">국가명 클릭 시 표시될 설명</small></label>
             <textarea id="countryDescription" placeholder="국가에 대한 설명을 입력하세요..." style="flex-grow:1; min-height:100px; resize:vertical; background:#2c3e50; color:#ecf0f1; border:1px solid #5d7185; border-radius:4px; padding:8px; font-size:13px; font-family:inherit;"></textarea>
         </div>
+        <div style="margin:16px 0; padding:12px; border:1px solid #5d7185; border-radius:7px; background:rgba(15,23,32,.55);">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:9px;">
+                <div>
+                    <strong>🏷️ 국호·표시 정보 변화 이력</strong>
+                    <div style="font-size:11px; color:#95a5a6; margin-top:3px;">같은 국가 객체 안에서 시대별 국호를 바꿉니다. 비워 둔 표시 정보는 위의 기본값을 사용합니다.</div>
+                </div>
+                <button type="button" id="addCountryHistoryBtn" style="white-space:nowrap;">+ 이력 추가</button>
+            </div>
+            <div id="countryHistoryList"></div>
+        </div>
         <div class="form-row" id="countryCastleCountRow" style="display:none;">
             <label style="color:#95a5a6; font-size:12px;">연결된 성/도시:</label>
             <div id="countryCastleCount" style="font-size:13px; color:#ecf0f1; display:flex; align-items:center; gap:8px; flex-wrap:wrap;"></div>
@@ -15028,7 +15038,10 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     
     /** 국가 이름으로 국가 정보를 찾습니다. */
     function getCountryInfo(name) {
-      return countries.find(c => c.name === name);
+      const raw = countries.find(c => c.name === name || (Array.isArray(c.history) && c.history.some(phase => (
+          phase.name === name || phase.name_zh === name || (phase.aliases || []).includes(name)
+      ))));
+      return raw ? getEffectiveCountryInfo(raw) : null;
     }
 
     // 🚩 [핵심 수정] 시간 계산 로직을 '총 월수' 기반으로 변경
@@ -15183,8 +15196,9 @@ function updateKingLabel(year, month) {
       let html = "";
       // 같은 이름의 국가 레코드가 중복되어도 동일 왕이 패널에 두 번 나타나지 않게 한다.
       const renderedKingRows = new Set();
-      countries.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko')).forEach(country => { // 🚩 [수정] 국가명 가나다순 정렬
-        const king = getKingByYear(country.name, year, month); // <-- THIS LINE WAS MISSING OR MISPLACED
+      countries.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko')).forEach(rawCountry => { // 🚩 [수정] 국가명 가나다순 정렬
+        const country = getEffectiveCountryInfo(rawCountry, year, month);
+        const king = getKingByYear(rawCountry.name, year, month); // 객체 연결은 변하지 않는 기본 국가명으로 조회
        if (king) { // <-- Now the 'if' statement works because 'king' is defined
             const rowKey = [
                 String(country.name || '').normalize('NFKC').replace(/\s+/g, ''),
@@ -19381,8 +19395,53 @@ function _buildCountryLookup() {
             const cleanAlias = String(alias || '').trim();
             if (cleanAlias) _countryLookupMap.set(cleanAlias, c);
         });
+        (Array.isArray(c.history) ? c.history : []).forEach(phase => {
+            [phase.name, phase.name_zh, ...(Array.isArray(phase.aliases) ? phase.aliases : [])].forEach(alias => {
+                const cleanAlias = String(alias || '').trim();
+                if (cleanAlias) _countryLookupMap.set(cleanAlias, c);
+            });
+        });
     });
     _countryLookupVersion = countries.length;
+}
+
+function getEffectiveCountryInfo(country, year = null, month = null) {
+    if (!country) return null;
+    const mapYear = year ?? (Number.parseInt(document.getElementById('yearInput')?.value, 10) || 0);
+    const mapMonth = month ?? (Number.parseInt(document.getElementById('monthInput')?.value, 10) || 1);
+    const point = mapYear * 12 + Math.min(12, Math.max(1, mapMonth)) - 1;
+    const phase = (Array.isArray(country.history) ? country.history : [])
+        .filter(item => {
+            const startYear = Number.parseInt(item.start_year ?? item.start, 10);
+            if (!Number.isFinite(startYear)) return false;
+            const start = startYear * 12 + (Number.parseInt(item.start_month, 10) || 1) - 1;
+            const endYearValue = item.end_year ?? item.end;
+            const endYear = endYearValue === null || endYearValue === undefined || endYearValue === ''
+                ? null : Number.parseInt(endYearValue, 10);
+            const end = Number.isFinite(endYear)
+                ? endYear * 12 + (Number.parseInt(item.end_month, 10) || 12) - 1
+                : Infinity;
+            return point >= start && point <= end;
+        })
+        .sort((a, b) => (
+            Number.parseInt(b.start_year ?? b.start, 10) - Number.parseInt(a.start_year ?? a.start, 10) ||
+            (Number.parseInt(b.start_month, 10) || 1) - (Number.parseInt(a.start_month, 10) || 1)
+        ))[0];
+    if (!phase) return country;
+    return {
+        ...country,
+        ...phase,
+        _id: country._id,
+        base_name: country.name,
+        name: phase.name || country.name,
+        name_zh: phase.name_zh || country.name_zh || country.name_chi || '',
+        color: phase.color || country.color,
+        flag: phase.flag || country.flag,
+        sealText: phase.sealText || country.sealText,
+        description: phase.description || country.description,
+        aliases: [...new Set([...(country.aliases || []), ...(phase.aliases || [])])],
+        active_country_phase: phase
+    };
 }
 
 function getCountryInfoById(id) {
@@ -19393,7 +19452,8 @@ function getCountryInfoById(id) {
         _buildCountryLookup();
     }
 
-    return _countryLookupMap.get(String(id)) || null;
+    const country = _countryLookupMap.get(String(id)) || null;
+    return country ? getEffectiveCountryInfo(country) : null;
 }
 
 // 🚩 [추가] 국가 정보 변경 시 캐시 강제 무효화
@@ -19582,7 +19642,7 @@ function invalidateCountryLookupCache() {
                                 const cachedCount = cached.length;
                                 const freshCount = fresh.length;
                                 // 🚩 [수정] 개수 변경 OR 국기/색상/이름 변경 감지
-                                const _fingerprint = arr => arr.map(c => `${c._id}|${c.flag||''}|${c.color||''}|${c.name||''}`).sort().join(',');
+                                const _fingerprint = arr => arr.map(c => `${c._id}|${c.flag||''}|${c.color||''}|${c.name||''}|${JSON.stringify(c.history||[])}`).sort().join(',');
                                 const changed = freshCount !== cachedCount || _fingerprint(fresh) !== _fingerprint(cached);
                                 if (changed) {
                                     console.log(`🔄 [백그라운드] countries 변경 감지 (개수:${cachedCount}→${freshCount} 또는 국기/색상 변경). 캐시 갱신 및 지도 재렌더링`);
@@ -20828,7 +20888,7 @@ const loadingMessages = [
                       });
                       if (!res.ok) return;
                       const fresh = await res.json();
-                      const _fp = arr => arr.map(c => `${c._id}|${c.flag||''}|${c.color||''}|${c.name||''}`).sort().join(',');
+                      const _fp = arr => arr.map(c => `${c._id}|${c.flag||''}|${c.color||''}|${c.name||''}|${JSON.stringify(c.history||[])}`).sort().join(',');
                       if (_fp(fresh) !== _fp(countries)) {
                           console.log('🔄 [백그라운드] countries 변경 감지 (국기/색상). 캐시 갱신 및 재렌더링');
                           const vk = localStorage.getItem('app_version') || 'init';
@@ -28584,6 +28644,85 @@ const loadingMessages = [
     }
     
     // --- 9. 국가 편집 폼 관리 --- (기존 로직 유지)
+
+    let countryHistoryDraft = [];
+
+    function countryHistoryEscape(value) {
+        return String(value ?? '').replace(/[&<>"']/g, char => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        })[char]);
+    }
+
+    function renderCountryHistoryEditor(history = countryHistoryDraft) {
+        countryHistoryDraft = Array.isArray(history) ? history.map(item => ({ ...item })) : [];
+        const list = document.getElementById('countryHistoryList');
+        if (!list) return;
+        if (!countryHistoryDraft.length) {
+            list.innerHTML = '<div style="padding:12px; text-align:center; color:#7f8c8d; border:1px dashed #465767; border-radius:5px; font-size:12px;">등록된 국호 변화 이력이 없습니다. 기존 기본 국가 정보가 전 기간에 적용됩니다.</div>';
+            return;
+        }
+        list.innerHTML = countryHistoryDraft.map((phase, index) => `
+            <div class="country-history-row" data-index="${index}" style="margin-top:9px; padding:10px; border:1px solid #465767; border-radius:6px; background:#202d38;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <strong style="font-size:12px; color:#d8b45a;">시기 ${index + 1}</strong>
+                    <button type="button" class="remove-country-history" data-index="${index}" style="padding:3px 8px; color:#ff9a90;">삭제</button>
+                </div>
+                <div style="display:grid; grid-template-columns:minmax(120px,1fr) minmax(100px,.7fr); gap:7px;">
+                    <input data-field="name" value="${countryHistoryEscape(phase.name)}" placeholder="국호 (필수, 예: 고려)">
+                    <input data-field="name_zh" value="${countryHistoryEscape(phase.name_zh)}" placeholder="한자 국호 (예: 高麗)">
+                    <input data-field="start_year" type="number" value="${countryHistoryEscape(phase.start_year)}" placeholder="시작 연도 (필수)">
+                    <input data-field="start_month" type="number" min="1" max="12" value="${countryHistoryEscape(phase.start_month || 1)}" placeholder="시작 월">
+                    <input data-field="end_year" type="number" value="${countryHistoryEscape(phase.end_year ?? '')}" placeholder="종료 연도 (계속이면 공란)">
+                    <input data-field="end_month" type="number" min="1" max="12" value="${countryHistoryEscape(phase.end_month || 12)}" placeholder="종료 월">
+                    <input data-field="aliases" value="${countryHistoryEscape(Array.isArray(phase.aliases) ? phase.aliases.join(', ') : phase.aliases)}" placeholder="이 시기의 별칭 (쉼표 구분)" style="grid-column:1 / -1;">
+                    <input data-field="color" type="text" value="${countryHistoryEscape(phase.color)}" placeholder="색상 선택사항 (#RRGGBB)">
+                    <input data-field="sealText" value="${countryHistoryEscape(phase.sealText)}" maxlength="2" placeholder="인장 글자 선택사항">
+                    <input data-field="flag" value="${countryHistoryEscape(phase.flag)}" placeholder="국기 URL 선택사항" style="grid-column:1 / -1;">
+                    <textarea data-field="description" rows="2" placeholder="이 시기의 설명 선택사항" style="grid-column:1 / -1; resize:vertical;">${countryHistoryEscape(phase.description)}</textarea>
+                </div>
+            </div>`).join('');
+        list.querySelectorAll('.remove-country-history').forEach(button => {
+            button.addEventListener('click', () => {
+                const draft = collectCountryHistory();
+                draft.splice(Number(button.dataset.index), 1);
+                renderCountryHistoryEditor(draft);
+            });
+        });
+    }
+
+    function collectCountryHistory() {
+        const rows = [...document.querySelectorAll('#countryHistoryList .country-history-row')];
+        return rows.map((row, index) => {
+            const value = field => row.querySelector(`[data-field="${field}"]`)?.value?.trim() || '';
+            const endYear = value('end_year');
+            return {
+                _id: countryHistoryDraft[index]?._id || `country-phase-${Date.now()}-${index}`,
+                name: value('name'),
+                name_zh: value('name_zh'),
+                aliases: value('aliases').split(/[,\n]/).map(item => item.trim()).filter(Boolean),
+                start_year: Number.parseInt(value('start_year'), 10),
+                start_month: Number.parseInt(value('start_month'), 10) || 1,
+                end_year: endYear ? Number.parseInt(endYear, 10) : null,
+                end_month: Number.parseInt(value('end_month'), 10) || 12,
+                color: value('color'),
+                flag: value('flag'),
+                sealText: value('sealText'),
+                description: value('description')
+            };
+        });
+    }
+
+    document.getElementById('addCountryHistoryBtn')?.addEventListener('click', () => {
+        const draft = collectCountryHistory();
+        const previous = draft[draft.length - 1];
+        draft.push({
+            name: '', name_zh: '', aliases: [],
+            start_year: previous?.end_year != null ? previous.end_year + 1 : '',
+            start_month: 1, end_year: null, end_month: 12,
+            color: '', flag: '', sealText: '', description: ''
+        });
+        renderCountryHistoryEditor(draft);
+    });
     
     function updateCountrySelectForEdit() {
         const select = countrySelectForEdit;
@@ -28604,10 +28743,11 @@ const loadingMessages = [
             document.getElementById('countryCastleCountRow').style.display = 'none';
             document.getElementById('countryIdRow').style.display = 'none';
             document.getElementById('countryIdDisplay').textContent = '';
+            renderCountryHistoryEditor([]);
             return;
         }
         
-        const country = getCountryInfo(name);
+        const country = countries.find(item => item.name === name);
         if (!country) return;
 
         document.getElementById('countryOriginalName').value = country.name;
@@ -28624,6 +28764,7 @@ const loadingMessages = [
         document.getElementById('isMainDynasty').checked = country.is_main_dynasty || false;
         document.getElementById('countrySealText').value = country.sealText || '';
         document.getElementById('countryDescription').value = country.description || '';
+        renderCountryHistoryEditor(country.history || []);
 
         document.getElementById('deleteCountryBtn').style.display = 'inline-block';
         document.getElementById('saveCountryBtn').textContent = '저장';
@@ -28693,10 +28834,18 @@ const loadingMessages = [
             sealText: document.getElementById('countrySealText').value.trim() || null,
             description: document.getElementById('countryDescription').value.trim() || null
         };
+        data.history = collectCountryHistory();
         
         if (!data.name || isNaN(data.start) || !data.color) {
             return alert("국가 이름, 시작 연도, 색상은 필수 입력 사항입니다.");
         }
+        const invalidHistory = data.history.find(phase => !phase.name || !Number.isFinite(phase.start_year));
+        if (invalidHistory) return alert('국호 변화 이력에는 국호와 시작 연도를 입력해야 합니다.');
+        const invalidRange = data.history.find(phase => phase.end_year != null && (
+            phase.end_year < phase.start_year ||
+            (phase.end_year === phase.start_year && phase.end_month < phase.start_month)
+        ));
+        if (invalidRange) return alert(`'${invalidRange.name}' 이력의 종료 시점이 시작 시점보다 빠릅니다.`);
         
         try {
             // 🚩 [수정] 토큰 가져오기
@@ -28762,6 +28911,7 @@ const loadingMessages = [
             document.getElementById('countrySearchForEdit').value = ''; // 검색창 초기화
             document.getElementById('countrySealText').value = ''; // 낙인 글씨 초기화
             document.getElementById('countryDescription').value = ''; // 국가 소개 초기화
+            renderCountryHistoryEditor([]);
 
             // 🚩 [수정] 수정했던 국가를 다시 선택해줍니다.
             document.getElementById('countrySelectForEdit').value = newName;

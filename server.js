@@ -116,6 +116,31 @@ const sanitizeCountryFlag = (country) => {
     return { ...country, flag: null };
 };
 
+const normalizeCountryHistory = (history) => (Array.isArray(history) ? history : [])
+    .map((phase, index) => {
+        const startYear = Number.parseInt(phase?.start_year ?? phase?.start, 10);
+        const endValue = phase?.end_year ?? phase?.end;
+        const endYear = endValue === null || endValue === undefined || endValue === ''
+            ? null : Number.parseInt(endValue, 10);
+        return {
+            _id: String(phase?._id || `country-phase-${Date.now()}-${index}`),
+            name: String(phase?.name || '').trim(),
+            name_zh: String(phase?.name_zh || '').trim(),
+            aliases: (Array.isArray(phase?.aliases) ? phase.aliases : String(phase?.aliases || '').split(/[,\n]/))
+                .map(value => String(value).trim()).filter(Boolean),
+            start_year: Number.isFinite(startYear) ? startYear : null,
+            start_month: Math.min(12, Math.max(1, Number.parseInt(phase?.start_month, 10) || 1)),
+            end_year: Number.isFinite(endYear) ? endYear : null,
+            end_month: Math.min(12, Math.max(1, Number.parseInt(phase?.end_month, 10) || 12)),
+            color: /^#[0-9a-f]{6}$/i.test(String(phase?.color || '')) ? String(phase.color) : '',
+            flag: phase?.flag === BLOCKED_FLAG_URL ? '' : String(phase?.flag || '').trim(),
+            sealText: String(phase?.sealText || '').trim().slice(0, 2),
+            description: String(phase?.description || '').trim()
+        };
+    })
+    .filter(phase => phase.name && Number.isFinite(phase.start_year))
+    .sort((a, b) => a.start_year - b.start_year || a.start_month - b.start_month);
+
 const normalizeHeroType = (value, fallbackText = '') => {
     const raw = String(value || '').trim().toLowerCase();
     if (HERO_TYPE_LABELS[raw]) return raw;
@@ -803,7 +828,7 @@ const getHeroBaseData = async () => {
         ]
     };
     const [countryDocs, capitalDocs, kingDocs] = await Promise.all([
-        collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1, flag: 1, sealText: 1 } }).toArray(),
+        collections.countries.find({}, { projection: { _id: 1, name: 1, color: 1, flag: 1, sealText: 1, history: 1 } }).toArray(),
         collections.castles.find(capitalQuery, { projection: { _id: 1, name: 1, country_id: 1, lat: 1, lng: 1, built_year: 1, built_month: 1, destroyed_year: 1, destroyed_month: 1, is_capital: 1, place_type: 1, history: 1 } }).toArray(),
         collections.kings.find({}, { projection: { _id: 1, country_id: 1, country_name: 1, kings: 1 } }).toArray()
     ]);
@@ -866,7 +891,8 @@ const buildHeroBasePayload = async () => {
         countries: countryDocs.map(c => ({
             _id: String(c._id),
             name: c.name || '',
-            color: c.color || '#c8860a'
+            color: c.color || '#c8860a',
+            history: Array.isArray(c.history) ? c.history : []
         })),
         capitals: capitalDocs.map(c => ({
             _id: String(c._id),
@@ -4069,9 +4095,11 @@ app.post('/api/countries', verifyAdmin, async (req, res) => {
         newCountry.description = newCountry.description || null;
         newCountry.aliases = (Array.isArray(newCountry.aliases) ? newCountry.aliases : String(newCountry.aliases || '').split(/[,\n]/))
             .map(value => String(value).trim()).filter(Boolean);
+        newCountry.history = normalizeCountryHistory(newCountry.history);
         if (newCountry.flag === BLOCKED_FLAG_URL) newCountry.flag = null;
 
         const result = await collections.countries.insertOne(newCountry);
+        invalidateHeroCaches();
         // 클라이언트에서 countryOriginalName 필드를 사용하여 신규 여부를 확인하므로, 
         // 응답 시 해당 필드를 함께 반환하는 것이 좋습니다.
         logCRUD('CREATE', 'Country', newCountry.name, `(ID: ${result.insertedId})`);
@@ -4123,6 +4151,9 @@ app.put('/api/countries/:name', verifyAdmin, async (req, res) => {
         updatedCountry.description = updatedCountry.description || null;
         updatedCountry.aliases = (Array.isArray(updatedCountry.aliases) ? updatedCountry.aliases : String(updatedCountry.aliases || '').split(/[,\n]/))
             .map(value => String(value).trim()).filter(Boolean);
+        if (Object.prototype.hasOwnProperty.call(updatedCountry, 'history')) {
+            updatedCountry.history = normalizeCountryHistory(updatedCountry.history);
+        }
         if (updatedCountry.flag === BLOCKED_FLAG_URL) updatedCountry.flag = null;
         
         // 🚩 [수정] _id 또는 name으로 검색 (이름 변경 시에도 안전)
@@ -4147,6 +4178,7 @@ app.put('/api/countries/:name', verifyAdmin, async (req, res) => {
             return res.status(404).json({ message: `국가 '${name}'을(를) 찾을 수 없습니다.` });
         }
 
+        invalidateHeroCaches();
         logCRUD('UPDATE', 'Country', name, `→ ${updatedCountry.name || name}`);
         res.json({ message: "Country 정보 업데이트 성공" });
     } catch (error) {

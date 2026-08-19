@@ -602,21 +602,44 @@ function selectHeroCareerPhase(hero, year, month) {
     .sort((a, b) => heroTotalMonths(b.start_year, b.start_month || 1) - heroTotalMonths(a.start_year, a.start_month || 1))[0] || null;
 }
 
-function applyHeroCareerPhase(hero, phase, countriesById) {
-  if (!phase) return hero;
-  const countryId = idToString(phase.country_id || hero.source_country_id || hero.country_id);
-  const country = countriesById.get(countryId);
+function effectiveHeroCountry(country, year, month) {
+  if (!country) return null;
+  const current = heroTotalMonths(year, month);
+  const phase = (Array.isArray(country.history) ? country.history : [])
+    .filter((item) => {
+      const startYear = parseInt(item?.start_year ?? item?.start, 10);
+      if (Number.isNaN(startYear)) return false;
+      const start = heroTotalMonths(startYear, item.start_month || 1);
+      const endRaw = item.end_year ?? item.end;
+      const end = endRaw === null || endRaw === undefined || endRaw === ''
+        ? Infinity : heroTotalMonths(endRaw, item.end_month || 12);
+      return start <= current && current <= end;
+    })
+    .sort((a, b) => heroTotalMonths(b.start_year ?? b.start, b.start_month || 1)
+      - heroTotalMonths(a.start_year ?? a.start, a.start_month || 1))[0];
+  return phase ? {
+    ...country,
+    ...phase,
+    _id: country._id,
+    name: phase.name || country.name,
+    color: phase.color || country.color,
+  } : country;
+}
+
+function applyHeroCareerPhase(hero, phase, countriesById, year, month) {
+  const countryId = idToString(phase?.country_id || hero.source_country_id || hero.country_id);
+  const country = effectiveHeroCountry(countriesById.get(countryId), year, month);
   return {
     ...hero,
-    active_career_phase: phase,
+    active_career_phase: phase || null,
     source_country_id: countryId,
-    name_ko: phase.name_ko || hero.name_ko,
-    name_zh: phase.name_zh || hero.name_zh,
-    title: phase.title || hero.title,
-    description: phase.description || hero.description,
-    hero_type: phase.hero_type || hero.hero_type,
-    faction: phase.faction || country?.name || hero.faction,
-    faction_color: phase.faction_color || country?.color || hero.faction_color,
+    name_ko: phase?.name_ko || hero.name_ko,
+    name_zh: phase?.name_zh || hero.name_zh,
+    title: phase?.title || hero.title,
+    description: phase?.description || hero.description,
+    hero_type: phase?.hero_type || hero.hero_type,
+    faction: phase?.faction || country?.name || hero.faction,
+    faction_color: phase?.faction_color || country?.color || hero.faction_color,
   };
 }
 
@@ -729,7 +752,7 @@ function buildHeroesFromBaseDataset(base, year, month) {
       ? !(hero.__startTotal <= current && current < hero.__endTotal)
       : !isFigureActiveAt(hero, year, month)) return;
     const phase = selectHeroCareerPhase(hero, year, month);
-    const effectiveHero = applyHeroCareerPhase(hero, phase, countriesById);
+    const effectiveHero = applyHeroCareerPhase(hero, phase, countriesById, year, month);
     const countryId = idToString(effectiveHero.source_country_id || effectiveHero.country_id);
     if (!countryId) return;
     if (!activeByCountry.has(countryId)) activeByCountry.set(countryId, []);
