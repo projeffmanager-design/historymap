@@ -4439,6 +4439,41 @@ body.force-mobile .marker-type-selector button {
             content: ''; flex: 1; height: 1px;
             background: rgba(180,140,80,0.2);
         }
+        .cdp-lineage-intro { color:#91a4b2; font-size:11px; line-height:1.55; margin-bottom:14px; }
+        .cdp-lineage-tree { position:relative; padding:4px 0 18px; }
+        .cdp-lineage-root-wrap { display:flex; flex-direction:column; align-items:center; }
+        .cdp-lineage-root {
+            min-width:150px; max-width:260px; padding:11px 14px; border:1px solid rgba(212,168,67,.72);
+            border-radius:9px; background:linear-gradient(135deg,rgba(180,132,40,.23),rgba(19,31,40,.95));
+            box-shadow:0 0 18px rgba(180,132,40,.12); text-align:center;
+        }
+        .cdp-lineage-root small { display:block; margin-top:3px; color:#92a5b2; font-size:10px; }
+        .cdp-lineage-direction { margin:13px 0 7px; color:#7d91a0; font-size:10px; letter-spacing:.08em; }
+        .cdp-lineage-direction::before { content:'↓'; display:block; color:#b58b3d; font-size:17px; line-height:1; margin-bottom:4px; }
+        .cdp-lineage-branches { display:flex; align-items:flex-start; justify-content:center; gap:10px; width:100%; flex-wrap:wrap; }
+        .cdp-lineage-branch { position:relative; display:flex; flex-direction:column; align-items:center; min-width:128px; max-width:100%; }
+        .cdp-lineage-edge {
+            max-width:170px; margin-bottom:5px; padding:2px 7px; border-radius:9px;
+            background:rgba(255,255,255,.045); color:#93a5b1; font-size:9px; text-align:center;
+        }
+        .cdp-lineage-node {
+            min-width:120px; max-width:190px; padding:8px 10px; border:1px solid rgba(116,145,164,.35);
+            border-radius:7px; background:rgba(20,33,43,.88); color:#d5e0e6; text-align:center;
+            font-family:inherit; cursor:pointer; transition:.15s ease;
+        }
+        .cdp-lineage-node:hover { border-color:#d4a843; color:#f1d083; transform:translateY(-1px); }
+        .cdp-lineage-node-name { display:block; font-size:12px; font-weight:700; }
+        .cdp-lineage-node-base { display:block; margin-top:2px; color:#718895; font-size:9px; }
+        .cdp-lineage-children {
+            display:flex; align-items:flex-start; justify-content:center; gap:8px; flex-wrap:wrap;
+            margin-top:7px; padding-top:15px; border-top:1px solid rgba(180,140,80,.23);
+        }
+        .cdp-lineage-children > .cdp-lineage-branch::before {
+            content:''; position:absolute; top:-15px; left:50%; width:1px; height:15px; background:rgba(180,140,80,.32);
+        }
+        .cdp-lineage-empty { padding:18px; border:1px dashed rgba(126,151,168,.3); border-radius:8px; color:#718895; font-size:12px; text-align:center; }
+        .cdp-lineage-legend { display:flex; flex-wrap:wrap; gap:5px; margin-top:14px; }
+        .cdp-lineage-legend span { padding:2px 7px; border-radius:9px; background:rgba(255,255,255,.04); color:#718895; font-size:9px; }
 
         /* 설명 */
         .cdp-desc {
@@ -11250,6 +11285,7 @@ body.force-mobile .marker-type-selector button {
             <button class="cdp-tab" data-tab="military">⚔️ 군사</button>
             <button class="cdp-tab" data-tab="admin">🏛️ 행정</button>
             <button class="cdp-tab" data-tab="figures">🧑‍🏫 인물</button>
+            <button class="cdp-tab" data-tab="lineage">🌳 계승</button>
         </div>
 
         <!-- 탭 콘텐츠 -->
@@ -11459,6 +11495,11 @@ body.force-mobile .marker-type-selector button {
                         <button class="cdp-cancel-btn" id="cdp-cancel-figures">취소</button>
                     </div>
                 </div>
+            </div>
+
+            <!-- ⑥ 국가 계승 관계 탭 -->
+            <div class="cdp-tab-content" id="cdp-tab-lineage">
+                <div id="cdp-lineage-content"></div>
             </div>
 
         </div><!-- /.cdp-body -->
@@ -29251,6 +29292,9 @@ const loadingMessages = [
                     _renderFigures(_currentCInfo);
                     setTimeout(() => _bindTabEditBtns(_currentCInfo), 0);
                 }
+                if (btn.dataset.tab === 'lineage' && _currentCInfo) {
+                    _renderLineage(_currentCInfo);
+                }
             });
         });
 
@@ -29766,6 +29810,96 @@ const loadingMessages = [
             }
         }
 
+        function _lineageCountry(countryId) {
+            return (countries || []).find(country => String(country._id || country.id) === String(countryId || '')) || null;
+        }
+
+        function _lineagePredecessorEdges(country) {
+            return (Array.isArray(country?.predecessor_relations) ? country.predecessor_relations : [])
+                .map(relation => ({ relation, country: _lineageCountry(relation.predecessor_country_id) }))
+                .filter(edge => edge.country);
+        }
+
+        function _lineageSuccessorEdges(countryId) {
+            return (countries || []).flatMap(country => (
+                (Array.isArray(country.predecessor_relations) ? country.predecessor_relations : [])
+                    .filter(relation => String(relation.predecessor_country_id) === String(countryId))
+                    .map(relation => ({ relation, country }))
+            ));
+        }
+
+        function _renderLineageBranch(edge, direction, path = new Set(), depth = 0) {
+            const rawCountry = edge.country;
+            const countryId = String(rawCountry._id || rawCountry.id || '');
+            const effective = getEffectiveCountryInfo(rawCountry);
+            const repeated = path.has(countryId);
+            const nextPath = new Set(path);
+            nextPath.add(countryId);
+            const relationLabel = COUNTRY_RELATION_LABELS[edge.relation?.relation_type] || '계승 관계';
+            const confidenceLabel = COUNTRY_CONFIDENCE_LABELS[edge.relation?.confidence] || '';
+            const relationYear = edge.relation?.year;
+            const edgeText = [relationLabel, Number.isFinite(Number(relationYear)) ? `${relationYear}년` : '', confidenceLabel]
+                .filter(Boolean).join(' · ');
+            const effectiveName = effective?.name || rawCountry.name || '국가명 미상';
+            const baseName = effectiveName !== rawCountry.name ? rawCountry.name : '';
+            const nextEdges = repeated || depth >= 5 ? [] : (direction === 'predecessor'
+                ? _lineagePredecessorEdges(rawCountry)
+                : _lineageSuccessorEdges(countryId));
+            nextEdges.sort((a, b) => Number(a.country.start ?? Infinity) - Number(b.country.start ?? Infinity));
+            return `<div class="cdp-lineage-branch">
+                <div class="cdp-lineage-edge">${_esc(edgeText)}${repeated ? ' · 중복 경로' : ''}</div>
+                <button type="button" class="cdp-lineage-node" data-country-id="${_esc(countryId)}">
+                    <span class="cdp-lineage-node-name">${_esc(effectiveName)}</span>
+                    ${baseName ? `<span class="cdp-lineage-node-base">국가 객체: ${_esc(baseName)}</span>` : ''}
+                </button>
+                ${nextEdges.length ? `<div class="cdp-lineage-children">${nextEdges.map(nextEdge => (
+                    _renderLineageBranch(nextEdge, direction, nextPath, depth + 1)
+                )).join('')}</div>` : ''}
+            </div>`;
+        }
+
+        function _renderLineage(cInfo) {
+            const container = document.getElementById('cdp-lineage-content');
+            if (!container) return;
+            const currentId = String(cInfo?._id || cInfo?.id || '');
+            const rawCurrent = _lineageCountry(currentId) || cInfo;
+            const predecessors = _lineagePredecessorEdges(rawCurrent);
+            const successors = _lineageSuccessorEdges(currentId);
+            const sortEdges = edges => edges.sort((a, b) => Number(a.country.start ?? Infinity) - Number(b.country.start ?? Infinity));
+            sortEdges(predecessors);
+            sortEdges(successors);
+            const rootName = cInfo.name || rawCurrent.name || '국가명 미상';
+            const rootBaseName = rootName !== rawCurrent.name ? rawCurrent.name : '';
+            const noRelations = !predecessors.length && !successors.length;
+            const rootPath = new Set([currentId]);
+            container.innerHTML = `
+                <div class="cdp-lineage-intro">국가 객체 사이의 전신·후속 관계입니다. 분화와 병합을 함께 표현하므로 하나의 부모만 갖는 단순 가계도가 아니라 여러 갈래가 연결되는 계승망으로 표시됩니다.</div>
+                <div class="cdp-lineage-tree">
+                    <div class="cdp-lineage-root-wrap">
+                        <div class="cdp-lineage-root">
+                            <strong>${_esc(rootName)}</strong>
+                            ${rootBaseName ? `<small>국가 객체: ${_esc(rootBaseName)}</small>` : ''}
+                        </div>
+                    </div>
+                    ${predecessors.length ? `<div class="cdp-lineage-root-wrap">
+                        <div class="cdp-lineage-direction">이 국가에서 뿌리 방향으로 탐색</div>
+                        <div class="cdp-lineage-branches">${predecessors.map(edge => _renderLineageBranch(edge, 'predecessor', rootPath)).join('')}</div>
+                    </div>` : ''}
+                    ${successors.length ? `<div class="cdp-lineage-root-wrap">
+                        <div class="cdp-lineage-direction">이 국가에서 후속·분화 방향으로 탐색</div>
+                        <div class="cdp-lineage-branches">${successors.map(edge => _renderLineageBranch(edge, 'successor', rootPath)).join('')}</div>
+                    </div>` : ''}
+                    ${noRelations ? '<div class="cdp-lineage-empty" style="margin-top:14px;">아직 등록된 전신·후속 국가 관계가 없습니다.<br>국가 정보 편집에서 전신 국가를 연결할 수 있습니다.</div>' : ''}
+                </div>
+                <div class="cdp-lineage-legend">${Object.values(COUNTRY_RELATION_LABELS).map(label => `<span>${_esc(label)}</span>`).join('')}</div>`;
+            container.querySelectorAll('.cdp-lineage-node').forEach(button => {
+                button.addEventListener('click', () => {
+                    const rawTarget = _lineageCountry(button.dataset.countryId);
+                    if (rawTarget) showCountryInfoModal(getEffectiveCountryInfo(rawTarget));
+                });
+            });
+        }
+
         // ── 공개 함수: 패널 열기 ──
         function showCountryInfoModal(cInfo) {
             if (!cInfo) return;
@@ -29814,6 +29948,7 @@ const loadingMessages = [
             _renderMilitary(cInfo);
             _renderAdmin(cInfo);
             _renderFigures(cInfo);
+            _renderLineage(cInfo);
 
             // 탭 내 편집 버튼 이벤트 (동적 DOM이므로 매번 재등록)
             setTimeout(() => _bindTabEditBtns(cInfo), 50);
