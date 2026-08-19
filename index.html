@@ -4487,6 +4487,7 @@ body.force-mobile .marker-type-selector button {
         .cdp-lineage-phase-chain { display:flex; flex-direction:column; align-items:center; }
         .cdp-lineage-phase-edge { padding:4px 0; color:#b58b3d; font-size:9px; line-height:1.15; text-align:center; }
         .cdp-lineage-phase-edge::before { content:'↓'; display:block; font-size:13px; }
+        .cdp-lineage-phase-edge.usurpation { color:#d4685f; font-weight:700; }
         .cdp-lineage-phase-current { border-color:rgba(212,168,67,.78) !important; box-shadow:0 0 12px rgba(180,132,40,.12); }
         .cdp-lineage-phase-period { display:block; margin-top:3px; color:#8295a3; font-size:9px; font-weight:400; }
         .cdp-lineage-children {
@@ -4507,6 +4508,7 @@ body.force-mobile .marker-type-selector button {
         .cdp-lineage-svg { position:absolute; inset:0; z-index:0; overflow:visible; pointer-events:none; }
         .cdp-lineage-level { position:relative; z-index:1; display:flex; justify-content:center; align-items:flex-start; gap:42px; }
         .cdp-lineage-unified-node { position:relative; min-width:150px; display:flex; justify-content:center; }
+        .cdp-lineage-unified-node.subordinate { margin-top:28px; }
         .cdp-lineage-unified-node.selected::after {
             content:'현재 선택'; position:absolute; top:-9px; left:50%; transform:translateX(-50%);
             padding:1px 7px; border-radius:8px; background:#b78327; color:#fff3cf; font-size:8px; white-space:nowrap;
@@ -4514,7 +4516,27 @@ body.force-mobile .marker-type-selector button {
         .cdp-lineage-unified-node.selected .cdp-lineage-node { cursor:default; }
         .cdp-lineage-edge-label {
             fill:#c8a850; font-size:9px; paint-order:stroke; stroke:#0e1620; stroke-width:4px; stroke-linejoin:round;
+            transition:opacity .15s ease, fill .15s ease;
         }
+        .cdp-lineage-svg path[data-lineage-edge-index] { transition:opacity .15s ease, stroke-width .15s ease, filter .15s ease; }
+        .cdp-lineage-unified.lineage-route-hover .cdp-lineage-svg path[data-lineage-edge-index],
+        .cdp-lineage-unified.lineage-route-hover .cdp-lineage-edge-label { opacity:.1; }
+        .cdp-lineage-unified.lineage-route-hover .cdp-lineage-svg path.lineage-route-active {
+            opacity:1; stroke-width:4px; filter:drop-shadow(0 0 3px rgba(255,220,135,.9));
+        }
+        .cdp-lineage-unified.lineage-route-hover .cdp-lineage-edge-label.lineage-route-active {
+            opacity:1; fill:#ffe09a; font-size:10px; font-weight:700; stroke-width:5px;
+        }
+        .cdp-lineage-unified.lineage-route-hover .cdp-lineage-unified-node { opacity:.34; transition:opacity .15s ease; }
+        .cdp-lineage-unified.lineage-route-hover .cdp-lineage-unified-node.lineage-route-active,
+        .cdp-lineage-unified.lineage-route-hover .cdp-lineage-unified-node.lineage-route-origin { opacity:1; }
+        .cdp-lineage-unified-node.lineage-route-origin .cdp-lineage-node,
+        .cdp-lineage-unified-node.lineage-route-origin .cdp-lineage-root {
+            border-color:#f2cb70; box-shadow:0 0 15px rgba(242,203,112,.3);
+        }
+        .cdp-lineage-view-toggle { display:flex; gap:5px; margin:0 0 14px; padding:3px; border-radius:8px; background:rgba(255,255,255,.035); width:max-content; max-width:100%; }
+        .cdp-lineage-view-btn { padding:6px 10px; border:1px solid transparent; border-radius:6px; background:transparent; color:#78909e; font-size:10px; cursor:pointer; white-space:nowrap; }
+        .cdp-lineage-view-btn.active { color:#f0cf7c; border-color:rgba(212,168,67,.45); background:rgba(180,132,40,.14); }
 
         /* 설명 */
         .cdp-desc {
@@ -12227,9 +12249,9 @@ body.force-mobile .marker-type-selector button {
             <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:9px;">
                 <div>
                     <strong>🌳 국가 계승 관계</strong>
-                    <div style="font-size:11px; color:#b9aa8b; margin-top:3px;">이 국가의 뿌리·전신 국가를 연결합니다. 후속 국가는 연결된 데이터에서 자동 계산됩니다.</div>
+                    <div style="font-size:11px; color:#b9aa8b; margin-top:3px;">이 국가의 뿌리·전신 또는 종주 국가를 연결합니다. 후속·종속 국가는 연결 데이터에서 자동 계산됩니다.</div>
                 </div>
-                <button type="button" id="addCountryPredecessorBtn" style="white-space:nowrap;">+ 전신 국가</button>
+                <button type="button" id="addCountryPredecessorBtn" style="white-space:nowrap;">+ 관계 국가</button>
             </div>
             <datalist id="countryPredecessorOptions"></datalist>
             <div id="countryPredecessorList"></div>
@@ -14462,6 +14484,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                     const clippedEndDate = Number.isFinite(clippedEnd) ? totalMonthsToYearMonth(clippedEnd) : null;
                     records.push({
                         _country_name_change: true,
+                        _country_transition_type: phase.transition_type === 'usurpation' ? 'usurpation' : 'continuation',
                         _country_base_name: rawCountry.name || '',
                         country_id: String(rawCountry._id || rawCountry.id),
                         country_name: phase.name || rawCountry.name || '',
@@ -14698,7 +14721,8 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                     plLabel = ` <span style="font-size:10px;color:#8099ae;">[${PLACE_LABELS[h.place_type]||h.place_type}]</span>`;
                 }
                 if (h._country_name_change) {
-                    plLabel = ' <span style="display:inline-block;font-size:9px;font-weight:700;color:#e7c46e;background:rgba(185,129,35,.16);border:1px solid rgba(205,164,78,.38);padding:1px 6px;border-radius:8px;vertical-align:middle;">🏷️ 국호 변경</span>';
+                    const isUsurpation = h._country_transition_type === 'usurpation';
+                    plLabel = ` <span style="display:inline-block;font-size:9px;font-weight:700;color:${isUsurpation ? '#f08a80' : '#e7c46e'};background:${isUsurpation ? 'rgba(187,64,54,.16)' : 'rgba(185,129,35,.16)'};border:1px solid ${isUsurpation ? 'rgba(218,91,80,.42)' : 'rgba(205,164,78,.38)'};padding:1px 6px;border-radius:8px;vertical-align:middle;">🏷️ 국호 변경 · ${isUsurpation ? '찬탈' : '정통 계승'}</span>`;
                 }
 
                 // 전장 시점엔 타임라인 dot도 빨간색으로 구분
@@ -28856,6 +28880,11 @@ const loadingMessages = [
                 <div style="display:grid; grid-template-columns:minmax(120px,1fr) minmax(100px,.7fr); gap:7px;">
                     <input data-field="name" value="${countryHistoryEscape(phase.name)}" placeholder="국호 (필수, 예: 고려)">
                     <input data-field="name_zh" value="${countryHistoryEscape(phase.name_zh)}" placeholder="한자 국호 (예: 高麗)">
+                    <select data-field="transition_type" ${index === 0 ? 'disabled title="첫 국호는 이전 단계가 없어 관계를 지정하지 않습니다."' : ''}>
+                        <option value="continuation" ${phase.transition_type !== 'usurpation' ? 'selected' : ''}>${index === 0 ? '최초 국호' : '정통 계승'}</option>
+                        <option value="usurpation" ${phase.transition_type === 'usurpation' ? 'selected' : ''}>찬탈</option>
+                    </select>
+                    <div style="display:flex;align-items:center;color:#8295a3;font-size:10px;padding:0 4px;">이전 국호와의 관계</div>
                     <input data-field="start_year" type="number" value="${countryHistoryEscape(phase.start_year)}" placeholder="시작 연도 (필수)">
                     <input data-field="start_month" type="number" min="1" max="12" value="${countryHistoryEscape(phase.start_month || 1)}" placeholder="시작 월">
                     <input data-field="end_year" type="number" value="${countryHistoryEscape(phase.end_year ?? '')}" placeholder="종료 연도 (계속이면 공란)">
@@ -28890,6 +28919,7 @@ const loadingMessages = [
                 start_month: Number.parseInt(value('start_month'), 10) || 1,
                 end_year: endYear ? Number.parseInt(endYear, 10) : null,
                 end_month: Number.parseInt(value('end_month'), 10) || 12,
+                transition_type: index === 0 ? 'continuation' : (value('transition_type') || 'continuation'),
                 color: value('color'),
                 flag: value('flag'),
                 sealText: value('sealText'),
@@ -28905,13 +28935,13 @@ const loadingMessages = [
             name: '', name_zh: '', aliases: [],
             start_year: previous?.end_year != null ? previous.end_year + 1 : '',
             start_month: 1, end_year: null, end_month: 12,
-            color: '', flag: '', sealText: '', description: ''
+            transition_type: 'continuation', color: '', flag: '', sealText: '', description: ''
         });
         renderCountryHistoryEditor(draft);
     });
 
     const COUNTRY_RELATION_LABELS = {
-        continuation: '정통 계승', split: '분화·독립', merge: '통합·병합',
+        continuation: '정통 계승', split: '분화·독립', vassal: '종주국 → 속국', merge: '통합·병합',
         conquest: '정복·찬탈', migration: '이동·재편', restoration: '부흥·복원', influence: '영향 관계'
     };
     const COUNTRY_CONFIDENCE_LABELS = {
@@ -28943,7 +28973,7 @@ const loadingMessages = [
         const list = document.getElementById('countryPredecessorList');
         if (!list) return;
         if (!countryPredecessorDraft.length) {
-            list.innerHTML = '<div style="padding:12px; text-align:center; color:#8f8067; border:1px dashed #695532; border-radius:5px; font-size:12px;">연결된 전신 국가가 없습니다.</div>';
+            list.innerHTML = '<div style="padding:12px; text-align:center; color:#8f8067; border:1px dashed #695532; border-radius:5px; font-size:12px;">연결된 뿌리·종주 국가가 없습니다.</div>';
         } else {
             list.innerHTML = countryPredecessorDraft.map((relation, index) => {
                 const predecessor = countries.find(country => String(country._id) === String(relation.predecessor_country_id));
@@ -28951,11 +28981,11 @@ const loadingMessages = [
                 <div class="country-predecessor-row" data-index="${index}" style="margin-top:9px; padding:10px; border:1px solid #695532; border-radius:6px; background:#2d281f;">
                     <input type="hidden" data-field="predecessor_country_id" value="${countryHistoryEscape(relation.predecessor_country_id)}">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                        <strong style="font-size:12px; color:#dfbc70;">전신 관계 ${index + 1}</strong>
+                        <strong style="font-size:12px; color:#dfbc70;">국가 관계 ${index + 1}</strong>
                         <button type="button" class="remove-country-predecessor" data-index="${index}" style="padding:3px 8px; color:#ff9a90;">삭제</button>
                     </div>
                     <div style="display:grid; grid-template-columns:minmax(140px,1.2fr) minmax(110px,.8fr); gap:7px;">
-                        <input data-field="country_name" list="countryPredecessorOptions" value="${countryHistoryEscape(predecessor?.name || '')}" placeholder="전신 국가명 입력·검색">
+                        <input data-field="country_name" list="countryPredecessorOptions" value="${countryHistoryEscape(predecessor?.name || '')}" placeholder="전신·종주 국가명 입력·검색">
                         <select data-field="relation_type">${Object.entries(COUNTRY_RELATION_LABELS).map(([value, label]) => `<option value="${value}" ${relation.relation_type === value ? 'selected' : ''}>${label}</option>`).join('')}</select>
                         <input data-field="year" type="number" value="${countryHistoryEscape(relation.year ?? '')}" placeholder="관계 발생 연도">
                         <input data-field="month" type="number" min="1" max="12" value="${countryHistoryEscape(relation.month || 1)}" placeholder="월">
@@ -28986,8 +29016,8 @@ const loadingMessages = [
         )) : [];
         const summary = document.getElementById('countrySuccessorSummary');
         if (summary) summary.textContent = successors.length
-            ? `자동 확인된 후속 국가: ${successors.map(country => country.name).join(', ')}`
-            : (currentCountryId ? '자동 확인된 후속 국가가 없습니다.' : '국가를 저장한 뒤 후속 관계가 자동 계산됩니다.');
+            ? `자동 확인된 후속·종속 국가: ${successors.map(country => country.name).join(', ')}`
+            : (currentCountryId ? '자동 확인된 후속·종속 국가가 없습니다.' : '국가를 저장한 뒤 후속·종속 관계가 자동 계산됩니다.');
     }
 
     function collectCountryPredecessors() {
@@ -29143,12 +29173,15 @@ const loadingMessages = [
         ));
         if (invalidRange) return alert(`'${invalidRange.name}' 이력의 종료 시점이 시작 시점보다 빠릅니다.`);
         const unresolvedRelation = data.predecessor_relations.find(relation => !relation.predecessor_country_id);
-        if (unresolvedRelation) return alert(`전신 국가 '${unresolvedRelation.predecessor_country_name || '이름 없음'}'를 국가 목록에서 정확히 선택해 주세요.`);
+        if (unresolvedRelation) return alert(`관계 국가 '${unresolvedRelation.predecessor_country_name || '이름 없음'}'를 국가 목록에서 정확히 선택해 주세요.`);
         if (originalId && data.predecessor_relations.some(relation => String(relation.predecessor_country_id) === String(originalId))) {
-            return alert('자기 자신을 전신 국가로 연결할 수 없습니다.');
+            return alert('자기 자신을 관계 국가로 연결할 수 없습니다.');
         }
-        if (new Set(data.predecessor_relations.map(relation => String(relation.predecessor_country_id))).size !== data.predecessor_relations.length) {
-            return alert('같은 전신 국가는 한 번만 연결할 수 있습니다.');
+        const relationKeys = data.predecessor_relations.map(relation => [
+            relation.predecessor_country_id, relation.relation_type, relation.year ?? '', relation.month || 1
+        ].join(':'));
+        if (new Set(relationKeys).size !== relationKeys.length) {
+            return alert('같은 국가·관계 유형·시점은 한 번만 연결할 수 있습니다.');
         }
         
         try {
@@ -29314,6 +29347,7 @@ const loadingMessages = [
         let _currentCInfo = null; // 현재 열린 국가 정보
         let _figuresRenderSeq = 0;
         let _figuresSyncTimer = null;
+        let _lineageViewMode = 'direct';
 
         // ── 닫기 ──
         document.getElementById('cdp-close-btn').addEventListener('click', closeCountryPanel);
@@ -29325,6 +29359,7 @@ const loadingMessages = [
             document.getElementById('cdp-fullscreen-btn')?.setAttribute('aria-pressed', 'false');
             const fullscreenBtn = document.getElementById('cdp-fullscreen-btn');
             if (fullscreenBtn) fullscreenBtn.textContent = '□';
+            _lineageViewMode = 'direct';
             _currentCInfo = null;
         }
         window.closeCountryPanel = closeCountryPanel;
@@ -29959,7 +29994,9 @@ const loadingMessages = [
                 const active = mapPoint >= startPoint && mapPoint <= endPoint;
                 const period = `${formatYear(startYear)}.${startMonth} ~ ${Number.isFinite(endYear) ? `${formatYear(endYear)}.${endMonth}` : '현재'}`;
                 const nodeClass = `${root ? 'cdp-lineage-root' : 'cdp-lineage-node'}${active ? ' cdp-lineage-phase-current' : ''}`;
-                return `${index ? '<div class="cdp-lineage-phase-edge">정통 계승</div>' : ''}
+                const transitionType = phase.transition_type === 'usurpation' ? 'usurpation' : 'continuation';
+                const transitionLabel = transitionType === 'usurpation' ? '찬탈' : '정통 계승';
+                return `${index ? `<div class="cdp-lineage-phase-edge ${transitionType}">${transitionLabel}</div>` : ''}
                     <${tag}${typeAttr} class="${nodeClass}"${dataAttr} data-lineage-phase-id="${_esc(phase._id || '')}" data-lineage-phase-start="${startPoint}" data-lineage-phase-end="${endPoint}">
                         <span class="cdp-lineage-node-name">${_esc(phase.name || rawCountry.name || '국호 미상')}${phase.name_zh ? ` (${_esc(phase.name_zh)})` : ''}</span>
                         <span class="cdp-lineage-phase-period">${_esc(period)}</span>
@@ -30005,7 +30042,7 @@ const loadingMessages = [
             const canvasRect = canvas.getBoundingClientRect();
             const ns = 'http://www.w3.org/2000/svg';
             const relationColors = {
-                continuation:'#b58b3d', split:'#5797ba', merge:'#8e73bd', conquest:'#bb6259',
+                continuation:'#b58b3d', split:'#5797ba', vassal:'#7b9f62', merge:'#8e73bd', conquest:'#bb6259',
                 migration:'#5d9f85', restoration:'#c08b55', influence:'#7d8d98'
             };
             const phaseNodeAt = (wrapper, point, preferLast = false) => {
@@ -30021,7 +30058,7 @@ const loadingMessages = [
                     .sort((a, b) => Number(b.dataset.lineagePhaseStart) - Number(a.dataset.lineagePhaseStart))[0];
                 return prior || (preferLast ? nodes[nodes.length - 1] : nodes[0]);
             };
-            edges.forEach(edge => {
+            edges.forEach((edge, edgeIndex) => {
                 const from = canvas.querySelector(`[data-lineage-country="${CSS.escape(edge.fromId)}"]`);
                 const to = canvas.querySelector(`[data-lineage-country="${CSS.escape(edge.toId)}"]`);
                 if (!from || !to) return;
@@ -30054,7 +30091,12 @@ const loadingMessages = [
                 const x2 = (entersLeft ? toRect.left : toRect.right) - canvasRect.left;
                 const y2 = toRect.top - canvasRect.top + toRect.height / 2;
                 const targetLaneX = (entersLeft ? toWrapRect.left - 14 : toWrapRect.right + 14) - canvasRect.left;
-                const midY = (fromWrapRect.bottom + toWrapRect.top) / 2 - canvasRect.top;
+                const fromLevel = from.closest('.cdp-lineage-level')?.dataset.level;
+                const toLevel = to.closest('.cdp-lineage-level')?.dataset.level;
+                const sameEraRow = fromLevel === toLevel;
+                const midY = sameEraRow
+                    ? Math.max(fromWrapRect.bottom, toWrapRect.bottom) - canvasRect.top + 24
+                    : (fromWrapRect.bottom + toWrapRect.top) / 2 - canvasRect.top;
                 const color = relationColors[edge.relation?.relation_type] || '#8d7445';
                 const path = document.createElementNS(ns, 'path');
                 path.setAttribute('d', `M ${x1} ${y1} H ${sourceLaneX} V ${midY} H ${targetLaneX} V ${y2} H ${x2}`);
@@ -30066,6 +30108,7 @@ const loadingMessages = [
                     path.setAttribute('stroke-dasharray', '5 4');
                 }
                 path.setAttribute('marker-end', 'url(#cdp-lineage-arrow)');
+                path.setAttribute('data-lineage-edge-index', String(edgeIndex));
                 svg.appendChild(path);
 
                 const label = document.createElementNS(ns, 'text');
@@ -30073,9 +30116,70 @@ const loadingMessages = [
                 label.setAttribute('y', String(midY - 4));
                 label.setAttribute('text-anchor', 'middle');
                 label.setAttribute('class', 'cdp-lineage-edge-label');
+                label.setAttribute('data-lineage-edge-index', String(edgeIndex));
                 const typeLabel = COUNTRY_RELATION_LABELS[edge.relation?.relation_type] || '계승 관계';
                 label.textContent = `${typeLabel}${Number.isFinite(branchYear) ? ` · ${branchYear}년` : ''}`;
                 svg.appendChild(label);
+            });
+        }
+
+        function _bindLineageRouteHover(container, edges) {
+            const canvas = container.querySelector('.cdp-lineage-unified');
+            if (!canvas) return;
+            const clearRoute = () => {
+                canvas.classList.remove('lineage-route-hover');
+                canvas.querySelectorAll('.lineage-route-active, .lineage-route-origin').forEach(element => {
+                    element.classList.remove('lineage-route-active', 'lineage-route-origin');
+                });
+            };
+            const showRoute = countryId => {
+                clearRoute();
+                const activeEdges = new Set();
+                const activeCountries = new Set([String(countryId)]);
+                const walk = (seedId, direction) => {
+                    const queue = [String(seedId)];
+                    const visited = new Set(queue);
+                    while (queue.length) {
+                        const id = queue.shift();
+                        edges.forEach((edge, edgeIndex) => {
+                            const matches = direction === 'incoming' ? edge.toId === id : edge.fromId === id;
+                            if (!matches) return;
+                            activeEdges.add(edgeIndex);
+                            const nextId = direction === 'incoming' ? edge.fromId : edge.toId;
+                            activeCountries.add(nextId);
+                            if (!visited.has(nextId)) {
+                                visited.add(nextId);
+                                queue.push(nextId);
+                            }
+                        });
+                    }
+                };
+                walk(countryId, 'incoming');
+                walk(countryId, 'outgoing');
+                canvas.classList.add('lineage-route-hover');
+                activeCountries.forEach(id => {
+                    canvas.querySelector(`[data-lineage-country="${CSS.escape(id)}"]`)?.classList.add('lineage-route-active');
+                });
+                canvas.querySelector(`[data-lineage-country="${CSS.escape(String(countryId))}"]`)?.classList.add('lineage-route-origin');
+                const activePaths = [];
+                const activeLabels = [];
+                activeEdges.forEach(edgeIndex => {
+                    canvas.querySelectorAll(`[data-lineage-edge-index="${edgeIndex}"]`).forEach(element => {
+                        element.classList.add('lineage-route-active');
+                        (element.tagName.toLowerCase() === 'text' ? activeLabels : activePaths).push(element);
+                    });
+                });
+                // 강조 선을 먼저, 태그를 마지막에 올려 교차선이 관계 태그를 덮지 않게 한다.
+                [...activePaths, ...activeLabels].forEach(element => element.parentNode?.appendChild(element));
+            };
+            canvas.querySelectorAll('.cdp-lineage-unified-node').forEach(node => {
+                const countryId = node.dataset.lineageCountry;
+                node.addEventListener('mouseenter', () => showRoute(countryId));
+                node.addEventListener('mouseleave', clearRoute);
+                node.addEventListener('focusin', () => showRoute(countryId));
+                node.addEventListener('focusout', event => {
+                    if (!node.contains(event.relatedTarget)) clearRoute();
+                });
             });
         }
 
@@ -30102,27 +30206,37 @@ const loadingMessages = [
             });
             if (!rootIds.length) rootIds.push(currentId);
 
-            // 가장 위의 뿌리에서 시작해 모든 후속·분화 가지를 한 계보망에 포함한다.
-            const componentIds = new Set(rootIds);
-            const edges = [];
-            const edgeKeys = new Set();
-            const queue = [...rootIds];
+            const componentIds = new Set(ancestorIds);
+            const queue = _lineageViewMode === 'all' ? [...rootIds] : [currentId];
+            if (_lineageViewMode === 'all') {
+                componentIds.clear();
+                rootIds.forEach(id => componentIds.add(id));
+            }
+            // 직계 보기: 선택 국가의 조상 경로 + 선택 국가에서 내려가는 후속 가지.
+            // 전체 보기: 최상위 뿌리에서 갈라진 형제 계보와 그 후속까지 모두 포함한다.
             while (queue.length && componentIds.size < 200) {
                 const fromId = queue.shift();
                 _lineageSuccessorEdges(fromId).forEach(edge => {
                     const toId = String(edge.country._id || edge.country.id || '');
                     if (!toId) return;
-                    const key = `${fromId}>${toId}:${edge.relation?._id || edge.relation?.relation_type || ''}`;
-                    if (!edgeKeys.has(key)) {
-                        edgeKeys.add(key);
-                        edges.push({ fromId, toId, relation:edge.relation });
-                    }
                     if (!componentIds.has(toId)) {
                         componentIds.add(toId);
                         queue.push(toId);
                     }
                 });
             }
+            const edges = [];
+            const edgeKeys = new Set();
+            [...componentIds].forEach(fromId => {
+                _lineageSuccessorEdges(fromId).forEach(edge => {
+                    const toId = String(edge.country._id || edge.country.id || '');
+                    if (!componentIds.has(toId)) return;
+                    const key = `${fromId}>${toId}:${edge.relation?._id || edge.relation?.relation_type || ''}`;
+                    if (edgeKeys.has(key)) return;
+                    edgeKeys.add(key);
+                    edges.push({ fromId, toId, relation:edge.relation });
+                });
+            });
 
             const levels = new Map(rootIds.map(id => [id, 0]));
             for (let pass = 0; pass < componentIds.size; pass++) {
@@ -30137,6 +30251,32 @@ const loadingMessages = [
                 });
                 if (!changed) break;
             }
+            if (_lineageViewMode === 'all') {
+                const eraBands = [];
+                [...componentIds]
+                    .map(id => ({ id, country:_lineageCountry(id) }))
+                    .filter(item => Number.isFinite(Number(item.country?.start)))
+                    .sort((a, b) => Number(a.country.start) - Number(b.country.start))
+                    .forEach(item => {
+                        const start = Number(item.country.start);
+                        const endRaw = item.country.end;
+                        const end = endRaw === null || endRaw === undefined || endRaw === '' ? Infinity : Number(endRaw);
+                        const band = eraBands.find(candidate => (
+                            Math.abs(start - candidate.anchor) <= 120 &&
+                            start <= candidate.end && end >= candidate.start
+                        ));
+                        if (band) {
+                            band.ids.push(item.id);
+                            band.start = Math.min(band.start, start);
+                            band.end = Math.max(band.end, end);
+                        } else {
+                            eraBands.push({ anchor:start, start, end, ids:[item.id] });
+                        }
+                    });
+                eraBands.sort((a, b) => a.anchor - b.anchor).forEach((band, rowIndex) => {
+                    band.ids.forEach(id => levels.set(id, rowIndex));
+                });
+            }
             [...componentIds].forEach(id => { if (!levels.has(id)) levels.set(id, 0); });
             const rows = new Map();
             [...componentIds].forEach(id => {
@@ -30149,7 +30289,13 @@ const loadingMessages = [
             const canvasMinWidth = Math.max(460, maxRowSize * 225);
             const noRelations = edges.length === 0;
             container.innerHTML = `
-                <div class="cdp-lineage-intro">가장 위의 뿌리 국가에서 시작해 정통 계승·분화·병합에 따른 모든 후속 국가를 아래 방향으로 펼친 통합 계보입니다. 국호 변화는 동일 객체 안에서 정통 계승 노드로 표시됩니다.</div>
+                <div class="cdp-lineage-intro">${_lineageViewMode === 'direct'
+                    ? '선택 국가의 뿌리 경로와 이 국가에서 직접 이어지는 모든 후속·분화 가지만 표시합니다.'
+                    : '같은 최상위 뿌리에서 갈라진 형제 국가와 그 후속 계보까지 모두 표시합니다.'} 국호 변화는 동일 객체 안의 계승 노드로 표시됩니다.</div>
+                <div class="cdp-lineage-view-toggle" role="group" aria-label="계승도 표시 범위">
+                    <button type="button" class="cdp-lineage-view-btn${_lineageViewMode === 'direct' ? ' active' : ''}" data-lineage-view="direct">직계만 보기</button>
+                    <button type="button" class="cdp-lineage-view-btn${_lineageViewMode === 'all' ? ' active' : ''}" data-lineage-view="all">관련 국가 전체 보기</button>
+                </div>
                 <div class="cdp-lineage-tree">
                     <div class="cdp-lineage-unified-scroll">
                         <div class="cdp-lineage-unified" style="min-width:${canvasMinWidth}px;">
@@ -30157,7 +30303,9 @@ const loadingMessages = [
                             ${[...rows.entries()].sort((a,b) => a[0]-b[0]).map(([level, row]) => `
                                 <div class="cdp-lineage-level" data-level="${level}">${row.filter(Boolean).map(country => {
                                     const id = String(country._id || country.id || '');
-                                    return `<div class="cdp-lineage-unified-node${id === currentId ? ' selected' : ''}" data-lineage-country="${_esc(id)}">
+                                    const incomingTypes = edges.filter(edge => edge.toId === id).map(edge => edge.relation?.relation_type);
+                                    const subordinate = _lineageViewMode === 'all' && incomingTypes.some(type => type === 'split' || type === 'vassal');
+                                    return `<div class="cdp-lineage-unified-node${id === currentId ? ' selected' : ''}${subordinate ? ' subordinate' : ''}" data-lineage-country="${_esc(id)}">
                                         ${_lineageCountryPhaseHtml(country, { clickable:id !== currentId })}
                                     </div>`;
                                 }).join('')}</div>`).join('')}
@@ -30172,7 +30320,18 @@ const loadingMessages = [
                     if (rawTarget) showCountryInfoModal(getEffectiveCountryInfo(rawTarget), 'lineage');
                 });
             });
-            requestAnimationFrame(() => _drawUnifiedLineageEdges(container, edges));
+            container.querySelectorAll('[data-lineage-view]').forEach(button => {
+                button.addEventListener('click', () => {
+                    const nextMode = button.dataset.lineageView === 'all' ? 'all' : 'direct';
+                    if (_lineageViewMode === nextMode) return;
+                    _lineageViewMode = nextMode;
+                    _renderLineage(cInfo);
+                });
+            });
+            requestAnimationFrame(() => {
+                _drawUnifiedLineageEdges(container, edges);
+                _bindLineageRouteHover(container, edges);
+            });
         }
 
         // ── 공개 함수: 패널 열기 ──

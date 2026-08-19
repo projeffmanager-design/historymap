@@ -135,6 +135,7 @@ const normalizeCountryHistory = (history) => (Array.isArray(history) ? history :
             color: /^#[0-9a-f]{6}$/i.test(String(phase?.color || '')) ? String(phase.color) : '',
             flag: phase?.flag === BLOCKED_FLAG_URL ? '' : String(phase?.flag || '').trim(),
             sealText: String(phase?.sealText || '').trim().slice(0, 2),
+            transition_type: phase?.transition_type === 'usurpation' ? 'usurpation' : 'continuation',
             description: String(phase?.description || '').trim()
         };
     })
@@ -142,7 +143,7 @@ const normalizeCountryHistory = (history) => (Array.isArray(history) ? history :
     .sort((a, b) => a.start_year - b.start_year || a.start_month - b.start_month);
 
 const COUNTRY_RELATION_TYPES = new Set([
-    'continuation', 'split', 'merge', 'conquest', 'migration', 'restoration', 'influence'
+    'continuation', 'split', 'vassal', 'merge', 'conquest', 'migration', 'restoration', 'influence'
 ]);
 const COUNTRY_RELATION_CONFIDENCE = new Set(['confirmed', 'probable', 'hypothesis', 'disputed']);
 const normalizeCountryPredecessors = (relations) => {
@@ -151,19 +152,22 @@ const normalizeCountryPredecessors = (relations) => {
         const predecessorCountryId = String(
             relation?.predecessor_country_id || relation?.country_id || relation?.entityId || ''
         ).trim();
-        if (!predecessorCountryId || seen.has(predecessorCountryId)) return null;
-        seen.add(predecessorCountryId);
         const yearValue = relation?.year ?? relation?.start_year;
         const year = yearValue === null || yearValue === undefined || yearValue === ''
             ? null : Number.parseInt(yearValue, 10);
         const relationType = String(relation?.relation_type || relation?.type || 'continuation').trim();
+        const normalizedRelationType = COUNTRY_RELATION_TYPES.has(relationType) ? relationType : 'continuation';
+        const month = Math.min(12, Math.max(1, Number.parseInt(relation?.month, 10) || 1));
+        const relationKey = `${predecessorCountryId}:${normalizedRelationType}:${Number.isFinite(year) ? year : ''}:${month}`;
+        if (!predecessorCountryId || seen.has(relationKey)) return null;
+        seen.add(relationKey);
         const confidence = String(relation?.confidence || 'probable').trim();
         return {
             _id: String(relation?._id || crypto.randomUUID()),
             predecessor_country_id: predecessorCountryId,
-            relation_type: COUNTRY_RELATION_TYPES.has(relationType) ? relationType : 'continuation',
+            relation_type: normalizedRelationType,
             year: Number.isFinite(year) ? year : null,
-            month: Math.min(12, Math.max(1, Number.parseInt(relation?.month, 10) || 1)),
+            month,
             confidence: COUNTRY_RELATION_CONFIDENCE.has(confidence) ? confidence : 'probable',
             label: String(relation?.label || '').trim(),
             description: String(relation?.description || relation?.note || '').trim(),
@@ -4153,12 +4157,13 @@ app.post('/api/countries', verifyAdmin, async (req, res) => {
             .map(value => String(value).trim()).filter(Boolean);
         newCountry.history = normalizeCountryHistory(newCountry.history);
         newCountry.predecessor_relations = normalizeCountryPredecessors(newCountry.predecessor_relations);
-        const predecessorIds = newCountry.predecessor_relations.map(relation => toObjectId(relation.predecessor_country_id));
+        const predecessorIds = [...new Set(newCountry.predecessor_relations.map(relation => relation.predecessor_country_id))]
+            .map(id => toObjectId(id));
         if (predecessorIds.some(id => !id)) {
-            return res.status(400).json({ message: '전신 국가 ID 형식이 올바르지 않습니다.' });
+            return res.status(400).json({ message: '연결 국가 ID 형식이 올바르지 않습니다.' });
         }
         if (predecessorIds.length && await collections.countries.countDocuments({ _id: { $in: predecessorIds } }) !== predecessorIds.length) {
-            return res.status(400).json({ message: '존재하지 않는 전신 국가가 포함되어 있습니다.' });
+            return res.status(400).json({ message: '존재하지 않는 연결 국가가 포함되어 있습니다.' });
         }
         if (newCountry.flag === BLOCKED_FLAG_URL) newCountry.flag = null;
 
@@ -4174,7 +4179,7 @@ app.post('/api/countries', verifyAdmin, async (req, res) => {
     }
 });
 
-// 국가 계보도용 표준 간선 목록. 전신 관계만 저장하고 후속 관계는 이 목록에서 역산한다.
+// 국가 관계도용 표준 간선 목록. 뿌리·종주 관계를 저장하고 후속·종속 관계는 역산한다.
 app.get('/api/country-relations', async (req, res) => {
     try {
         const countryDocs = await collections.countries.find({}, {
@@ -4269,15 +4274,16 @@ app.put('/api/countries/:name', verifyAdmin, async (req, res) => {
         }
 
         if (updatedCountry.predecessor_relations) {
-            const predecessorIds = updatedCountry.predecessor_relations.map(relation => toObjectId(relation.predecessor_country_id));
+            const predecessorIds = [...new Set(updatedCountry.predecessor_relations.map(relation => relation.predecessor_country_id))]
+                .map(id => toObjectId(id));
             if (predecessorIds.some(id => !id)) {
-                return res.status(400).json({ message: '전신 국가 ID 형식이 올바르지 않습니다.' });
+                return res.status(400).json({ message: '연결 국가 ID 형식이 올바르지 않습니다.' });
             }
             if (objectId && predecessorIds.some(id => id.equals(objectId))) {
-                return res.status(400).json({ message: '자기 자신을 전신 국가로 연결할 수 없습니다.' });
+                return res.status(400).json({ message: '자기 자신을 관계 국가로 연결할 수 없습니다.' });
             }
             if (predecessorIds.length && await collections.countries.countDocuments({ _id: { $in: predecessorIds } }) !== predecessorIds.length) {
-                return res.status(400).json({ message: '존재하지 않는 전신 국가가 포함되어 있습니다.' });
+                return res.status(400).json({ message: '존재하지 않는 연결 국가가 포함되어 있습니다.' });
             }
             if (objectId && await countryPredecessorCycleExists(objectId, updatedCountry.predecessor_relations)) {
                 return res.status(400).json({ message: '국가 계승 관계에 순환 연결이 생기므로 저장할 수 없습니다.' });
