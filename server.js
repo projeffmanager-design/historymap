@@ -2327,6 +2327,17 @@ async function setupRoutesAndCollections() {
                 patchCastleInStaticFile('upsert', updatedDocument);
 
                 logCRUD('UPDATE', 'Castle', updatedCastle.name || id, `(ID: ${id})`);
+                await logActivity(
+                    'castle_update',
+                    req.user.username,
+                    req.user.position || '',
+                    updatedDocument.name || updatedCastle.name || '지도 마커',
+                    {
+                        castle_id: id,
+                        category: 'geography'
+                    },
+                    req.user.userId
+                );
                 res.json({ 
                     message: "Castle 정보 업데이트 성공",
                     castle: updatedDocument // 업데이트된 전체 문서 반환
@@ -7834,6 +7845,12 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 
                 const contribution = await collections.contributions.findOne({ _id: toObjectId(id) });
                 if (!contribution) return res.status(404).json({ message: "항목을 찾을 수 없습니다." });
+
+                // 같은 상태로의 재요청은 점수·활동 로그·마커 생성을 반복하지 않는다.
+                // 이미 승인된 기여에서 생성된 마커를 일반 수정할 때 발생하던 중복 승인 방어.
+                if (contribution.status === status) {
+                    return res.json({ message: status === 'approved' ? '이미 승인된 항목입니다.' : '이미 처리된 항목입니다.', unchanged: true });
+                }
                 
                 await collections.contributions.updateOne(
                     { _id: toObjectId(id) },
