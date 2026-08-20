@@ -143,9 +143,15 @@ const normalizeCountryHistory = (history) => (Array.isArray(history) ? history :
     .sort((a, b) => a.start_year - b.start_year || a.start_month - b.start_month);
 
 const COUNTRY_RELATION_TYPES = new Set([
-    'continuation', 'split', 'vassal', 'merge', 'conquest', 'migration', 'restoration', 'influence'
+    'continuation', 'split', 'vassal', 'merge', 'usurpation', 'conquest', 'restoration',
+    'hostile', 'alliance', 'trade',
+    // 기존 데이터 읽기 호환용. 신규 편집 목록에서는 노출하지 않는다.
+    'migration', 'influence'
 ]);
 const COUNTRY_RELATION_CONFIDENCE = new Set(['confirmed', 'probable', 'hypothesis', 'disputed']);
+const COUNTRY_LINEAGE_RELATION_TYPES = new Set([
+    'continuation', 'split', 'vassal', 'merge', 'usurpation', 'conquest', 'restoration', 'migration'
+]);
 const normalizeCountryPredecessors = (relations) => {
     const seen = new Set();
     return (Array.isArray(relations) ? relations : []).map((relation) => {
@@ -191,9 +197,13 @@ const countryPredecessorCycleExists = async (countryId, proposedRelations) => {
     const docs = await collections.countries.find({}, { projection: { _id: 1, predecessor_relations: 1 } }).toArray();
     const predecessorMap = new Map(docs.map(doc => [
         String(doc._id),
-        normalizeCountryPredecessors(doc.predecessor_relations).map(relation => String(relation.predecessor_country_id))
+        normalizeCountryPredecessors(doc.predecessor_relations)
+            .filter(relation => COUNTRY_LINEAGE_RELATION_TYPES.has(relation.relation_type))
+            .map(relation => String(relation.predecessor_country_id))
     ]));
-    predecessorMap.set(target, proposedRelations.map(relation => String(relation.predecessor_country_id)));
+    predecessorMap.set(target, proposedRelations
+        .filter(relation => COUNTRY_LINEAGE_RELATION_TYPES.has(relation.relation_type))
+        .map(relation => String(relation.predecessor_country_id)));
     const visiting = new Set();
     const visited = new Set();
     const hasCycle = (id) => {

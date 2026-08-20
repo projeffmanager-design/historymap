@@ -28991,9 +28991,15 @@ const loadingMessages = [
     });
 
     const COUNTRY_RELATION_LABELS = {
-        continuation: '정통 계승', split: '분화·독립', vassal: '종주국 → 속국', merge: '통합·병합',
-        conquest: '정복·찬탈', migration: '이동·재편', restoration: '부흥·복원', influence: '영향 관계'
+        continuation: '정통 계승', split: '분화·독립', vassal: '종주국', merge: '통합·병합',
+        usurpation: '찬탈', conquest: '정복', restoration: '부흥·복원', hostile: '적대국',
+        alliance: '동맹국', trade: '교역국'
     };
+    const LEGACY_COUNTRY_RELATION_LABELS = { migration:'이동·재편 (기존)', influence:'영향 관계 (기존)' };
+    const countryRelationLabel = type => COUNTRY_RELATION_LABELS[type] || LEGACY_COUNTRY_RELATION_LABELS[type] || '국가 관계';
+    const COUNTRY_LINEAGE_RELATION_TYPES = new Set([
+        'continuation', 'split', 'vassal', 'merge', 'usurpation', 'conquest', 'restoration', 'migration'
+    ]);
     const COUNTRY_CONFIDENCE_LABELS = {
         confirmed: '확정', probable: '유력', hypothesis: '가설', disputed: '논쟁 중'
     };
@@ -29067,7 +29073,11 @@ const loadingMessages = [
                     </div>
                     <div style="display:grid; grid-template-columns:minmax(140px,1.2fr) minmax(110px,.8fr); gap:7px;">
                         <input data-field="country_name" list="countryPredecessorOptions" value="${countryHistoryEscape(relation.predecessor_name || relation.predecessor_country_name || predecessor?.name || '')}" placeholder="시대별 국호로도 입력·검색">
-                        <select data-field="relation_type">${Object.entries(COUNTRY_RELATION_LABELS).map(([value, label]) => `<option value="${value}" ${relation.relation_type === value ? 'selected' : ''}>${label}</option>`).join('')}</select>
+                        <select data-field="relation_type">${[
+                            ...Object.entries(COUNTRY_RELATION_LABELS),
+                            ...(LEGACY_COUNTRY_RELATION_LABELS[relation.relation_type]
+                                ? [[relation.relation_type, LEGACY_COUNTRY_RELATION_LABELS[relation.relation_type]]] : [])
+                        ].map(([value, label]) => `<option value="${value}" ${relation.relation_type === value ? 'selected' : ''}>${label}</option>`).join('')}</select>
                         <input data-field="year" type="number" value="${countryHistoryEscape(relation.year ?? '')}" placeholder="관계 발생 연도">
                         <input data-field="month" type="number" min="1" max="12" value="${countryHistoryEscape(relation.month || 1)}" placeholder="월">
                         <input data-field="end_year" type="number" value="${countryHistoryEscape(relation.end_year ?? '')}" placeholder="관계 종료 연도 (계속이면 비움)">
@@ -30040,10 +30050,10 @@ const loadingMessages = [
             return (countries || []).find(country => String(country._id || country.id) === String(countryId || '')) || null;
         }
 
-        function _lineagePredecessorEdges(country) {
+        function _lineagePredecessorEdges(country, lineageOnly = false) {
             return (Array.isArray(country?.predecessor_relations) ? country.predecessor_relations : [])
                 .map(relation => ({ relation, country: _lineageCountry(relation.predecessor_country_id) }))
-                .filter(edge => edge.country);
+                .filter(edge => edge.country && (!lineageOnly || COUNTRY_LINEAGE_RELATION_TYPES.has(edge.relation?.relation_type)));
         }
 
         function _lineageSuccessorEdges(countryId) {
@@ -30106,7 +30116,7 @@ const loadingMessages = [
             const repeated = path.has(countryId);
             const nextPath = new Set(path);
             nextPath.add(countryId);
-            const relationLabel = COUNTRY_RELATION_LABELS[edge.relation?.relation_type] || '계승 관계';
+            const relationLabel = countryRelationLabel(edge.relation?.relation_type);
             const confidenceLabel = COUNTRY_CONFIDENCE_LABELS[edge.relation?.confidence] || '';
             const relationYear = edge.relation?.year;
             const edgeText = [relationLabel, Number.isFinite(Number(relationYear)) ? `${relationYear}년` : '', confidenceLabel]
@@ -30138,7 +30148,8 @@ const loadingMessages = [
             const ns = 'http://www.w3.org/2000/svg';
             const relationColors = {
                 continuation:'#b58b3d', split:'#5797ba', vassal:'#7b9f62', merge:'#8e73bd', conquest:'#bb6259',
-                migration:'#5d9f85', restoration:'#c08b55', influence:'#7d8d98'
+                usurpation:'#d4685f', restoration:'#c08b55', hostile:'#c44f4f', alliance:'#4f91c4', trade:'#4fa878',
+                migration:'#5d9f85', influence:'#7d8d98'
             };
             const phaseNodeAt = (wrapper, point, preferLast = false) => {
                 const nodes = [...wrapper.querySelectorAll('[data-lineage-phase-start]')];
@@ -30223,7 +30234,7 @@ const loadingMessages = [
                 label.setAttribute('text-anchor', 'middle');
                 label.setAttribute('class', 'cdp-lineage-edge-label');
                 label.setAttribute('data-lineage-edge-index', String(edgeIndex));
-                const typeLabel = COUNTRY_RELATION_LABELS[edge.relation?.relation_type] || '계승 관계';
+                const typeLabel = countryRelationLabel(edge.relation?.relation_type);
                 label.textContent = `${typeLabel}${Number.isFinite(branchYear) ? ` · ${branchYear}년` : ''}`;
                 svg.appendChild(label);
             });
@@ -30298,7 +30309,7 @@ const loadingMessages = [
             const ancestorQueue = [rawCurrent];
             while (ancestorQueue.length) {
                 const country = ancestorQueue.shift();
-                _lineagePredecessorEdges(country).forEach(edge => {
+                _lineagePredecessorEdges(country, true).forEach(edge => {
                     const id = String(edge.country._id || edge.country.id || '');
                     if (!id || ancestorIds.has(id)) return;
                     ancestorIds.add(id);
@@ -30308,7 +30319,7 @@ const loadingMessages = [
 
             const rootIds = [...ancestorIds].filter(id => {
                 const country = _lineageCountry(id);
-                return !_lineagePredecessorEdges(country).some(edge => ancestorIds.has(String(edge.country._id || edge.country.id)));
+                return !_lineagePredecessorEdges(country, true).some(edge => ancestorIds.has(String(edge.country._id || edge.country.id)));
             });
             if (!rootIds.length) rootIds.push(currentId);
 
@@ -30330,6 +30341,16 @@ const loadingMessages = [
                         queue.push(toId);
                     }
                 });
+                // 횡적 관계는 조상으로 계산하지 않지만 전체 보기에서는 양방향으로 같은 관계망에 포함한다.
+                if (_lineageViewMode === 'all' || fromId === currentId) {
+                    _lineagePredecessorEdges(_lineageCountry(fromId)).forEach(edge => {
+                        if (COUNTRY_LINEAGE_RELATION_TYPES.has(edge.relation?.relation_type)) return;
+                        const relatedId = String(edge.country._id || edge.country.id || '');
+                        if (!relatedId || componentIds.has(relatedId)) return;
+                        componentIds.add(relatedId);
+                        if (_lineageViewMode === 'all') queue.push(relatedId);
+                    });
+                }
             }
             const edges = [];
             const edgeKeys = new Set();
@@ -30350,7 +30371,8 @@ const loadingMessages = [
                 edges.forEach(edge => {
                     if (!levels.has(edge.fromId)) return;
                     // 정통 계승은 다음 행으로, 분화·속국은 원 국가와 같은 행의 옆 가지로 배치한다.
-                    const horizontalBranch = edge.relation?.relation_type === 'split' || edge.relation?.relation_type === 'vassal';
+                    const horizontalBranch = ['split', 'vassal', 'hostile', 'alliance', 'trade', 'influence']
+                        .includes(edge.relation?.relation_type);
                     const nextLevel = levels.get(edge.fromId) + (horizontalBranch ? 0 : 1);
                     if (!levels.has(edge.toId) || levels.get(edge.toId) < nextLevel) {
                         levels.set(edge.toId, nextLevel);
