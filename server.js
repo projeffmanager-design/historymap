@@ -116,12 +116,17 @@ const sanitizeCountryFlag = (country) => {
     return { ...country, flag: null };
 };
 
+const COUNTRY_POLITICAL_FORMS = new Set(['tribe', 'state', 'bandit', 'refugee']);
+
 const normalizeCountryHistory = (history) => (Array.isArray(history) ? history : [])
     .map((phase, index) => {
         const startYear = Number.parseInt(phase?.start_year ?? phase?.start, 10);
         const endValue = phase?.end_year ?? phase?.end;
         const endYear = endValue === null || endValue === undefined || endValue === ''
             ? null : Number.parseInt(endValue, 10);
+        const rawPoliticalForm = String(phase?.political_form || 'state').trim();
+        const politicalForm = ({ tribal_confederation:'tribe', confederation:'tribe', empire:'state', other:'state' })[rawPoliticalForm]
+            || rawPoliticalForm;
         return {
             _id: String(phase?._id || `country-phase-${Date.now()}-${index}`),
             name: String(phase?.name || '').trim(),
@@ -136,6 +141,9 @@ const normalizeCountryHistory = (history) => (Array.isArray(history) ? history :
             flag: phase?.flag === BLOCKED_FLAG_URL ? '' : String(phase?.flag || '').trim(),
             sealText: String(phase?.sealText || '').trim().slice(0, 2),
             transition_type: phase?.transition_type === 'usurpation' ? 'usurpation' : 'continuation',
+            political_form: COUNTRY_POLITICAL_FORMS.has(politicalForm) ? politicalForm : 'state',
+            territory_enabled: typeof phase?.territory_enabled === 'boolean'
+                ? phase.territory_enabled : politicalForm === 'state',
             description: String(phase?.description || '').trim()
         };
     })
@@ -9047,13 +9055,14 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 createdAt: new Date()
             });
 
-            // 채팅만 최대 50개 FIFO 보존
+            // 채팅은 최근 200개까지 FIFO 보존
+            const CHAT_HISTORY_LIMIT = 200;
             const chatCount = await collections.activityLogs.countDocuments({ type: 'chat' });
-            if (chatCount > 50) {
+            if (chatCount > CHAT_HISTORY_LIMIT) {
                 const overChat = await collections.activityLogs
                     .find({ type: 'chat' })
                     .sort({ createdAt: 1 })
-                    .limit(chatCount - 50)
+                    .limit(chatCount - CHAT_HISTORY_LIMIT)
                     .toArray();
                 if (overChat.length > 0) {
                     await collections.activityLogs.deleteMany({ _id: { $in: overChat.map(d => d._id) } });

@@ -13844,9 +13844,6 @@ body.force-mobile .marker-type-selector button {
         // layerVisibility.countryLabel이 꺼져 있으면 국가명 비표시
         if (!layerVisibility.countryLabel) return;
 
-        // 🚀 [핵심] 실제 영토가 렌더링된 국가만 표시 (모든 국가 X)
-        if (_renderedCountryIds.size === 0) return;
-
         const { year, month } = typeof getCurrentYearMonth === 'function' 
             ? getCurrentYearMonth() 
             : { year: parseInt(yearInput?.value || 400), month: 1 };
@@ -13926,6 +13923,39 @@ body.force-mobile .marker-type-selector button {
             labelCandidates.push({ countryId, country, displayName, labelLat, labelLng, capital });
         });
 
+        // 영토를 갖지 않는 부족·연맹체는 활성 거점의 중심에 정치체 마커로 표시한다.
+        const nonTerritorialCenters = new Map();
+        castles.forEach(castle => {
+            if (typeof castle.lat !== 'number' || typeof castle.lng !== 'number') return;
+            if (castle.is_natural_feature || castle.is_label || castle.is_military_flag) return;
+            const active = getActiveHistoryInfo(castle.history, currentTotalMonths);
+            const countryId = String(active?.record?.country_id || castle.country_id || '');
+            if (!countryId) return;
+            const country = getCountryInfoById(countryId);
+            const phase = getEffectiveCountryInfo(country, year, month);
+            if (!country || phase?.territory_enabled !== false) return;
+            if (selectedEthnicity !== 'all' && (!country.ethnicity || !country.ethnicity.includes(selectedEthnicity))) return;
+            const center = nonTerritorialCenters.get(countryId) || { lat:0, lng:0, count:0, country, phase };
+            center.lat += castle.lat;
+            center.lng += castle.lng;
+            center.count += 1;
+            nonTerritorialCenters.set(countryId, center);
+        });
+        nonTerritorialCenters.forEach((center, countryId) => {
+            const formLabel = COUNTRY_POLITICAL_FORM_LABELS[center.phase?.political_form] || '비영토 정치체';
+            labelCandidates.push({
+                countryId,
+                country:center.country,
+                displayName:`${getMapCountryDisplayName(center.country, year, month)} · ${formLabel}`,
+                labelLat:center.lat / center.count,
+                labelLng:center.lng / center.count,
+                capital:null,
+                isNonTerritorial:true,
+                politicalForm:center.phase?.political_form,
+                markerSymbol:COUNTRY_POLITICAL_FORM_ICONS[center.phase?.political_form] || '•'
+            });
+        });
+
         // ── 겹침 제거 (픽셀 AABB) ──────────────────────────────────
         // 라벨 박스: 가로 countryFontSize * 글자수 * 0.65, 세로 countryFontSize + 4
         const placed = []; // { px, py, w, h }
@@ -13958,14 +13988,16 @@ body.force-mobile .marker-type-selector button {
         for (const cand of labelCandidates) {
             if (!visible.has(cand.countryId)) continue;
 
-            const { country, displayName, labelLat, labelLng, capital } = cand;
+            const { country, displayName, labelLat, labelLng, capital, isNonTerritorial, politicalForm, markerSymbol } = cand;
             const countryColor = country.color || '#ffffff';
             const labelTextColor = '#000000'; // 검정 고정 — CSS text-shadow 흰색 외곽선으로 가독성 확보
             // 깃발: 이미지가 있으면 img 태그, 없으면 SVG 자동 생성
             const _macroSealChar = country.sealText || (()=>{ const n=country.name||''; const hj=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hj.length) return hj.slice(-1)[0]; const hg=(n.match(/[가-힣]/g)||[]); return hg.length ? hg.slice(-1)[0] : '?'; })();
-            const flagHtmlMacro = country.flag
-                ? `<img src="${toRawImageUrl(country.flag)}" class="country-flag-img" style="width:60px;height:auto;display:inline-block;flex-shrink:0;position:relative;z-index:0;">`
-                : `<div style="display:inline-block;flex-shrink:0;position:relative;z-index:0;line-height:0;">${createCountryFlagSvg(countryColor, _macroSealChar, 36)}</div>`;
+            const flagHtmlMacro = isNonTerritorial
+                ? `<div class="nonterritorial-political-icon ${politicalForm || ''}" style="width:38px;height:38px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:${politicalForm === 'refugee' ? '32px' : '25px'};line-height:1;font-family:'Noto Sans Egyptian Hieroglyphs','Apple Symbols','Segoe UI Symbol',sans-serif;text-shadow:0 1px 3px rgba(255,255,255,.9),0 1px 4px rgba(0,0,0,.45);">${markerSymbol}</div>`
+                : country.flag
+                    ? `<img src="${toRawImageUrl(country.flag)}" class="country-flag-img" style="width:60px;height:auto;display:inline-block;flex-shrink:0;position:relative;z-index:0;">`
+                    : `<div style="display:inline-block;flex-shrink:0;position:relative;z-index:0;line-height:0;">${createCountryFlagSvg(countryColor, _macroSealChar, 36)}</div>`;
             // 민족 토글이 켜져 있고 ethnicity 데이터가 있으면 국가명 하단에 소자 표시
             const ethnicHtml = (layerVisibility.ethnicLabel && country.ethnicity)
                 ? `<div class="macro-country-ethnic">${country.ethnicity}</div>`
@@ -13974,7 +14006,7 @@ body.force-mobile .marker-type-selector button {
             // position:absolute + bottom/left 으로 좌표 기준 고정 오프셋 설정
             const icon = L.divIcon({
                 className: 'macro-country-label-icon',
-                html: `<div style="transform:translate(-50%,calc(-100% - 18px));display:inline-flex;flex-direction:row;align-items:flex-end;gap:0px;pointer-events:none;white-space:nowrap;">${flagHtmlMacro}<div style="display:flex;flex-direction:column;align-items:flex-start;position:relative;z-index:1;margin-left:-50px;padding-bottom:4px;"><div class="macro-country-name" style="font-size:${countryFontSize}px;">${displayName}</div>${ethnicHtml}</div></div>`,
+                html: `<div style="transform:translate(-50%,calc(-100% - 18px));display:inline-flex;flex-direction:row;align-items:flex-end;gap:0px;pointer-events:none;white-space:nowrap;${isNonTerritorial ? 'opacity:.92;' : ''}">${flagHtmlMacro}<div style="display:flex;flex-direction:column;align-items:flex-start;position:relative;z-index:1;margin-left:${isNonTerritorial ? '-3px' : '-50px'};padding-bottom:4px;"><div class="macro-country-name" style="font-size:${countryFontSize}px;${isNonTerritorial ? 'color:#425b35;' : ''}">${displayName}</div>${ethnicHtml}</div></div>`,
                 iconSize: [0, 0],
                 iconAnchor: [0, 0]
             });
@@ -17214,6 +17246,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 let countryId = info ? (info.record.country_id || castle.country_id) : castle.country_id;
                 if (!countryId) return null;
                 if (typeof countryId === 'object') countryId = countryId.$oid || String(countryId);
+                const politicalCountry = getCountryInfoById(countryId);
+                const politicalPhase = getEffectiveCountryInfo(politicalCountry, year, month);
+                if (politicalPhase?.territory_enabled === false) return null;
                 const isCapital = !!(info?.record?.is_capital || castle.is_capital);
                 return { lat: castle.lat, lng: castle.lng, countryId: String(countryId), isCapital };
             }).filter(c => c && c.countryId);
@@ -17327,6 +17362,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     }
                     return;
                 }
+                if (getEffectiveCountryInfo(countryInfo, year, month)?.territory_enabled === false) return;
                 
                 // 민족 필터링
                 if (selectedEthnicity !== 'all') {
@@ -19402,8 +19438,26 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         });
 
 
+            const _politicalPhase = getEffectiveCountryInfo(currentCountry, year, month) || currentCountry;
+            const _politicalForm = _politicalPhase?.political_form || 'state';
+            const _politicalSymbol = COUNTRY_POLITICAL_FORM_ICONS[_politicalForm] || '';
+
+            // 부족·도적·유민 거점은 일반 성의 역삼각형 대신 정치 형태 아이콘으로 표시한다.
+            if (_politicalSymbol) {
+                const politicalMarkerHtml = `<div class="cm-wrap nonterritorial-place-marker ${_politicalForm}" style="display:flex;flex-direction:column;align-items:center;gap:0;">
+                    <div class="cm-icon" style="font-size:${_politicalForm === 'refugee' ? '29px' : '23px'};line-height:1;font-family:'Noto Sans Egyptian Hieroglyphs','Apple Symbols','Segoe UI Symbol',sans-serif;text-shadow:0 1px 3px rgba(255,255,255,.9),0 1px 4px rgba(0,0,0,.65);">${_politicalSymbol}</div>
+                    <div class="cm-name city-marker-text" style="color:#e4dccb;font-family:'Nanum Myeongjo',serif;font-weight:500;font-size:10px;white-space:nowrap;padding-top:1px;text-shadow:0 0 2px #000,0 0 4px #000;">${castleName}</div>
+                </div>`;
+                const politicalIcon = L.divIcon({
+                    className: `custom-political-marker custom-${_politicalForm}-marker`,
+                    html: politicalMarkerHtml,
+                    iconSize:[100, 44],
+                    iconAnchor:[50, 28],
+                    popupAnchor:[0, -28]
+                });
+                marker = L.marker([castle.lat, castle.lng], { icon:politicalIcon });
             // 🚩 [추가] 커스텀 아이콘이 있으면 역삼각형(▼) 자리에 이미지를 표시하고 아래에 텍스트(이름) 유지
-            if (castle.custom_icon) {
+            } else if (castle.custom_icon) {
                 const iconWidth = castle.icon_width || 20;
                 const iconHeight = castle.icon_height || 20;
                 const dotColor = currentCountry?.color || 'white';
@@ -20019,6 +20073,28 @@ function invalidateCountryLookupCache() {
       }
     }
 
+    const BROWSER_PANEL_CONFIG_KEY = 'kh_panel_configuration_v1';
+    const BROWSER_PANEL_KEYS = [
+        'timeline', 'kingPanel', 'historyPanel', 'rankingPanel', 'activityFeed',
+        'captionPanel', 'eventSidebar', 'drawingPanel', 'heatmap'
+    ];
+    function readBrowserPanelConfiguration() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(BROWSER_PANEL_CONFIG_KEY) || 'null');
+            return saved && typeof saved === 'object' ? saved : {};
+        } catch (_) {
+            return {};
+        }
+    }
+    function persistBrowserPanelConfiguration() {
+        const saved = {};
+        BROWSER_PANEL_KEYS.forEach(key => { saved[key] = layerVisibility[key] === true; });
+        try { localStorage.setItem(BROWSER_PANEL_CONFIG_KEY, JSON.stringify(saved)); } catch (_) {}
+    }
+    function withBrowserPanelConfiguration(settings) {
+        return { ...(settings || {}), ...readBrowserPanelConfiguration() };
+    }
+
     // 🚩 [최적화] 레이어 설정 먼저 로드 (데이터 로딩 전)
     async function loadLayerSettings() {
         // console.log('🚀 [1단계] 레이어 설정 우선 로드...');
@@ -20026,7 +20102,7 @@ function invalidateCountryLookupCache() {
         const cachedRaw = localStorage.getItem(cacheKey);
         if (cachedRaw) {
             try {
-                const cachedSettings = JSON.parse(cachedRaw);
+                const cachedSettings = withBrowserPanelConfiguration(JSON.parse(cachedRaw));
                 Object.assign(layerVisibility, cachedSettings);
                 applyLayerSettingsToUI(cachedSettings);
 
@@ -20036,8 +20112,9 @@ function invalidateCountryLookupCache() {
                     .then(data => {
                         if (!data || !data.settings) return;
                         localStorage.setItem(cacheKey, JSON.stringify(data.settings));
-                        Object.assign(layerVisibility, data.settings);
-                        applyLayerSettingsToUI(data.settings);
+                        const mergedSettings = withBrowserPanelConfiguration(data.settings);
+                        Object.assign(layerVisibility, mergedSettings);
+                        applyLayerSettingsToUI(mergedSettings);
                     })
                     .catch(() => {});
                 console.log('⚡ 레이어 설정 캐시 즉시 적용');
@@ -20058,7 +20135,7 @@ function invalidateCountryLookupCache() {
             }
 
             const data = await response.json();
-            const settings = data.settings;
+            const settings = withBrowserPanelConfiguration(data.settings);
             localStorage.setItem(cacheKey, JSON.stringify(settings));
             // console.log('✅ 레이어 설정 로드 성공:', settings);
             
@@ -20134,6 +20211,23 @@ function invalidateCountryLookupCache() {
             if (settings.hasOwnProperty(layerKey)) {
                 checkbox.checked = settings[layerKey];
             }
+        });
+        if (Object.prototype.hasOwnProperty.call(settings, 'historyPanel')) {
+            setHistoryPanelVisibility(settings.historyPanel === true);
+        }
+        if (Object.prototype.hasOwnProperty.call(settings, 'kingPanel')) {
+            setKingPanelVisibility(settings.kingPanel === true);
+        }
+        if (Object.prototype.hasOwnProperty.call(settings, 'timeline')) {
+            setTimelinePanelVisibility(settings.timeline === true, { rebuild:false });
+        }
+        const simplePanels = {
+            rankingPanel:'rankingDisplay', activityFeed:'activity-feed-panel'
+        };
+        Object.entries(simplePanels).forEach(([key, id]) => {
+            if (!Object.prototype.hasOwnProperty.call(settings, key)) return;
+            const element = document.getElementById(id);
+            if (element) element.style.display = settings[key] === true ? '' : 'none';
         });
         
         // console.log('✅ 레이어 설정 UI 적용 완료');
@@ -23229,6 +23323,42 @@ const loadingMessages = [
           mapKingPanel.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
       }
 
+      const PANEL_BOUNDS_STORAGE_KEY = 'kh_map_panel_bounds_v1';
+      function readStoredPanelBounds() {
+          try { return JSON.parse(localStorage.getItem(PANEL_BOUNDS_STORAGE_KEY) || '{}') || {}; }
+          catch (_) { return {}; }
+      }
+      function persistPanelBounds(panelId) {
+          if (document.body.classList.contains('force-mobile') || window.innerWidth < 968) return;
+          const panel = document.getElementById(panelId);
+          if (!panel) return;
+          const rect = panel.getBoundingClientRect();
+          if (rect.width < 100 || rect.height < 40) return;
+          const allBounds = readStoredPanelBounds();
+          allBounds[panelId] = { left:rect.left, top:rect.top, width:rect.width, height:rect.height };
+          try { localStorage.setItem(PANEL_BOUNDS_STORAGE_KEY, JSON.stringify(allBounds)); } catch (_) {}
+      }
+      function restorePanelBounds(panelId) {
+          if (document.body.classList.contains('force-mobile') || window.innerWidth < 968) return;
+          const panel = document.getElementById(panelId);
+          const bounds = readStoredPanelBounds()[panelId];
+          if (!panel || !bounds || !Number.isFinite(bounds.left) || !Number.isFinite(bounds.top)) return;
+          const width = Math.min(Math.max(bounds.width, 200), window.innerWidth);
+          const height = Math.min(Math.max(bounds.height, 40), window.innerHeight);
+          const left = Math.min(Math.max(bounds.left, 0), Math.max(0, window.innerWidth - width));
+          const top = Math.min(Math.max(bounds.top, 0), Math.max(0, window.innerHeight - height));
+          panel.classList.add('user-positioned');
+          panel.style.setProperty('left', `${left}px`, 'important');
+          panel.style.setProperty('top', `${top}px`, 'important');
+          panel.style.setProperty('right', 'auto', 'important');
+          panel.style.setProperty('bottom', 'auto', 'important');
+          panel.style.setProperty('width', `${width}px`, 'important');
+          panel.style.setProperty('height', `${height}px`, 'important');
+          if (panelId === 'map-history-panel') historyNormalBounds = { left, top, width, height };
+      }
+      restorePanelBounds('map-king-panel');
+      restorePanelBounds('map-history-panel');
+
       // 🚩 우하단/좌하단 리사이즈 핸들 공통 함수
       // invertX=true: 핸들이 왼쪽에 있을 때 — 왼쪽 드래그 = 너비 증가
       function makePanelResizable(panelId, handleId, { minW = 200, minH = 100, maxW = 900, maxH = 900, invertX = false } = {}) {
@@ -23290,6 +23420,7 @@ const loadingMessages = [
               if (isResizing) {
                   isResizing = false;
                   if (panelId === 'map-history-panel') rememberHistoryNormalBounds(panel);
+                  persistPanelBounds(panelId);
                   document.body.style.cursor = '';
                   document.body.style.userSelect = '';
               }
@@ -23362,6 +23493,7 @@ const loadingMessages = [
                   isDragging = false;
                   needsConversion = false;
                   if (panelId === 'map-history-panel') rememberHistoryNormalBounds(panel);
+                  persistPanelBounds(panelId);
                   header.style.cursor = 'grab';
               }
           });
@@ -23383,6 +23515,7 @@ const loadingMessages = [
                   window.releaseAppPanel?.(panel);
               }
               if (layerVisibility) layerVisibility[layerKey] = false;
+              persistBrowserPanelConfiguration();
               // PC 메뉴 체크박스 동기화
               const cb = document.getElementById(checkboxId);
               if (cb) cb.checked = false;
@@ -23432,6 +23565,7 @@ const loadingMessages = [
                       const mobileCb = document.querySelector('.mobile-layer-checkbox[data-layer="historyPanel"]');
                       if (mobileCb) mobileCb.checked = false;
                   }
+                  persistBrowserPanelConfiguration();
               }
               historyCloseBtn.addEventListener('click', handleHistoryClose);
               historyCloseBtn.addEventListener('touchend', handleHistoryClose, { passive: false });
@@ -23466,6 +23600,7 @@ const loadingMessages = [
                       panel.classList.remove('expanded');
                       setHistoryPanelVisibility(false);
                       layerVisibility.historyPanel = false;
+                      persistBrowserPanelConfiguration();
                       historyTopbarBtn.classList.remove('active');
                       historyTopbarBtn.setAttribute('aria-expanded', 'false');
                       const menuCheckbox = document.getElementById('menu-layer-history');
@@ -23476,6 +23611,7 @@ const loadingMessages = [
                   }
                   setHistoryPanelVisibility(true);
                   layerVisibility.historyPanel = true;
+                  persistBrowserPanelConfiguration();
                   panel.classList.add('expanded');
                   historyTopbarBtn.classList.add('active');
                   historyTopbarBtn.setAttribute('aria-expanded', 'true');
@@ -23505,6 +23641,7 @@ const loadingMessages = [
                       return;
                   }
                   layerVisibility.kingPanel = opening;
+                  persistBrowserPanelConfiguration();
                   setKingPanelVisibility(opening);
                   kingTopbarBtn.classList.toggle('active', opening);
                   kingTopbarBtn.setAttribute('aria-expanded', String(opening));
@@ -23688,6 +23825,9 @@ const loadingMessages = [
               let countryId = info ? (info.record.country_id || castle.country_id) : castle.country_id;
               if (!countryId) return null;
               if (typeof countryId === 'object') countryId = countryId.$oid || String(countryId);
+              const politicalCountry = getCountryInfoById(countryId);
+              const politicalPhase = getEffectiveCountryInfo(politicalCountry, year, month);
+              if (politicalPhase?.territory_enabled === false) return null;
               const isCapital = !!(info?.record?.is_capital || castle.is_capital);
               return { lat: castle.lat, lng: castle.lng, countryId: String(countryId), isCapital };
           }).filter(c => c && c.countryId);
@@ -23744,6 +23884,7 @@ const loadingMessages = [
                   }
                   return;
               }
+              if (getEffectiveCountryInfo(countryInfo, year, month)?.territory_enabled === false) return;
 
               if (selectedEthnicity !== 'all') {
                   if (!countryInfo?.ethnicity || !countryInfo.ethnicity.includes(selectedEthnicity)) return;
@@ -24489,6 +24630,7 @@ const loadingMessages = [
         if (typeof layerVisibility !== 'undefined') {
             layerVisibility.timeline = !!isVisible;
         }
+        if (typeof persistBrowserPanelConfiguration === 'function') persistBrowserPanelConfiguration();
         setTimelinePanelVisibility(!!isVisible, options);
         document.querySelectorAll('[data-layer="timeline"]').forEach(btn => {
             btn.classList.toggle('active', !!isVisible);
@@ -28948,6 +29090,13 @@ const loadingMessages = [
     // --- 9. 국가 편집 폼 관리 --- (기존 로직 유지)
 
     let countryHistoryDraft = [];
+    const COUNTRY_POLITICAL_FORM_LABELS = {
+        tribe:'부족', state:'국가', bandit:'도적', refugee:'유민'
+    };
+    const COUNTRY_POLITICAL_FORM_ICONS = { tribe:'🛖', bandit:'☠️', refugee:'𓁉' };
+    const normalizeCountryPoliticalForm = value => ({
+        tribal_confederation:'tribe', confederation:'tribe', empire:'state', other:'state'
+    })[value] || (COUNTRY_POLITICAL_FORM_LABELS[value] ? value : 'state');
 
     function countryHistoryEscape(value) {
         return String(value ?? '').replace(/[&<>"']/g, char => ({
@@ -28977,6 +29126,12 @@ const loadingMessages = [
                         <option value="usurpation" ${phase.transition_type === 'usurpation' ? 'selected' : ''}>찬탈</option>
                     </select>
                     <div style="display:flex;align-items:center;color:#8295a3;font-size:10px;padding:0 4px;">이전 국호와의 관계</div>
+                    <select data-field="political_form">
+                        ${Object.entries(COUNTRY_POLITICAL_FORM_LABELS).map(([value, label]) => `<option value="${value}" ${normalizeCountryPoliticalForm(phase.political_form) === value ? 'selected' : ''}>${label}</option>`).join('')}
+                    </select>
+                    <label style="display:flex;align-items:center;gap:7px;padding:0 5px;color:#b9c7d0;font-size:11px;">
+                        <input data-field="territory_enabled" type="checkbox" ${(phase.territory_enabled ?? (normalizeCountryPoliticalForm(phase.political_form) === 'state')) ? 'checked' : ''} style="width:auto;"> 이 시기에 영토 표시
+                    </label>
                     <input data-field="start_year" type="number" value="${countryHistoryEscape(phase.start_year)}" placeholder="시작 연도 (필수)">
                     <input data-field="start_month" type="number" min="1" max="12" value="${countryHistoryEscape(phase.start_month || 1)}" placeholder="시작 월">
                     <input data-field="end_year" type="number" value="${countryHistoryEscape(phase.end_year ?? '')}" placeholder="종료 연도 (계속이면 공란)">
@@ -28993,6 +29148,12 @@ const loadingMessages = [
                 const draft = collectCountryHistory();
                 draft.splice(Number(button.dataset.index), 1);
                 renderCountryHistoryEditor(draft);
+            });
+        });
+        list.querySelectorAll('[data-field="political_form"]').forEach(select => {
+            select.addEventListener('change', () => {
+                const territoryCheckbox = select.closest('.country-history-row')?.querySelector('[data-field="territory_enabled"]');
+                if (territoryCheckbox) territoryCheckbox.checked = select.value === 'state';
             });
         });
     }
@@ -29012,6 +29173,8 @@ const loadingMessages = [
                 end_year: endYear ? Number.parseInt(endYear, 10) : null,
                 end_month: Number.parseInt(value('end_month'), 10) || 12,
                 transition_type: index === 0 ? 'continuation' : (value('transition_type') || 'continuation'),
+                political_form: value('political_form') || 'state',
+                territory_enabled: row.querySelector('[data-field="territory_enabled"]')?.checked !== false,
                 color: value('color'),
                 flag: value('flag'),
                 sealText: value('sealText'),
@@ -29027,7 +29190,8 @@ const loadingMessages = [
             name: '', name_zh: '', aliases: [],
             start_year: previous?.end_year != null ? previous.end_year + 1 : '',
             start_month: 1, end_year: null, end_month: 12,
-            transition_type: 'continuation', color: '', flag: '', sealText: '', description: ''
+            transition_type: 'continuation', political_form:'state', territory_enabled:true,
+            color: '', flag: '', sealText: '', description: ''
         });
         renderCountryHistoryEditor(draft);
     });
@@ -29050,23 +29214,32 @@ const loadingMessages = [
     function refreshCountryPredecessorOptions(currentCountryId = '') {
         const options = document.getElementById('countryPredecessorOptions');
         if (!options) return;
+        const formatRelationYear = value => {
+            if (value === null || value === undefined || value === '') return '?';
+            const year = Number(value);
+            if (!Number.isFinite(year)) return '?';
+            return year < 0 ? `B.C. ${Math.abs(year)}` : `A.D. ${year}`;
+        };
+        const formatRelationPeriod = (start, end) => (
+            `${formatRelationYear(start)} ~ ${end === null || end === undefined || end === '' ? '현재' : formatRelationYear(end)}`
+        );
         const entries = countries
             .filter(country => String(country._id) !== String(currentCountryId))
             .slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ko'))
             .flatMap(country => {
                 const countryAliases = Array.isArray(country.aliases)
                     ? country.aliases : String(country.aliases || '').split(/[,\n]/).map(value => value.trim()).filter(Boolean);
-                const phaseNames = (Array.isArray(country.history) ? country.history : [])
-                    .flatMap(phase => [phase.name, phase.name_zh, ...(Array.isArray(phase.aliases)
-                        ? phase.aliases : String(phase.aliases || '').split(/[,\n]/).map(value => value.trim()).filter(Boolean))])
-                    .filter(Boolean);
-                const names = [...new Set([country.name, country.name_zh, ...countryAliases, ...phaseNames].filter(Boolean))];
-                return names.map((name, index) => ({
-                    name,
-                    detail: index === 0
-                        ? (country.ethnicity || '국가 기본명')
-                        : `${country.name || '국가'} · 시대별 국호`
-                }));
+                const basePeriod = formatRelationPeriod(country.start, country.end);
+                const baseEntries = [...new Set([country.name, country.name_zh, ...countryAliases].filter(Boolean))]
+                    .map(name => ({ name, detail:`${country.name || '국가'} · ${basePeriod}` }));
+                const phaseEntries = (Array.isArray(country.history) ? country.history : []).flatMap(phase => {
+                    const phaseAliases = Array.isArray(phase.aliases)
+                        ? phase.aliases : String(phase.aliases || '').split(/[,\n]/).map(value => value.trim()).filter(Boolean);
+                    const period = formatRelationPeriod(phase.start_year ?? phase.start, phase.end_year ?? phase.end);
+                    return [...new Set([phase.name, phase.name_zh, ...phaseAliases].filter(Boolean))]
+                        .map(name => ({ name, detail:`${phase.name || country.name || '국호'} · ${period}` }));
+                });
+                return [...baseEntries, ...phaseEntries];
             });
         options.innerHTML = entries.map(entry => (
             `<option value="${countryHistoryEscape(entry.name)}">${countryHistoryEscape(entry.detail)}</option>`
@@ -37548,6 +37721,7 @@ kingSelect.addEventListener('change', () => {
                 checkbox.checked = layerVisibility[layerName] === true;
                 checkbox.addEventListener('change', () => {
                     layerVisibility[layerName] = checkbox.checked;
+                    if (BROWSER_PANEL_KEYS.includes(layerName)) persistBrowserPanelConfiguration();
                     if (layerName === 'waterLevel') {
                         const { year } = getCurrentYearMonth();
                         if (checkbox.checked) {
@@ -45383,7 +45557,7 @@ body.guest-mode #activity-feed-panel { display: none !important; }
 
     async function fetchLogs() {
         try {
-            const resp = await fetch('/api/activity-logs?limit=50');
+            const resp = await fetch('/api/activity-logs?limit=100');
             if (!resp.ok) return;
             const logs = await resp.json();
             if (!Array.isArray(logs)) return;
@@ -45931,6 +46105,7 @@ body.guest-mode #activity-feed-panel { display: none !important; }
         window._historyCaptionVisible = visible;
         // layerVisibility가 접근 가능하면 동기화
         if (typeof layerVisibility !== 'undefined') layerVisibility.captionPanel = visible;
+        if (typeof persistBrowserPanelConfiguration === 'function') persistBrowserPanelConfiguration();
         const panel = getCaptionPanel();
         if (!panel) return;
         if (!visible) {
@@ -46590,7 +46765,8 @@ async function castleFormDeleteVoice() {
 (function () {
   var audio = new Audio();
   audio.preload = 'auto';
-  audio.volume = 0.4;
+  var savedVolume = parseFloat(localStorage.getItem('bgmVolume'));
+  audio.volume = Number.isFinite(savedVolume) ? Math.min(1, Math.max(0, savedVolume)) : 0.4;
   var playing = false;
   var muted   = localStorage.getItem('bgmMuted') === 'true';
   audio.muted = muted;
@@ -46702,7 +46878,13 @@ async function castleFormDeleteVoice() {
     bindClick('bgm-mini-mute',   doMute);
 
     var volSlider = document.getElementById('bgm-volume');
-    if (volSlider) volSlider.addEventListener('input', function(){ audio.volume = parseFloat(this.value); });
+    if (volSlider) {
+      volSlider.value = String(audio.volume);
+      volSlider.addEventListener('input', function(){
+        audio.volume = parseFloat(this.value);
+        localStorage.setItem('bgmVolume', String(audio.volume));
+      });
+    }
   });
 
   /* ── 전역 노출 ── */
