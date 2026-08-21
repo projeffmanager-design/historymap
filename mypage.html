@@ -7,8 +7,8 @@
   <meta name="description" content="고려만리지도 사관의 연구 기록, 지도 기여, 역사 인물과 전서구를 확인하는 개인 페이지입니다.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet"></noscript>
   <style>
     :root{--ink:#17140f;--paper:#f4eedc;--paper2:#e8debf;--line:#b9a678;--red:#7d261d;--gold:#a47b28;--muted:#6e6555;--green:#496d57;--blue:#355e77}
     *{box-sizing:border-box}body{margin:0;color:var(--ink);background:#171d22 url('/public/assets/ui/paper-texture.png');font-family:'Noto Sans KR',sans-serif}.serif,h1,h2,h3{font-family:'Nanum Myeongjo',serif}
@@ -54,7 +54,6 @@
 <dialog id="profileDialog"><div class="dialog-head"><h2>사관 프로필 편집</h2><button class="close" type="button" data-close>×</button></div><form class="dialog-body" id="profileForm"><div class="avatar-upload"><img id="editAvatar" class="avatar" alt="현재 프로필"><div><input type="file" id="avatarFile" accept="image/jpeg,image/png,image/webp"><button type="button" class="btn" id="avatarUploadBtn">사진 등록</button></div></div><div class="form-grid"><div class="field"><label>표시 이름</label><input class="input" id="editDisplayName" maxlength="40"></div><div class="field"><label>개인 웹사이트</label><input class="input" id="editWebsite" placeholder="https://"></div><div class="field full"><label>소개</label><textarea id="editBio" maxlength="1000"></textarea></div><div class="field"><label>연구 분야</label><input class="input" id="editSpecialties" placeholder="고려사, 지명 비정, 고지도"></div><div class="field"><label>집중 연구 지역</label><input class="input" id="editRegions" placeholder="만주, 요동, 한반도"></div></div><div class="notice" id="profileNotice"></div><div style="text-align:right;margin-top:15px"><button class="btn primary" type="submit">저장</button></div></form></dialog>
 <dialog id="quickMailDialog"><div class="dialog-head"><h2>전서구 보내기</h2><button class="close" type="button" data-close-mail>×</button></div><form class="dialog-body" id="quickMailForm"><p style="margin-top:0;color:var(--muted);font-size:13px;">받는 사관: <strong id="quickMailRecipient"></strong></p><textarea id="quickMailBody" maxlength="1000" required placeholder="예를 갖추어 연구 의견을 나누어 보세요."></textarea><div class="notice" id="quickMailNotice"></div><div style="text-align:right;margin-top:15px"><button class="btn primary" type="submit">전서구 날리기</button></div></form></dialog>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
@@ -64,6 +63,7 @@
   const categoryNames = { historical_record:'역사 기록',hero_research:'인물 연구',castle:'성·도시',city:'도시',natural:'자연·유적',place:'지명',other:'기타' };
   const statusNames = { pending:'검토 대기',reviewed:'검토 완료',approved:'승인',rejected:'반려' };
   let me = null, profile = null, map = null, markerById = new Map(), directory = [];
+  let leafletPromise = null, directoryPromise = null;
   const sameUser = (account, pageUser) => {
     if(!account||!pageUser)return false;
     const accountIds=[account._id,account.userId,account.id,account.sub].filter(Boolean).map(String);
@@ -79,14 +79,30 @@
   const recordHtml = item => `<article class="record"><div class="record-top"><h3>${esc(item.name||'이름 없는 기록')}</h3>${statusBadge(item.status||'pending')}</div><div class="meta">${esc(categoryNames[item.category]||item.category||'기타')} · ${esc(item.source||'출전 미기재')} ${item.year!=null?'· '+esc(item.year)+'년':''} · ${esc(dateText(item.createdAt))}</div>${item.content||item.description||item.evidence?`<p class="excerpt">${esc(item.content||item.description||item.evidence).slice(0,260)}</p>`:''}</article>`;
 
   async function init() {
-    if(token) { try { me = await jsonFetch('/api/user/me'); } catch(_) {} }
     const requested = new URLSearchParams(location.search).get('id');
+    // URL에 사관이 지정된 경우 본인 확인과 공개 프로필을 동시에 조회한다.
+    // 기존에는 /api/user/me 완료 후 프로필 조회를 시작해 왕복 시간이 직렬로 더해졌다.
+    if (requested) {
+      const [meResult, profileResult] = await Promise.allSettled([
+        token ? jsonFetch('/api/user/me') : Promise.resolve(null),
+        jsonFetch(`/api/historians/${encodeURIComponent(requested)}`)
+      ]);
+      if (meResult.status === 'fulfilled') me = meResult.value;
+      if (profileResult.status === 'rejected') throw profileResult.reason;
+      profile = profileResult.value;
+    } else if(token) {
+      try { me = await jsonFetch('/api/user/me'); } catch(_) {}
+    }
     const identifier = requested || me?._id || me?.userId;
     if(!identifier) { $('loading').innerHTML='사관을 지정하지 않았습니다. <a href="/login">로그인</a>하거나 <code>?id=사관ID</code>를 사용하세요.'; return; }
-    profile = await jsonFetch(`/api/historians/${encodeURIComponent(identifier)}`);
+    if (!profile) profile = await jsonFetch(`/api/historians/${encodeURIComponent(identifier)}`);
     render();
     const isOwner = sameUser(me,profile.user);
-    if(token && me && !me.isGuest && isOwner) { await setupMail(); await refreshUnreadBadges(); window.setInterval(refreshUnreadBadges,30000); }
+    if(token && me && !me.isGuest && isOwner) {
+      setupMail();
+      refreshUnreadBadges();
+      window.setInterval(refreshUnreadBadges,30000);
+    }
     const requestedTab = new URLSearchParams(location.search).get('tab');
     const tabButton = requestedTab && document.querySelector(`.tab[data-tab="${requestedTab}"]`);
     if (tabButton && !tabButton.hidden) tabButton.click();
@@ -112,17 +128,27 @@
   function renderBars(id,data,names,total){const entries=Object.entries(data).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);$(id).innerHTML=entries.map(([key,value])=>`<div class="bar-row"><span>${esc(names[key]||key)}</span><div class="bar"><i style="width:${Math.max(4,value/Math.max(1,total)*100)}%"></i></div><b>${value}</b></div>`).join('')||empty('집계할 기록이 없습니다.');}
 
   document.querySelectorAll('.tab').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('.tab,.panel').forEach(x=>x.classList.remove('active'));btn.classList.add('active');$(`panel-${btn.dataset.tab}`).classList.add('active');if(btn.dataset.tab==='map')setTimeout(initMap,30);if(btn.dataset.tab==='mail'&&token)loadMessages('inbox');if(btn.dataset.tab==='mentions'&&token)loadMessages('mentions');}));
-  function initMap(){if(map){map.invalidateSize();return}map=L.map('research-map',{minZoom:2}).setView([37.5,127],5);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenStreetMap'}).addTo(map);const bounds=[];$('mapList').innerHTML='';profile.mapPoints.forEach(point=>{const color={approved:'#496d57',rejected:'#8a4a45',reviewed:'#355e77',pending:'#a47b28'}[point.status]||'#7d261d';const marker=L.circleMarker([point.lat,point.lng],{radius:8,color:'#fff',weight:2,fillColor:color,fillOpacity:.9}).addTo(map).bindPopup(`<strong>${esc(point.name)}</strong><br>${esc(statusNames[point.status]||point.status)}`);markerById.set(point._id,marker);bounds.push([point.lat,point.lng]);$('mapList').insertAdjacentHTML('beforeend',`<button class="map-item" data-point="${esc(point._id)}"><strong>${esc(point.name)}</strong><small>${esc(statusNames[point.status]||point.status)} · ${point.lat.toFixed(3)}, ${point.lng.toFixed(3)}</small></button>`)});if(bounds.length)map.fitBounds(bounds,{padding:[30,30],maxZoom:8});else $('mapList').innerHTML=empty('위치가 포함된 연구 기록이 없습니다.');document.querySelectorAll('[data-point]').forEach(btn=>btn.addEventListener('click',()=>{const marker=markerById.get(btn.dataset.point);if(marker){map.setView(marker.getLatLng(),10);marker.openPopup()}}));}
+  function ensureLeaflet(){
+    if(window.L)return Promise.resolve(window.L);
+    if(leafletPromise)return leafletPromise;
+    leafletPromise=new Promise((resolve,reject)=>{
+      if(!document.querySelector('link[data-leaflet]')){const css=document.createElement('link');css.rel='stylesheet';css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';css.dataset.leaflet='';document.head.appendChild(css)}
+      const script=document.createElement('script');script.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';script.onload=()=>resolve(window.L);script.onerror=()=>reject(new Error('지도를 불러오지 못했습니다.'));document.head.appendChild(script);
+    });
+    return leafletPromise;
+  }
+  async function initMap(){try{await ensureLeaflet();if(map){map.invalidateSize();return}map=L.map('research-map',{minZoom:2}).setView([37.5,127],5);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenStreetMap'}).addTo(map);const bounds=[];$('mapList').innerHTML='';profile.mapPoints.forEach(point=>{const color={approved:'#496d57',rejected:'#8a4a45',reviewed:'#355e77',pending:'#a47b28'}[point.status]||'#7d261d';const marker=L.circleMarker([point.lat,point.lng],{radius:8,color:'#fff',weight:2,fillColor:color,fillOpacity:.9}).addTo(map).bindPopup(`<strong>${esc(point.name)}</strong><br>${esc(statusNames[point.status]||point.status)}`);markerById.set(point._id,marker);bounds.push([point.lat,point.lng]);$('mapList').insertAdjacentHTML('beforeend',`<button class="map-item" data-point="${esc(point._id)}"><strong>${esc(point.name)}</strong><small>${esc(statusNames[point.status]||point.status)} · ${point.lat.toFixed(3)}, ${point.lng.toFixed(3)}</small></button>`)});if(bounds.length)map.fitBounds(bounds,{padding:[30,30],maxZoom:8});else $('mapList').innerHTML=empty('위치가 포함된 연구 기록이 없습니다.');document.querySelectorAll('[data-point]').forEach(btn=>btn.addEventListener('click',()=>{const marker=markerById.get(btn.dataset.point);if(marker){map.setView(marker.getLatLng(),10);marker.openPopup()}}));}catch(err){$('mapList').innerHTML=empty(err.message)}}
 
   const dialog=$('profileDialog');$('editBtn').addEventListener('click',()=>{const u=profile.user;$('editAvatar').src=u.avatarUrl||'/public/assets/ui/hero-default.png';$('editDisplayName').value=u.displayName;$('editWebsite').value=u.website||'';$('editBio').value=u.bio||'';$('editSpecialties').value=(u.specialties||[]).join(', ');$('editRegions').value=(u.focusRegions||[]).join(', ');dialog.showModal()});document.querySelector('[data-close]').addEventListener('click',()=>dialog.close());
   $('profileForm').addEventListener('submit',async e=>{e.preventDefault();try{await jsonFetch('/api/historians/me/profile',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({displayName:$('editDisplayName').value,website:$('editWebsite').value,bio:$('editBio').value,specialties:$('editSpecialties').value,focusRegions:$('editRegions').value})});showNotice('profileNotice','프로필을 저장했습니다.');setTimeout(()=>location.reload(),500)}catch(err){showNotice('profileNotice',err.message,true)}});
   $('avatarUploadBtn').addEventListener('click',async()=>{const file=$('avatarFile').files[0];if(!file)return showNotice('profileNotice','사진을 선택해주세요.',true);const body=new FormData();body.append('avatar',file);try{const data=await jsonFetch('/api/historians/me/avatar',{method:'POST',body});$('editAvatar').src=data.avatarUrl;showNotice('profileNotice','프로필 사진을 등록했습니다.');}catch(err){showNotice('profileNotice',err.message,true)}});
 
-  async function setupMail(){directory=await jsonFetch('/api/historians/directory');$('mailGuest').hidden=true;$('mailApp').hidden=false;$('mentionGuest').hidden=true;}
+  function setupMail(){$('mailGuest').hidden=true;$('mailApp').hidden=false;$('mentionGuest').hidden=true;}
+  async function ensureDirectory(){if(directory.length)return directory;directoryPromise||=jsonFetch('/api/historians/directory').then(items=>(directory=items));return directoryPromise;}
   async function refreshUnreadBadges(){if(!token)return;try{const counts=await jsonFetch('/api/historian-notifications/unread-count');setUnreadBadge('mailUnreadBadge',counts.mail);setUnreadBadge('mentionUnreadBadge',counts.mentions)}catch(_){}}
   function setUnreadBadge(id,value){const badge=$(id);const count=Number(value)||0;badge.textContent=count>99?'99+':String(count);badge.classList.toggle('show',count>0)}
   function selectRecipient(user){$('recipient').value=user._id;$('recipientSearch').value=`${user.displayName} (@${user.username})`;$('recipientResults').classList.remove('show');}
-  function searchRecipients(){const query=$('recipientSearch').value.trim().toLowerCase();$('recipient').value='';const results=$('recipientResults');if(!query){results.innerHTML='';results.classList.remove('show');return}const mine=String(me?._id||me?.userId||'');const matches=directory.filter(user=>String(user._id)!==mine&&[user.displayName,user.username,user.position].filter(Boolean).join(' ').toLowerCase().includes(query)).slice(0,8);results.innerHTML=matches.map(user=>`<button type="button" class="recipient-result" data-recipient="${esc(user._id)}"><strong>${esc(user.displayName)}</strong><small>@${esc(user.username)}${user.position?' · '+esc(user.position):''}</small></button>`).join('')||'<div style="padding:10px;color:var(--muted);font-size:12px;">검색 결과가 없습니다.</div>';results.classList.add('show');results.querySelectorAll('[data-recipient]').forEach(button=>button.addEventListener('click',()=>{const user=directory.find(item=>String(item._id)===button.dataset.recipient);if(user)selectRecipient(user)}));}
+  async function searchRecipients(){const query=$('recipientSearch').value.trim().toLowerCase();$('recipient').value='';const results=$('recipientResults');if(!query){results.innerHTML='';results.classList.remove('show');return}results.innerHTML='<div style="padding:10px;color:var(--muted);font-size:12px;">사관을 찾는 중…</div>';results.classList.add('show');try{await ensureDirectory()}catch(_){results.innerHTML='<div style="padding:10px;color:var(--red);font-size:12px;">사관 명부를 불러오지 못했습니다.</div>';return}if($('recipientSearch').value.trim().toLowerCase()!==query)return;const mine=String(me?._id||me?.userId||'');const matches=directory.filter(user=>String(user._id)!==mine&&[user.displayName,user.username,user.position].filter(Boolean).join(' ').toLowerCase().includes(query)).slice(0,8);results.innerHTML=matches.map(user=>`<button type="button" class="recipient-result" data-recipient="${esc(user._id)}"><strong>${esc(user.displayName)}</strong><small>@${esc(user.username)}${user.position?' · '+esc(user.position):''}</small></button>`).join('')||'<div style="padding:10px;color:var(--muted);font-size:12px;">검색 결과가 없습니다.</div>';results.querySelectorAll('[data-recipient]').forEach(button=>button.addEventListener('click',()=>{const user=directory.find(item=>String(item._id)===button.dataset.recipient);if(user)selectRecipient(user)}));}
   $('recipientSearch').addEventListener('input',searchRecipients);
   $('recipientSearch').addEventListener('focus',searchRecipients);
   document.addEventListener('click',event=>{if(!event.target.closest('.recipient-search-wrap'))$('recipientResults').classList.remove('show')});
