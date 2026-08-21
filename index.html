@@ -12290,7 +12290,25 @@ body.force-mobile .marker-type-selector button {
         </div>
         <div class="form-row" id="countryCastleCountRow" style="display:none;">
             <label style="color:#95a5a6; font-size:12px;">연결된 성/도시:</label>
-            <div id="countryCastleCount" style="font-size:13px; color:#ecf0f1; display:flex; align-items:center; gap:8px; flex-wrap:wrap;"></div>
+            <div style="flex:1; min-width:0;">
+                <button type="button" id="countryCastleCount" aria-expanded="false"
+                    style="width:100%; padding:8px 10px; font-size:13px; color:#ecf0f1; display:flex; align-items:center; gap:8px; flex-wrap:wrap; text-align:left; background:rgba(52,73,94,.42); border:1px solid #5d7185; border-radius:5px; cursor:pointer;"></button>
+                <div id="countryCastleConnectionList" hidden
+                    style="margin-top:7px; max-height:330px; overflow:auto; padding:8px; border:1px solid rgba(93,113,133,.65); border-radius:5px; background:rgba(10,17,24,.72);"></div>
+            </div>
+        </div>
+        <div id="countryReferenceReplaceSection" style="display:none; margin:14px 0; padding:12px; border:1px solid #7b5930; border-radius:7px; background:rgba(57,39,16,.38);">
+            <strong style="color:#efc66f;">🔁 연결 국가 ID 일괄 대체</strong>
+            <div style="margin-top:4px; color:#b9aa8b; font-size:11px; line-height:1.45;">
+                이 국가에 연결된 성·도시의 <code>country_id</code>만 대상 국가로 바꿉니다. 지명과 시작·종료 연도는 변경하지 않습니다.
+            </div>
+            <div style="position:relative; margin-top:9px;">
+                <input type="text" id="countryReferenceReplaceSearch" autocomplete="off" placeholder="대체할 국가명 검색…" style="width:100%; box-sizing:border-box;">
+                <input type="hidden" id="countryReferenceReplaceTargetId">
+                <div id="countryReferenceReplaceResults" style="display:none; position:absolute; z-index:40; top:100%; left:0; right:0; max-height:190px; overflow:auto; background:#182533; border:1px solid #5d7185; border-radius:0 0 5px 5px;"></div>
+            </div>
+            <div id="countryReferenceReplacePreview" style="margin-top:8px; color:#95a5a6; font-size:11px; line-height:1.5;">대체할 국가를 검색하여 선택하세요.</div>
+            <button type="button" id="countryReferenceReplaceBtn" disabled style="margin-top:9px; width:100%; padding:8px; border:1px solid #b9772c; background:rgba(185,119,44,.17); color:#efc66f; border-radius:5px; cursor:pointer; font-weight:700;">연결된 country_id 일괄 대체</button>
         </div>
         <div class="form-row" id="countryIdRow" style="display:none;">
             <label style="color:#95a5a6; font-size:12px;">country_id:</label>
@@ -13938,53 +13956,8 @@ body.force-mobile .marker-type-selector button {
             labelCandidates.push({ countryId, country, displayName, labelLat, labelLng, capital });
         });
 
-        // 영토를 갖지 않는 부족·연맹체는 대표 거점에 정치체 마커로 표시한다.
-        // 여러 소속 지점의 단순 평균은 실제 거점이 없는 엉뚱한 위치로 라벨을 옮기므로,
-        // 수도 → 국호와 이름이 일치하는 마커 → 전체 중심 순으로 대표점을 고른다.
-        const nonTerritorialCenters = new Map();
-        castles.forEach(castle => {
-            if (typeof castle.lat !== 'number' || typeof castle.lng !== 'number') return;
-            if (castle.is_natural_feature || castle.is_label || castle.is_military_flag) return;
-            const active = getActiveHistoryInfo(castle.history, currentTotalMonths);
-            const countryId = String(active?.record?.country_id || castle.country_id || '');
-            if (!countryId) return;
-            const country = getCountryInfoById(countryId);
-            const phase = getEffectiveCountryInfo(country, year, month);
-            if (!country || phase?.territory_enabled !== false) return;
-            if (selectedEthnicity !== 'all' && (!country.ethnicity || !country.ethnicity.includes(selectedEthnicity))) return;
-            const center = nonTerritorialCenters.get(countryId) || { lat:0, lng:0, count:0, country, phase, representative:null };
-            center.lat += castle.lat;
-            center.lng += castle.lng;
-            center.count += 1;
-            const record = active?.record || {};
-            const markerName = String(record.name || castle.name || '').trim();
-            const phaseNames = [phase?.name, phase?.name_zh, country.name, country.name_zh]
-                .map(value => String(value || '').trim())
-                .filter(Boolean);
-            const isCapital = !!(record.is_capital || record.place_type === 'capital' || record.place_type === 'hwangseong');
-            const exactNameMatch = phaseNames.some(name => markerName === name);
-            const containsName = phaseNames.some(name => name.length >= 2 && markerName.includes(name));
-            const score = isCapital ? 100 : exactNameMatch ? 80 : containsName ? 60 : 0;
-            if (!center.representative || score > center.representative.score) {
-                center.representative = { lat:castle.lat, lng:castle.lng, score };
-            }
-            nonTerritorialCenters.set(countryId, center);
-        });
-        nonTerritorialCenters.forEach((center, countryId) => {
-            const formLabel = COUNTRY_POLITICAL_FORM_LABELS[center.phase?.political_form] || '비영토 정치체';
-            const representative = center.representative?.score > 0 ? center.representative : null;
-            labelCandidates.push({
-                countryId,
-                country:center.country,
-                displayName:`${getMapCountryDisplayName(center.country, year, month)} · ${formLabel}`,
-                labelLat:representative?.lat ?? (center.lat / center.count),
-                labelLng:representative?.lng ?? (center.lng / center.count),
-                capital:null,
-                isNonTerritorial:true,
-                politicalForm:center.phase?.political_form,
-                markerSymbol:COUNTRY_POLITICAL_FORM_ICONS[center.phase?.political_form] || '•'
-            });
-        });
+        // 영토가 없는 부족·도적·유민은 실제로 등록된 장소 마커에서만 표시한다.
+        // 성·도시 좌표를 이용한 별도의 자동 대표 라벨은 중복과 위치 오인을 일으켜 생성하지 않는다.
 
         // ── 겹침 제거 (픽셀 AABB) ──────────────────────────────────
         // 라벨 박스: 가로 countryFontSize * 글자수 * 0.65, 세로 countryFontSize + 4
@@ -29550,6 +29523,8 @@ const loadingMessages = [
             document.getElementById('countryCastleCountRow').style.display = 'none';
             document.getElementById('countryIdRow').style.display = 'none';
             document.getElementById('countryIdDisplay').textContent = '';
+            document.getElementById('countryReferenceReplaceSection').style.display = 'none';
+            resetCountryReferenceReplace();
             renderCountryHistoryEditor([]);
             renderCountryPredecessorEditor([], '');
             return;
@@ -29581,6 +29556,8 @@ const loadingMessages = [
         // country_id 표시
         document.getElementById('countryIdDisplay').textContent = country._id || '';
         document.getElementById('countryIdRow').style.display = country._id ? 'flex' : 'none';
+        document.getElementById('countryReferenceReplaceSection').style.display = country._id ? 'block' : 'none';
+        resetCountryReferenceReplace();
 
         // 🏯 연결된 성/도시 수 계산
         updateCountryCastleCount(country._id, country.name);
@@ -29804,30 +29781,268 @@ const loadingMessages = [
     function updateCountryCastleCount(countryId, countryName) {
         const row = document.getElementById('countryCastleCountRow');
         const countEl = document.getElementById('countryCastleCount');
+        const listEl = document.getElementById('countryCastleConnectionList');
         if (!countryId) { row.style.display = 'none'; return; }
 
         // 로컬 castles 데이터로 즉시 계산
-        let direct = 0;   // country_id 직접 연결
-        let inHistory = 0; // history 배열 내 참조
+        const directCastles = [];   // country_id 직접 연결
+        const historyCastles = [];  // history 배열 내 참조
 
         castles.forEach(c => {
             const cid = c.country_id ? String(c.country_id) : null;
-            const inHist = (c.history || []).some(h => String(h.country_id) === String(countryId));
-            if (cid === String(countryId)) direct++;
-            else if (inHist) inHistory++;
+            const matchedHistory = (c.history || []).filter(h => String(h.country_id) === String(countryId));
+            if (cid === String(countryId)) directCastles.push(c);
+            else if (matchedHistory.length) historyCastles.push({ castle: c, records: matchedHistory });
         });
 
+        const direct = directCastles.length;
+        const inHistory = historyCastles.length;
         const total = direct + inHistory;
         row.style.display = 'flex';
+        listEl.hidden = true;
+        listEl.innerHTML = '';
+        countEl.setAttribute('aria-expanded', 'false');
 
         if (total === 0) {
             countEl.innerHTML = `<span style="color:#e74c3c;">⚠️ 연결된 성/도시 없음</span>`;
+            countEl.disabled = true;
+            countEl.style.cursor = 'default';
         } else {
+            countEl.disabled = false;
+            countEl.style.cursor = 'pointer';
             countEl.innerHTML =
                 `<span style="font-weight:bold; color:#2ecc71; font-size:15px;">🏯 총 ${total}개</span>` +
-                `<span style="color:#95a5a6; font-size:12px;">(수도/직접: ${direct}개 · 역사 기록: ${inHistory}개)</span>`;
+                `<span style="color:#95a5a6; font-size:12px;">(수도/직접: ${direct}개 · 역사 기록: ${inHistory}개)</span>` +
+                `<span class="country-castle-list-chevron" style="margin-left:auto; color:#c8a850;">▾</span>`;
+
+            const formatPeriod = record => {
+                const sy = Number(record.start_year ?? record.start);
+                const eyRaw = record.end_year ?? record.end;
+                const ey = eyRaw == null || eyRaw === '' ? null : Number(eyRaw);
+                const yearLabel = value => Number.isFinite(value)
+                    ? (value <= 0 ? `B.C. ${Math.abs(value)}` : `A.D. ${value}`)
+                    : '';
+                const startLabel = yearLabel(sy);
+                const endLabel = yearLabel(ey);
+                if (!startLabel && !endLabel) return '';
+                return endLabel ? `${startLabel}–${endLabel}` : `${startLabel}–`;
+            };
+            const castleName = castle => castle.name || castle.title || castle.city_name || '이름 없는 성/도시';
+            const focusHistoryRow = (castle, targetRecord) => {
+                if (typeof openCastleForm !== 'function') return;
+                openCastleForm(castle._id);
+                if (!targetRecord) return;
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    const targetId = String(targetRecord._id || targetRecord.id || '');
+                    const rows = Array.from(document.querySelectorAll('#castleHistoryList .history-record-row'));
+                    const row = rows.find(candidate => targetId && candidate.dataset.historyId === targetId) || rows.find(candidate => {
+                        const name = candidate.querySelector('input.history-name')?.value || '';
+                        const countryId = candidate.querySelector('input.history-country-id')?.value || '';
+                        const startYear = candidate.querySelector('input.history-start-year')?.value || '';
+                        const startMonth = candidate.querySelector('input.history-start-month')?.value || '1';
+                        return name === String(targetRecord.name || castleName(castle)) &&
+                            String(countryId) === String(targetRecord.country_id || '') &&
+                            String(startYear) === String(targetRecord.start_year ?? targetRecord.start ?? '') &&
+                            String(startMonth) === String(targetRecord.start_month || 1);
+                    });
+                    if (!row) return;
+                    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    row.style.transition = 'box-shadow .25s ease, border-color .25s ease';
+                    row.style.borderColor = '#f1c40f';
+                    row.style.boxShadow = '0 0 0 2px rgba(241,196,15,.38), 0 0 18px rgba(241,196,15,.22)';
+                    row.querySelector('input.history-country-name')?.focus({ preventScroll: true });
+                    setTimeout(() => {
+                        row.style.borderColor = '';
+                        row.style.boxShadow = '';
+                    }, 2400);
+                }));
+            };
+            const appendEditItem = (container, castle, metaLines, targetRecord = null) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.style.cssText = 'width:100%;display:block;margin:0 0 5px;padding:8px 9px;text-align:left;background:rgba(52,73,94,.38);border:1px solid rgba(93,113,133,.6);border-radius:4px;color:#ecf0f1;cursor:pointer;';
+                const title = document.createElement('div');
+                title.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#e4c56f;';
+                const titleText = document.createElement('span');
+                titleText.textContent = `🏯 ${castleName(castle)}`;
+                const editHint = document.createElement('span');
+                editHint.style.cssText = 'margin-left:auto;color:#68c7ee;font-size:10px;font-weight:600;';
+                editHint.textContent = targetRecord ? '이 기록 수정 →' : '수정 →';
+                title.append(titleText, editHint);
+                button.appendChild(title);
+                metaLines.filter(Boolean).forEach(line => {
+                    const meta = document.createElement('div');
+                    meta.style.cssText = 'margin-top:3px;font-size:11px;color:#aebdca;line-height:1.35;';
+                    meta.textContent = line;
+                    button.appendChild(meta);
+                });
+                button.addEventListener('click', () => focusHistoryRow(castle, targetRecord));
+                container.appendChild(button);
+            };
+            const appendSection = (title, count) => {
+                const heading = document.createElement('div');
+                heading.style.cssText = 'margin:5px 1px 7px;font-size:11px;font-weight:700;color:#95a5a6;';
+                heading.textContent = `${title} ${count}개`;
+                listEl.appendChild(heading);
+            };
+
+            if (directCastles.length) {
+                appendSection('수도/직접 연결', directCastles.length);
+                directCastles
+                    .slice()
+                    .sort((a, b) => castleName(a).localeCompare(castleName(b), 'ko'))
+                    .forEach(castle => appendEditItem(listEl, castle, [
+                        castle.is_capital ? '수도 · 국가 객체에 직접 연결' : '국가 객체에 직접 연결'
+                    ]));
+            }
+            if (historyCastles.length) {
+                appendSection('역사 기록 연결', historyCastles.length);
+                historyCastles
+                    .slice()
+                    .sort((a, b) => castleName(a.castle).localeCompare(castleName(b.castle), 'ko'))
+                    .forEach(({ castle, records }) => {
+                        records.forEach(record => {
+                            const name = record.name || castleName(castle);
+                            const period = formatPeriod(record);
+                            appendEditItem(listEl, castle, [
+                                `📜 ${name}${period ? ` · ${period}` : ''}`,
+                                `${countryName || '선택 국가'}에 연결된 역사 기록`
+                            ], record);
+                        });
+                    });
+            }
         }
     }
+
+    document.getElementById('countryCastleCount')?.addEventListener('click', function() {
+        if (this.disabled) return;
+        const listEl = document.getElementById('countryCastleConnectionList');
+        const willOpen = listEl.hidden;
+        listEl.hidden = !willOpen;
+        this.setAttribute('aria-expanded', String(willOpen));
+        const chevron = this.querySelector('.country-castle-list-chevron');
+        if (chevron) chevron.textContent = willOpen ? '▴' : '▾';
+    });
+
+    function getCountryReferenceImpact(sourceId) {
+        let directMarkers = 0;
+        let historyRecords = 0;
+        let affectedMarkers = 0;
+        castles.forEach(castle => {
+            const direct = String(castle.country_id || '') === String(sourceId);
+            const historyCount = (castle.history || []).filter(record =>
+                String(record?.country_id || '') === String(sourceId)
+            ).length;
+            if (direct) directMarkers++;
+            historyRecords += historyCount;
+            if (direct || historyCount) affectedMarkers++;
+        });
+        return { directMarkers, historyRecords, affectedMarkers };
+    }
+
+    function resetCountryReferenceReplace() {
+        const search = document.getElementById('countryReferenceReplaceSearch');
+        const targetId = document.getElementById('countryReferenceReplaceTargetId');
+        const results = document.getElementById('countryReferenceReplaceResults');
+        const preview = document.getElementById('countryReferenceReplacePreview');
+        const button = document.getElementById('countryReferenceReplaceBtn');
+        if (search) search.value = '';
+        if (targetId) targetId.value = '';
+        if (results) { results.innerHTML = ''; results.style.display = 'none'; }
+        if (preview) preview.textContent = '대체할 국가를 검색하여 선택하세요.';
+        if (button) button.disabled = true;
+    }
+
+    const countryReferenceReplaceSearch = document.getElementById('countryReferenceReplaceSearch');
+    const countryReferenceReplaceResults = document.getElementById('countryReferenceReplaceResults');
+    countryReferenceReplaceSearch?.addEventListener('input', () => {
+        const query = countryReferenceReplaceSearch.value.trim().toLowerCase();
+        const sourceId = document.getElementById('countryOriginalId').value;
+        document.getElementById('countryReferenceReplaceTargetId').value = '';
+        document.getElementById('countryReferenceReplaceBtn').disabled = true;
+        countryReferenceReplaceResults.innerHTML = '';
+        if (!query) {
+            countryReferenceReplaceResults.style.display = 'none';
+            return;
+        }
+        const matches = countries.filter(country => {
+            if (String(country._id) === String(sourceId)) return false;
+            const names = [country.name, ...(Array.isArray(country.aliases) ? country.aliases : [])];
+            return names.some(name => String(name || '').toLowerCase().includes(query));
+        }).slice(0, 30);
+        matches.forEach(country => {
+            const option = document.createElement('button');
+            option.type = 'button';
+            option.style.cssText = 'display:block;width:100%;padding:8px 9px;text-align:left;border:0;border-bottom:1px solid rgba(93,113,133,.45);background:transparent;color:#ecf0f1;cursor:pointer;';
+            const phaseNames = (country.history || []).map(phase => phase.name).filter(Boolean);
+            option.textContent = `${country.name}${phaseNames.length ? ` · ${phaseNames.slice(0, 4).join(' → ')}` : ''}`;
+            option.addEventListener('click', () => {
+                countryReferenceReplaceSearch.value = country.name;
+                document.getElementById('countryReferenceReplaceTargetId').value = country._id;
+                countryReferenceReplaceResults.style.display = 'none';
+                const impact = getCountryReferenceImpact(sourceId);
+                document.getElementById('countryReferenceReplacePreview').innerHTML =
+                    `<strong style="color:#e4c56f;">${country.name}</strong>(으)로 대체 · ` +
+                    `영향 마커 ${impact.affectedMarkers}개 ` +
+                    `(직접 ID ${impact.directMarkers}개 · 역사 행 ${impact.historyRecords}개)`;
+                document.getElementById('countryReferenceReplaceBtn').disabled = impact.affectedMarkers === 0;
+            });
+            countryReferenceReplaceResults.appendChild(option);
+        });
+        countryReferenceReplaceResults.style.display = matches.length ? 'block' : 'none';
+    });
+
+    document.getElementById('countryReferenceReplaceBtn')?.addEventListener('click', async function() {
+        const sourceId = document.getElementById('countryOriginalId').value;
+        const sourceName = document.getElementById('countryOriginalName').value;
+        const targetId = document.getElementById('countryReferenceReplaceTargetId').value;
+        const target = countries.find(country => String(country._id) === String(targetId));
+        if (!sourceId || !targetId || !target || String(sourceId) === String(targetId)) return;
+        const impact = getCountryReferenceImpact(sourceId);
+        const confirmed = confirm(
+            `'${sourceName}'에 연결된 국가 ID를 '${target.name}'(으)로 일괄 대체하시겠습니까?\n\n` +
+            `영향 마커: ${impact.affectedMarkers}개\n` +
+            `최상위 직접 ID: ${impact.directMarkers}개\n` +
+            `역사 기록 행: ${impact.historyRecords}개\n\n` +
+            `지명과 모든 연도·월은 그대로 유지되며, 이 작업은 자동으로 되돌릴 수 없습니다.`
+        );
+        if (!confirmed) return;
+        const token = getToken();
+        if (!token) return alert('로그인이 필요합니다.');
+        this.disabled = true;
+        const previousText = this.textContent;
+        this.textContent = '대체 중…';
+        try {
+            const response = await fetch(`${API_BASE_URL}/countries/${encodeURIComponent(sourceId)}/replace-castle-references`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ target_country_id: targetId })
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(payload.message || `HTTP ${response.status}`);
+
+            castles.forEach(castle => {
+                if (String(castle.country_id || '') === String(sourceId)) castle.country_id = targetId;
+                if (Array.isArray(castle.history)) {
+                    castle.history.forEach(record => {
+                        if (String(record?.country_id || '') === String(sourceId)) record.country_id = targetId;
+                    });
+                }
+            });
+            updateCountryCastleCount(sourceId, sourceName);
+            resetCountryReferenceReplace();
+            alert(`완료되었습니다.\n영향 마커 ${payload.affected_markers}개에서 직접 ID ${payload.direct_references}개와 역사 기록 ${payload.history_references}개를 대체했습니다.`);
+            if (typeof updateMap === 'function') {
+                updateMap(parseInt(yearInput.value, 10), parseInt(monthInput.value, 10), false, true);
+            }
+        } catch (error) {
+            console.error('국가 ID 일괄 대체 실패:', error);
+            alert(`국가 ID 일괄 대체 실패: ${error.message}`);
+        } finally {
+            this.textContent = previousText;
+            this.disabled = !document.getElementById('countryReferenceReplaceTargetId').value;
+        }
+    });
 
     // ══════════════════════════════════════════════════════
     // 🏛️ 국가 상세 패널 (Country Detail Panel)
@@ -41353,10 +41568,20 @@ kingSelect.addEventListener('change', () => {
                         const startMonthInput = row.querySelector('input.history-start-month');
                         const endYearInput    = row.querySelector('input.history-end-year');
                         const endMonthInput   = row.querySelector('input.history-end-month');
-                        if (startYearInput && country.start)       startYearInput.value  = country.start;
-                        if (startMonthInput && country.start_month) startMonthInput.value = country.start_month;
-                        if (endYearInput && country.end)           endYearInput.value    = country.end;
-                        if (endMonthInput && country.end_month)    endMonthInput.value   = country.end_month;
+                        const isEmptyHistoryDateField = (field) =>
+                            field && String(field.value ?? '').trim() === '';
+                        if (isEmptyHistoryDateField(startYearInput) && country.start != null && country.start !== '') {
+                            startYearInput.value = country.start;
+                        }
+                        if (isEmptyHistoryDateField(startMonthInput) && country.start_month != null && country.start_month !== '') {
+                            startMonthInput.value = country.start_month;
+                        }
+                        if (isEmptyHistoryDateField(endYearInput) && country.end != null && country.end !== '') {
+                            endYearInput.value = country.end;
+                        }
+                        if (isEmptyHistoryDateField(endMonthInput) && country.end_month != null && country.end_month !== '') {
+                            endMonthInput.value = country.end_month;
+                        }
                     });
                     dd.appendChild(item);
                 });

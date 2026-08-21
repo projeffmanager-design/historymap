@@ -4288,6 +4288,81 @@ app.get('/api/country-relations', async (req, res) => {
     }
 });
 
+// 국가 객체 통합용: 성·도시의 국가 참조만 다른 국가 ID로 일괄 교체한다.
+// 지명, 기간, 장소 유형을 포함한 나머지 마커 데이터는 그대로 보존한다.
+app.post('/api/countries/:sourceId/replace-castle-references', verifyAdmin, async (req, res) => {
+    try {
+        const sourceId = String(req.params.sourceId || '').trim();
+        const targetId = String(req.body?.target_country_id || '').trim();
+        const sourceObjectId = toObjectId(sourceId);
+        const targetObjectId = toObjectId(targetId);
+        if (!sourceObjectId || !targetObjectId) {
+            return res.status(400).json({ message: '원본 또는 대상 국가 ID 형식이 올바르지 않습니다.' });
+        }
+        if (sourceObjectId.equals(targetObjectId)) {
+            return res.status(400).json({ message: '같은 국가로는 대체할 수 없습니다.' });
+        }
+
+        const [sourceCountry, targetCountry] = await Promise.all([
+            collections.countries.findOne({ _id: sourceObjectId }, { projection: { name: 1 } }),
+            collections.countries.findOne({ _id: targetObjectId }, { projection: { name: 1 } })
+        ]);
+        if (!sourceCountry) return res.status(404).json({ message: '원본 국가를 찾을 수 없습니다.' });
+        if (!targetCountry) return res.status(404).json({ message: '대상 국가를 찾을 수 없습니다.' });
+
+        const sourceValues = countryIdQueryValues(sourceId);
+        const affected = await collections.castle.find({
+            $or: [
+                { country_id: { $in: sourceValues } },
+                { 'history.country_id': { $in: sourceValues } }
+            ]
+        }, { projection: { country_id: 1, history: 1 } }).toArray();
+
+        let directReferences = 0;
+        let historyReferences = 0;
+        const operations = affected.map(castle => {
+            const update = {};
+            if (String(castle.country_id || '') === sourceId) {
+                update.country_id = targetId;
+                directReferences++;
+            }
+            if (Array.isArray(castle.history)) {
+                let changed = false;
+                const history = castle.history.map(record => {
+                    if (!record || String(record.country_id || '') !== sourceId) return record;
+                    changed = true;
+                    historyReferences++;
+                    return { ...record, country_id: targetId };
+                });
+                if (changed) update.history = history;
+            }
+            return Object.keys(update).length ? {
+                updateOne: { filter: { _id: castle._id }, update: { $set: update } }
+            } : null;
+        }).filter(Boolean);
+
+        if (operations.length) await collections.castle.bulkWrite(operations, { ordered: false });
+        invalidateHeroCaches();
+        logCRUD(
+            'UPDATE',
+            'CountryReferences',
+            sourceCountry.name || sourceId,
+            `→ ${targetCountry.name || targetId}; markers=${operations.length}, direct=${directReferences}, history=${historyReferences}`
+        );
+        res.json({
+            message: '성·도시 국가 ID 일괄 대체 성공',
+            source_country_id: sourceId,
+            target_country_id: targetId,
+            affected_markers: operations.length,
+            direct_references: directReferences,
+            history_references: historyReferences
+        });
+    } catch (error) {
+        logCRUD('ERROR', 'CountryReferences', 'REPLACE', error.message);
+        res.status(500).json({ message: '성·도시 국가 ID 일괄 대체 실패', error: error.message });
+    }
+});
+
 // 🚩 [신규 추가] GET: 개별 국가 정보 조회
 app.get('/api/countries/:name', async (req, res) => {
     try {
