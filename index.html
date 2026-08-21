@@ -11286,6 +11286,10 @@ body.force-mobile .marker-type-selector button {
 
             <!-- 주변 탐색 탭 콘텐츠 -->
             <div id="odp-tab-content-nearby" style="display:none;">
+                <div id="odp-same-name-section" style="display:none; margin-bottom:12px; padding:8px 10px; background:rgba(255,255,255,0.04); border-radius:8px; border:1px solid rgba(180,140,80,0.2);">
+                    <div class="odp-section-title">🧭 동일 지명</div>
+                    <div id="odp-same-name-results" style="font-size:12px;color:#9aabbd;"></div>
+                </div>
                 <!-- 지명 검색으로 거리 재기 -->
                 <div style="margin-bottom:12px; padding:8px 10px; background:rgba(255,255,255,0.04); border-radius:8px; border:1px solid rgba(90,160,200,0.2);">
                     <div style="font-size:11px; color:#7ab8cc; margin-bottom:6px; font-weight:600;">📐 지명 검색 (거리 재기)</div>
@@ -14665,69 +14669,133 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         return records;
     }
 
+    const _odpSameNameCache = new Map();
+    let _odpSameNameRequestId = 0;
+    const _odpSameNameKey = value => String(value || '').normalize('NFKC').toLowerCase()
+        .replace(/\([^)]*\)|（[^）]*）/g, '').replace(/[\s·ㆍ,.-]+/g, '');
+    const _odpSameNameLabel = castle => castle?.name || castle?.name_ko || castle?.history?.find(item => item?.name)?.name || '이름 없음';
+    const _odpSameNamePeriod = castle => {
+        const history = Array.isArray(castle?.history) ? castle.history : [];
+        const starts = history.map(item => item?.start_year).filter(value => value !== null && value !== undefined && value !== '').map(Number).filter(Number.isFinite);
+        const ends = history.map(item => item?.end_year).filter(value => value !== null && value !== undefined && value !== '').map(Number).filter(Number.isFinite);
+        const start = starts.length ? Math.min(...starts) : Number(castle?.built_year);
+        const end = ends.length ? Math.max(...ends) : Number(castle?.destroyed_year);
+        const yearText = value => Number.isFinite(value) ? (value < 0 ? `BC ${Math.abs(value)}` : `${value}년`) : '';
+        return [yearText(start), yearText(end)].filter(Boolean).join(' ~ ');
+    };
+    window._odpGoToSameNameDb = function(castleId, targetYear = null, targetMonth = 1) {
+        const target = (castles || []).find(item => String(item?._id || item?.id) === String(castleId));
+        if (!target || !Number.isFinite(Number(target.lat)) || !Number.isFinite(Number(target.lng))) return;
+        const parsedYear = targetYear === null || targetYear === '' ? null : Number(targetYear);
+        const parsedMonth = Math.min(12,Math.max(1,Number(targetMonth)||1));
+        const openAtTime = () => {
+            const lat = Number(target.lat), lng = Number(target.lng);
+            if (window._is3dMode && window.mlMap3d) window.mlMap3d.flyTo({ center:[lng,lat], zoom:Math.max(window.mlMap3d.getZoom(),10), duration:1000, essential:true });
+            map.flyTo([lat,lng],Math.max(map.getZoom(),10),{animate:true,duration:.9});
+            const current = getCurrentYearMonth();
+            const active = getActiveHistoryInfo(target.history || [],yearMonthToTotalMonths(current.year,current.month))?.record || target.history?.[0] || null;
+            openDetailPanel(target,active,getCountryInfoById(active?.country_id || target.country_id));
+        };
+        if (Number.isFinite(parsedYear)) {
+            const total = yearMonthToTotalMonths(parsedYear,parsedMonth);
+            const slider = document.getElementById('combinedSlider');
+            const min = Number(slider?.min), max = Number(slider?.max);
+            const clamped = Math.min(Number.isFinite(max)?max:total,Math.max(Number.isFinite(min)?min:total,total));
+            const point = totalMonthsToYearMonth(clamped);
+            if(slider)slider.value=clamped;
+            const yearField=document.getElementById('yearInput'),monthField=document.getElementById('monthInput');
+            if(yearField)yearField.value=point.year;if(monthField)monthField.value=point.month;
+            if(typeof updateTime==='function')updateTime(point.year,point.month);
+            if(typeof updateUI==='function')updateUI(point.year,point.month);
+            if(typeof updateSliderTooltip==='function')updateSliderTooltip(point.year,point.month);
+            setTimeout(openAtTime,120);
+        } else openAtTime();
+    };
+    window._odpGoToSameNameMap = function(lat, lng, label, sub) {
+        if (typeof window._tbGoToMapResult === 'function') return window._tbGoToMapResult(Number(lat),Number(lng),label,sub);
+        if (window._is3dMode && window.mlMap3d) window.mlMap3d.flyTo({center:[Number(lng),Number(lat)],zoom:Math.max(window.mlMap3d.getZoom(),12),duration:1000});
+        map.flyTo([Number(lat),Number(lng)],Math.max(map.getZoom(),12),{animate:true,duration:.9});
+    };
+    async function loadSameNamePlaces(castle, visibleName) {
+        const section = document.getElementById('odp-same-name-section');
+        const box = document.getElementById('odp-same-name-results');
+        if (!section || !box) return;
+        const query = String(visibleName || castle?.name || '').trim();
+        const key = _odpSameNameKey(query);
+        const requestId = ++_odpSameNameRequestId;
+        if (!key) { section.style.display='none'; return; }
+        section.style.display='';
+        box.innerHTML='<div style="padding:8px 2px;color:#6f8796;">DB와 실지도를 찾는 중…</div>';
+        const currentPoint = getCurrentYearMonth();
+        const currentTotal = yearMonthToTotalMonths(currentPoint.year,currentPoint.month);
+        const dbHits = (castles || []).map(item => {
+            if (!Number.isFinite(Number(item?.lat)) || !Number.isFinite(Number(item?.lng))) return false;
+            const histories = (Array.isArray(item.history)?item.history:[]).filter(history => [history?.name,history?.name_ko,...(Array.isArray(history?.aliases)?history.aliases:[])].some(name => _odpSameNameKey(name) === key));
+            const baseMatch = [item.name,item.name_ko,...(Array.isArray(item.aliases)?item.aliases:[])].some(name => _odpSameNameKey(name) === key);
+            if (!histories.length && !baseMatch) return null;
+            const activeMatch = histories.find(history => {
+                const start=yearMonthToTotalMonths(Number(history.start_year ?? item.built_year ?? -999999),Number(history.start_month)||1);
+                const endRaw=history.end_year ?? item.destroyed_year;
+                const end=endRaw===null||endRaw===undefined||endRaw===''?Infinity:yearMonthToTotalMonths(Number(endRaw),Number(history.end_month)||12);
+                return currentTotal>=start&&currentTotal<=end;
+            });
+            const matched = activeMatch || histories.slice().sort((a,b)=>yearMonthToTotalMonths(Number(a.start_year??-999999),Number(a.start_month)||1)-yearMonthToTotalMonths(Number(b.start_year??-999999),Number(b.start_month)||1))[0] || item.history?.[0] || null;
+            return {castle:item,matched};
+        }).filter(Boolean).slice(0,20);
+        let mapHits = _odpSameNameCache.get(key);
+        if (!mapHits) {
+            try {
+                const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=8&accept-language=ko`, { headers:{'Accept-Language':'ko'} });
+                if (!response.ok) throw new Error(`Nominatim ${response.status}`);
+                mapHits = (await response.json()).map(item => ({
+                    lat:Number(item.lat), lng:Number(item.lon),
+                    name:String(item.display_name || '').split(',')[0] || query,
+                    sub:String(item.display_name || '').split(',').slice(1,4).join(',').trim()
+                })).filter(item => Number.isFinite(item.lat) && Number.isFinite(item.lng));
+                _odpSameNameCache.set(key,mapHits);
+            } catch (_) { mapHits=[]; }
+        }
+        if (requestId !== _odpSameNameRequestId) return;
+        const currentId = String(castle?._id || castle?.id || '');
+        const dbHtml = dbHits.map(hit => {
+            const item=hit.castle,matched=hit.matched;
+            const id = String(item._id || item.id || '');
+            const current = id === currentId;
+            const targetYearRaw=matched?.start_year ?? item.built_year;
+            const targetYear=targetYearRaw===null||targetYearRaw===undefined||targetYearRaw===''?null:Number(targetYearRaw);
+            const targetMonth=Number(matched?.start_month ?? item.built_month)||1;
+            const rawCountry=getCountryInfoById(matched?.country_id || item.country_id || item.countryId);
+            const periodCountry=rawCountry && Number.isFinite(targetYear)
+                ? getEffectiveCountryInfo(rawCountry,targetYear,targetMonth)
+                : rawCountry;
+            const countryLabel=periodCountry?.name || matched?.country_name || '';
+            const placeLabel=matched?.name || _odpSameNameLabel(item);
+            const matchedPeriod=matched?_odpSameNamePeriod({...item,history:[matched]}):_odpSameNamePeriod(item);
+            const sub = [matchedPeriod, `${Number(item.lat).toFixed(3)}, ${Number(item.lng).toFixed(3)}`].filter(Boolean).join(' · ');
+            return `<button type="button" onclick="_odpGoToSameNameDb('${_escapeHistoryInline(id)}',${Number.isFinite(targetYear)?targetYear:'null'},${targetMonth})" style="display:block;width:100%;padding:6px 8px;margin:3px 0;text-align:left;border:1px solid ${current?'rgba(212,168,67,.5)':'rgba(90,160,200,.22)'};border-radius:5px;background:${current?'rgba(212,168,67,.09)':'rgba(90,160,200,.05)'};color:#d5e3e9;cursor:pointer;"><b>${_escapeHistoryInline(placeLabel)}${countryLabel?` <span style="color:#8fc1d4;font-weight:600;">${_escapeHistoryInline(countryLabel)}</span>`:''}</b>${current?' <span style="color:#d4a843;font-size:9px;">현재 선택</span>':''}<small style="display:block;margin-top:2px;color:#718b99;">${_escapeHistoryInline(sub)}</small></button>`;
+        }).join('');
+        const mapHtml = mapHits.map(item => `<button type="button" class="odp-same-map-result" data-lat="${item.lat}" data-lng="${item.lng}" data-label="${_escapeHistoryInline(item.name)}" data-sub="${_escapeHistoryInline(item.sub)}" style="display:block;width:100%;padding:6px 8px;margin:3px 0;text-align:left;border:1px solid rgba(180,140,60,.22);border-radius:5px;background:rgba(180,140,60,.05);color:#e0d7c2;cursor:pointer;"><b>${_escapeHistoryInline(item.name)}</b><small style="display:block;margin-top:2px;color:#8f826a;">${_escapeHistoryInline(item.sub)}</small></button>`).join('');
+        box.innerHTML = `<div style="color:#7ab8cc;font-size:10px;font-weight:700;margin:5px 2px;">● DB 결과 ${dbHits.length}건</div>${dbHtml||'<div style="padding:5px 8px;color:#657985;">동일 지명이 없습니다.</div>'}<div style="color:#c8a850;font-size:10px;font-weight:700;margin:9px 2px 5px;">● 실지도 결과 ${mapHits.length}건</div>${mapHtml||'<div style="padding:5px 8px;color:#807866;">실지도 결과가 없습니다.</div>'}`;
+        box.querySelectorAll('.odp-same-map-result').forEach(button => button.addEventListener('click',()=>window._odpGoToSameNameMap(button.dataset.lat,button.dataset.lng,button.dataset.label,button.dataset.sub)));
+    }
+
     async function openDetailPanel(castle, activeHistoryRecord, countryInfo) {
         const panel = document.getElementById('object-detail-panel');
         if (!panel) return;
         window.prepareMobilePanelTransition?.('object');
-        // 지도 마커는 생성 당시의 castle 객체를 클로저로 보관한다. 편집 직후에는 이 객체가
-        // 이전 history를 가리킬 수 있으므로 상세를 열 때 DB의 최신 연결 기록을 다시 읽는다.
+        // 네트워크 조회를 기다리지 않고 패널 골격부터 즉시 보여준다.
+        panel.classList.add('active');
+        const immediateTitle = activeHistoryRecord?.name || castle?.name || '(이름 없음)';
+        const immediateTitleEl = document.getElementById('odp-title');
+        if (immediateTitleEl) immediateTitleEl.textContent = immediateTitle;
+        const immediateHistory = document.getElementById('odp-history-section');
+        const immediateTimeline = document.getElementById('odp-timeline');
+        if (immediateHistory) immediateHistory.style.display = '';
+        if (immediateTimeline) immediateTimeline.innerHTML = '<li class="odp-tl-item"><div class="odp-tl-dot current"></div><div class="odp-tl-name" style="color:#78909d;">상세 기록을 불러오는 중…</div></li>';
         const detailCastleId = castle?._id || castle?.id;
-        if (detailCastleId) {
-            try {
-                const freshResponse = await fetch(`${API_BASE_URL}/castle/${encodeURIComponent(String(detailCastleId))}`, {
-                    cache: 'no-store',
-                    headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-                });
-                if (freshResponse.ok) {
-                    const freshCastle = await freshResponse.json();
-                    if (freshCastle && (freshCastle._id || freshCastle.id)) {
-                        castle = freshCastle;
-                        const memoryIndex = (castles || []).findIndex(item => String(item?._id || item?.id) === String(detailCastleId));
-                        if (memoryIndex >= 0) castles[memoryIndex] = freshCastle;
-                        const { year: detailYear, month: detailMonth } = getCurrentYearMonth();
-                        activeHistoryRecord = getActiveHistoryInfo(
-                            freshCastle.history || [],
-                            yearMonthToTotalMonths(detailYear, detailMonth)
-                        )?.record || activeHistoryRecord;
-                        const freshCountryId = activeHistoryRecord?.country_id || freshCastle.country_id || freshCastle.countryId;
-                        countryInfo = getCountryInfoById(freshCountryId) || countryInfo;
-                    }
-                }
-            } catch (error) {
-                console.warn('마커 상세 최신 데이터 조회 실패, 현재 지도 데이터로 표시합니다.', error);
-            }
-        }
-        let graphLinkedRecords = [];
-        if (detailCastleId) {
-            try {
-                const relationResponse = await fetch(`/api/historical-relations?entityType=place&entityId=${encodeURIComponent(String(detailCastleId))}`, { cache:'no-store' });
-                if (relationResponse.ok) {
-                    const relations = await relationResponse.json();
-                    graphLinkedRecords = (Array.isArray(relations) ? relations : []).map(relation => {
-                        const placeIsSubject = relation.subject?.type === 'place' && String(relation.subject?.id) === String(detailCastleId);
-                        const recordEntity = placeIsSubject ? relation.object : relation.subject;
-                        if (recordEntity?.type !== 'history_record' && recordEntity?.type !== 'source_record') return null;
-                        return {
-                            id:String(recordEntity.id),
-                            type:recordEntity.type === 'source_record' ? 'source' : 'history',
-                            title:recordEntity.label || '역사 기록',
-                            year:Number(relation.period?.year ?? relation.period?.start_year),
-                            month:Number(relation.period?.month ?? relation.period?.start_month) || 1,
-                            exactYear:Number.isFinite(Number(relation.period?.year))
-                        };
-                    }).filter(Boolean);
-                    const uniqueGraphRecords = new Map();
-                    graphLinkedRecords.forEach(record => {
-                        const key = `${record.type}:${record.id}`;
-                        const previous = uniqueGraphRecords.get(key);
-                        if (!previous || record.exactYear) uniqueGraphRecords.set(key, record);
-                    });
-                    graphLinkedRecords = [...uniqueGraphRecords.values()];
-                }
-            } catch (error) {
-                console.warn('지명과 연결된 역사 관계 조회 실패:', error);
-            }
-        }
+        // 기본 상세는 지도에 이미 적재된 마커 데이터만 사용해 즉시 렌더링한다.
+        // 연결 사료는 각 역사 행의 linked_records를 사용하며 추가 네트워크 요청을 하지 않는다.
+        const graphLinkedRecords = [];
         // 현재 열린 패널의 castle id 추적 (저장 후 갱신에 사용)
         window._currentDetailCastleId = castle._id || castle.name;
         // 국가 상세 패널이 열려있으면 닫기
@@ -14770,7 +14838,11 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
 
         // ── 주변 탐색 탭 버튼 연결 ──
         if (castle.lat != null && castle.lng != null) {
-            window._odpOpenNearby = () => openNearbyModal(castle.lat, castle.lng, castleName);
+            window._odpOpenNearby = () => {
+                openNearbyModal(castle.lat, castle.lng, castleName);
+                // 동일 지명 DB·실지도 검색은 주변 탐색을 실제로 열 때만 실행한다.
+                loadSameNamePlaces(castle, castleName);
+            };
         } else {
             window._odpOpenNearby = null;
         }
