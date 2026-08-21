@@ -1407,6 +1407,13 @@ body.force-mobile #map-history-panel .history-window-control { display:none !imp
 .history-place-link::before { content:'⌖'; margin-right:2px; color:#d6ad55; font-size:.85em; }
 .history-place-link:hover,
 .history-place-link:focus-visible { color:#dff6ff; background:rgba(66,157,199,.25); outline:none; border-bottom-style:solid; }
+.history-historian-link {
+    display:inline; padding:0 3px; border:0; border-bottom:1px dotted rgba(119,205,155,.8);
+    border-radius:2px; background:rgba(61,145,96,.14); color:#8ee0af;
+    font:inherit; font-weight:700; cursor:pointer; text-decoration:none;
+}
+.history-historian-link::before { content:'@'; margin-right:1px; color:#d8b85e; }
+.history-historian-link:hover,.history-historian-link:focus-visible { color:#dffff0; background:rgba(61,145,96,.3); outline:none; }
 .history-person-link {
     display:inline;
     padding:0 2px;
@@ -4253,7 +4260,7 @@ body.force-mobile .marker-type-selector button {
         }
         .cdp-close-btn:hover { background: rgba(231,76,60,0.75); }
         .cdp-edit-btn {
-            position: absolute; top: 10px; right: 46px; z-index: 10;
+            position: absolute; top: 10px; right: 80px; z-index: 10;
             background: rgba(52,152,219,0.22); border: 1px solid rgba(52,152,219,0.5);
             color: #7dc3e8; font-size: 11px; padding: 4px 9px;
             border-radius: 12px; cursor: pointer; transition: background 0.2s;
@@ -4267,7 +4274,7 @@ body.force-mobile .marker-type-selector button {
         }
         .cdp-full-edit-btn:hover { background:rgba(212,168,67,.32); }
         .cdp-fullscreen-btn {
-            position:absolute; top:10px; right:108px; z-index:10; width:28px; height:28px;
+            position:absolute; top:10px; right:46px; z-index:10; width:28px; height:28px;
             display:flex; align-items:center; justify-content:center; border-radius:6px;
             background:rgba(0,0,0,.42); border:1px solid rgba(255,255,255,.22);
             color:#d9e4ea; font-size:15px; cursor:pointer;
@@ -9508,6 +9515,8 @@ body.force-mobile .marker-type-selector button {
         <!-- 🎬 유튜브 링크 (아이디 앞) -->
 
         <span id="usernameDisplay" style="font-weight: bold;"></span>
+        <button id="topbar-mypage-btn" class="topbar-btn" style="display:none;position:relative;" title="사관 개인 페이지">MY PAGE</button>
+        <button id="topbar-historian-alert" class="topbar-btn" style="display:none;position:relative;color:#ffd86b;" title="새 전서구와 호명">🕊️ <span id="topbar-historian-alert-count">0</span></button>
         
           <!-- 🚩 [추가] 고지도 버튼 -->
           <button id="topbar-ancient-maps-btn" class="topbar-btn">고지도 ▼</button>
@@ -13923,7 +13932,9 @@ body.force-mobile .marker-type-selector button {
             labelCandidates.push({ countryId, country, displayName, labelLat, labelLng, capital });
         });
 
-        // 영토를 갖지 않는 부족·연맹체는 활성 거점의 중심에 정치체 마커로 표시한다.
+        // 영토를 갖지 않는 부족·연맹체는 대표 거점에 정치체 마커로 표시한다.
+        // 여러 소속 지점의 단순 평균은 실제 거점이 없는 엉뚱한 위치로 라벨을 옮기므로,
+        // 수도 → 국호와 이름이 일치하는 마커 → 전체 중심 순으로 대표점을 고른다.
         const nonTerritorialCenters = new Map();
         castles.forEach(castle => {
             if (typeof castle.lat !== 'number' || typeof castle.lng !== 'number') return;
@@ -13935,20 +13946,33 @@ body.force-mobile .marker-type-selector button {
             const phase = getEffectiveCountryInfo(country, year, month);
             if (!country || phase?.territory_enabled !== false) return;
             if (selectedEthnicity !== 'all' && (!country.ethnicity || !country.ethnicity.includes(selectedEthnicity))) return;
-            const center = nonTerritorialCenters.get(countryId) || { lat:0, lng:0, count:0, country, phase };
+            const center = nonTerritorialCenters.get(countryId) || { lat:0, lng:0, count:0, country, phase, representative:null };
             center.lat += castle.lat;
             center.lng += castle.lng;
             center.count += 1;
+            const record = active?.record || {};
+            const markerName = String(record.name || castle.name || '').trim();
+            const phaseNames = [phase?.name, phase?.name_zh, country.name, country.name_zh]
+                .map(value => String(value || '').trim())
+                .filter(Boolean);
+            const isCapital = !!(record.is_capital || record.place_type === 'capital' || record.place_type === 'hwangseong');
+            const exactNameMatch = phaseNames.some(name => markerName === name);
+            const containsName = phaseNames.some(name => name.length >= 2 && markerName.includes(name));
+            const score = isCapital ? 100 : exactNameMatch ? 80 : containsName ? 60 : 0;
+            if (!center.representative || score > center.representative.score) {
+                center.representative = { lat:castle.lat, lng:castle.lng, score };
+            }
             nonTerritorialCenters.set(countryId, center);
         });
         nonTerritorialCenters.forEach((center, countryId) => {
             const formLabel = COUNTRY_POLITICAL_FORM_LABELS[center.phase?.political_form] || '비영토 정치체';
+            const representative = center.representative?.score > 0 ? center.representative : null;
             labelCandidates.push({
                 countryId,
                 country:center.country,
                 displayName:`${getMapCountryDisplayName(center.country, year, month)} · ${formLabel}`,
-                labelLat:center.lat / center.count,
-                labelLng:center.lng / center.count,
+                labelLat:representative?.lat ?? (center.lat / center.count),
+                labelLng:representative?.lng ?? (center.lng / center.count),
                 capital:null,
                 isNonTerritorial:true,
                 politicalForm:center.phase?.political_form,
@@ -14343,6 +14367,27 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     function stripImgTags(html) {
         if (!html) return '';
         return html.replace(/<img[^>]*>/gi, '').replace(/<figure[^>]*>[\s\S]*?<\/figure>/gi, '').trim();
+    }
+
+    // 설명의 기존 HTML 서식은 보존하고, 텍스트 노드 안의 엔티티 토큰만 링크로 변환한다.
+    function renderEntityTokensInRichHtml(html) {
+        if (!html) return '';
+        const template = document.createElement('template');
+        template.innerHTML = String(html);
+        const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
+        const textNodes = [];
+        while (walker.nextNode()) textNodes.push(walker.currentNode);
+        textNodes.forEach(node => {
+            if (!node.nodeValue?.includes('[[') || node.parentElement?.closest('button,script,style')) return;
+            const rendered = window.renderEntityLinkTokens
+                ? window.renderEntityLinkTokens(node.nodeValue)
+                : node.nodeValue;
+            if (rendered === node.nodeValue) return;
+            const fragment = document.createElement('template');
+            fragment.innerHTML = rendered;
+            node.replaceWith(fragment.content);
+        });
+        return template.innerHTML;
     }
 
     // contenteditable → hidden textarea 동기화
@@ -14766,7 +14811,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         const desc = castle.desc || activeHistoryRecord?.desc || activeHistoryRecord?.notes || '';
         if (desc) {
             // HTML 태그(이미지 등) 포함 가능하므로 innerHTML로 렌더링
-            descEl.innerHTML = desc;
+            descEl.innerHTML = renderEntityTokensInRichHtml(desc);
             descEl.style.display = '';
         } else {
             descEl.style.display = 'none';
@@ -15794,7 +15839,7 @@ function updateKingLabel(year, month) {
     }
 
     function buildCastleIndexPopup({ titleHtml, countryHtml = '', periodText = '', desc = '', photo = '', metaHtml = '', extraHtml = '', castleId, castleName }) {
-        const descHtml = desc ? `<p style="margin:0 0 7px 0;font-size:12px;color:#b8c8d4;white-space:pre-wrap;word-wrap:break-word;max-height:108px;overflow-y:auto;">${stripImgTags(desc)}</p>` : '';
+        const descHtml = desc ? `<p style="margin:0 0 7px 0;font-size:12px;color:#b8c8d4;white-space:pre-wrap;word-wrap:break-word;max-height:108px;overflow-y:auto;">${renderEntityTokensInRichHtml(stripImgTags(desc))}</p>` : '';
         const photoHtml = photo ? `<img src="${toRawImageUrl(photo)}" style="max-width:150px;max-height:100px;object-fit:cover;border-radius:4px;border:1px solid rgba(180,140,80,0.3);margin:2px 0 7px 0;display:block;">` : '';
         const primaryMetaHtml = (countryHtml || periodText) ? `<div style="font-size:11px;color:#9aabbd;display:flex;flex-direction:column;gap:3px;border-bottom:1px solid rgba(180,140,80,0.2);padding-bottom:6px;margin-bottom:7px;">
                 ${countryHtml}
@@ -26220,8 +26265,8 @@ const loadingMessages = [
     // 공용 @링크 모듈이 지연 로드되기 전에도 댓글·활동 소식의 첫 렌더에서
     // 내부 저장 토큰이 노출되지 않도록 기본 렌더러를 먼저 제공한다.
     window.renderEntityLinkTokens = window.renderEntityLinkTokens || function(value) {
-      return _escapeHistoryInline(value).replace(/\[\[(person|place|country):([^|\]]+)\|([^\]]+)\]\]/g, (_token, type, id, label) => {
-        const className = type === 'person' ? 'person' : type === 'country' ? 'country' : 'place';
+      return _escapeHistoryInline(value).replace(/\[\[(person|place|country|historian):([^|\]]+)\|([^\]]+)\]\]/g, (_token, type, id, label) => {
+        const className = type === 'person' ? 'person' : type === 'country' ? 'country' : type === 'historian' ? 'historian' : 'place';
         return `<button type="button" class="history-${className}-link global-entity-token-link" data-entity-type="${_escapeHistoryInline(type)}" data-entity-id="${_escapeHistoryInline(id)}">${_escapeHistoryInline(label)}</button>`;
       });
     };
@@ -35673,6 +35718,31 @@ kingSelect.addEventListener('change', () => {
         } else {
             console.log('❌ 토큰 없음, currentUser null 유지');
         }
+        const mypageBtn = document.getElementById('topbar-mypage-btn');
+        const historianAlertBtn = document.getElementById('topbar-historian-alert');
+        if (currentUser && !currentUser.isGuest) {
+            const myId = currentUser.userId || currentUser._id || currentUser.id || currentUser.username;
+            if (mypageBtn) {
+                mypageBtn.style.display = '';
+                // 같은 출처의 새 창은 opener를 유지해야 sessionStorage의 로그인 토큰이
+                // 새 browsing context에 복제되어 본인 전용 탭을 정상 판별할 수 있다.
+                mypageBtn.onclick = () => { window.open(`/mypage.html?id=${encodeURIComponent(myId)}`, '_blank'); };
+            }
+            const refreshHistorianAlert = async () => {
+                try {
+                    const response = await fetch('/api/historian-notifications/unread-count', { headers: { Authorization: `Bearer ${token}` } });
+                    if (!response.ok) return;
+                    const data = await response.json();
+                    const unread = Number(data.unread) || 0;
+                    const count = document.getElementById('topbar-historian-alert-count');
+                    if (count) count.textContent = unread > 99 ? '99+' : String(unread);
+                    if (historianAlertBtn) historianAlertBtn.style.display = unread > 0 ? '' : 'none';
+                } catch (_) {}
+            };
+            if (historianAlertBtn) historianAlertBtn.onclick = () => { window.open(`/mypage.html?id=${encodeURIComponent(myId)}&tab=mentions`, '_blank'); };
+            refreshHistorianAlert();
+            window.setInterval(refreshHistorianAlert, 30000);
+        }
         
         // 🚩 [추가] 직급명 → 품계+직급명 변환 함수 (DB에 구 형식으로 저장된 경우 대비)
         const POSITION_RANK_MAP = {
@@ -39617,7 +39687,7 @@ kingSelect.addEventListener('change', () => {
                         if (window._sharedPopup3d && window._sharedPopup3d._castleKey === c._id) return;
                         const markerDescription3d = getMarkerDescriptionAtTime(c, activeRec);
                         const pop = window._openSharedPopup(_m, [c.lng, c.lat],
-                            `<div style="font-size:13px;color:#e8d9b8;padding:4px 2px;cursor:pointer;max-width:280px;"><b>${castleName3d}</b>${ci ? `<br><span style="color:#7eb8e8;font-size:11px;">${ci.name}</span>` : ''}${markerDescription3d ? `<div style="margin-top:6px;padding-top:5px;border-top:1px solid rgba(180,140,80,.28);color:#b8c8d4;font-size:12px;white-space:pre-wrap;line-height:1.5;">${stripImgTags(markerDescription3d)}</div>` : ''}</div>`,
+                            `<div style="font-size:13px;color:#e8d9b8;padding:4px 2px;cursor:pointer;max-width:280px;"><b>${castleName3d}</b>${ci ? `<br><span style="color:#7eb8e8;font-size:11px;">${ci.name}</span>` : ''}${markerDescription3d ? `<div style="margin-top:6px;padding-top:5px;border-top:1px solid rgba(180,140,80,.28);color:#b8c8d4;font-size:12px;white-space:pre-wrap;line-height:1.5;">${renderEntityTokensInRichHtml(stripImgTags(markerDescription3d))}</div>` : ''}</div>`,
                             { offset: { 'bottom': [0, -80], 'bottom-left': [0, -80], 'bottom-right': [0, -80], 'top': [0, 10], 'left': [10, 0], 'right': [-10, 0] } }
                         );
                         pop._castleKey = c._id;
@@ -44869,7 +44939,7 @@ kingSelect.addEventListener('change', () => {
     <!-- 채팅 입력창 (로그인 시 표시) -->
     <div id="activity-chat-form" style="display:none;">
         <div id="activity-chat-input-row">
-            <input id="activity-chat-input" type="text" maxlength="200" placeholder="메시지 입력 (200자)..." autocomplete="off">
+            <input id="activity-chat-input" type="text" maxlength="200" placeholder="메시지 입력 @사관명 으로 전서구를 날려보세요. (200자)" autocomplete="off">
             <button id="activity-chat-send">전송</button>
         </div>
     </div>
@@ -45349,7 +45419,10 @@ body.guest-mode #activity-feed-panel { display: none !important; }
     function e(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
     function buildMessage(log) {
-        const actor  = `<span class="af-actor">${e(log.actor || '알 수 없음')}</span>`;
+        const actorName = log.actor || '알 수 없음';
+        const actor  = log.actor
+            ? `<a class="af-actor" href="/mypage.html?id=${encodeURIComponent(actorName)}" target="_blank" rel="opener" title="${e(actorName)} 사관 페이지">${e(actorName)}</a>`
+            : `<span class="af-actor">${e(actorName)}</span>`;
         const pos    = log.actorPosition
             ? `<span style="color:rgba(205,182,144,0.78);font-size:10px;">[${e(log.actorPosition)}]</span> `
             : '';
@@ -45535,14 +45608,18 @@ body.guest-mode #activity-feed-panel { display: none !important; }
                 </div>`;
             }
             if (log.type === 'chat') {
-                const actor = `<span class="af-actor">${e(log.actor || '?')}</span>`;
+                const chatActorName = log.actor || '?';
+                const actor = log.actor
+                    ? `<a class="af-actor" href="/mypage.html?id=${encodeURIComponent(chatActorName)}" target="_blank" rel="opener">${e(chatActorName)}</a>`
+                    : `<span class="af-actor">?</span>`;
                 const pos   = log.actorPosition
                     ? `<span style="color:rgba(205,182,144,0.78);font-size:9px;">[${e(log.actorPosition)}]</span> `
                     : '';
                 const rawText = (log.extra && log.extra.text) ? log.extra.text : '';
                 const text  = window.renderEntityLinkTokens ? window.renderEntityLinkTokens(rawText) : e(rawText);
+                const privateIcon = log.extra?.private ? '🔒' : '💬';
                 return `<div class="af-item af-chat">
-                    <span class="af-icon">💬</span>
+                    <span class="af-icon">${privateIcon}</span>
                     <span class="af-chat-text">${pos}${actor}: ${text}</span>
                     <span class="af-time">${relativeTime(log.createdAt)}</span>
                 </div>`;
@@ -45566,7 +45643,10 @@ body.guest-mode #activity-feed-panel { display: none !important; }
 
     async function fetchLogs() {
         try {
-            const resp = await fetch('/api/activity-logs?limit=100');
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            const resp = await fetch('/api/activity-logs?limit=100', {
+                headers: token ? { Authorization: `Bearer ${token}` } : {}
+            });
             if (!resp.ok) return;
             const logs = await resp.json();
             if (!Array.isArray(logs)) return;
@@ -49151,7 +49231,7 @@ window.toggleResourceBar = function(btn, forceState) {
 </script>
 
   <script type="module" src="./src/core/bootstrap.js?v=20260811-hero-title-label"></script>
-  <script type="module" src="./src/core/entity-mentions.js?v=20260812-editable-labels-2"></script>
+  <script type="module" src="./src/core/entity-mentions.js?v=20260821-historian-mentions-3"></script>
   <script async type="text/javascript" charset="utf-8" src="https://t1.kakaocdn.net/kas/static/ba.min.js"></script>
 </body>
 </html>

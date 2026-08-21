@@ -2,6 +2,7 @@ const mentionState = new WeakMap();
 const boundFields = new Set();
 let heroPromise;
 let countryPromise;
+let historianPromise;
 
 const esc = (value) => String(value || '').replace(/[&<>"']/g, (ch) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -124,7 +125,11 @@ async function searchAll(query) {
   heroPromise ||= fetch('/api/heroes/base', { cache: 'force-cache' }).then((r) => r.ok ? r.json() : { figures: [] }).catch(() => ({ figures: [] }));
   countryPromise ||= fetch('/api/countries', { cache: 'force-cache' }).then((r) => r.ok ? r.json() : []).catch(() => []);
   const placePromise = fetch(`/api/castle/search?q=${encodeURIComponent(query)}&limit=10`).then((r) => r.ok ? r.json() : []).catch(() => []);
-  const [places, heroBase, countries] = await Promise.all([placePromise, heroPromise, countryPromise]);
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+  historianPromise ||= token
+    ? fetch('/api/historians/directory', { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.ok ? r.json() : []).catch(() => [])
+    : Promise.resolve([]);
+  const [places, heroBase, countries, historians] = await Promise.all([placePromise, heroPromise, countryPromise, historianPromise]);
   const seenPeople = new Set();
   const people = (heroBase.figures || []).filter((hero) => {
     const identity = String(hero.person_id || hero._id);
@@ -134,7 +139,10 @@ async function searchAll(query) {
   }).slice(0, 8);
   const nations = (countries || []).filter((country) => [country.name, country.name_kor, country.name_chi, ...(country.aliases || [])]
     .filter(Boolean).join(' ').toLowerCase().includes(q)).slice(0, 6);
+  const officers = (historians || []).filter((historian) => [historian.username, historian.displayName, historian.position]
+    .filter(Boolean).join(' ').toLowerCase().includes(q)).slice(0, 8);
   return [
+    ...officers.map((item) => ({ type: 'historian', item })),
     ...nations.map((item) => ({ type: 'country', item })),
     ...people.map((item) => ({ type: 'person', item })),
     ...(places || []).map((item) => ({ type: 'place', item })),
@@ -142,8 +150,8 @@ async function searchAll(query) {
 }
 
 window.renderEntityLinkTokens = function renderEntityLinkTokens(value) {
-  return esc(value).replace(/\[\[(person|place|country):([^|\]]+)\|([^\]]+)\]\]/g, (_token, type, id, label) => (
-    `<button type="button" class="history-${type === 'person' ? 'person' : type === 'country' ? 'country' : 'place'}-link global-entity-token-link" data-entity-type="${type}" data-entity-id="${esc(id)}">${esc(label)}</button>`
+  return esc(value).replace(/\[\[(person|place|country|historian):([^|\]]+)\|([^\]]+)\]\]/g, (_token, type, id, label) => (
+    `<button type="button" class="history-${type === 'person' ? 'person' : type === 'country' ? 'country' : type === 'historian' ? 'historian' : 'place'}-link global-entity-token-link" data-entity-type="${type}" data-entity-id="${esc(id)}">${esc(label)}</button>`
   ));
 };
 
@@ -161,7 +169,7 @@ function bind(field) {
     const source = field.value;
     let plain = '';
     let cursor = 0;
-    source.replace(/\[\[(person|place|country):([^|\]]+)\|([^\]]+)\]\]/g, (token, type, id, label, offset) => {
+    source.replace(/\[\[(person|place|country|historian):([^|\]]+)\|([^\]]+)\]\]/g, (token, type, id, label, offset) => {
       plain += source.slice(cursor, offset);
       const marker = `@${label}`;
       const start = plain.length;
@@ -205,11 +213,11 @@ function bind(field) {
     popup.innerHTML = '';
     state.buttons = results.slice(0, 20).map(({ type, item }) => {
       const id = String(item._id || '');
-      const label = String(type === 'place' && item.matched_history_name ? item.matched_history_name : item.name_ko || item.name || '이름 없음');
+      const label = String(type === 'place' && item.matched_history_name ? item.matched_history_name : item.displayName || item.name_ko || item.name || item.username || '이름 없음');
       const button = document.createElement('button');
       button.type = 'button';
       button.style.cssText = 'display:flex;width:100%;gap:8px;justify-content:space-between;padding:7px 9px;border:0;border-radius:4px;background:transparent;color:#d8e5ec;text-align:left;cursor:pointer;';
-      button.innerHTML = `<span>${type === 'place' ? '📍 지명' : type === 'person' ? '👤 인물' : '🚩 국가'} · ${esc(label)}</span><small style="opacity:.6">${esc(type === 'place' ? item.name : type === 'person' ? item.title || item.faction : item.ethnicity)}</small>`;
+      button.innerHTML = `<span>${type === 'place' ? '📍 지명' : type === 'person' ? '👤 인물' : type === 'historian' ? '🏛️ 사관' : '🚩 국가'} · ${esc(label)}</span><small style="opacity:.6">${esc(type === 'place' ? item.name : type === 'person' ? item.title || item.faction : type === 'historian' ? `@${item.username || ''} ${item.position || ''}` : item.ethnicity)}</small>`;
       button.addEventListener('mouseenter', () => activate(state.buttons.indexOf(button)));
       button.addEventListener('mousedown', (event) => event.preventDefault());
       button.addEventListener('click', () => {
@@ -219,7 +227,7 @@ function bind(field) {
       });
       popup.appendChild(button); return button;
     });
-    if (!state.buttons.length) popup.innerHTML = '<div style="padding:7px;color:#82919c;font-size:11px;">관련 지명·인물·국가가 없습니다.</div>';
+    if (!state.buttons.length) popup.innerHTML = '<div style="padding:7px;color:#82919c;font-size:11px;">관련 사관·지명·인물·국가가 없습니다.</div>';
     else activate(0);
   };
   field.addEventListener('input', () => {
@@ -276,6 +284,7 @@ document.addEventListener('click', (event) => {
   const id = link.dataset.entityId;
   const type = link.dataset.entityType;
   if (type === 'person') window.heroSystem?.openSidebar?.(id);
+  else if (type === 'historian') window.open(`/mypage.html?id=${encodeURIComponent(id)}`, '_blank');
   else if (type === 'country') {
     const country = window.getCountryInfoById?.(id);
     if (country) window.showCountryInfoModal?.(country);

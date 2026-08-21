@@ -1147,6 +1147,33 @@ const logCRUD = (operation, collection, identifier, details = '') => {
     console.log(`${emoji[operation] || operation} ${collection}: ${identifier} ${details}`.trim());
 };
 
+// 본문에 저장된 사관 태그를 전서구 알림으로 전달한다.
+async function notifyHistorianMentions(cols, text, senderId, senderName, sourceType = 'text', sourceName = '') {
+    const raw = String(text || '');
+    const ids = [...raw.matchAll(/\[\[historian:([^|\]]+)\|([^\]]+)\]\]/g)]
+        .map(match => String(match[1]).trim())
+        .filter((id, index, all) => id && id !== String(senderId) && all.indexOf(id) === index);
+    if (!ids.length) return;
+    const recipients = await cols.users.find({
+        _id: { $in: ids.map(toObjectId).filter(Boolean) },
+        isGuest: { $ne: true }
+    }, { projection: { username: 1 } }).toArray();
+    if (!recipients.length) return;
+    const now = new Date();
+    await cols.historianMessages.insertMany(recipients.map(recipient => ({
+        type: 'mention',
+        senderId: String(senderId || ''),
+        senderName: senderName || '사관',
+        recipientId: String(recipient._id),
+        recipientName: recipient.username,
+        body: raw.slice(0, 1000),
+        sourceType,
+        sourceName: String(sourceName || '').slice(0, 120),
+        createdAt: now,
+        readAt: null
+    })));
+}
+
 // 🚩 [추가] 액티비티 로그 기록 헬퍼 함수
 // type: 'register' | 'submit' | 'review' | 'approve' | 'comment' | 'rankup' | 'checkin' | 'checkout'
 // userId(옵션): 전달 시 DB에서 실시간 직급을 계산하여 actorPosition을 덮어씀
@@ -1201,6 +1228,9 @@ async function logActivity(type, actor, actorPosition, targetName, extra = {}, u
             extra,
             createdAt: new Date()
         });
+        if (extra?.comment) {
+            await notifyHistorianMentions(cols, extra.comment, userId, actor, 'activity', targetName);
+        }
 
         // FIFO 정리: 일반 활동 30개 유지. 공지는 관리자가 직접 삭제할 때까지 보존한다.
         const regularLogQuery = { type: { $ne: 'notice' } };
@@ -3107,6 +3137,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
                     createdAt: new Date()
                 };
                 const inserted = await collections.heroComments.insertOne(comment);
+                await notifyHistorianMentions(collections, comment.content, comment.author_id, comment.author, 'hero-comment', identity.storageId);
                 updateHeroCommentCountCache(identity.storageId, 1);
                 const [serialized] = serializeHeroComments(req, [{ ...comment, _id: inserted.insertedId }]);
                 res.status(201).json(serialized);
@@ -5051,6 +5082,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     created_at: new Date()
                 };
                 const result = await collections.historyComments.insertOne(comment);
+                await notifyHistorianMentions(collections, text, comment.author_id, comment.author, 'history-comment', target.event_name || target.title || '역사 기록');
                 await logActivity('comment', req.user.username, req.user.position || '', target.event_name || target.title || '역사 기록', { record_type: recordType, record_id: String(recordId) }, req.user.userId);
 
                 // 마커 의견과 공통 규칙: 30자 이상, 하루 합산 5회, 자기 기록 제외 시 +1P
@@ -9062,15 +9094,21 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
 
             const user = await collections.users.findOne({ _id: toObjectId(req.user.userId) });
             const position = user?.position || req.user.position || '';
+            const privateRecipientIds = [...text.matchAll(/\[\[historian:([^|\]]+)\|[^\]]+\]\]/g)]
+                .map(match => String(match[1]).trim())
+                .filter((id, index, all) => id && id !== String(req.user.userId) && all.indexOf(id) === index);
 
             await collections.activityLogs.insertOne({
                 type: 'chat',
                 actor: req.user.username,
+                actorId: String(req.user.userId),
                 actorPosition: position,
                 targetName: null,
-                extra: { text },
+                extra: { text, private: privateRecipientIds.length > 0 },
+                privateRecipientIds,
                 createdAt: new Date()
             });
+            await notifyHistorianMentions(collections, text, req.user.userId, req.user.username, 'chat', '사관 활동 소식');
 
             // 채팅은 최근 200개까지 FIFO 보존
             const CHAT_HISTORY_LIMIT = 200;
@@ -9685,13 +9723,26 @@ app.put('/api/contributions/:id/reject-final', verifyToken, async (req, res) => 
 app.get('/api/activity-logs', async (req, res) => {
     try {
         const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+        const authUser = getOptionalAuthUser(req);
+        const viewerId = String(authUser?.userId || authUser?.id || authUser?._id || '');
+        const visibilityQuery = viewerId
+            ? { $or: [
+                { privateRecipientIds: { $exists: false } },
+                { privateRecipientIds: { $size: 0 } },
+                { actorId: viewerId },
+                { privateRecipientIds: viewerId }
+            ] }
+            : { $or: [
+                { privateRecipientIds: { $exists: false } },
+                { privateRecipientIds: { $size: 0 } }
+            ] };
         const [notices, regularLogs] = await Promise.all([
             collections.activityLogs
                 .find({ type: 'notice' })
                 .sort({ createdAt: -1 })
                 .toArray(),
             collections.activityLogs
-                .find({ type: { $ne: 'notice' } })
+                .find({ type: { $ne: 'notice' }, ...visibilityQuery })
                 .sort({ createdAt: -1 })
                 .limit(limit)
                 .toArray()
@@ -9722,6 +9773,7 @@ app.post('/api/notice', verifyAdmin, async (req, res) => {
             pinned: true   // 공지는 항상 상단 고정 표시용 플래그
         };
         await collections.activityLogs.insertOne(noticeDoc);
+        await notifyHistorianMentions(collections, text, req.user.userId, req.user.username, 'notice', '사관청 공지');
         res.json({ ok: true });
     } catch (error) {
         res.status(500).json({ message: '공지 등록 실패', error: error.message });
@@ -9794,6 +9846,7 @@ app.post('/api/marker-comments', verifyToken, async (req, res) => {
             created_at: new Date()
         };
         const result = await collections.markerComments.insertOne(comment);
+        await notifyHistorianMentions(collections, comment.text, req.user.userId, req.user.username, 'marker-comment', castle_id);
 
         // 🚩 [추가] 의견 등록 액티비티 로그 (castle 이름 조회)
         try {
@@ -10051,12 +10104,29 @@ app.get('/api/historian-messages', verifyToken, async (req, res) => {
     try {
         await setupRoutesAndCollections();
         const myId = String(req.user.userId);
-        const box = req.query.box === 'outbox' ? 'outbox' : 'inbox';
-        const query = box === 'outbox' ? { senderId: myId } : { recipientId: myId };
+        const box = ['outbox', 'mentions'].includes(req.query.box) ? req.query.box : 'inbox';
+        const query = box === 'outbox'
+            ? { senderId: myId, type: { $ne: 'mention' } }
+            : box === 'mentions'
+                ? { recipientId: myId, type: 'mention' }
+                : { recipientId: myId, type: { $ne: 'mention' } };
         const messages = await collections.historianMessages.find(query).sort({ createdAt: -1 }).limit(80).toArray();
         res.json(messages.map(message => ({ ...message, _id: String(message._id) })));
     } catch (error) {
         res.status(500).json({ message: '전서구 조회 실패', error: error.message });
+    }
+});
+
+app.get('/api/historian-notifications/unread-count', verifyToken, async (req, res) => {
+    try {
+        await setupRoutesAndCollections();
+        const [mail, mentions] = await Promise.all([
+            collections.historianMessages.countDocuments({ recipientId: String(req.user.userId), readAt: null, type: { $ne: 'mention' } }),
+            collections.historianMessages.countDocuments({ recipientId: String(req.user.userId), readAt: null, type: 'mention' })
+        ]);
+        res.json({ unread: mail + mentions, mail, mentions });
+    } catch (error) {
+        res.status(500).json({ message: '알림 조회 실패', error: error.message });
     }
 });
 
