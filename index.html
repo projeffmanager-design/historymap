@@ -1414,6 +1414,8 @@ body.force-mobile #map-history-panel .history-window-control { display:none !imp
 }
 .history-historian-link::before { content:'@'; margin-right:1px; color:#d8b85e; }
 .history-historian-link:hover,.history-historian-link:focus-visible { color:#dffff0; background:rgba(61,145,96,.3); outline:none; }
+.history-external-link { color:#7dcdf0;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px;overflow-wrap:anywhere; }
+.history-external-link:hover,.history-external-link:focus-visible { color:#c5efff;text-decoration-style:solid;outline:none; }
 .history-person-link {
     display:inline;
     padding:0 2px;
@@ -14390,6 +14392,41 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
             const fragment = document.createElement('template');
             fragment.innerHTML = rendered;
             node.replaceWith(fragment.content);
+        });
+        // 기존 <a>나 엔티티 버튼 내부는 제외하고 일반 텍스트의 URL만 외부 링크로 만든다.
+        const urlWalker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
+        const urlNodes = [];
+        while (urlWalker.nextNode()) urlNodes.push(urlWalker.currentNode);
+        const urlPattern = /(?:https?:\/\/|www\.)[^\s<>"']+/gi;
+        urlNodes.forEach(node => {
+            if (node.parentElement?.closest('a,button,script,style') || !urlPattern.test(node.nodeValue || '')) {
+                urlPattern.lastIndex = 0;
+                return;
+            }
+            urlPattern.lastIndex = 0;
+            const fragment = document.createDocumentFragment();
+            let cursor = 0;
+            for (const match of node.nodeValue.matchAll(urlPattern)) {
+                let urlText = match[0];
+                let trailing = '';
+                // 문장 끝 문장부호는 링크에 포함하지 않는다.
+                while (/[.,!?;:，。！？；：]$/.test(urlText)) {
+                    trailing = urlText.slice(-1) + trailing;
+                    urlText = urlText.slice(0,-1);
+                }
+                fragment.append(document.createTextNode(node.nodeValue.slice(cursor,match.index)));
+                const link = document.createElement('a');
+                link.className = 'history-external-link';
+                link.href = urlText.startsWith('www.') ? `https://${urlText}` : urlText;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.textContent = urlText;
+                fragment.append(link);
+                if (trailing) fragment.append(document.createTextNode(trailing));
+                cursor = match.index + match[0].length;
+            }
+            fragment.append(document.createTextNode(node.nodeValue.slice(cursor)));
+            node.replaceWith(fragment);
         });
         return template.innerHTML;
     }
@@ -28041,6 +28078,8 @@ const loadingMessages = [
         });
     }
 
+    const _castleHistoryLinkSearchCache = new Map();
+
     window.openCastleHistoryRecordLinker = function(row) {
         if (!row) return;
         document.getElementById('castle-history-record-linker')?.remove();
@@ -28139,11 +28178,17 @@ const loadingMessages = [
             const query = search.value.trim();
             const requestSeq = ++seq;
             if (!query) { results.innerHTML = ''; status.textContent = '연구 기록과 원전 사료를 함께 검색합니다.'; return; }
+            if (query.length < 2) { results.innerHTML=''; status.textContent='두 글자 이상 입력하면 검색합니다.'; return; }
             status.textContent = '검색 중…';
             try {
-                const response = await fetch(`/api/history/search?q=${encodeURIComponent(query)}&limit=100`, { cache:'no-store' });
-                if (!response.ok) throw new Error('검색 실패');
-                const records = await response.json();
+                const cacheKey=query.toLocaleLowerCase('ko-KR');
+                let records=_castleHistoryLinkSearchCache.get(cacheKey);
+                if(!records){
+                    const response = await fetch(`/api/history/search?q=${encodeURIComponent(query)}&limit=40`);
+                    if (!response.ok) throw new Error('검색 실패');
+                    records = await response.json();
+                    _castleHistoryLinkSearchCache.set(cacheKey,records);
+                }
                 if (requestSeq !== seq) return;
                 results.innerHTML = '';
                 status.textContent = `검색 결과 ${records.length}건`;
@@ -28195,7 +28240,7 @@ const loadingMessages = [
                 if (requestSeq === seq) status.textContent = '검색에 실패했습니다.';
             }
         };
-        search.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(runSearch, 220); });
+        search.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(runSearch, 320); });
         runSearch();
     };
     // 🚩 [추가] '역사 기록 추가' 버튼 이벤트 리스너

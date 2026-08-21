@@ -5148,6 +5148,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // GET: 역사 기록 키워드 검색
         app.get('/api/history/search', async (req, res) => {
             try {
+                const searchStartedAt = Date.now();
                 const { q, limit: limitParam, type } = req.query;
                 if (!q || q.trim().length < 1) return res.json([]);
                 const keyword = q.trim();
@@ -5170,28 +5171,45 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 // 두 컬렉션 동시 검색
                 const [historyResults, sourceResults] = await Promise.all([
                     collections.history.find(historyQuery, {
-                        projection: { event_name: 1, year: 1, month: 1, comment: 1, records: 1 }
+                        // 목록에서는 대용량 원문을 보내지 않는다. 미리보기 클릭 시 단건 API로 조회한다.
+                        projection: {
+                            event_name: 1, year: 1, month: 1, comment: 1,
+                            'records.korean.source': 1,
+                            'records.chinese.source': 1,
+                            'records.foreign.source': 1
+                        }
                     }).sort({ year: -1, month: -1 }).limit(maxResults).toArray(),
 
                     collections.sourceRecords.find(sourceQuery, {
-                        projection: { title: 1, content: 1, source: 1, year: 1, month: 1 }
+                        projection: { title: 1, source: 1, year: 1, month: 1 }
                     }).sort({ year: -1, month: -1 }).limit(maxResults).toArray(),
                 ]);
 
                 // 결과 병합
                 const merged = [
-                    ...historyResults.map(h => ({ ...h, type: 'history' })),
+                    ...historyResults.map(h => {
+                        const { records, ...summary } = h;
+                        return {
+                            ...summary,
+                            source: records?.korean?.source || records?.chinese?.source || records?.foreign?.source || '',
+                            type: 'history'
+                        };
+                    }),
                     ...sourceResults.map(s => ({
                         _id: s._id,
                         event_name: s.title,
                         year: s.year,
                         month: s.month,
                         source: s.source,
-                        content_preview: (s.content || '').slice(0, 60),
+                        content_preview: '',
                         type: 'source'
                     }))
                 ];
-                res.json(type === 'history' ? merged.filter(item => item.type === 'history') : merged);
+                const payload = (type === 'history' ? merged.filter(item => item.type === 'history') : merged).slice(0, maxResults);
+                res.set('Cache-Control', 'private, max-age=30');
+                const elapsed = Date.now() - searchStartedAt;
+                if (elapsed > 500) console.warn(`[history/search] 느린 검색 ${elapsed}ms q="${keyword}" results=${payload.length}`);
+                res.json(payload);
             } catch (error) {
                 res.status(500).json({ message: "역사 기록 검색 실패", error: error.message });
             }
