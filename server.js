@@ -4288,8 +4288,8 @@ app.get('/api/country-relations', async (req, res) => {
     }
 });
 
-// 국가 객체 통합용: 성·도시의 국가 참조만 다른 국가 ID로 일괄 교체한다.
-// 지명, 기간, 장소 유형을 포함한 나머지 마커 데이터는 그대로 보존한다.
+// 국가 객체 통합용: 성·도시와 인물의 국가 참조만 다른 국가 ID로 일괄 교체한다.
+// 지명, 기간, 장소 유형, 인물 신분 등 나머지 데이터는 그대로 보존한다.
 app.post('/api/countries/:sourceId/replace-castle-references', verifyAdmin, async (req, res) => {
     try {
         const sourceId = String(req.params.sourceId || '').trim();
@@ -4311,12 +4311,23 @@ app.post('/api/countries/:sourceId/replace-castle-references', verifyAdmin, asyn
         if (!targetCountry) return res.status(404).json({ message: '대상 국가를 찾을 수 없습니다.' });
 
         const sourceValues = countryIdQueryValues(sourceId);
-        const affected = await collections.castle.find({
-            $or: [
-                { country_id: { $in: sourceValues } },
-                { 'history.country_id': { $in: sourceValues } }
-            ]
-        }, { projection: { country_id: 1, history: 1 } }).toArray();
+        const [affected, affectedKingDocs] = await Promise.all([
+            collections.castle.find({
+                $or: [
+                    { country_id: { $in: sourceValues } },
+                    { 'history.country_id': { $in: sourceValues } }
+                ]
+            }, { projection: { country_id: 1, history: 1 } }).toArray(),
+            collections.kings.find({
+                $or: [
+                    { country_id: { $in: sourceValues } },
+                    { 'kings.country_id': { $in: sourceValues } },
+                    { 'kings.source_country_id': { $in: sourceValues } },
+                    { 'kings.career_history.country_id': { $in: sourceValues } },
+                    { 'kings.career_history.source_country_id': { $in: sourceValues } }
+                ]
+            }).toArray()
+        ]);
 
         let directReferences = 0;
         let historyReferences = 0;
@@ -4341,21 +4352,154 @@ app.post('/api/countries/:sourceId/replace-castle-references', verifyAdmin, asyn
             } : null;
         }).filter(Boolean);
 
+        let movedFigures = 0;
+        let figureCountryReferences = 0;
+        let careerReferences = 0;
+        const affectedFigureNames = new Set();
+        const sourceKingDocs = affectedKingDocs.filter(doc => String(doc.country_id || '') === sourceId);
+        const movedFigureRows = sourceKingDocs.flatMap(doc => Array.isArray(doc.kings) ? doc.kings : []);
+        movedFigures = movedFigureRows.length;
+        movedFigureRows.forEach(figure => {
+            const name = String(figure?.name_ko || figure?.name || figure?.title || '').trim();
+            if (name) affectedFigureNames.add(name);
+        });
+        const mapFigureCountryReferences = (figure) => {
+            let changed = false;
+            const mapped = { ...figure };
+            if (String(mapped.country_id || '') === sourceId) {
+                mapped.country_id = targetId;
+                figureCountryReferences++;
+                changed = true;
+            }
+            if (String(mapped.source_country_id || '') === sourceId) {
+                mapped.source_country_id = targetId;
+                figureCountryReferences++;
+                changed = true;
+            }
+            if (Array.isArray(mapped.career_history)) {
+                mapped.career_history = mapped.career_history.map(phase => {
+                    if (!phase) return phase;
+                    const next = { ...phase };
+                    let phaseChanged = false;
+                    if (String(next.country_id || '') === sourceId) {
+                        next.country_id = targetId;
+                        careerReferences++;
+                        phaseChanged = true;
+                    }
+                    if (String(next.source_country_id || '') === sourceId) {
+                        next.source_country_id = targetId;
+                        careerReferences++;
+                        phaseChanged = true;
+                    }
+                    if (phaseChanged) changed = true;
+                    return phaseChanged ? next : phase;
+                });
+            }
+            if (changed) {
+                const name = String(mapped.name_ko || mapped.name || mapped.title || '').trim();
+                if (name) affectedFigureNames.add(name);
+            }
+            return { figure: changed ? mapped : figure, changed };
+        };
+
+        // 먼저 실제 영향 건수를 센다. dry_run 요청은 어떤 데이터도 수정하지 않는다.
+        const mappedKingDocs = affectedKingDocs.map(doc => {
+            let changed = false;
+            const mappedKings = (Array.isArray(doc.kings) ? doc.kings : []).map(figure => {
+                const mapped = mapFigureCountryReferences(figure);
+                if (mapped.changed) changed = true;
+                return mapped.figure;
+            });
+            return { doc, mappedKings, changed };
+        });
+        const impactPayload = {
+            affected_markers: operations.length,
+            direct_references: directReferences,
+            history_references: historyReferences,
+            moved_figures: movedFigures,
+            figure_country_references: figureCountryReferences,
+            career_references: careerReferences,
+            figure_names: [...affectedFigureNames].slice(0, 50)
+        };
+        if (req.body?.dry_run === true) {
+            return res.json({ message: '국가 ID 대체 영향 범위', dry_run: true, ...impactPayload });
+        }
+
         if (operations.length) await collections.castle.bulkWrite(operations, { ordered: false });
+        const sourceKingDocIds = new Set(sourceKingDocs.map(doc => String(doc._id)));
+        const targetKingDoc = await collections.kings.findOne({ country_id: { $in: countryIdQueryValues(targetId) } });
+        const targetMappedEntry = mappedKingDocs.find(entry => String(entry.doc._id) === String(targetKingDoc?._id));
+        const targetExistingKings = targetMappedEntry
+            ? targetMappedEntry.mappedKings
+            : (Array.isArray(targetKingDoc?.kings) ? targetKingDoc.kings : []);
+        const movedMappedKings = movedFigureRows.map(figure => {
+            const mapped = mapFigureCountryReferences(figure).figure;
+            // 국가별 인물 문서 자체가 이동하므로 명시 필드가 없던 인물도 새 소속 ID를 갖게 한다.
+            return { ...mapped, source_country_id: targetId };
+        });
+        const existingFigureIds = new Set(targetExistingKings.map(figure => String(figure?._id || figure?.source_ref_id || '')));
+        const mergedKings = targetExistingKings.concat(movedMappedKings.filter(figure => {
+            const id = String(figure?._id || figure?.source_ref_id || '');
+            if (!id || !existingFigureIds.has(id)) {
+                if (id) existingFigureIds.add(id);
+                return true;
+            }
+            return false;
+        }));
+
+        await collections.kings.updateOne(
+            targetKingDoc ? { _id: targetKingDoc._id } : { country_id: targetObjectId },
+            {
+                $set: { kings: mergedKings, country_name: targetCountry.name || '', updatedAt: new Date() },
+                $setOnInsert: { country_id: targetObjectId }
+            },
+            { upsert: true }
+        );
+        const otherKingUpdates = mappedKingDocs
+            .filter(entry => !sourceKingDocIds.has(String(entry.doc._id)))
+            .filter(entry => String(entry.doc._id) !== String(targetKingDoc?._id))
+            .filter(entry => entry.changed)
+            .map(entry => ({
+                updateOne: {
+                    filter: { _id: entry.doc._id },
+                    update: { $set: { kings: entry.mappedKings, updatedAt: new Date() } }
+                }
+            }));
+        if (otherKingUpdates.length) await collections.kings.bulkWrite(otherKingUpdates, { ordered: false });
+        if (sourceKingDocs.length) {
+            await collections.kings.deleteMany({ _id: { $in: sourceKingDocs.map(doc => doc._id) } });
+        }
+        if (movedFigureRows.length) {
+            await Promise.all(movedFigureRows.map(figure => {
+                const sourceRefId = String(figure?.source_ref_id || figure?._id || '');
+                if (!sourceRefId) return null;
+                const oldHeroId = kingHeroId(sourceId, sourceRefId);
+                const newHeroId = kingHeroId(targetId, sourceRefId);
+                return Promise.all([
+                    collections.heroPositions.updateMany(
+                        { hero_id: oldHeroId },
+                        { $set: { hero_id: newHeroId, updatedAt: new Date() } }
+                    ),
+                    collections.heroComments.updateMany(
+                        { hero_id: oldHeroId },
+                        { $set: { hero_id: newHeroId } }
+                    )
+                ]);
+            }).filter(Boolean));
+        }
         invalidateHeroCaches();
+        invalidateKingsListCache();
         logCRUD(
             'UPDATE',
             'CountryReferences',
             sourceCountry.name || sourceId,
-            `→ ${targetCountry.name || targetId}; markers=${operations.length}, direct=${directReferences}, history=${historyReferences}`
+            `→ ${targetCountry.name || targetId}; markers=${operations.length}, figures=${movedFigures}, direct=${directReferences}, history=${historyReferences}, careers=${careerReferences}`
         );
         res.json({
-            message: '성·도시 국가 ID 일괄 대체 성공',
+            message: '성·도시·인물 국가 ID 일괄 대체 성공',
             source_country_id: sourceId,
             target_country_id: targetId,
-            affected_markers: operations.length,
-            direct_references: directReferences,
-            history_references: historyReferences
+            ...impactPayload
         });
     } catch (error) {
         logCRUD('ERROR', 'CountryReferences', 'REPLACE', error.message);

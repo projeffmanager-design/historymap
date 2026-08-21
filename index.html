@@ -12300,7 +12300,7 @@ body.force-mobile .marker-type-selector button {
         <div id="countryReferenceReplaceSection" style="display:none; margin:14px 0; padding:12px; border:1px solid #7b5930; border-radius:7px; background:rgba(57,39,16,.38);">
             <strong style="color:#efc66f;">🔁 연결 국가 ID 일괄 대체</strong>
             <div style="margin-top:4px; color:#b9aa8b; font-size:11px; line-height:1.45;">
-                이 국가에 연결된 성·도시의 <code>country_id</code>만 대상 국가로 바꿉니다. 지명과 시작·종료 연도는 변경하지 않습니다.
+                이 국가에 연결된 성·도시와 인물의 <code>country_id</code>만 대상 국가로 바꿉니다. 지명·신분과 시작·종료 연도는 변경하지 않습니다.
             </div>
             <div style="position:relative; margin-top:9px;">
                 <input type="text" id="countryReferenceReplaceSearch" autocomplete="off" placeholder="대체할 국가명 검색…" style="width:100%; box-sizing:border-box;">
@@ -12308,7 +12308,7 @@ body.force-mobile .marker-type-selector button {
                 <div id="countryReferenceReplaceResults" style="display:none; position:absolute; z-index:40; top:100%; left:0; right:0; max-height:190px; overflow:auto; background:#182533; border:1px solid #5d7185; border-radius:0 0 5px 5px;"></div>
             </div>
             <div id="countryReferenceReplacePreview" style="margin-top:8px; color:#95a5a6; font-size:11px; line-height:1.5;">대체할 국가를 검색하여 선택하세요.</div>
-            <button type="button" id="countryReferenceReplaceBtn" disabled style="margin-top:9px; width:100%; padding:8px; border:1px solid #b9772c; background:rgba(185,119,44,.17); color:#efc66f; border-radius:5px; cursor:pointer; font-weight:700;">연결된 country_id 일괄 대체</button>
+            <button type="button" id="countryReferenceReplaceBtn" disabled style="margin-top:9px; width:100%; padding:8px; border:1px solid #b9772c; background:rgba(185,119,44,.17); color:#efc66f; border-radius:5px; cursor:pointer; font-weight:700;">성·도시·인물 country_id 일괄 대체</button>
         </div>
         <div class="form-row" id="countryIdRow" style="display:none;">
             <label style="color:#95a5a6; font-size:12px;">country_id:</label>
@@ -29940,6 +29940,52 @@ const loadingMessages = [
         return { directMarkers, historyRecords, affectedMarkers };
     }
 
+    let countryReferenceServerImpact = null;
+
+    async function loadCountryReferenceImpact(sourceId, target) {
+        const preview = document.getElementById('countryReferenceReplacePreview');
+        const button = document.getElementById('countryReferenceReplaceBtn');
+        const token = getToken();
+        const local = getCountryReferenceImpact(sourceId);
+        countryReferenceServerImpact = null;
+        preview.innerHTML = `<strong style="color:#e4c56f;">${target.name}</strong>(으)로 대체 · 영향 범위 확인 중…`;
+        button.disabled = true;
+        try {
+            const response = await fetch(`${API_BASE_URL}/countries/${encodeURIComponent(sourceId)}/replace-castle-references`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+                body: JSON.stringify({ target_country_id: target._id, dry_run: true })
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(payload.message || `HTTP ${response.status}`);
+            // 검색 도중 다른 국가를 다시 선택했다면 늦게 도착한 응답은 버린다.
+            if (String(document.getElementById('countryReferenceReplaceTargetId').value) !== String(target._id)) return;
+            countryReferenceServerImpact = payload;
+            const figureNames = Array.isArray(payload.figure_names)
+                ? payload.figure_names.map(name => String(name).replace(/[&<>"']/g, char => ({
+                    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+                })[char]))
+                : [];
+            preview.innerHTML =
+                `<strong style="color:#e4c56f;">${target.name}</strong>(으)로 대체<br>` +
+                `🏯 영향 마커 ${payload.affected_markers || 0}개 ` +
+                `(직접 ID ${payload.direct_references || 0}개 · 역사 행 ${payload.history_references || 0}개)<br>` +
+                `🦸 이동 인물 ${payload.moved_figures || 0}명 ` +
+                `(인물 국가 ID ${payload.figure_country_references || 0}건 · 신분·소속 이력 ${payload.career_references || 0}건)` +
+                `${figureNames.length ? `<br><span style="color:#b9aa8b;">${figureNames.join(', ')}</span>` : ''}`;
+            button.disabled = !((payload.affected_markers || 0) + (payload.moved_figures || 0) +
+                (payload.figure_country_references || 0) + (payload.career_references || 0));
+        } catch (error) {
+            // 배포 전 로컬 화면에서는 새 미리보기 API가 없을 수 있으므로 마커 범위는 계속 보여준다.
+            preview.innerHTML =
+                `<strong style="color:#e4c56f;">${target.name}</strong>(으)로 대체 · ` +
+                `영향 마커 ${local.affectedMarkers}개 ` +
+                `(직접 ID ${local.directMarkers}개 · 역사 행 ${local.historyRecords}개)<br>` +
+                `<span style="color:#d69b72;">인물 영향 범위는 새 서버 배포 후 확인됩니다.</span>`;
+            button.disabled = local.affectedMarkers === 0;
+        }
+    }
+
     function resetCountryReferenceReplace() {
         const search = document.getElementById('countryReferenceReplaceSearch');
         const targetId = document.getElementById('countryReferenceReplaceTargetId');
@@ -29951,6 +29997,7 @@ const loadingMessages = [
         if (results) { results.innerHTML = ''; results.style.display = 'none'; }
         if (preview) preview.textContent = '대체할 국가를 검색하여 선택하세요.';
         if (button) button.disabled = true;
+        countryReferenceServerImpact = null;
     }
 
     const countryReferenceReplaceSearch = document.getElementById('countryReferenceReplaceSearch');
@@ -29980,12 +30027,7 @@ const loadingMessages = [
                 countryReferenceReplaceSearch.value = country.name;
                 document.getElementById('countryReferenceReplaceTargetId').value = country._id;
                 countryReferenceReplaceResults.style.display = 'none';
-                const impact = getCountryReferenceImpact(sourceId);
-                document.getElementById('countryReferenceReplacePreview').innerHTML =
-                    `<strong style="color:#e4c56f;">${country.name}</strong>(으)로 대체 · ` +
-                    `영향 마커 ${impact.affectedMarkers}개 ` +
-                    `(직접 ID ${impact.directMarkers}개 · 역사 행 ${impact.historyRecords}개)`;
-                document.getElementById('countryReferenceReplaceBtn').disabled = impact.affectedMarkers === 0;
+                loadCountryReferenceImpact(sourceId, country);
             });
             countryReferenceReplaceResults.appendChild(option);
         });
@@ -29999,12 +30041,15 @@ const loadingMessages = [
         const target = countries.find(country => String(country._id) === String(targetId));
         if (!sourceId || !targetId || !target || String(sourceId) === String(targetId)) return;
         const impact = getCountryReferenceImpact(sourceId);
+        const serverImpact = countryReferenceServerImpact || {};
         const confirmed = confirm(
             `'${sourceName}'에 연결된 국가 ID를 '${target.name}'(으)로 일괄 대체하시겠습니까?\n\n` +
-            `영향 마커: ${impact.affectedMarkers}개\n` +
-            `최상위 직접 ID: ${impact.directMarkers}개\n` +
-            `역사 기록 행: ${impact.historyRecords}개\n\n` +
-            `지명과 모든 연도·월은 그대로 유지되며, 이 작업은 자동으로 되돌릴 수 없습니다.`
+            `영향 마커: ${serverImpact.affected_markers ?? impact.affectedMarkers}개\n` +
+            `최상위 직접 ID: ${serverImpact.direct_references ?? impact.directMarkers}개\n` +
+            `역사 기록 행: ${serverImpact.history_references ?? impact.historyRecords}개\n` +
+            `이동 인물: ${serverImpact.moved_figures ?? 0}명\n` +
+            `인물 신분·소속 이력: ${serverImpact.career_references ?? 0}건\n\n` +
+            `지명·신분과 모든 연도·월은 그대로 유지되며, 이 작업은 자동으로 되돌릴 수 없습니다.`
         );
         if (!confirmed) return;
         const token = getToken();
@@ -30031,7 +30076,11 @@ const loadingMessages = [
             });
             updateCountryCastleCount(sourceId, sourceName);
             resetCountryReferenceReplace();
-            alert(`완료되었습니다.\n영향 마커 ${payload.affected_markers}개에서 직접 ID ${payload.direct_references}개와 역사 기록 ${payload.history_references}개를 대체했습니다.`);
+            alert(
+                `완료되었습니다.\n` +
+                `영향 마커 ${payload.affected_markers}개에서 직접 ID ${payload.direct_references}개와 역사 기록 ${payload.history_references}개를 대체했습니다.\n` +
+                `인물 ${payload.moved_figures || 0}명과 신분·소속 이력 ${payload.career_references || 0}건도 함께 이전했습니다.`
+            );
             if (typeof updateMap === 'function') {
                 updateMap(parseInt(yearInput.value, 10), parseInt(monthInput.value, 10), false, true);
             }
