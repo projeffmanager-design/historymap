@@ -104,6 +104,19 @@ const parseKingHeroId = (id) => {
 };
 
 const heroIdStorageValue = (id) => toObjectId(normalizeRouteId(id)) || normalizeRouteId(id);
+const normalizeUserEmail = (value) => String(value || '').trim().toLowerCase();
+const escapeRegex = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const userEmailDuplicateQuery = (email, excludeId = null) => {
+    const normalized = normalizeUserEmail(email);
+    const query = {
+        $or: [
+            { email_normalized: normalized },
+            { email: { $regex: `^${escapeRegex(normalized)}$`, $options: 'i' } }
+        ]
+    };
+    if (excludeId) query._id = { $ne: excludeId };
+    return query;
+};
 const countryIdQueryValues = (countryId) => {
     const values = [String(countryId || '')].filter(Boolean);
     const objectId = toObjectId(countryId);
@@ -1395,8 +1408,8 @@ const verifyAdminOnly = (req, res, next) => { // 회원 관리자 권한 검증
     jwt.verify(token, jwtSecret, (err, user) => {
         if (err) return res.status(403).json({ message: "유효하지 않은 토큰입니다." });
 
-        if (user.role !== 'admin') {
-            return res.status(403).json({ message: "회원 관리자(admin) 권한이 필요합니다." });
+        if (user.role !== 'admin' && user.role !== 'superuser') {
+            return res.status(403).json({ message: "회원 관리자 권한이 필요합니다." });
         }
         req.user = user;
         next();
@@ -6784,7 +6797,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     return res.status(409).json({ message: "이미 존재하는 사용자 이름입니다." });
                 }
                 // 🚩 [추가] 이메일 중복 확인
-                const existingEmail = await collections.users.findOne({ email });
+                const normalizedEmail = normalizeUserEmail(email);
+                const existingEmail = await collections.users.findOne(userEmailDuplicateQuery(normalizedEmail));
                 if (existingEmail) {
                     return res.status(409).json({ message: "이미 사용 중인 이메일입니다." });
                 }
@@ -6792,7 +6806,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const hashedPassword = await bcrypt.hash(password, 10);
                 await collections.users.insertOne({
                     username,
-                    email,
+                    email: normalizedEmail,
+                    email_normalized: normalizedEmail,
                     password: hashedPassword,
                     role: role || 'user', // 기본 역할은 'user'
                     position: position || '참봉', // 기본 직급은 '참봉'
@@ -6807,6 +6822,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
 
                 res.status(201).json({ message: "사용자 등록 성공" });
             } catch (error) {
+                if (error?.code === 11000) {
+                    return res.status(409).json({ message: "이미 사용 중인 사용자 이름 또는 이메일입니다." });
+                }
                 res.status(500).json({ message: "서버 오류가 발생했습니다.", error: error.message });
             }
         });
@@ -7649,7 +7667,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 }
 
                 const { username, email, role, password } = req.body;
-                const updateData = { username, email, role };
+                const normalizedEmail = normalizeUserEmail(email);
+                if (!username || !normalizedEmail) {
+                    return res.status(400).json({ message: "사용자 이름과 이메일을 입력해주세요." });
+                }
+                const updateData = { username, email: normalizedEmail, email_normalized: normalizedEmail, role };
                 // position은 /designated-position API로 별도 처리
 
                 // 사용자 이름 중복 확인 (자신 제외)
@@ -7659,7 +7681,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 }
 
                 // 이메일 중복 확인 (자신 제외)
-                const existingEmail = await collections.users.findOne({ email, _id: { $ne: _id } });
+                const existingEmail = await collections.users.findOne(userEmailDuplicateQuery(normalizedEmail, _id));
                 if (existingEmail) {
                     return res.status(409).json({ message: "이미 사용 중인 이메일입니다." });
                 }
@@ -7681,6 +7703,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 res.json({ message: "사용자 정보 업데이트 성공" });
             } catch (error) {
                 console.error("사용자 정보 업데이트 중 오류:", error);
+                if (error?.code === 11000) {
+                    return res.status(409).json({ message: "이미 사용 중인 사용자 이름 또는 이메일입니다." });
+                }
                 res.status(500).json({ message: "사용자 정보 업데이트 실패", error: error.message });
             }
         });
@@ -9387,7 +9412,8 @@ app.post('/api/auth/signup', async (req, res) => {
         if (existingUser) {
             return res.status(409).json({ message: "이미 존재하는 사용자 이름입니다." });
         }
-        const existingEmail = await collections.users.findOne({ email });
+        const normalizedEmail = normalizeUserEmail(email);
+        const existingEmail = await collections.users.findOne(userEmailDuplicateQuery(normalizedEmail));
         if (existingEmail) {
             return res.status(409).json({ message: "이미 사용 중인 이메일입니다." });
         }
@@ -9395,7 +9421,8 @@ app.post('/api/auth/signup', async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
         await collections.users.insertOne({
             username,
-            email,
+            email: normalizedEmail,
+            email_normalized: normalizedEmail,
             password: hashedPassword,
             role: 'user', // 일반 사용자로 역할 고정
             createdAt: new Date(), // 🚩 [추가] 생성일 기록
@@ -9404,6 +9431,9 @@ app.post('/api/auth/signup', async (req, res) => {
 
         res.status(201).json({ message: "회원가입 성공" });
     } catch (error) {
+        if (error?.code === 11000) {
+            return res.status(409).json({ message: "이미 사용 중인 사용자 이름 또는 이메일입니다." });
+        }
         res.status(500).json({ message: "서버 오류가 발생했습니다.", error: error.message });
     }
 });
