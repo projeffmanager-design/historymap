@@ -9996,6 +9996,7 @@ app.put('/api/contributions/:id/reject-final', verifyToken, async (req, res) => 
 app.get('/api/activity-logs', async (req, res) => {
     try {
         const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+        const chatLimit = Math.min(parseInt(req.query.chatLimit) || limit, 100);
         const authUser = getOptionalAuthUser(req);
         const viewerId = String(authUser?.userId || authUser?.id || authUser?._id || '');
         const visibilityQuery = viewerId
@@ -10009,18 +10010,23 @@ app.get('/api/activity-logs', async (req, res) => {
                 { privateRecipientIds: { $exists: false } },
                 { privateRecipientIds: { $size: 0 } }
             ] };
-        const [notices, regularLogs] = await Promise.all([
+        const [notices, chatLogs, regularLogs] = await Promise.all([
             collections.activityLogs
                 .find({ type: 'notice' })
                 .sort({ createdAt: -1 })
                 .toArray(),
             collections.activityLogs
-                .find({ type: { $ne: 'notice' }, ...visibilityQuery })
+                .find({ type: 'chat', ...visibilityQuery })
+                .sort({ createdAt: -1 })
+                .limit(chatLimit)
+                .toArray(),
+            collections.activityLogs
+                .find({ type: { $nin: ['notice', 'chat'] }, ...visibilityQuery })
                 .sort({ createdAt: -1 })
                 .limit(limit)
                 .toArray()
         ]);
-        const logs = [...notices, ...regularLogs].sort((a, b) => (
+        const logs = [...notices, ...chatLogs, ...regularLogs].sort((a, b) => (
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         ));
         res.json(logs);
