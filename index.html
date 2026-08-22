@@ -9762,6 +9762,7 @@ body.force-mobile .marker-type-selector button {
               <div class="hm-field-label" style="margin-bottom:7px;">편집 도구</div>
               <div class="hm-action-grid">
                   <button id="menu-cityEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">🏯 성/도시</button>
+                  <button id="menu-castle-rule-bulk" style="background:rgba(212,168,67,.12);border-color:#d4a843;color:#f5d98b;">🖱️ 통치 일괄</button>
                   <button id="menu-countryEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">🏛️ 국가</button>
                   <button id="menu-kingEditBtn" style="background: rgba(52,152,219,0.1); border-color: #3498db; color: #3498db;">👑 왕</button>
                   <button id="menu-heroEditBtn" style="background: rgba(245,196,66,0.1); border-color: #f5c442; color: #f5c442;">👤 인물</button>
@@ -10067,7 +10068,7 @@ body.force-mobile .marker-type-selector button {
         <div id="current-year-display" style="position: fixed; bottom: calc(58px + var(--ad-bottom-h, 0px)); left: 50%; transform: translateX(-50%); z-index: 1000; background: transparent; color: rgba(255,255,255,0.82); font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; font-size: 13px; font-weight: 400; text-shadow: 0 1px 4px rgba(0,0,0,0.9); pointer-events: none; white-space: nowrap; letter-spacing: 0.03em;"></div>
         
         <!-- 🚩 [복구] 지도 위 미니 사관 랭킹 (5위까지) -->
-        <div id="rankingDisplay" style="position: fixed; top: 72px; right: 0; z-index: 1000; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; border: none; border-radius: 8px; color: white; font-size: 12px; font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; text-shadow: 1px 1px 3px rgba(0,0,0,0.9); line-height: 1.6; pointer-events: auto; min-width: 180px; max-width: 234px; user-select: none; transition: background 0.25s ease, box-shadow 0.25s ease;">
+        <div id="rankingDisplay" style="display:none; position: fixed; top: 72px; right: 0; z-index: 1000; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; border: none; border-radius: 8px; color: white; font-size: 12px; font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; text-shadow: 1px 1px 3px rgba(0,0,0,0.9); line-height: 1.6; pointer-events: auto; min-width: 180px; max-width: 234px; user-select: none; transition: background 0.25s ease, box-shadow 0.25s ease;">
             <div id="rankingDisplay-header" style="padding: 5px 10px 4px; cursor: pointer; border-bottom: 1px solid rgba(241,196,15,0.15); font-weight: bold; font-size: 12px; color: #f1c40f; display: flex; align-items: center; gap: 4px;">
                 🏆 <span>사관 랭킹</span>
                 <button type="button" id="rankingDisplay-close" class="app-panel-close-btn" title="사관 랭킹 닫기" aria-label="사관 랭킹 닫기">&times;</button>
@@ -12216,6 +12217,41 @@ body.force-mobile .marker-type-selector button {
       </div><!-- edit-panel-inner -->
   </div>
 
+    <!-- 지도에서 성을 클릭하여 통치 이력을 일괄 추가하는 관리자 도구 -->
+    <div id="castle-rule-bulk-panel" style="display:none;position:fixed;right:18px;top:70px;width:320px;max-height:calc(100vh - 100px);overflow:auto;z-index:12000;background:rgba(13,25,37,.97);border:1px solid #a77b32;border-radius:9px;box-shadow:0 8px 30px rgba(0,0,0,.55);padding:13px;color:#d9e2e8;font-size:12px;box-sizing:border-box;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:11px;">
+        <strong style="color:#f0c96a;font-size:14px;">🖱️ 성 통치 기록 일괄 편집</strong>
+        <button type="button" id="castle-rule-bulk-close" style="margin-left:auto;border:0;background:transparent;color:#aaa;font-size:20px;cursor:pointer;">×</button>
+      </div>
+      <label style="display:block;margin-bottom:8px;">통치 국가
+        <input id="castle-rule-country-search" type="search" list="castle-rule-country-options" autocomplete="off" placeholder="국가명을 입력하여 찾기" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:7px;background:#182735;color:#e8edf0;border:1px solid #546879;border-radius:5px;">
+        <datalist id="castle-rule-country-options"></datalist>
+        <input id="castle-rule-country" type="hidden">
+      </label>
+      <div style="display:grid;grid-template-columns:1fr 72px;gap:7px;margin-bottom:8px;">
+        <label>시작 연도<input id="castle-rule-start-year" type="number" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:7px;background:#182735;color:#fff;border:1px solid #546879;border-radius:5px;"></label>
+        <label>월<input id="castle-rule-start-month" type="number" min="1" max="12" value="1" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:7px;background:#182735;color:#fff;border:1px solid #546879;border-radius:5px;"></label>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 72px;gap:7px;margin-bottom:10px;">
+        <label>종료 연도 <small style="color:#788b98;">(비우면 계속)</small><input id="castle-rule-end-year" type="number" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:7px;background:#182735;color:#fff;border:1px solid #546879;border-radius:5px;"></label>
+        <label>월<input id="castle-rule-end-month" type="number" min="1" max="12" value="12" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:7px;background:#182735;color:#fff;border:1px solid #546879;border-radius:5px;"></label>
+      </div>
+      <div style="padding:8px;border-radius:5px;background:rgba(212,168,67,.08);color:#d5bd84;line-height:1.5;">지도에 현재 보이는 성·도시 마커를 클릭하면 선택/해제됩니다. 자연지형·군대·지명은 제외됩니다.</div>
+      <div style="margin-top:10px;padding-top:9px;border-top:1px solid #344958;">
+        <label for="castle-rule-castle-search" style="display:block;color:#b9c8d2;margin-bottom:4px;">성 이름으로 직접 추가</label>
+        <input id="castle-rule-castle-search" type="search" autocomplete="off" placeholder="성·도시 이름 입력" style="width:100%;box-sizing:border-box;padding:7px;background:#182735;color:#e8edf0;border:1px solid #546879;border-radius:5px;">
+        <div id="castle-rule-castle-results" style="display:none;max-height:145px;overflow:auto;margin-top:5px;border:1px solid #405564;border-radius:5px;background:#101c25;"></div>
+      </div>
+      <div style="display:flex;align-items:center;margin-top:10px;gap:6px;">
+        <b id="castle-rule-selected-count" style="color:#7fd8ff;">선택 0개</b>
+        <button type="button" id="castle-rule-clear" style="margin-left:auto;padding:5px 8px;background:#283846;color:#b7c6d0;border:1px solid #526676;border-radius:4px;cursor:pointer;">선택 해제</button>
+      </div>
+      <div id="castle-rule-selected-list" style="max-height:110px;overflow:auto;margin-top:7px;color:#9fb0bb;line-height:1.55;"></div>
+      <button type="button" id="castle-rule-preview" style="width:100%;margin-top:10px;padding:8px;background:#74551e;color:#ffe7a5;border:1px solid #bf913f;border-radius:5px;cursor:pointer;font-weight:700;">변경 미리보기</button>
+      <div id="castle-rule-preview-box" style="display:none;margin-top:9px;padding:9px;background:#101b24;border:1px solid #405260;border-radius:5px;line-height:1.55;"></div>
+      <button type="button" id="castle-rule-apply" disabled style="width:100%;margin-top:8px;padding:8px;background:#235d3b;color:#d9ffe7;border:1px solid #3d9a63;border-radius:5px;cursor:pointer;font-weight:700;opacity:.45;">선택한 성에 적용</button>
+    </div>
+
     <div id="countryForm">
     <div class="edit-panel-header">
         <h3>🏛️ 국가 정보 편집</h3>
@@ -12906,7 +12942,7 @@ body.force-mobile .marker-type-selector button {
         kingPanel: false,  // 🚩 [수정] 왕목록 패널 초기값 OFF
         historyPanel: true, // 🚩 [수정] 역사기록 패널 초기값 ON (사료 기록 표시)
         userContributions: false, // 🚩 [추가] 유저 기여 레이어
-        rankingPanel: true,  // 🚩 [추가] 사관 랭킹 패널
+        rankingPanel: false, // 사관 랭킹 패널 최초 화면 OFF
         activityFeed: true,  // 🚩 [추가] 사관활동 소식 피드
         captionPanel: true,  // 🚩 [추가] 역사 서사 자막 패널 (기본 ON)
         eventSidebar: false, // 🚩 [과제2] 사건목록 사이드바 토글
@@ -20238,7 +20274,9 @@ function invalidateCountryLookupCache() {
         try { localStorage.setItem(BROWSER_PANEL_CONFIG_KEY, JSON.stringify(saved)); } catch (_) {}
     }
     function withBrowserPanelConfiguration(settings) {
-        return { ...(settings || {}), ...readBrowserPanelConfiguration() };
+        // 사관 랭킹은 저장된 브라우저 설정이나 서버 설정과 관계없이
+        // 매 페이지 최초 진입 시 닫힌 상태로 시작한다. 이후 메뉴에서 다시 켤 수 있다.
+        return { ...(settings || {}), ...readBrowserPanelConfiguration(), rankingPanel:false };
     }
 
     // 🚩 [최적화] 레이어 설정 먼저 로드 (데이터 로딩 전)
@@ -27152,6 +27190,226 @@ const loadingMessages = [
     });
 
     
+    // ── 지도 클릭 기반 성 통치 기록 일괄 편집 ──────────────────────
+    (function setupCastleRuleBulkEditor() {
+        const selected = new Map();
+        let active = false;
+        let previewSignature = '';
+        const panel = document.getElementById('castle-rule-bulk-panel');
+        const countrySelect = document.getElementById('castle-rule-country');
+        const countrySearch = document.getElementById('castle-rule-country-search');
+        const countryOptions = document.getElementById('castle-rule-country-options');
+        const castleSearch = document.getElementById('castle-rule-castle-search');
+        const castleResults = document.getElementById('castle-rule-castle-results');
+        const count = document.getElementById('castle-rule-selected-count');
+        const list = document.getElementById('castle-rule-selected-list');
+        const previewBox = document.getElementById('castle-rule-preview-box');
+        const applyButton = document.getElementById('castle-rule-apply');
+        const h = value => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        const countryLabels = new Map();
+
+        const castleId = castle => String(castle?._id?.$oid || castle?._id || '');
+        const eligible = castle => castle && castleId(castle) && !castle.is_natural_feature
+            && !castle.is_military_flag && !castle.is_label && !castle.deleted;
+        const visibleMarkerFor = id => (allCastleMarkers || []).find(marker => castleId(marker?._castleData) === id && map.hasLayer(marker));
+        function markSelection() {
+            (allCastleMarkers || []).forEach(marker => {
+                const el = marker?.getElement?.();
+                if (!el) return;
+                const chosen = selected.has(castleId(marker._castleData));
+                el.style.filter = chosen ? 'drop-shadow(0 0 5px #00e5ff) drop-shadow(0 0 2px #fff)' : '';
+                el.style.outline = chosen ? '2px solid #00d9ff' : '';
+                el.style.outlineOffset = chosen ? '3px' : '';
+            });
+        }
+        function invalidatePreview() {
+            previewSignature = '';
+            previewBox.style.display = 'none';
+            applyButton.disabled = true;
+            applyButton.style.opacity = '.45';
+        }
+        function renderSelected() {
+            count.textContent = `선택 ${selected.size}개`;
+            list.innerHTML = [...selected.values()].map(castle => `<div style="display:flex;gap:5px;align-items:center;"><span style="flex:1;">• ${h(castle.name || castle.history?.[0]?.name || castleId(castle))}</span><button type="button" data-remove-castle="${h(castleId(castle))}" style="border:0;background:transparent;color:#df806d;cursor:pointer;">×</button></div>`).join('') || '<span style="color:#637581;">아직 선택된 성이 없습니다.</span>';
+            markSelection();
+            invalidatePreview();
+        }
+        function populateCountries() {
+            countryLabels.clear();
+            const duplicateCounts = new Map();
+            (countries || []).forEach(country => {
+                const name = String(country.name || '이름 없음');
+                duplicateCounts.set(name, (duplicateCounts.get(name) || 0) + 1);
+            });
+            const rows = (countries || []).slice().sort((a,b) => String(a.name || '').localeCompare(String(b.name || ''), 'ko')).map(country => {
+                const id = String(country._id?.$oid || country._id || '');
+                const name = String(country.name || '이름 없음');
+                const label = duplicateCounts.get(name) > 1 ? `${name} [${id.slice(-6)}]` : name;
+                countryLabels.set(label, id);
+                return `<option value="${h(label)}"></option>`;
+            });
+            countryOptions.innerHTML = rows.join('');
+            resolveCountryInput();
+        }
+        function resolveCountryInput() {
+            const typed = countrySearch.value.trim();
+            let id = countryLabels.get(typed) || '';
+            if (!id && typed) {
+                const exact = (countries || []).find(country => String(country.name || '').trim().toLocaleLowerCase('ko-KR') === typed.toLocaleLowerCase('ko-KR'));
+                if (exact) id = String(exact._id?.$oid || exact._id || '');
+            }
+            countrySelect.value = id;
+            countrySearch.style.borderColor = typed && !id ? '#c8604f' : '#546879';
+            invalidatePreview();
+        }
+        function close() {
+            active = false;
+            panel.style.display = 'none';
+            map.getContainer().style.cursor = '';
+            selected.clear();
+            castleResults.style.display = 'none';
+            castleSearch.value = '';
+            renderSelected();
+        }
+        window._castleRuleBulkSelectById = idValue => {
+            if (!active) return false;
+            const id = String(idValue?.$oid || idValue || '');
+            const castle = (castles || []).find(item => castleId(item) === id);
+            if (!eligible(castle)) {
+                showToast('성·도시 마커만 선택할 수 있습니다.', 'info', 2200);
+                return true;
+            }
+            if (selected.has(id)) selected.delete(id); else selected.set(id, castle);
+            closeDetailPanel();
+            map.closePopup();
+            renderSelected();
+            return true;
+        };
+        function open() {
+            if (!editMode || !(currentUser?.role === 'admin' || currentUser?.role === 'superuser')) return alert('관리자 편집 모드에서 사용할 수 있습니다.');
+            populateCountries();
+            const current = getCurrentYearMonth();
+            document.getElementById('castle-rule-start-year').value = current.year;
+            document.getElementById('castle-rule-start-month').value = current.month;
+            active = true;
+            panel.style.display = 'block';
+            map.getContainer().style.cursor = 'pointer';
+            renderSelected();
+            document.getElementById('hamburger-menu-panel')?.classList.remove('active');
+            document.getElementById('hamburger-menu-overlay')?.classList.remove('active');
+        }
+        function payload(dryRun) {
+            const endRaw = document.getElementById('castle-rule-end-year').value.trim();
+            return {
+                castle_ids:[...selected.keys()], country_id:countrySelect.value,
+                start_year:Number(document.getElementById('castle-rule-start-year').value),
+                start_month:Number(document.getElementById('castle-rule-start-month').value),
+                end_year:endRaw === '' ? null : Number(endRaw),
+                end_month:Number(document.getElementById('castle-rule-end-month').value), dry_run:dryRun
+            };
+        }
+        function signature(data) { return JSON.stringify(data); }
+        async function request(dryRun) {
+            if (!selected.size) throw new Error('지도에서 성을 하나 이상 선택하세요.');
+            if (!countrySelect.value) throw new Error('통치 국가를 선택하세요.');
+            const data = payload(dryRun);
+            if (!Number.isInteger(data.start_year)) throw new Error('시작 연도를 입력하세요.');
+            const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+            const response = await fetch('/api/castles/bulk-rule-history', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body:JSON.stringify(data) });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.message || '일괄 처리 요청에 실패했습니다.');
+            return { result, data };
+        }
+        document.getElementById('menu-castle-rule-bulk')?.addEventListener('click', open);
+        window._closeCastleRuleBulkEditor = close;
+        document.getElementById('castle-rule-bulk-close')?.addEventListener('click', close);
+        document.getElementById('castle-rule-clear')?.addEventListener('click', () => { selected.clear(); renderSelected(); });
+        list?.addEventListener('click', event => {
+            const button = event.target.closest('[data-remove-castle]');
+            if (!button) return;
+            selected.delete(button.dataset.removeCastle);
+            renderSelected();
+        });
+        countrySearch?.addEventListener('input', resolveCountryInput);
+        countrySearch?.addEventListener('change', resolveCountryInput);
+        castleSearch?.addEventListener('input', () => {
+            const query = castleSearch.value.trim().toLocaleLowerCase('ko-KR');
+            if (!query) { castleResults.style.display='none'; castleResults.innerHTML=''; return; }
+            const matches = (castles || []).filter(castle => eligible(castle) && [castle.name, ...(castle.history || []).map(record => record?.name)]
+                .filter(Boolean).some(name => String(name).toLocaleLowerCase('ko-KR').includes(query))).slice(0,30);
+            castleResults.style.display = 'block';
+            castleResults.innerHTML = matches.length ? matches.map(castle => {
+                const id = castleId(castle), added = selected.has(id);
+                const names = [...new Set((castle.history || []).map(record => record?.name).filter(name => name && name !== castle.name))].slice(0,2);
+                return `<button type="button" data-add-castle="${h(id)}" style="display:block;width:100%;padding:7px 8px;text-align:left;border:0;border-bottom:1px solid #2c414f;background:${added?'rgba(32,122,92,.2)':'transparent'};color:${added?'#82e8b7':'#d7e1e7'};cursor:pointer;"><b>${h(castle.name || names[0] || id)}</b>${names.length?` <small style="color:#718b99;">${h(names.join(' · '))}</small>`:''}<span style="float:right;">${added?'✓ 선택됨':'+ 추가'}</span></button>`;
+            }).join('') : '<div style="padding:8px;color:#71838e;">검색 결과가 없습니다.</div>';
+        });
+        castleResults?.addEventListener('click', event => {
+            const button = event.target.closest('[data-add-castle]');
+            if (!button) return;
+            const castle = (castles || []).find(item => castleId(item) === button.dataset.addCastle);
+            if (castle && eligible(castle)) selected.set(castleId(castle), castle);
+            renderSelected();
+            castleSearch.dispatchEvent(new Event('input'));
+        });
+        panel?.querySelectorAll('input,select').forEach(input => input.addEventListener('change', invalidatePreview));
+        document.getElementById('castle-rule-preview')?.addEventListener('click', async () => {
+            try {
+                previewBox.style.display = 'block'; previewBox.textContent = '변경 내용을 계산하는 중…';
+                const { result, data } = await request(true); const s = result.summary;
+                previewBox.innerHTML = `<b style="color:#f0c96a;">${h(s.country.name)}</b> · ${s.period.start_year}년 ${s.period.start_month}월 ~ ${s.period.end_year == null ? '계속' : `${s.period.end_year}년 ${s.period.end_month}월`}<br>대상 ${s.matched}개 · 새 기록 ${s.inserted}개<br>겹치는 기존 기록 ${s.overlapped}개 (종료 조정 ${s.trimmed}개, 기간 분할 ${s.split}개)${s.missing ? `<br><span style="color:#ff9b78;">찾지 못한 성 ${s.missing}개</span>` : ''}`;
+                previewSignature = signature(data);
+                applyButton.disabled = false; applyButton.style.opacity = '1';
+            } catch (error) { previewBox.style.display='block'; previewBox.textContent=`⚠️ ${error.message}`; invalidatePreview(); previewBox.style.display='block'; }
+        });
+        applyButton?.addEventListener('click', async () => {
+            try {
+                const data = payload(true);
+                if (previewSignature !== signature(data)) throw new Error('설정이나 선택이 바뀌었습니다. 미리보기를 다시 실행하세요.');
+                if (!confirm(`선택한 ${selected.size}개 성의 통치 기록을 실제로 변경할까요?`)) return;
+                applyButton.disabled = true; applyButton.textContent = '적용 중…';
+                const { result } = await request(false);
+                (result.castles || []).forEach(updated => {
+                    const id = castleId(updated), index = castles.findIndex(castle => castleId(castle) === id);
+                    if (index >= 0) castles[index] = { ...castles[index], ...updated, _id:id };
+                });
+                saveCastlesCache(castles).catch(() => {});
+                const current = getCurrentYearMonth(); updateMap(current.year, current.month, false, true);
+                showToast(`✅ ${result.summary.matched}개 성에 ${result.summary.country.name} 통치 기록을 적용했습니다.`, 'success', 4500);
+                close();
+            } catch (error) { alert(error.message); }
+            finally { applyButton.textContent = '선택한 성에 적용'; }
+        });
+
+        // Leaflet의 개별 마커 클릭 처리보다 먼저 선택 이벤트를 가로챈다.
+        map.getContainer().addEventListener('click', event => {
+            if (!active) return;
+            const eventPath = typeof event.composedPath === 'function' ? event.composedPath() : [];
+            // Leaflet의 _targets는 divIcon 내부 자식 클릭에서 항상 마커를 돌려주지 않는다.
+            // 실제 표시 중인 마커의 루트 요소와 클릭 경로를 먼저 직접 대조한다.
+            let layer = (allCastleMarkers || []).find(marker => {
+                if (!marker?._castleData || !map.hasLayer(marker)) return false;
+                const element = marker.getElement?.();
+                return !!element && (eventPath.includes(element) || element === event.target || element.contains?.(event.target));
+            }) || null;
+            let node = event.target;
+            while (node && node !== map.getContainer()) {
+                if (!layer && node._leaflet_id && map._targets?.[node._leaflet_id]) {
+                    layer = map._targets[node._leaflet_id];
+                    break;
+                }
+                node = node.parentNode;
+            }
+            const castle = layer?._castleData;
+            if (!eligible(castle) || !visibleMarkerFor(castleId(castle))) return;
+            event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation();
+            const id = castleId(castle);
+            if (selected.has(id)) selected.delete(id); else selected.set(id, castle);
+            renderSelected();
+        }, true);
+        window.addEventListener('castle-markers-rendered', markSelection);
+    })();
+
     // 지도 클릭 시 성 추가 폼 열기 (편집 모드에서만)
     map.on('click', (e) => {
       // 🛡️ 마커 클릭이 map click으로 버블링된 경우 무시
@@ -27603,6 +27861,8 @@ const loadingMessages = [
 
     /** 성 편집 폼 열기 (마커 클릭 시 호출) */
     window.openCastleForm = function(id) {
+        // 통치 기록 일괄 선택 모드에서는 개별 편집창 대신 선택만 토글한다.
+        if (window._castleRuleBulkSelectById?.(id)) return;
         if (!canEditObjects()) return; 
         const castle = castles.find(c => c._id === id);
         map.closePopup();
@@ -27916,7 +28176,7 @@ const loadingMessages = [
     }
     
     // 🚩 [추가] 성 편집 폼에 역사 기록 행을 추가하는 함수
-    function addCastleHistoryRow(history = {}) {
+    function addCastleHistoryRow(history = {}, beforeRow = null) {
         // 🚩 [핵심 수정] 새 기록 추가 시, 이전 기록의 종료일을 기반으로 시작일을 설정하고, 상단 이름을 가져옵니다.
         if (Object.keys(history).length === 0) { // 새 기록 추가 시에만 (편집 시에는 실행 안 함)
             const historyRows = document.querySelectorAll('#castleHistoryList .history-record-row');
@@ -27957,8 +28217,13 @@ const loadingMessages = [
         row.dataset.historyId = String(history._id || history.id || '');
         row._linkedRecords = Array.isArray(history.linked_records) ? history.linked_records.map(item => ({ ...item })) : [];
 
-        // 🚩 [수정] 국가명과 ID를 가져옵니다.
-        const countryName = history.country_id ? getCountryInfoById(history.country_id)?.name || '' : '';
+        // 히스토리 편집에서는 현재 지도 연도의 시대 국호로 치환하지 않는다.
+        // country_id가 가리키는 국가 객체의 기본 명칭(민족명으로 저장한 경우 그 민족명)을
+        // 그대로 보여줘야 서로 다른 시기 행이 같은 현재 국호로 중복 표시되지 않는다.
+        const rawHistoryCountry = history.country_id
+            ? (countries || []).find(country => String(country?._id?.$oid || country?._id || country?.id || '') === String(history.country_id?.$oid || history.country_id || ''))
+            : null;
+        const countryName = rawHistoryCountry?.name || history.country || '';
 
         // 🚩 [수정] 한 줄 레이아웃으로 변경
         // 🚩 [수정] 각 입력 필드 위에 레이블 추가
@@ -27992,7 +28257,7 @@ const loadingMessages = [
                         <option value="chon"       ${history.place_type==='chon'     ? 'selected':''}>마을(村)</option>
                     </select>
                 </div>
-                <button type="button" class="history-delete-btn" onclick="this.closest('.history-record-row').remove()">✕</button>
+                <button type="button" class="history-delete-btn" onclick="this.closest('.history-record-row').remove(); rebuildCastleHistoryGapButtons();">✕</button>
             </div>
             <!-- 2행: 시작연도 | 시작월 ~ 종료연도 | 종료월 -->
             <div class="history-row-line2">
@@ -28030,8 +28295,78 @@ const loadingMessages = [
                         startYearInput.required = false;
                     }
                 }, 0);
-                container.appendChild(row);
+                if (beforeRow && beforeRow.parentNode === container) container.insertBefore(row, beforeRow);
+                else container.appendChild(row);
                 renderCastleHistoryLinkedRecords(row);
+                rebuildCastleHistoryGapButtons();
+                return row;
+    }
+
+    function _castleHistoryRowTime(row, side) {
+        const yearRaw = row?.querySelector(`input.history-${side}-year`)?.value;
+        if (yearRaw === '' || yearRaw === null || yearRaw === undefined) return null;
+        const year = Number(yearRaw);
+        const fallbackMonth = side === 'start' ? 1 : 12;
+        const month = Math.min(12, Math.max(1, Number(row.querySelector(`input.history-${side}-month`)?.value) || fallbackMonth));
+        return Number.isInteger(year) ? year * 12 + month - 1 : null;
+    }
+
+    function _castleHistoryTimeFields(totalMonths) {
+        return {
+            year:Math.floor(totalMonths / 12),
+            month:((totalMonths % 12) + 12) % 12 + 1
+        };
+    }
+
+    function _castleHistoryPeriodLabel(totalMonths) {
+        const value = _castleHistoryTimeFields(totalMonths);
+        return `${value.year}년 ${value.month}월`;
+    }
+
+    function rebuildCastleHistoryGapButtons() {
+        const container = document.getElementById('castleHistoryList');
+        if (!container) return;
+        container.querySelectorAll('.history-gap-insert').forEach(element => element.remove());
+        const rows = Array.from(container.querySelectorAll('.history-record-row'));
+        rows.forEach((previousRow, index) => {
+            const nextRow = rows[index + 1];
+            if (!nextRow) return;
+            const previousEnd = _castleHistoryRowTime(previousRow, 'end');
+            const nextStart = _castleHistoryRowTime(nextRow, 'start');
+            const gapStart = previousEnd === null ? null : previousEnd + 1;
+            const gapEnd = nextStart === null ? null : nextStart - 1;
+            const hasGap = gapStart !== null && gapEnd !== null && gapStart <= gapEnd;
+            const control = document.createElement('div');
+            control.className = 'history-gap-insert';
+            control.style.cssText = 'display:flex;align-items:center;justify-content:center;margin:5px 0;position:relative;';
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'history-gap-insert-btn';
+            button.disabled = !hasGap;
+            button.style.cssText = `padding:3px 10px;border-radius:12px;border:1px solid ${hasGap?'#4ba6c8':'#46535b'};background:${hasGap?'rgba(43,132,168,.18)':'rgba(70,83,91,.1)'};color:${hasGap?'#91dcf5':'#67747c'};font-size:10px;cursor:${hasGap?'pointer':'default'};`;
+            button.textContent = hasGap
+                ? `＋ ${_castleHistoryPeriodLabel(gapStart)} ~ ${_castleHistoryPeriodLabel(gapEnd)} 채우기`
+                : (previousEnd === null || nextStart === null ? '＋ 사이 기간을 계산할 수 없음' : '기록 사이 빈 기간 없음');
+            if (hasGap) button.addEventListener('click', () => {
+                const start = _castleHistoryTimeFields(gapStart);
+                const end = _castleHistoryTimeFields(gapEnd);
+                const insertedRow = addCastleHistoryRow({
+                    name:previousRow.querySelector('input.history-name')?.value || document.getElementById('castleName')?.value || '',
+                    country_id:'',
+                    start_year:start.year,
+                    start_month:start.month,
+                    end_year:end.year,
+                    end_month:end.month,
+                    place_type:previousRow.querySelector('.history-place-type')?.value || 'normal',
+                    is_capital:false,
+                    is_battle:false,
+                    is_gateway:false
+                }, nextRow);
+                insertedRow?.querySelector('input.history-country-name')?.focus();
+            });
+            control.appendChild(button);
+            previousRow.after(control);
+        });
     }
 
     function renderCastleHistoryLinkedRecords(row) {
@@ -41752,6 +42087,9 @@ kingSelect.addEventListener('change', () => {
         }
 
         document.getElementById('castleHistoryList').addEventListener('input', (e) => {
+            if (e.target.matches('input.history-start-year,input.history-start-month,input.history-end-year,input.history-end-month')) {
+                rebuildCastleHistoryGapButtons();
+            }
             if (e.target.classList.contains('history-country-name')) {
                 const input = e.target;
                 const hiddenInput = input.nextElementSibling; // hidden country-id
@@ -42188,6 +42526,7 @@ kingSelect.addEventListener('change', () => {
             console.log('setEditModeState 호출:', {newState, currentUser, currentRole: currentUser?.role});
             const privileged = currentUser?.role === 'superuser' || currentUser?.role === 'admin';
             editMode = privileged ? !!newState : false;
+            if (!editMode) window._closeCastleRuleBulkEditor?.();
             console.log('편집 모드 상태 변경:', {editMode, privileged});
             if (editDropdownContainer) {
                 editDropdownContainer.style.display = (editMode && privileged) ? 'inline-block' : 'none';

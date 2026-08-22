@@ -2390,6 +2390,111 @@ async function setupRoutesAndCollections() {
                 res.status(500).json({ message: "Castle 정보 업데이트 실패", error: error.message });
             }
         });
+
+        // 지도에서 선택한 여러 성에 동일한 국가 통치 기간을 일괄 삽입한다.
+        app.post('/api/castles/bulk-rule-history', verifyAdmin, async (req, res) => {
+            try {
+                const ids = [...new Set((Array.isArray(req.body?.castle_ids) ? req.body.castle_ids : []).map(String))];
+                const countryId = String(req.body?.country_id || '').trim();
+                const countryObjectId = toObjectId(countryId);
+                const startYear = Number(req.body?.start_year);
+                const startMonth = normalizeMonthValue(req.body?.start_month, 1);
+                const hasEnd = req.body?.end_year !== null && req.body?.end_year !== undefined && req.body?.end_year !== '';
+                const endYear = hasEnd ? Number(req.body.end_year) : null;
+                const endMonth = hasEnd ? normalizeMonthValue(req.body?.end_month, 12) : null;
+                const dryRun = req.body?.dry_run !== false;
+                if (!ids.length || ids.length > 500) return res.status(400).json({ message:'성은 1~500개까지 선택할 수 있습니다.' });
+                if (!countryObjectId) return res.status(400).json({ message:'올바른 통치 국가를 선택하세요.' });
+                if (!Number.isInteger(startYear) || (hasEnd && !Number.isInteger(endYear))) return res.status(400).json({ message:'연도를 올바르게 입력하세요.' });
+                const startTm = startYear * 12 + startMonth - 1;
+                const endTm = hasEnd ? endYear * 12 + endMonth - 1 : Infinity;
+                if (endTm < startTm) return res.status(400).json({ message:'종료 시점은 시작 시점보다 빠를 수 없습니다.' });
+
+                const objectIds = ids.map(toObjectId).filter(Boolean);
+                if (objectIds.length !== ids.length) return res.status(400).json({ message:'선택 목록에 잘못된 성 ID가 있습니다.' });
+                const [country, castleDocs] = await Promise.all([
+                    collections.countries.findOne({ _id:countryObjectId }, { projection:{ name:1 } }),
+                    collections.castle.find({ _id:{ $in:objectIds }, deleted:{ $ne:true } }).toArray()
+                ]);
+                if (!country) return res.status(404).json({ message:'통치 국가를 찾을 수 없습니다.' });
+
+                const fromTm = record => (Number(record?.start_year) || 0) * 12 + normalizeMonthValue(record?.start_month, 1) - 1;
+                const toTm = record => record?.end_year !== null && record?.end_year !== undefined
+                    && record?.end_year !== '' && Number.isInteger(Number(record.end_year))
+                    ? Number(record.end_year) * 12 + normalizeMonthValue(record?.end_month, 12) - 1 : Infinity;
+                const fieldsFromTm = (tm, prefix) => ({ [`${prefix}_year`]:Math.floor(tm / 12), [`${prefix}_month`]:((tm % 12) + 12) % 12 + 1 });
+                const plans = castleDocs.map(castle => {
+                    const original = Array.isArray(castle.history) ? castle.history.filter(Boolean) : [];
+                    const template = original.find(record => fromTm(record) <= startTm && toTm(record) >= startTm)
+                        || original.slice().sort((a,b) => Math.abs(fromTm(a)-startTm)-Math.abs(fromTm(b)-startTm))[0]
+                        || {};
+                    const nextHistory = [];
+                    let removed = 0, split = 0, trimmed = 0;
+                    original.forEach(record => {
+                        const recStart = fromTm(record), recEnd = toTm(record);
+                        if (recEnd < startTm || recStart > endTm) { nextHistory.push(record); return; }
+                        removed++;
+                        if (recStart < startTm) {
+                            nextHistory.push({ ...record, ...fieldsFromTm(startTm - 1, 'end') });
+                            trimmed++;
+                        }
+                        if (endTm !== Infinity && recEnd > endTm) {
+                            nextHistory.push({ ...record, ...fieldsFromTm(endTm + 1, 'start') });
+                            split++;
+                        }
+                    });
+                    const inserted = {
+                        ...template,
+                        _id: undefined,
+                        name:String(template.name || castle.name || '').trim(),
+                        country_id:countryId,
+                        start_year:startYear,
+                        start_month:startMonth,
+                        end_year:hasEnd ? endYear : null,
+                        end_month:hasEnd ? endMonth : null
+                    };
+                    Object.keys(inserted).forEach(key => inserted[key] === undefined && delete inserted[key]);
+                    nextHistory.push(inserted);
+                    nextHistory.sort((a,b) => fromTm(a)-fromTm(b));
+                    return { castle, history:nextHistory, removed, split, trimmed };
+                });
+                const summary = {
+                    requested:ids.length,
+                    matched:plans.length,
+                    missing:ids.length - plans.length,
+                    inserted:plans.length,
+                    overlapped:plans.reduce((sum, plan) => sum + plan.removed, 0),
+                    trimmed:plans.reduce((sum, plan) => sum + plan.trimmed, 0),
+                    split:plans.reduce((sum, plan) => sum + plan.split, 0),
+                    country:{ _id:countryId, name:country.name || '' },
+                    period:{ start_year:startYear, start_month:startMonth, end_year:endYear, end_month:endMonth }
+                };
+                if (dryRun) return res.json({ dry_run:true, summary, castles:plans.map(plan => ({ _id:String(plan.castle._id), name:plan.castle.name, history_count:plan.history.length })) });
+
+                if (plans.length) {
+                    await collections.castle.bulkWrite(plans.map(plan => {
+                        const primaryCountryId = toObjectId(plan.history[0]?.country_id) || plan.history[0]?.country_id || null;
+                        return { updateOne:{ filter:{ _id:plan.castle._id }, update:{ $set:{ history:plan.history, country_id:primaryCountryId, updatedAt:new Date(), lastModifiedBy:req.user.username } } } };
+                    }));
+                    const updatedDocs = await collections.castle.find({ _id:{ $in:plans.map(plan => plan.castle._id) } }).toArray();
+                    for (const doc of updatedDocs) {
+                        await syncCastleHistoricalRelations(doc);
+                        patchCastleInStaticFile('upsert', doc);
+                    }
+                    await logActivity('castle_update', req.user.username, req.user.position || '', `${country.name || '국가'} 통치 기록 ${plans.length}개 성`, { category:'geography', count:plans.length }, req.user.userId);
+                }
+                res.json({ ok:true, summary, castles:plans.map(plan => ({
+                    ...plan.castle,
+                    history:plan.history,
+                    country_id:toObjectId(plan.history[0]?.country_id) || plan.history[0]?.country_id || null,
+                    updatedAt:new Date(),
+                    lastModifiedBy:req.user.username
+                })) });
+            } catch (error) {
+                console.error('성 통치 기록 일괄 처리 실패:', error);
+                res.status(500).json({ message:'성 통치 기록 일괄 처리 실패', error:error.message });
+            }
+        });
         
         // GET /api/castle/search?q=검색어&limit=10 — 영웅 위치 지명 검색용
         app.get('/api/castle/search', async (req, res) => {
@@ -9519,6 +9624,7 @@ const defaultLayerSettings = {
     timeline: true,
     kingPanel: false,
     historyPanel: false,
+    rankingPanel: false,
     userContributions: true
 };
 
