@@ -7108,6 +7108,54 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const sevenDaysAgo = new Date(now); sevenDaysAgo.setDate(now.getDate() - 7);
                 const thirtyDaysAgo = new Date(now); thirtyDaysAgo.setDate(now.getDate() - 30);
 
+                const dashboardTasks = [
+                    collections.users.countDocuments({ isGuest: { $ne: true } }),
+                    collections.contributions.countDocuments({}),
+                    collections.contributions.aggregate([
+                        { $group: { _id: '$status', count: { $sum: 1 } } }
+                    ]).toArray(),
+                    collections.contributions.aggregate([
+                        { $group: {
+                            _id: '$username', total: { $sum: 1 },
+                            approved: { $sum: { $cond: [{ $eq: ['$status', 'approved'] }, 1, 0] } },
+                            votes: { $sum: { $convert: { input: '$votes', to: 'double', onError: 0, onNull: 0 } } }
+                        }},
+                        { $sort: { approved: -1 } }, { $limit: 10 }
+                    ]).toArray(),
+                    collections.contributions.aggregate([
+                        { $group: { _id: '$category', count: { $sum: 1 } } }, { $sort: { count: -1 } }
+                    ]).toArray(),
+                    collections.contributions.aggregate([
+                        { $set: { _createdDate: { $convert: { input: '$createdAt', to: 'date', onError: null, onNull: null } } } },
+                        { $match: { _createdDate: { $gte: thirtyDaysAgo } } },
+                        { $group: { _id: { $dateToString: { format: '%Y-%m', date: '$_createdDate' } }, count: { $sum: 1 } } },
+                        { $sort: { _id: 1 } }
+                    ]).toArray(),
+                    collections.contributions.aggregate([
+                        { $set: { _createdDate: { $convert: { input: '$createdAt', to: 'date', onError: null, onNull: null } } } },
+                        { $match: { _createdDate: { $gte: sevenDaysAgo } } },
+                        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$_createdDate' } }, count: { $sum: 1 } } },
+                        { $sort: { _id: 1 } }
+                    ]).toArray(),
+                    collections.users.aggregate([
+                        { $match: { isGuest: { $ne: true } } },
+                        { $group: { _id: '$position', count: { $sum: 1 } } }, { $sort: { count: -1 } }
+                    ]).toArray(),
+                    collections.contributions.aggregate([
+                        { $group: {
+                            _id: null,
+                            totalVotes: { $sum: { $convert: { input: '$votes', to: 'double', onError: 0, onNull: 0 } } },
+                            avgVotes: { $avg: { $convert: { input: '$votes', to: 'double', onError: 0, onNull: 0 } } }
+                        } }
+                    ]).toArray()
+                ];
+                const dashboardFallbacks = [0, 0, [], [], [], [], [], [], []];
+                const dashboardSettled = await Promise.allSettled(dashboardTasks);
+                dashboardSettled.forEach((result, index) => {
+                    if (result.status === 'rejected') {
+                        console.warn(`대시보드 개별 통계 ${index + 1} 실패:`, result.reason?.message || result.reason);
+                    }
+                });
                 const [
                     totalUsers,
                     totalContribs,
@@ -7118,60 +7166,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     recentActivity,
                     rankDistribution,
                     voteStats,
-                ] = await Promise.all([
-                    // 전체 사용자 수
-                    collections.users.countDocuments({ isGuest: { $ne: true } }),
-                    // 전체 사료 수
-                    collections.contributions.countDocuments({}),
-                    // 상태별 사료 수
-                    collections.contributions.aggregate([
-                        { $group: { _id: '$status', count: { $sum: 1 } } }
-                    ]).toArray(),
-                    // 사관별 기여 TOP 10
-                    collections.contributions.aggregate([
-                        { $group: {
-                            _id: '$username',
-                            total: { $sum: 1 },
-                            approved: { $sum: { $cond: [{ $eq: ['$status', 'approved'] }, 1, 0] } },
-                            votes: { $sum: '$votes' }
-                        }},
-                        { $sort: { approved: -1 } },
-                        { $limit: 10 }
-                    ]).toArray(),
-                    // 카테고리별 사료 분포
-                    collections.contributions.aggregate([
-                        { $group: { _id: '$category', count: { $sum: 1 } } },
-                        { $sort: { count: -1 } }
-                    ]).toArray(),
-                    // 최근 6개월 월별 사료 제출 추이
-                    collections.contributions.aggregate([
-                        { $match: { createdAt: { $gte: thirtyDaysAgo } } },
-                        { $group: {
-                            _id: { $dateToString: { format: '%Y-%m', date: '$createdAt' } },
-                            count: { $sum: 1 }
-                        }},
-                        { $sort: { _id: 1 } }
-                    ]).toArray(),
-                    // 최근 7일 일별 사료 제출
-                    collections.contributions.aggregate([
-                        { $match: { createdAt: { $gte: sevenDaysAgo } } },
-                        { $group: {
-                            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
-                            count: { $sum: 1 }
-                        }},
-                        { $sort: { _id: 1 } }
-                    ]).toArray(),
-                    // 직급(position) 분포
-                    collections.users.aggregate([
-                        { $match: { isGuest: { $ne: true } } },
-                        { $group: { _id: '$position', count: { $sum: 1 } } },
-                        { $sort: { count: -1 } }
-                    ]).toArray(),
-                    // 투표 통계
-                    collections.contributions.aggregate([
-                        { $group: { _id: null, totalVotes: { $sum: '$votes' }, avgVotes: { $avg: '$votes' } } }
-                    ]).toArray(),
-                ]);
+                ] = dashboardSettled.map((result, index) =>
+                    result.status === 'fulfilled' ? result.value : dashboardFallbacks[index]
+                );
 
                 // 최근 7일 신규 사용자 수
                 const newUsers7d = await collections.users.countDocuments({
@@ -7278,7 +7275,6 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const startDate = new Date(todayKstStartUtc);
                 startDate.setUTCDate(startDate.getUTCDate() - (days - 1));
                 const guestFilter = {
-                    timestamp: { $gte: startDate },
                     $or: [
                         { userId: guestUser._id },
                         { username: guestUser.username, isGuest: true },
@@ -7289,14 +7285,22 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const [grouped, recent] = await Promise.all([
                     collections.loginLogs.aggregate([
                         { $match: guestFilter },
+                        { $set: { _timestampDate: { $convert: { input: '$timestamp', to: 'date', onError: null, onNull: null } } } },
+                        { $match: { _timestampDate: { $gte: startDate } } },
                         { $group: {
-                            _id: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp', timezone: '+09:00' } },
+                            _id: { $dateToString: { format: '%Y-%m-%d', date: '$_timestampDate', timezone: '+09:00' } },
                             count: { $sum: 1 }
                         } },
                         { $sort: { _id: 1 } }
                     ]).toArray(),
-                    collections.loginLogs.find(guestFilter, { projection: { _id: 0, timestamp: 1 } })
-                        .sort({ timestamp: -1 }).limit(30).toArray()
+                    collections.loginLogs.aggregate([
+                        { $match: guestFilter },
+                        { $set: { timestamp: { $convert: { input: '$timestamp', to: 'date', onError: null, onNull: null } } } },
+                        { $match: { timestamp: { $gte: startDate } } },
+                        { $sort: { timestamp: -1 } },
+                        { $limit: 30 },
+                        { $project: { _id: 0, timestamp: 1 } }
+                    ]).toArray()
                 ]);
 
                 const labels = Array.from({ length: days }, (_, index) => {
