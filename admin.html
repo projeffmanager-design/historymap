@@ -1549,10 +1549,16 @@
         async function fetchAndRenderPageViewsStats() {}
 
         // 사용자 목록 불러오기
+        let usersFetchSequence = 0;
         async function fetchUsers() {
+            const requestSequence = ++usersFetchSequence;
             try {
-                const response = await fetch(`${API_BASE_URL}/users`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
+                const response = await fetch(`${API_BASE_URL}/users?_=${Date.now()}`, {
+                    cache: 'no-store',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Cache-Control': 'no-cache'
+                    }
                 });
                 if (response.status === 403) { // 접근 거부
                     alert('관리자만 접근할 수 있습니다.');
@@ -1561,7 +1567,10 @@
                 }
                 if (!response.ok) throw new Error('사용자 목록을 불러오지 못했습니다.');
                 
-                allUsers = await response.json(); // 🚩 [수정] 전역 변수에 사용자 목록 저장
+                const freshUsers = await response.json();
+                // 이전 요청이 늦게 도착해 삭제 전 목록을 다시 덮어쓰는 현상을 막는다.
+                if (requestSequence !== usersFetchSequence) return;
+                allUsers = freshUsers; // 🚩 [수정] 전역 변수에 사용자 목록 저장
                 console.log('사용자 목록 로드됨:', allUsers.length, '명');
                 console.log('첫 번째 사용자 샘플:', allUsers[0]);
                 
@@ -1619,8 +1628,12 @@
                     });
                     const data = await response.json().catch(() => ({}));
                     if (!response.ok) throw new Error(data.message || `삭제에 실패했습니다. (HTTP ${response.status})`);
+                    // 서버 재조회 전에 화면과 메모리 목록에서 즉시 제거한다.
+                    allUsers = allUsers.filter(user => String(user._id) !== String(userId));
+                    if (currentPage > 1 && (currentPage - 1) * itemsPerPage >= allUsers.length) currentPage--;
+                    filterAndRenderUsers();
                     showToast('사용자가 삭제되었습니다.');
-                    fetchUsers(); // 삭제 후 목록 새로고침
+                    await fetchUsers(); // 캐시를 우회해 DB 목록과 다시 동기화
                 } catch (error) {
                     showToast(error.message, 'error');
                 } finally {

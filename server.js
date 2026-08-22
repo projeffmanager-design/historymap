@@ -7603,6 +7603,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // GET: 모든 사용자 목록 (관리자 전용)
         app.get('/api/users', verifyAdminOnly, async (req, res) => {
             try {
+                res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+                res.set('Pragma', 'no-cache');
                 const users = await collections.users.find({}, { projection: { password: 0 } }).toArray();
                 
                 // 🚩 [추가] 각 사용자의 로그인 횟수 및 점수 집계
