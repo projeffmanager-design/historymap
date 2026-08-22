@@ -4473,7 +4473,7 @@ body.force-mobile .marker-type-selector button {
         .cdp-lineage-root-wrap { display:flex; flex-direction:column; align-items:center; }
         .cdp-lineage-root {
             min-width:150px; max-width:260px; padding:11px 14px; border:1px solid rgba(212,168,67,.72);
-            border-radius:9px; background:linear-gradient(135deg,rgba(180,132,40,.23),rgba(19,31,40,.95));
+            border-radius:9px; background:linear-gradient(135deg,rgba(180,132,40,.23),rgba(19,31,40,.95)),#14212b;
             box-shadow:0 0 18px rgba(180,132,40,.12); text-align:center;
         }
         .cdp-lineage-root small { display:block; margin-top:3px; color:#92a5b2; font-size:10px; }
@@ -4486,8 +4486,8 @@ body.force-mobile .marker-type-selector button {
             background:rgba(255,255,255,.045); color:#93a5b1; font-size:9px; text-align:center;
         }
         .cdp-lineage-node {
-            min-width:120px; max-width:190px; padding:8px 10px; border:1px solid rgba(116,145,164,.35);
-            border-radius:7px; background:rgba(20,33,43,.88); color:#d5e0e6; text-align:center;
+            min-width:110px; max-width:160px; padding:7px 8px; border:1px solid rgba(116,145,164,.35);
+            border-radius:7px; background:#14212b; color:#d5e0e6; text-align:center;
             font-family:inherit; cursor:pointer; transition:.15s ease;
         }
         .cdp-lineage-node:hover { border-color:#d4a843; color:#f1d083; transform:translateY(-1px); }
@@ -4510,18 +4510,32 @@ body.force-mobile .marker-type-selector button {
         .cdp-lineage-empty { padding:18px; border:1px dashed rgba(126,151,168,.3); border-radius:8px; color:#718895; font-size:12px; text-align:center; }
         .cdp-lineage-legend { display:flex; flex-wrap:wrap; gap:5px; margin-top:14px; }
         .cdp-lineage-legend span { padding:2px 7px; border-radius:9px; background:rgba(255,255,255,.04); color:#718895; font-size:9px; }
-        .cdp-lineage-unified-scroll { overflow-x:auto; padding:4px 2px 16px; scrollbar-width:thin; }
+        .cdp-lineage-unified-scroll { width:100%; max-width:100%; min-width:0; overflow-x:auto; padding:4px 2px 16px; box-sizing:border-box; scrollbar-width:thin; }
         .cdp-lineage-unified {
-            position:relative; min-width:100%; padding:8px 18px 22px; box-sizing:border-box;
-            display:flex; flex-direction:column; gap:70px; align-items:stretch;
+            position:relative; min-width:100%; padding:8px 18px 22px 82px; box-sizing:border-box;
+            display:flex; flex-direction:column; gap:0; align-items:stretch;
         }
         .cdp-lineage-svg { position:absolute; inset:0; z-index:0; overflow:visible; pointer-events:none; }
-        .cdp-lineage-level { position:relative; z-index:1; display:flex; justify-content:center; align-items:flex-start; gap:42px; }
-        .cdp-lineage-unified-node { position:relative; min-width:150px; display:flex; justify-content:center; }
+        .cdp-lineage-level {
+            position:relative; z-index:1; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+            align-items:start; column-gap:8px;
+        }
+        .cdp-lineage-main-group { grid-column:2; display:grid; justify-content:center; align-items:start; gap:8px; }
+        .cdp-lineage-vassal-groups { grid-column:3; display:flex; justify-content:flex-end; align-items:flex-start; gap:6px; min-width:0; }
+        .cdp-lineage-level::before {
+            content:attr(data-year-label); position:absolute; left:-70px; top:0; width:58px;
+            color:#7f93a1; font-size:9px; font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap;
+        }
+        .cdp-lineage-level::after {
+            content:''; position:absolute; left:-8px; right:0; top:5px; height:1px;
+            background:linear-gradient(90deg,rgba(106,130,145,.34),rgba(106,130,145,.08) 55%,transparent);
+            z-index:-1; pointer-events:none;
+        }
+        .cdp-lineage-unified-node { position:relative; min-width:130px; display:flex; justify-content:center; }
         .cdp-lineage-unified-node.subordinate { margin-top:28px; }
         .cdp-lineage-vassal-cluster {
             position:relative; display:flex; align-items:flex-start; gap:18px; padding:24px 14px 12px;
-            border:1px dashed rgba(123,159,98,.55); border-radius:12px; background:rgba(64,91,55,.1);
+            border:1px dashed rgba(123,159,98,.55); border-radius:12px; background:#14231f;
         }
         .cdp-lineage-vassal-cluster::before {
             content:attr(data-cluster-label); position:absolute; top:5px; left:12px;
@@ -30713,6 +30727,44 @@ const loadingMessages = [
             ));
         }
 
+        function _lineagePeriodVisualHeight(startPoint, endPoint) {
+            if (!Number.isFinite(startPoint)) return 44;
+            const { year: currentYear, month: currentMonth } = getCurrentYearMonth();
+            const currentPoint = yearMonthToTotalMonths(currentYear, currentMonth);
+            const finiteEnd = Number.isFinite(endPoint) ? endPoint : Math.max(startPoint, currentPoint);
+            const durationYears = Math.max(0, (finiteEnd - startPoint + 1) / 12);
+            return Math.round(42 + Math.min(148, durationYears * .11));
+        }
+
+        function _lineageCountryTimeline(country) {
+            const phases = (Array.isArray(country?.history) ? country.history : [])
+                .filter(phase => Number.isFinite(Number(phase.start_year ?? phase.start)));
+            const starts = phases.map(phase => yearMonthToTotalMonths(
+                Number(phase.start_year ?? phase.start), Number(phase.start_month) || 1
+            ));
+            const rawStart = Number(country?.start);
+            if (!starts.length && Number.isFinite(rawStart)) {
+                starts.push(yearMonthToTotalMonths(rawStart, Number(country?.start_month) || 1));
+            }
+            const startPoint = starts.length ? Math.min(...starts) : 0;
+            const phaseHeights = phases.length ? phases.map(phase => {
+                const start = yearMonthToTotalMonths(Number(phase.start_year ?? phase.start), Number(phase.start_month) || 1);
+                const endRaw = phase.end_year ?? phase.end;
+                const endYear = endRaw === null || endRaw === undefined || endRaw === '' ? null : Number(endRaw);
+                const end = Number.isFinite(endYear)
+                    ? yearMonthToTotalMonths(endYear, Number(phase.end_month) || 12) : Infinity;
+                return _lineagePeriodVisualHeight(start, end);
+            }) : [];
+            const rawEndValue = country?.end;
+            const rawEndYear = rawEndValue === null || rawEndValue === undefined || rawEndValue === '' ? null : Number(rawEndValue);
+            const rawEndPoint = Number.isFinite(rawEndYear)
+                ? yearMonthToTotalMonths(rawEndYear, Number(country?.end_month) || 12) : Infinity;
+            const visualHeight = phaseHeights.length
+                ? phaseHeights.reduce((sum, height) => sum + height, 0) + Math.max(0, phaseHeights.length - 1) * 25
+                : _lineagePeriodVisualHeight(startPoint, rawEndPoint);
+            return { startPoint, visualHeight };
+        }
+
         function _lineageCountryPhaseHtml(rawCountry, { clickable = true, root = false, namePrefix = '' } = {}) {
             const countryId = String(rawCountry?._id || rawCountry?.id || '');
             const phases = (Array.isArray(rawCountry?.history) ? rawCountry.history : [])
@@ -30733,8 +30785,10 @@ const loadingMessages = [
                 const endYear = rawCountry?.end === null || rawCountry?.end === undefined || rawCountry?.end === '' ? null : Number(rawCountry.end);
                 const startPoint = Number.isFinite(startYear) ? yearMonthToTotalMonths(startYear, Number(rawCountry?.start_month) || 1) : -Infinity;
                 const endPoint = Number.isFinite(endYear) ? yearMonthToTotalMonths(endYear, Number(rawCountry?.end_month) || 12) : Infinity;
-                return `<${tag}${typeAttr} class="${root ? 'cdp-lineage-root' : 'cdp-lineage-node'}"${dataAttr} data-lineage-phase-start="${startPoint}" data-lineage-phase-end="${endPoint}">
+                const visualHeight = _lineagePeriodVisualHeight(startPoint, endPoint);
+                return `<${tag}${typeAttr} class="${root ? 'cdp-lineage-root' : 'cdp-lineage-node'}"${dataAttr} data-lineage-phase-start="${startPoint}" data-lineage-phase-end="${endPoint}" style="min-height:${visualHeight}px;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box;">
                     <span class="cdp-lineage-node-name">${namePrefix ? `<span class="cdp-lineage-vassal-prefix">${_esc(namePrefix)}:</span>` : ''}${_esc(effective?.name || rawCountry?.name || '국가명 미상')}</span>
+                    ${Number.isFinite(startYear) ? `<span class="cdp-lineage-phase-period">${_esc(`${formatYear(startYear)} ~ ${Number.isFinite(endYear) ? formatYear(endYear) : '현재'}`)}</span>` : ''}
                 </${tag}>`;
             }
             return `<div class="cdp-lineage-phase-chain">${phases.map((phase, index) => {
@@ -30750,8 +30804,9 @@ const loadingMessages = [
                 const nodeClass = `${root ? 'cdp-lineage-root' : 'cdp-lineage-node'}${active ? ' cdp-lineage-phase-current' : ''}`;
                 const transitionType = phase.transition_type === 'usurpation' ? 'usurpation' : 'continuation';
                 const transitionLabel = transitionType === 'usurpation' ? '찬탈' : '정통 계승';
+                const visualHeight = _lineagePeriodVisualHeight(startPoint, endPoint);
                 return `${index ? `<div class="cdp-lineage-phase-edge ${transitionType}">${transitionLabel}</div>` : ''}
-                    <${tag}${typeAttr} class="${nodeClass}"${dataAttr} data-lineage-phase-id="${_esc(phase._id || '')}" data-lineage-phase-start="${startPoint}" data-lineage-phase-end="${endPoint}">
+                    <${tag}${typeAttr} class="${nodeClass}"${dataAttr} data-lineage-phase-id="${_esc(phase._id || '')}" data-lineage-phase-start="${startPoint}" data-lineage-phase-end="${endPoint}" style="min-height:${visualHeight}px;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box;">
                         <span class="cdp-lineage-node-name">${namePrefix ? `<span class="cdp-lineage-vassal-prefix">${_esc(namePrefix)}:</span>` : ''}${_esc(phase.name || rawCountry.name || '국호 미상')}${phase.name_zh ? ` (${_esc(phase.name_zh)})` : ''}</span>
                         <span class="cdp-lineage-phase-period">${_esc(period)}</span>
                         ${index === 0 ? `<span class="cdp-lineage-node-base">동일 국가 객체 · ${_esc(rawCountry.name || '')}</span>` : ''}
@@ -30821,10 +30876,20 @@ const loadingMessages = [
                 const relationYearRaw = edge.relation?.year;
                 const hasRelationYear = relationYearRaw !== null && relationYearRaw !== undefined
                     && relationYearRaw !== '' && Number.isFinite(Number(relationYearRaw));
-                const branchYear = hasRelationYear ? Number(relationYearRaw) : Number(successor?.start);
-                const branchMonth = hasRelationYear
-                    ? (Number(edge.relation?.month) || 1)
-                    : (Number(successor?.start_month) || 1);
+                const relationType = edge.relation?.relation_type || 'continuation';
+                const successorTimeline = successor ? _lineageCountryTimeline(successor) : null;
+                const successorStartDate = successorTimeline
+                    ? totalMonthsToYearMonth(successorTimeline.startPoint) : null;
+                // 정통 계승·분화는 후속 국가의 실제 시작 시점을 분기점으로 삼는다.
+                // 관계 입력 연도가 늦더라도 동호→동부/중부선비처럼 시작 연대가 같은 갈래를 같은 높이에 연결한다.
+                const useSuccessorStart = ['continuation', 'split'].includes(relationType)
+                    && successorStartDate && Number.isFinite(successorStartDate.year);
+                const branchYear = useSuccessorStart
+                    ? successorStartDate.year
+                    : (hasRelationYear ? Number(relationYearRaw) : Number(successor?.start));
+                const branchMonth = useSuccessorStart
+                    ? successorStartDate.month
+                    : (hasRelationYear ? (Number(edge.relation?.month) || 1) : (Number(successor?.start_month) || 1));
                 const branchPoint = Number.isFinite(branchYear)
                     ? yearMonthToTotalMonths(branchYear, branchMonth)
                     : Infinity;
@@ -30852,12 +30917,13 @@ const loadingMessages = [
                 const fromLevel = from.closest('.cdp-lineage-level')?.dataset.level;
                 const toLevel = to.closest('.cdp-lineage-level')?.dataset.level;
                 const sameEraRow = fromLevel === toLevel;
+                const verticalContinuation = relationType === 'continuation' && !sameEraRow;
                 const midY = sameEraRow
                     ? Math.max(fromWrapRect.bottom, toWrapRect.bottom) - canvasRect.top + 24
-                    : (fromWrapRect.bottom + toWrapRect.top) / 2 - canvasRect.top;
+                    : verticalContinuation
+                        ? (fromRect.bottom + toRect.top) / 2 - canvasRect.top
+                        : (fromWrapRect.bottom + toWrapRect.top) / 2 - canvasRect.top;
                 const color = relationColors[edge.relation?.relation_type] || '#8d7445';
-                const relationType = edge.relation?.relation_type || 'continuation';
-                const verticalContinuation = relationType === 'continuation' && !sameEraRow;
                 const pathData = verticalContinuation
                     ? `M ${fromCenterX - canvasRect.left} ${fromRect.bottom - canvasRect.top} V ${midY} H ${toCenterX - canvasRect.left} V ${toRect.top - canvasRect.top}`
                     : `M ${x1} ${y1} H ${sourceLaneX} V ${midY} H ${targetLaneX} V ${y2} H ${x2}`;
@@ -30884,7 +30950,12 @@ const loadingMessages = [
                 label.setAttribute('class', 'cdp-lineage-edge-label');
                 label.setAttribute('data-lineage-edge-index', String(edgeIndex));
                 const typeLabel = countryRelationLabel(edge.relation?.relation_type);
-                label.textContent = `${typeLabel}${Number.isFinite(branchYear) ? ` · ${branchYear}년` : ''}`;
+                const relationEndYear = edge.relation?.end_year === null || edge.relation?.end_year === undefined || edge.relation?.end_year === ''
+                    ? null : Number(edge.relation.end_year);
+                const relationPeriodLabel = Number.isFinite(branchYear)
+                    ? (Number.isFinite(relationEndYear) ? `${branchYear}~${relationEndYear}년` : `${branchYear}년`)
+                    : '';
+                label.textContent = `${typeLabel}${relationPeriodLabel ? ` · ${relationPeriodLabel}` : ''}`;
                 svg.appendChild(label);
             });
         }
@@ -31014,30 +31085,102 @@ const loadingMessages = [
                 });
             });
 
-            const levels = new Map(rootIds.map(id => [id, 0]));
-            for (let pass = 0; pass < componentIds.size; pass++) {
-                let changed = false;
-                edges.forEach(edge => {
-                    if (!levels.has(edge.fromId)) return;
-                    // 정통 계승은 다음 행으로, 분화·속국은 원 국가와 같은 행의 옆 가지로 배치한다.
-                    const horizontalBranch = ['split', 'vassal', 'hostile', 'alliance', 'trade', 'influence']
-                        .includes(edge.relation?.relation_type);
-                    const nextLevel = levels.get(edge.fromId) + (horizontalBranch ? 0 : 1);
-                    if (!levels.has(edge.toId) || levels.get(edge.toId) < nextLevel) {
-                        levels.set(edge.toId, nextLevel);
-                        changed = true;
-                    }
-                });
-                if (!changed) break;
-            }
-            [...componentIds].forEach(id => { if (!levels.has(id)) levels.set(id, 0); });
-            const rows = new Map();
+            // 관계 깊이가 아니라 실제 시작 연월을 기준으로 세로 행을 구성한다.
+            // 같은 시점에 동일 전신을 직접 계승한 국가들은 자동으로 같은 행에 병렬 배치된다.
+            const rowMap = new Map();
             [...componentIds].forEach(id => {
-                const level = levels.get(id) || 0;
-                if (!rows.has(level)) rows.set(level, []);
-                rows.get(level).push(_lineageCountry(id));
+                const country = _lineageCountry(id);
+                if (!country) return;
+                const timeline = _lineageCountryTimeline(country);
+                const startDate = totalMonthsToYearMonth(timeline.startPoint);
+                const rowKey = String(startDate.year);
+                const yearPoint = yearMonthToTotalMonths(startDate.year, 1);
+                if (!rowMap.has(rowKey)) rowMap.set(rowKey, { point:yearPoint, countries:[], visualHeight:0 });
+                const row = rowMap.get(rowKey);
+                row.countries.push(country);
+                row.visualHeight = Math.max(row.visualHeight, timeline.visualHeight);
             });
-            rows.forEach(row => row.sort((a, b) => Number(a?.start ?? Infinity) - Number(b?.start ?? Infinity)));
+            const timelineRows = [...rowMap.values()].sort((a, b) => a.point - b.point);
+
+            const countryStartPoint = country => _lineageCountryTimeline(country).startPoint;
+            const countryEndPoint = country => {
+                const phaseEnds = (Array.isArray(country?.history) ? country.history : []).map(phase => {
+                    const rawEnd = phase.end_year ?? phase.end;
+                    if (rawEnd === null || rawEnd === undefined || rawEnd === '') return Infinity;
+                    const endYear = Number(rawEnd);
+                    return Number.isFinite(endYear)
+                        ? yearMonthToTotalMonths(endYear, Number(phase.end_month) || 12) : Infinity;
+                });
+                if (phaseEnds.length) return Math.max(...phaseEnds);
+                const rawEnd = country?.end;
+                if (rawEnd === null || rawEnd === undefined || rawEnd === '') return Infinity;
+                const endYear = Number(rawEnd);
+                return Number.isFinite(endYear)
+                    ? yearMonthToTotalMonths(endYear, Number(country?.end_month) || 12) : Infinity;
+            };
+            const isWholePeriodVassal = (country, edge) => {
+                if (!country || edge?.relation?.relation_type !== 'vassal') return false;
+                const countryStart = countryStartPoint(country);
+                const countryEnd = countryEndPoint(country);
+                const relationStart = edge.relation.year == null
+                    ? -Infinity : yearMonthToTotalMonths(Number(edge.relation.year), Number(edge.relation.month) || 1);
+                const relationEnd = edge.relation.end_year == null
+                    ? Infinity : yearMonthToTotalMonths(Number(edge.relation.end_year), Number(edge.relation.end_month) || 12);
+                return relationStart <= countryStart && relationEnd >= countryEnd;
+            };
+            const wholePeriodVassalIds = new Set(edges.filter(edge => {
+                const country = _lineageCountry(edge.toId);
+                return isWholePeriodVassal(country, edge);
+            }).map(edge => edge.toId));
+
+            // 실제 존속 기간이 겹치지 않는 계보는 기존 레인을 재사용한다.
+            // 정통 후속국은 가능한 경우 전신 국가와 같은 레인을 우선 사용한다.
+            const laneByCountryId = new Map();
+            const laneRanges = [];
+            const rangesOverlap = (aStart, aEnd, bStart, bEnd) => aStart <= bEnd && bStart <= aEnd;
+            const laneAvailable = (lane, start, end, ignoredId = '') => (
+                !(laneRanges[lane] || []).some(range => (
+                    range.id !== ignoredId && rangesOverlap(start, end, range.start, range.end)
+                ))
+            );
+            const nearestAvailableLane = (preferredLane, start, end, ignoredId = '') => {
+                const maxDistance = laneRanges.length + 1;
+                for (let distance = 0; distance <= maxDistance; distance++) {
+                    const candidates = distance === 0
+                        ? [Math.max(0, preferredLane)]
+                        : [preferredLane - distance, preferredLane + distance];
+                    const candidate = candidates.find(lane => lane >= 0 && laneAvailable(lane, start, end, ignoredId));
+                    if (candidate !== undefined) return candidate;
+                }
+                return laneRanges.length;
+            };
+            [...componentIds].map(id => _lineageCountry(id)).filter(Boolean).sort((a, b) => (
+                countryStartPoint(a) - countryStartPoint(b) ||
+                String(a?.name || '').localeCompare(String(b?.name || ''), 'ko')
+            )).forEach(country => {
+                const id = String(country._id || country.id || '');
+                if (wholePeriodVassalIds.has(id)) return;
+                const start = countryStartPoint(country);
+                const end = countryEndPoint(country);
+                const incoming = edges.filter(edge => (
+                    edge.toId === id && edge.relation?.relation_type === 'continuation' && laneByCountryId.has(edge.fromId)
+                ));
+                const parentEdge = incoming[0];
+                const preferredLane = parentEdge ? laneByCountryId.get(parentEdge.fromId) : 0;
+                const lane = nearestAvailableLane(preferredLane, start, end, parentEdge?.fromId || '');
+                if (!laneRanges[lane]) laneRanges[lane] = [];
+                laneRanges[lane].push({ id, start, end });
+                laneByCountryId.set(id, lane);
+            });
+            const lineageLaneCount = Math.max(1, laneRanges.length);
+
+            timelineRows.forEach(row => row.countries.sort((a, b) => {
+                const aId = String(a?._id || a?.id || '');
+                const bId = String(b?._id || b?.id || '');
+                return (laneByCountryId.get(aId) ?? Infinity) - (laneByCountryId.get(bId) ?? Infinity) ||
+                    String(a?.name || '').localeCompare(String(b?.name || ''), 'ko');
+            }));
+
             const activeSuzerainNamesFor = countryId => {
                 const { year: currentYear, month: currentMonth } = getCurrentYearMonth();
                 const currentPoint = yearMonthToTotalMonths(currentYear, currentMonth);
@@ -31054,23 +31197,29 @@ const loadingMessages = [
                     return master ? (getEffectiveCountryInfo(master, currentYear, currentMonth)?.name || master.name) : '';
                 }).filter(Boolean))];
             };
-            const lineageNodeHtml = (country, extraClass = '') => {
+            const lineageNodeHtml = (country, extraClass = '', lane = null) => {
                 const id = String(country._id || country.id || '');
                 const incomingTypes = edges.filter(edge => edge.toId === id).map(edge => edge.relation?.relation_type);
                 const subordinate = incomingTypes.includes('split');
                 const activeSuzerainNames = activeSuzerainNamesFor(id);
                 const namePrefix = activeSuzerainNames.join('·');
-                return `<div class="cdp-lineage-unified-node${id === currentId ? ' selected' : ''}${subordinate ? ' subordinate' : ''}${extraClass}" data-lineage-country="${_esc(id)}">
+                const laneStyle = Number.isInteger(lane) ? ` style="grid-column:${lane + 1};"` : '';
+                return `<div class="cdp-lineage-unified-node${id === currentId ? ' selected' : ''}${subordinate ? ' subordinate' : ''}${extraClass}" data-lineage-country="${_esc(id)}"${laneStyle}>
                     ${_lineageCountryPhaseHtml(country, { clickable:id !== currentId, namePrefix })}
                 </div>`;
             };
             const lineageRowHtml = row => {
                 const validRow = row.filter(Boolean);
                 const vassalIds = new Set(edges.filter(edge => (
-                    edge.relation?.relation_type === 'vassal' && validRow.some(country => String(country._id || country.id) === edge.toId)
+                    edge.relation?.relation_type === 'vassal' && validRow.some(country => (
+                        String(country._id || country.id) === edge.toId && isWholePeriodVassal(country, edge)
+                    ))
                 )).map(edge => edge.toId));
                 const normalHtml = validRow.filter(country => !vassalIds.has(String(country._id || country.id)))
-                    .map(country => lineageNodeHtml(country)).join('');
+                    .map(country => {
+                        const id = String(country._id || country.id || '');
+                        return lineageNodeHtml(country, '', laneByCountryId.get(id));
+                    }).join('');
                 const clusters = new Map();
                 validRow.filter(country => vassalIds.has(String(country._id || country.id))).forEach(country => {
                     const id = String(country._id || country.id);
@@ -31079,19 +31228,35 @@ const loadingMessages = [
                     clusters.get(clusterName).push(country);
                 });
                 const clusterHtml = [...clusters.entries()].map(([masterName, members]) => {
-                    return `<div class="cdp-lineage-vassal-cluster" data-cluster-label="${_esc(masterName)}의 속국">
+                    return `<div class="cdp-lineage-vassal-cluster" data-cluster-label="속국" data-suzerain-name="${_esc(masterName)}">
                         ${members.map(country => lineageNodeHtml(country, ' vassal')).join('')}
                     </div>`;
                 }).join('');
-                return normalHtml + clusterHtml;
+                return `<div class="cdp-lineage-main-group" style="grid-template-columns:repeat(${lineageLaneCount},150px);">${normalHtml}</div>
+                    <div class="cdp-lineage-vassal-groups">${clusterHtml}</div>`;
             };
-            const maxRowSize = Math.max(1, ...[...rows.values()].map(row => row.length));
-            const canvasMinWidth = Math.max(460, maxRowSize * 225);
+            const maxRowSize = Math.max(1, ...timelineRows.map(row => row.countries.length));
+            const canvasMinWidth = Math.max(460, lineageLaneCount * 158 + Math.min(240, maxRowSize * 90));
             const noRelations = edges.length === 0;
+            const formatTimelinePoint = point => {
+                const date = totalMonthsToYearMonth(point);
+                const yearLabel = date.year < 0 ? `B.C. ${Math.abs(date.year)}` : `A.D. ${date.year}`;
+                return `${yearLabel}.${date.month}`;
+            };
+            const timelineRowHtml = (row, index) => {
+                const previous = timelineRows[index - 1];
+                // 연대 간격을 반영하되 장기간 국가 박스 자체 높이와 겹치지 않게 보정한다.
+                const chronologicalDistance = previous ? Math.max(0, (row.point - previous.point) / 12) : 0;
+                const scaledDistance = chronologicalDistance * .11;
+                const marginTop = previous
+                    ? Math.max(26, Math.min(72, scaledDistance - previous.visualHeight + 26))
+                    : 0;
+                return `<div class="cdp-lineage-level" data-level="${row.point}" data-year-label="${_esc(formatTimelinePoint(row.point))}" style="margin-top:${Math.round(marginTop)}px;">${lineageRowHtml(row.countries)}</div>`;
+            };
             container.innerHTML = `
                 <div class="cdp-lineage-intro">${_lineageViewMode === 'direct'
                     ? '선택 국가의 뿌리 경로와 이 국가에서 직접 이어지는 모든 후속·분화 가지만 표시합니다.'
-                    : '같은 최상위 뿌리에서 갈라진 형제 국가와 그 후속 계보까지 모두 표시합니다.'} 국호 변화는 동일 객체 안의 계승 노드로 표시됩니다.</div>
+                    : '같은 최상위 뿌리에서 갈라진 형제 국가와 그 후속 계보까지 모두 표시합니다.'} 위에서 아래로 실제 시작 연대를 맞추며, 박스 길이는 존속 기간을 반영합니다.</div>
                 <div class="cdp-lineage-view-toggle" role="group" aria-label="계승도 표시 범위">
                     <button type="button" class="cdp-lineage-view-btn${_lineageViewMode === 'direct' ? ' active' : ''}" data-lineage-view="direct">직계만 보기</button>
                     <button type="button" class="cdp-lineage-view-btn${_lineageViewMode === 'all' ? ' active' : ''}" data-lineage-view="all">관련 국가 전체 보기</button>
@@ -31100,8 +31265,7 @@ const loadingMessages = [
                     <div class="cdp-lineage-unified-scroll">
                         <div class="cdp-lineage-unified" style="min-width:${canvasMinWidth}px;">
                             <svg class="cdp-lineage-svg" aria-hidden="true"></svg>
-                            ${[...rows.entries()].sort((a,b) => a[0]-b[0]).map(([level, row]) => `
-                                <div class="cdp-lineage-level" data-level="${level}">${lineageRowHtml(row)}</div>`).join('')}
+                            ${timelineRows.map(timelineRowHtml).join('')}
                         </div>
                     </div>
                     ${noRelations ? '<div class="cdp-lineage-empty" style="margin-top:14px;">아직 등록된 전신·후속 국가 관계가 없습니다.<br>국가 정보 편집에서 전신 국가를 연결할 수 있습니다.</div>' : ''}
@@ -31124,6 +31288,15 @@ const loadingMessages = [
             requestAnimationFrame(() => {
                 _drawUnifiedLineageEdges(container, edges);
                 _bindLineageRouteHover(container, edges);
+                const scroll = container.querySelector('.cdp-lineage-unified-scroll');
+                const selected = container.querySelector('.cdp-lineage-unified-node.selected');
+                if (scroll && selected) {
+                    const scrollRect = scroll.getBoundingClientRect();
+                    const selectedRect = selected.getBoundingClientRect();
+                    const targetLeft = scroll.scrollLeft + selectedRect.left - scrollRect.left
+                        + selectedRect.width / 2 - scroll.clientWidth / 2;
+                    scroll.scrollLeft = Math.max(0, targetLeft);
+                }
             });
         }
 
