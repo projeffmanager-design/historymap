@@ -19623,19 +19623,24 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const _politicalPhase = getEffectiveCountryInfo(currentCountry, year, month) || currentCountry;
             const _politicalForm = _politicalPhase?.political_form || 'state';
             const _politicalSymbol = COUNTRY_POLITICAL_FORM_ICONS[_politicalForm] || '';
+            // 비영토 정치체는 시대 국호보다 국가 객체의 기본명(대개 부족·민족명)을 우선한다.
+            const _politicalCountryName = currentCountry?.base_name
+                || _politicalPhase?.base_name || currentCountry?.name || _politicalPhase?.name || '';
 
-            // 부족·도적·유민 거점은 일반 성의 역삼각형 대신 정치 형태 아이콘으로 표시한다.
+            // 부족·도적·유민 거점은 정치 형태 아이콘과 함께 소속 정치체명을 표시한다.
+            // 거점명만 표시하면 어느 부족인지 알기 어려우므로 국가명 라벨처럼 더 크게 구분한다.
             if (_politicalSymbol) {
                 const politicalMarkerHtml = `<div class="cm-wrap nonterritorial-place-marker ${_politicalForm}" style="display:flex;flex-direction:column;align-items:center;gap:0;">
                     <div class="cm-icon" style="font-size:${_politicalForm === 'refugee' ? '29px' : '23px'};line-height:1;font-family:'Noto Sans Egyptian Hieroglyphs','Apple Symbols','Segoe UI Symbol',sans-serif;text-shadow:0 1px 3px rgba(255,255,255,.9),0 1px 4px rgba(0,0,0,.65);">${_politicalSymbol}</div>
-                    <div class="cm-name city-marker-text" style="color:#e4dccb;font-family:'Nanum Myeongjo',serif;font-weight:500;font-size:10px;white-space:nowrap;padding-top:1px;text-shadow:0 0 2px #000,0 0 4px #000;">${castleName}</div>
+                    <div class="cm-country-name" style="color:#ffe39a;font-family:'Noto Serif KR','Nanum Myeongjo',serif;font-weight:800;font-size:12px;white-space:nowrap;padding-top:2px;text-shadow:0 0 2px #000,0 0 5px #000,1px 1px 1px #000;">${_politicalCountryName}</div>
+                    <div class="cm-name city-marker-text" style="color:#c8c1b4;font-family:'Nanum Myeongjo',serif;font-weight:500;font-size:9px;white-space:nowrap;line-height:1.15;text-shadow:0 0 2px #000,0 0 4px #000;">${castleName}</div>
                 </div>`;
                 const politicalIcon = L.divIcon({
                     className: `custom-political-marker custom-${_politicalForm}-marker`,
                     html: politicalMarkerHtml,
-                    iconSize:[100, 44],
-                    iconAnchor:[50, 28],
-                    popupAnchor:[0, -28]
+                    iconSize:[170, 58],
+                    iconAnchor:[85, 30],
+                    popupAnchor:[0, -30]
                 });
                 marker = L.marker([castle.lat, castle.lng], { icon:politicalIcon });
             // 🚩 [추가] 커스텀 아이콘이 있으면 역삼각형(▼) 자리에 이미지를 표시하고 아래에 텍스트(이름) 유지
