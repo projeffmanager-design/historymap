@@ -18710,12 +18710,25 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 castle.place_type === 'capital' ||
                 castle.place_type === 'hwangseong'
             );
+            // 부족·도적·유민처럼 영토가 없는 정치체의 거점은 일반 성보다 중요도가 높다.
+            // 왕성이 표시되는 중간 LOD(zoom 6~<7)부터 함께 노출한다.
+            const _lodCountryId = _activeLodRecord?.country_id
+                || castle.country_id || castle.countryId;
+            const _lodCountry = _lodCountryId ? getCountryInfoById(_lodCountryId) : null;
+            const _lodPoliticalPhase = _lodCountry
+                ? (getEffectiveCountryInfo(_lodCountry, year, month) || _lodCountry)
+                : null;
+            const _isPoliticalSettlement = !!(
+                _lodPoliticalPhase?.political_form &&
+                COUNTRY_POLITICAL_FORM_ICONS[_lodPoliticalPhase.political_form]
+            );
             if (_isMacro && !castle.is_natural_feature && !castle.is_label) return;
             if (_isMacro && castle.is_natural_feature) return; // 거시 모드: 자연지물 숨김
             if (_isMid   && castle.is_natural_feature) return; // 중간 모드: 자연지물 숨김
             // 미시 모드에서도 zoom < 7.5면 자연지물 숨김 (3D와 동일 임계값)
             if (!_isMacro && !_isMid && castle.is_natural_feature && map.getZoom() < 7.5) return;
-            if (_isMid   && !castle.is_natural_feature && !castle.is_label && !_isCapital) return;
+            if (_isMid && !castle.is_natural_feature && !castle.is_label
+                && !_isCapital && !_isPoliticalSettlement) return;
             
             // 국가 필터는 장소 문서의 최상위 국가가 아니라 현재 시점의 연혁 국가를 우선한다.
             // 한 장소가 책성→무창→장춘처럼 시대별로 소속이 바뀌는 경우에도 올바르게 표시한다.
