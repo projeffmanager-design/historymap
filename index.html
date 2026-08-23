@@ -4143,6 +4143,40 @@ body.force-mobile .marker-type-selector button {
             border-color: #e74c3c;
         }
 
+        #castleForm .castle-header-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 4px;
+            margin-left: 8px;
+            flex-shrink: 0;
+        }
+
+        #castleForm .castle-header-actions button {
+            width: auto;
+            min-width: 0 !important;
+            min-height: 25px !important;
+            height: 25px !important;
+            margin: 0 !important;
+            padding: 2px 7px !important;
+            border-radius: 4px;
+            font-size: 10px !important;
+            line-height: 1;
+            white-space: nowrap;
+        }
+
+        #castleForm .castle-header-actions + .edit-panel-close-btn {
+            margin-left: 6px;
+        }
+
+        @media (max-width: 620px) {
+            #castleForm .edit-panel-header { padding-left: 12px; padding-right: 12px; }
+            #castleForm .castle-header-actions { gap: 3px; margin-left: 4px; }
+            #castleForm .castle-header-actions button { padding: 2px 5px !important; font-size: 9px !important; }
+            #castleForm #castleSourceBadges,
+            #castleForm #castleIdChip { display: none !important; }
+        }
+
         /* 편집 폼 오버레이 */
         #edit-panel-overlay {
             position: fixed;
@@ -11654,6 +11688,13 @@ body.force-mobile .marker-type-selector button {
                 <!-- 🆔 castle_id 칩 (편집 시에만 표시) -->
                 <span id="castleIdChip" style="display:none; font-size:10px; font-family:monospace; color:#7a9aae; background:rgba(0,0,0,0.3); padding:2px 7px; border-radius:10px; border:1px solid rgba(90,140,180,0.25); white-space:nowrap; cursor:pointer; max-width:130px; overflow:hidden; text-overflow:ellipsis;" title="클릭하여 복사" onclick="navigator.clipboard.writeText(this.dataset.id); this.textContent='✅ 복사됨!'; setTimeout(()=>{ this.textContent = this.dataset.id.slice(-8)+'…'; },1500);"></span>
             </div>
+            <div class="castle-header-actions">
+                <button type="button" id="revertContributionBtn" class="danger" style="display:none; background-color:#e67e22; border-color:#d35400;" title="기여 상태로 되돌리기">기여 되돌리기</button>
+                <button type="button" id="registerAsContributionBtn" style="display:none; background-color:#1a5276; border-color:#2980b9;" title="이 마커를 사관 기여로 재등록하여 기여점수를 부여합니다">기여 재등록</button>
+                <button type="button" id="cloneCastle" class="primary" style="display:none;" title="마커 복제">복제</button>
+                <button type="button" id="deleteCastle" class="danger" style="display:none;" title="휴지통으로 이동">삭제</button>
+                <button type="submit" class="primary" form="addCastleForm" title="마커 저장">저장</button>
+            </div>
             <button type="button" class="edit-panel-close-btn app-panel-close-btn" onclick="closeEditPanel('castleForm')">×</button>
         </div>
         <div class="edit-panel-inner">
@@ -12122,14 +12163,6 @@ body.force-mobile .marker-type-selector button {
         <div id="castleVoiceUploadMsg" style="font-size:11px; margin-top:5px; display:none;"></div>
       </div>
 
-      <div class="form-actions" style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
-        <button type="button" id="revertContributionBtn" class="danger" style="display:none; background-color: #e67e22; border-color: #d35400;">기여로 되돌리기</button>
-        <button type="button" id="registerAsContributionBtn" style="display:none; background-color: #1a5276; border-color: #2980b9; font-size:11px;" title="이 마커를 사관 기여로 재등록하여 기여점수를 부여합니다">🔁 기여로 재등록</button>
-        <button type="button" id="cloneCastle" class="primary" style="display:none;">복제</button>
-        <button type="button" id="deleteCastle" class="danger" style="display:none;">🗑️ 휴지통</button>
-        <button type="button" id="cancelCastle">취소</button>
-        <button type="submit" class="primary">저장</button>
-      </div>
     </form>
     </div><!-- edit-panel-inner -->
   </div>
@@ -15332,6 +15365,17 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         if (formId === 'castleForm' && window._coordPickerPin) {
             try { map.removeLayer(window._coordPickerPin); } catch(e) {}
             window._coordPickerPin = null;
+        }
+        // 마커 관리의 × 버튼이 기존 취소 버튼과 동일하게 임시 편집 상태를 정리한다.
+        if (formId === 'castleForm') {
+            if (typeof cloningCastleOriginalName !== 'undefined') cloningCastleOriginalName = null;
+            if (typeof editMarker !== 'undefined' && editMarker) {
+                try {
+                    if (editMarker.getPopup?.()) editMarker.closePopup();
+                    if (map.hasLayer(editMarker)) map.removeLayer(editMarker);
+                } catch(e) {}
+                editMarker = null;
+            }
         }
         // 모든 편집 패널이 닫혔는지 확인 후 오버레이 제거
         const anyOpen = EDIT_PANEL_IDS.some(id => {
@@ -29252,22 +29296,6 @@ const loadingMessages = [
         console.error("Castle 저장 중 오류:", error);
         alert(`Castle 저장 실패: ${error.message}`);
       }
-    });
-
-    // 성 폼 취소
-    cancelCastle.addEventListener('click', () => {
-      closeEditPanel('castleForm');
-      cloningCastleOriginalName = null;
-      // 🚩 [추가] 마커의 팝업을 명시적으로 닫은 후 레이어를 제거합니다.
-      if (editMarker && map.hasLayer(editMarker) && editMarker.getPopup()) {
-          editMarker.closePopup();
-      }
-      if (editMarker) {
-        map.removeLayer(editMarker);
-        editMarker = null;
-      }
-      // 좌표 피커 핀 제거
-      if (window._coordPickerPin) { try { map.removeLayer(window._coordPickerPin); } catch(e){} window._coordPickerPin = null; }
     });
 
     // 성 휴지통으로 이동
