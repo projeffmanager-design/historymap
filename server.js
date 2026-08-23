@@ -220,22 +220,50 @@ const countryPredecessorCycleExists = async (countryId, proposedRelations) => {
         String(doc._id),
         normalizeCountryPredecessors(doc.predecessor_relations)
             .filter(relation => COUNTRY_LINEAGE_RELATION_TYPES.has(relation.relation_type))
-            .map(relation => String(relation.predecessor_country_id))
+            .map(relation => ({
+                id: String(relation.predecessor_country_id),
+                time: Number.isFinite(relation.year)
+                    ? relation.year * 12 + (relation.month || 1) - 1
+                    : null
+            }))
     ]));
     predecessorMap.set(target, proposedRelations
         .filter(relation => COUNTRY_LINEAGE_RELATION_TYPES.has(relation.relation_type))
-        .map(relation => String(relation.predecessor_country_id)));
-    const visiting = new Set();
+        .map(relation => ({
+            id: String(relation.predecessor_country_id),
+            time: Number.isFinite(relation.year)
+                ? relation.year * 12 + (relation.month || 1) - 1
+                : null
+        })));
+
+    // 국가 문서 ID만으로 순환을 검사하면 A에서 B가 갈라진 뒤 후대에 B가 A를
+    // 정복·병합한 정상적인 역사도 A→B→A로 오인한다. 같은 국가가 다시 등장해도
+    // 관계 시점이 과거로 이동했다면 서로 다른 시대의 노드이므로 허용한다.
+    // 연도가 없거나 같은/더 늦은 시점으로 되돌아오는 경우만 실제 순환으로 본다.
     const visited = new Set();
-    const hasCycle = (id) => {
-        if (visiting.has(id)) return true;
-        if (visited.has(id)) return false;
-        visiting.add(id);
-        for (const predecessorId of predecessorMap.get(id) || []) {
-            if (hasCycle(predecessorId)) return true;
+    const hasCycle = (id, upperTime = Infinity, pathIds = [], pathTimes = []) => {
+        const visitKey = `${id}:${upperTime}`;
+        if (visited.has(visitKey)) return false;
+        const nextPathIds = [...pathIds, id];
+        for (const predecessor of predecessorMap.get(id) || []) {
+            const edgeTime = predecessor.time;
+            // 선행 관계를 거슬러 올라갈수록 시점은 같거나 과거여야 한다.
+            // 더 늦은 관계는 현재 역사 단면의 선행 경로가 아니므로 건너뛴다.
+            if (Number.isFinite(upperTime) && Number.isFinite(edgeTime) && edgeTime > upperTime) continue;
+            const repeatedAt = nextPathIds.indexOf(predecessor.id);
+            if (repeatedAt >= 0) {
+                const cycleTimes = [...pathTimes.slice(repeatedAt), edgeTime];
+                // 모든 관계에 시점이 있고, 순환을 도는 동안 적어도 한 번 엄격히
+                // 과거로 이동하면 동일 국가의 후대 재통합을 표현한 시간축 관계다.
+                const temporalReturn = cycleTimes.every(Number.isFinite)
+                    && cycleTimes.some((time, index) => index > 0 && time < cycleTimes[index - 1]);
+                if (!temporalReturn) return true;
+                continue;
+            }
+            const nextUpperTime = Number.isFinite(edgeTime) ? edgeTime : upperTime;
+            if (hasCycle(predecessor.id, nextUpperTime, nextPathIds, [...pathTimes, edgeTime])) return true;
         }
-        visiting.delete(id);
-        visited.add(id);
+        visited.add(visitKey);
         return false;
     };
     return hasCycle(target);

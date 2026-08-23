@@ -18698,11 +18698,18 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             // 미시 모드(zoom >= 7, 약 100km):  전체 성 표시
             const _isMacro = currentMacroMode === 0;
             const _isMid   = currentMacroMode === 1;
-            const _isCapital = !!(_activeLodRecord && (
-                _activeLodRecord.is_capital === true ||
-                _activeLodRecord.place_type === 'capital' ||
-                _activeLodRecord.place_type === 'hwangseong'
-            ));
+            // 수도 여부는 활성 히스토리를 우선하되, 구형/부분 갱신 데이터의 최상위
+            // is_capital/place_type도 보조로 사용한다. 지도 이동 뒤 서버·IndexedDB 데이터가
+            // 교체될 때 history의 place_type이 잠시 빠지면 수도가 일반 성으로 강등되어
+            // 중간 LOD에서 사라지는 문제가 있었다.
+            const _isCapital = !!(
+                _activeLodRecord?.is_capital === true ||
+                _activeLodRecord?.place_type === 'capital' ||
+                _activeLodRecord?.place_type === 'hwangseong' ||
+                castle.is_capital === true ||
+                castle.place_type === 'capital' ||
+                castle.place_type === 'hwangseong'
+            );
             if (_isMacro && !castle.is_natural_feature && !castle.is_label) return;
             if (_isMacro && castle.is_natural_feature) return; // 거시 모드: 자연지물 숨김
             if (_isMid   && castle.is_natural_feature) return; // 중간 모드: 자연지물 숨김
@@ -19330,7 +19337,10 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
 
             // 4. place_type 기반 특수 마커 (관문, 전장, 주/군/현/성/진)
-        const placeType = activeHistoryRecord?.place_type || 'normal';
+        const placeType = activeHistoryRecord?.place_type
+            || (activeHistoryRecord?.is_capital ? 'capital' : null)
+            || castle.place_type
+            || (castle.is_capital ? 'capital' : 'normal');
 
         // place_type별 아이콘 설정 (capital은 별도 낙관 마커로 처리)
         const PLACE_TYPE_CONFIG = {
