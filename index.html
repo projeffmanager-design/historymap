@@ -10273,6 +10273,9 @@ body.force-mobile .marker-type-selector button {
                     <input type="text" id="drawingPathLabel" placeholder="선 위 글씨 (선택)" style="width:150px;padding:3px 5px;font-size:11px;">
                     <label for="drawingPathLabelSize" style="font-size:10px;color:#95a5a6;white-space:nowrap;">크기</label>
                     <input type="number" id="drawingPathLabelSize" value="13" min="8" max="48" step="1" style="width:48px;padding:3px 4px;font-size:11px;">
+                    <label style="display:flex;align-items:center;gap:3px;font-size:10px;color:#c8d4df;white-space:nowrap;margin:0;">
+                        <input type="checkbox" id="drawingHidePathLine" style="width:auto;height:auto;margin:0;"> 선 숨김
+                    </label>
                 </div>
 
                 <!-- 4행: 도구 버튼들 (조건부 표시) -->
@@ -18083,7 +18086,11 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
                 const renderLine = (coords) => {
                     const latLngs = coords.map(c => [c[1], c[0]]);
-                    const visLine = L.polyline(latLngs, { ...opts, interactive: false });
+                    const visLine = L.polyline(latLngs, {
+                        ...opts,
+                        opacity: drawing.hide_path_line === true ? 0 : opts.opacity,
+                        interactive: false
+                    });
                     const hitLine = L.polyline(latLngs, { ...opts, weight: 14, opacity: 0.001, interactive: true });
                     const pathLabel = String(drawing.path_label || '').trim();
                     if (pathLabel && typeof visLine.setText === 'function') {
@@ -18379,10 +18386,10 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             if (drawing.type === 'mountain' && !layerVisibility.natural) {
                 return; // '자연' 레이어가 꺼져있으면 산맥을 그리지 않습니다.
             }
-            // 🔭 [줌 LOD] 산맥은 미시 모드(zoom >= 7, ~100km 이내)에서만 표시
-            if (drawing.type === 'mountain' && currentMacroMode < 2) {
-                return;
-            }
+            // 🔭 [줌 LOD] 산맥 선 본체는 미시 모드에서 표시하고,
+            // 왕성이 보이는 중간 모드에서는 경로 글씨만 남긴다.
+            if (drawing.type === 'mountain' && currentMacroMode < 1) return;
+            const mountainLabelOnly = drawing.type === 'mountain' && currentMacroMode === 1;
             // 🚩 [추가] '성곽'과 '화살표' 유형은 '유적' 레이어 토글에 따라 표시 여부를 결정합니다.
             if ((drawing.type === 'wall' || drawing.type === 'arrow') && !layerVisibility.relic) {
                 return; // '유적' 레이어가 꺼져있으면 성곽과 화살표를 그리지 않습니다.
@@ -18547,6 +18554,19 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             }
 
             if (layer) {
+                if (drawing.hide_path_line === true || mountainLabelOnly) {
+                    // 선은 보이지 않게 하되 레이어와 클릭/편집 경로는 유지한다.
+                    // 화살표의 setText 문자도 제거하고 별도 path label만 아래에서 추가한다.
+                    const hideVisual = target => {
+                        if (!target) return;
+                        if (typeof target.eachLayer === 'function') {
+                            target.eachLayer(child => hideVisual(child));
+                        }
+                        try { if (typeof target.setText === 'function') target.setText(null); } catch(e) {}
+                        try { if (typeof target.setStyle === 'function') target.setStyle({ opacity:0, fillOpacity:0 }); } catch(e) {}
+                    };
+                    hideVisual(layer);
+                }
                 layer._drawingDbId = drawing?._id?.$oid || drawing?._id?.toString?.() || drawing?._id;
                 drawnItems.addLayer(layer);
                 const pathLabelLayer = createDrawingPathLabelLayer(drawing);
@@ -32517,6 +32537,7 @@ kingSelect.addEventListener('change', () => {
             color: document.getElementById('drawingColor').value, // 🚩 [추가] 색상 필드
             path_label: document.getElementById('drawingPathLabel').value.trim(),
             path_label_size: Math.min(48, Math.max(8, parseInt(document.getElementById('drawingPathLabelSize').value, 10) || 13)),
+            hide_path_line: document.getElementById('drawingHidePathLine').checked,
             start_year: parseInt(document.getElementById('drawingStartYear').value),
             end_year: document.getElementById('drawingEndYear').value ? parseInt(document.getElementById('drawingEndYear').value) : null,
             geojson: JSON.parse(geoJsonRaw)
@@ -32926,6 +32947,7 @@ kingSelect.addEventListener('change', () => {
             color: document.getElementById('drawingColor').value,
             path_label: document.getElementById('drawingPathLabel').value.trim(),
             path_label_size: Math.min(48, Math.max(8, parseInt(document.getElementById('drawingPathLabelSize').value, 10) || 13)),
+            hide_path_line: document.getElementById('drawingHidePathLine').checked,
             start_year: parseInt(document.getElementById('drawingStartYear').value),
             end_year: document.getElementById('drawingEndYear').value ? parseInt(document.getElementById('drawingEndYear').value) : null,
             geojson: JSON.parse(geoJsonRaw)
@@ -32981,6 +33003,7 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('drawingColorHex').textContent = drawingData.color || '#3388ff';
             document.getElementById('drawingPathLabel').value = drawingData.path_label || '';
             document.getElementById('drawingPathLabelSize').value = drawingData.path_label_size || 13;
+            document.getElementById('drawingHidePathLine').checked = drawingData.hide_path_line === true;
             document.getElementById('drawingStartYear').value = drawingData.start_year;
             document.getElementById('drawingEndYear').value = drawingData.end_year || '';
             document.getElementById('deleteDrawingBtn').style.display = 'inline-block';
@@ -33006,6 +33029,7 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('drawingColorHex').textContent = '#3388ff';
             document.getElementById('drawingPathLabel').value = '';
             document.getElementById('drawingPathLabelSize').value = 13;
+            document.getElementById('drawingHidePathLine').checked = false;
             document.getElementById('drawingStartYear').value = yearInput.value; // 현재 연도 기본값
             document.getElementById('deleteDrawingBtn').style.display = 'none';
             document.getElementById('duplicateDrawingBtn').style.display = 'none';
