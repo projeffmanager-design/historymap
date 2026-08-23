@@ -10268,7 +10268,14 @@ body.force-mobile .marker-type-selector button {
                     <input type="number" id="drawingEndYear" placeholder="선택" style="width:64px;padding:3px 5px;font-size:11px;">
                 </div>
 
-                <!-- 3행: 도구 버튼들 (조건부 표시) -->
+                <!-- 3행: 선을 따라 표시할 글씨 + 크기 -->
+                <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;margin-bottom:4px;">
+                    <input type="text" id="drawingPathLabel" placeholder="선 위 글씨 (선택)" style="width:150px;padding:3px 5px;font-size:11px;">
+                    <label for="drawingPathLabelSize" style="font-size:10px;color:#95a5a6;white-space:nowrap;">크기</label>
+                    <input type="number" id="drawingPathLabelSize" value="13" min="8" max="48" step="1" style="width:48px;padding:3px 4px;font-size:11px;">
+                </div>
+
+                <!-- 4행: 도구 버튼들 (조건부 표시) -->
                 <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:4px;">
                     <button type="button" id="segmentEraseBtn" style="display:none;font-size:10px;padding:2px 6px;background:rgba(180,80,20,0.15);border:1px solid rgba(180,80,20,0.5);color:#e8945a;border-radius:3px;">🧹지우기</button>
                     <button type="button" id="vertexEditBtn" style="display:none;font-size:10px;padding:2px 6px;background:rgba(52,152,219,0.15);border:1px solid rgba(52,152,219,0.5);color:#3498db;border-radius:3px;">📍포인트편집</button>
@@ -10289,7 +10296,7 @@ body.force-mobile .marker-type-selector button {
                     <button type="button" id="vertexEditCancelBtn" style="font-size:10px;padding:1px 6px;background:#5d7185;border:none;color:white;border-radius:2px;cursor:pointer;">취소</button>
                 </div>
 
-                <!-- 4행: 액션 버튼 -->
+                <!-- 5행: 액션 버튼 -->
                 <div style="display:flex;gap:3px;flex-wrap:wrap;">
                     <button type="button" id="cancelDrawingBtn" style="font-size:11px;padding:3px 8px;">취소</button>
                     <button type="button" id="deleteDrawingBtn" class="danger" style="display:none;font-size:11px;padding:3px 8px;">삭제</button>
@@ -18078,6 +18085,22 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     const latLngs = coords.map(c => [c[1], c[0]]);
                     const visLine = L.polyline(latLngs, { ...opts, interactive: false });
                     const hitLine = L.polyline(latLngs, { ...opts, weight: 14, opacity: 0.001, interactive: true });
+                    const pathLabel = String(drawing.path_label || '').trim();
+                    if (pathLabel && typeof visLine.setText === 'function') {
+                        const fontSize = Math.min(48, Math.max(8, Number(drawing.path_label_size) || 13));
+                        visLine.setText(`　${pathLabel}　`, {
+                            center: true,
+                            repeat: false,
+                            offset: -(fontSize * 0.55),
+                            attributes: {
+                                'class':'drawing-path-label', 'font-size':String(fontSize),
+                                'font-family':'Nanum Myeongjo, Noto Serif KR, serif',
+                                'font-weight':'700', 'fill':'#d8eaff', 'stroke':'#101828',
+                                'stroke-width':String(Math.max(2, Math.round(fontSize * 0.22))),
+                                'paint-order':'stroke', 'stroke-linejoin':'round', 'pointer-events':'none'
+                            }
+                        });
+                    }
                     bindDrEvents(hitLine);
                     riverLayerGroup.addLayer(visLine);
                     riverLayerGroup.addLayer(hitLine);
@@ -18305,6 +18328,42 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         const drawingRenderer = L.svg({ pane: 'drawingPane', padding: 0.5 });
         window._drawingRenderer = drawingRenderer;
 
+        const createDrawingPathLabelLayer = (drawing) => {
+            const geomType = drawing?.geojson?.geometry?.type;
+            if (!['LineString', 'MultiLineString'].includes(geomType)) return null;
+            const label = String(drawing.path_label || (drawing.type === 'mountain' ? drawing.name : '') || '').trim();
+            if (!label) return null;
+            const fontSize = Math.min(48, Math.max(8, Number(drawing.path_label_size) || 13));
+            const labelLayer = L.geoJSON(drawing.geojson, {
+                style: { color:'transparent', weight:12, opacity:0.001 },
+                interactive: false,
+                pane: 'drawingPane',
+                renderer: drawingRenderer,
+                onEachFeature: (_feature, pathLayer) => {
+                    if (typeof pathLayer.setText !== 'function') return;
+                    pathLayer.setText(`　${label}　`, {
+                        center: true,
+                        repeat: false,
+                        offset: -(fontSize * 0.55),
+                        attributes: {
+                            'class': 'drawing-path-label',
+                            'font-size': String(fontSize),
+                            'font-family': 'Nanum Myeongjo, Noto Serif KR, serif',
+                            'font-weight': '700',
+                            'fill': '#ead8b7',
+                            'stroke': '#24150e',
+                            'stroke-width': String(Math.max(2, Math.round(fontSize * 0.22))),
+                            'paint-order': 'stroke',
+                            'stroke-linejoin': 'round',
+                            'pointer-events': 'none'
+                        }
+                    });
+                }
+            });
+            labelLayer._drawingDbId = drawing?._id?.$oid || drawing?._id?.toString?.() || drawing?._id;
+            return labelLayer;
+        };
+
         drawings.forEach(drawing => {
           try {
             const startYear = drawing.start_year ?? drawing.startYear ?? -Infinity;
@@ -18401,7 +18460,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         },
                         pane: 'drawingPane',
                         renderer: drawingRenderer, // 🔧 [v3.6.63] 명시적 SVG 렌더러
-                        onEachFeature: (feature, layer) => bindDrawingEvents(layer, drawing)
+                        onEachFeature: (feature, mountainLine) => bindDrawingEvents(mountainLine, drawing)
                     });
                     break;
                     
@@ -18490,6 +18549,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             if (layer) {
                 layer._drawingDbId = drawing?._id?.$oid || drawing?._id?.toString?.() || drawing?._id;
                 drawnItems.addLayer(layer);
+                const pathLabelLayer = createDrawingPathLabelLayer(drawing);
+                if (pathLabelLayer) drawnItems.addLayer(pathLabelLayer);
             }
           } catch (drawErr) {
             console.error(`[drawing 렌더링 오류] ${drawing?.name}`, drawErr);
@@ -22815,6 +22876,19 @@ const loadingMessages = [
 
               if (index !== -1 && updatedCastle) {
                   const oldCastle = { ...castles[index] }; // 변경 전 상태 백업
+                  const ownershipFingerprint = castle => JSON.stringify({
+                      country_id: castle?.country_id || castle?.countryId || null,
+                      history: (Array.isArray(castle?.history) ? castle.history : []).map(record => ({
+                          country_id: record?.country_id || null,
+                          start_year: record?.start_year ?? null,
+                          start_month: record?.start_month ?? 1,
+                          end_year: record?.end_year ?? null,
+                          end_month: record?.end_month ?? 12,
+                          is_capital: !!record?.is_capital,
+                          place_type: record?.place_type || null
+                      }))
+                  });
+                  const ownershipChanged = ownershipFingerprint(oldCastle) !== ownershipFingerprint(updatedCastle);
 
                   // 🚨 [핵심 수정 1] 전역 배열(castles)을 업데이트합니다.
                   castles[index] = updatedCastle;
@@ -22866,7 +22940,17 @@ const loadingMessages = [
                   else {
                       // 일반 성/전장은 전체 맵 갱신
                       const { year, month } = getCurrentYearMonth();
-                      updateMap(year, month);
+                      if (ownershipChanged) {
+                          // 국가/통치 기록 변경은 마커 개수가 같아 기존 fingerprint로 감지되지 않는다.
+                          // 흉노→북흉노처럼 소속만 교체한 경우에도 영토 지배국을 즉시 다시 계산한다.
+                          _dominantCountryCache.clear();
+                          _activeCastleTerritoryCache.clear();
+                          _activeCastleTerritoryCacheKey = '';
+                          lastUpdateMapCall = { year:null, month:null, cacheOnly:null, dataFingerprint:null };
+                          updateMap(year, month, false, true);
+                      } else {
+                          updateMap(year, month);
+                      }
                   }
 
                   // 🚨 [핵심 수정 2] 배열 업데이트 완료
@@ -32431,6 +32515,8 @@ kingSelect.addEventListener('change', () => {
             name: document.getElementById('drawingName').value,
             type: document.getElementById('drawingType').value,
             color: document.getElementById('drawingColor').value, // 🚩 [추가] 색상 필드
+            path_label: document.getElementById('drawingPathLabel').value.trim(),
+            path_label_size: Math.min(48, Math.max(8, parseInt(document.getElementById('drawingPathLabelSize').value, 10) || 13)),
             start_year: parseInt(document.getElementById('drawingStartYear').value),
             end_year: document.getElementById('drawingEndYear').value ? parseInt(document.getElementById('drawingEndYear').value) : null,
             geojson: JSON.parse(geoJsonRaw)
@@ -32838,6 +32924,8 @@ kingSelect.addEventListener('change', () => {
             name: originalName + ' (복제)',
             type: document.getElementById('drawingType').value,
             color: document.getElementById('drawingColor').value,
+            path_label: document.getElementById('drawingPathLabel').value.trim(),
+            path_label_size: Math.min(48, Math.max(8, parseInt(document.getElementById('drawingPathLabelSize').value, 10) || 13)),
             start_year: parseInt(document.getElementById('drawingStartYear').value),
             end_year: document.getElementById('drawingEndYear').value ? parseInt(document.getElementById('drawingEndYear').value) : null,
             geojson: JSON.parse(geoJsonRaw)
@@ -32891,6 +32979,8 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('drawingType').value = drawingData.type;
             document.getElementById('drawingColor').value = drawingData.color || '#3388ff'; // 🚩 [추가] 색상 로드
             document.getElementById('drawingColorHex').textContent = drawingData.color || '#3388ff';
+            document.getElementById('drawingPathLabel').value = drawingData.path_label || '';
+            document.getElementById('drawingPathLabelSize').value = drawingData.path_label_size || 13;
             document.getElementById('drawingStartYear').value = drawingData.start_year;
             document.getElementById('drawingEndYear').value = drawingData.end_year || '';
             document.getElementById('deleteDrawingBtn').style.display = 'inline-block';
@@ -32914,6 +33004,8 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('drawingMongoId').value = '';
             document.getElementById('drawingColor').value = '#3388ff'; // 🚩 [추가] 기본 색상
             document.getElementById('drawingColorHex').textContent = '#3388ff';
+            document.getElementById('drawingPathLabel').value = '';
+            document.getElementById('drawingPathLabelSize').value = 13;
             document.getElementById('drawingStartYear').value = yearInput.value; // 현재 연도 기본값
             document.getElementById('deleteDrawingBtn').style.display = 'none';
             document.getElementById('duplicateDrawingBtn').style.display = 'none';
