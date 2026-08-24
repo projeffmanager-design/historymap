@@ -325,7 +325,12 @@
                 </div>
                 <div class="input-group">
                     <label for="password">임관 통행패 암호</label>
-                    <input type="password" id="password" name="password" placeholder="역사 기록의 비밀을 지킬 암호" required>
+                    <input type="password" id="password" name="password" placeholder="역사 기록의 비밀을 지킬 암호" autocomplete="new-password" minlength="4" required>
+                </div>
+                <div class="input-group">
+                    <label for="passwordConfirm">임관 통행패 암호 확인</label>
+                    <input type="password" id="passwordConfirm" name="passwordConfirm" placeholder="같은 암호를 다시 입력하세요" autocomplete="new-password" minlength="4" required>
+                    <div id="passwordMatchHint" aria-live="polite" style="min-height: 1.2em; margin-top: 6px; font-size: 0.88em;"></div>
                 </div>
                 <button type="submit">⚔️ 임관을 선서합니다</button>
             </form>
@@ -340,12 +345,50 @@
     <script>
         const API_BASE_URL = '/api'; // 💡 상대 경로로 변경
 
+        const passwordInput = document.getElementById('password');
+        const passwordConfirmInput = document.getElementById('passwordConfirm');
+        const passwordMatchHint = document.getElementById('passwordMatchHint');
+
+        function validatePasswordMatch() {
+            const password = passwordInput.value;
+            const passwordConfirm = passwordConfirmInput.value;
+
+            if (!passwordConfirm) {
+                passwordConfirmInput.setCustomValidity('');
+                passwordMatchHint.textContent = '';
+                return false;
+            }
+
+            if (password !== passwordConfirm) {
+                passwordConfirmInput.setCustomValidity('통행패 암호가 일치하지 않습니다.');
+                passwordMatchHint.textContent = '통행패 암호가 일치하지 않습니다.';
+                passwordMatchHint.style.color = '#ff6b6b';
+                return false;
+            }
+
+            passwordConfirmInput.setCustomValidity('');
+            passwordMatchHint.textContent = '통행패 암호가 일치합니다.';
+            passwordMatchHint.style.color = '#78d28b';
+            return true;
+        }
+
+        passwordInput.addEventListener('input', validatePasswordMatch);
+        passwordConfirmInput.addEventListener('input', validatePasswordMatch);
+
         document.getElementById('registerForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const username = document.getElementById('username').value;
             const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
+            const password = passwordInput.value;
             const messageEl = document.getElementById('message');
+
+            messageEl.textContent = '';
+            if (!validatePasswordMatch()) {
+                messageEl.textContent = '통행패 암호를 동일하게 두 번 입력해 주세요.';
+                passwordConfirmInput.focus();
+                passwordConfirmInput.reportValidity();
+                return;
+            }
 
             try {
                 const response = await fetch(`${API_BASE_URL}/auth/signup`, {

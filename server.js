@@ -6976,6 +6976,10 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     return res.status(401).json({ message: "사용자 이름 또는 비밀번호가 잘못되었습니다." });
                 }
 
+                if (user.isActive === false) {
+                    return res.status(403).json({ message: "탈퇴 처리된 계정입니다. 관리자에게 문의하세요." });
+                }
+
                 const isMatch = await bcrypt.compare(password, user.password);
                 if (!isMatch) {
                     return res.status(401).json({ message: "사용자 이름 또는 비밀번호가 잘못되었습니다." });
@@ -7603,6 +7607,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (!currentPassword || !newPassword) {
                     return res.status(400).json({ message: "현재 비밀번호와 새 비밀번호를 모두 입력해주세요." });
                 }
+                if (newPassword.length < 4) {
+                    return res.status(400).json({ message: "새 통행패는 4자 이상이어야 합니다." });
+                }
 
                 const user = await collections.users.findOne({ _id: toObjectId(userId) });
                 if (!user) {
@@ -7628,6 +7635,26 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 res.json({ message: "비밀번호가 성공적으로 변경되었습니다." });
             } catch (error) {
                 res.status(500).json({ message: "서버 오류가 발생했습니다.", error: error.message });
+            }
+        });
+
+        // PUT: 본인 계정 탈퇴(자료 보존을 위한 소프트 비활성화)
+        app.put('/api/auth/deactivate', verifyToken, async (req, res) => {
+            try {
+                const userId = toObjectId(req.user.userId);
+                const reason = String(req.body?.reason || '').trim();
+                if (!userId) return res.status(400).json({ message: "잘못된 사용자 정보입니다." });
+                if (!reason) return res.status(400).json({ message: "탈퇴 이유를 입력해주세요." });
+                if (reason.length > 1000) return res.status(400).json({ message: "탈퇴 이유는 1,000자 이하로 입력해주세요." });
+                const user = await collections.users.findOne({ _id: userId });
+                if (!user) return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+                if (user.isGuest) return res.status(403).json({ message: "게스트 계정은 탈퇴할 수 없습니다." });
+                await collections.users.updateOne({ _id: userId }, { $set: {
+                    isActive: false, deactivationReason: reason, deactivatedAt: new Date(), deactivatedBy: 'self'
+                } });
+                res.json({ message: "탈퇴 처리되었습니다. 기존에 제출한 사관 자료와 역사 기록은 그대로 남습니다." });
+            } catch (error) {
+                res.status(500).json({ message: "탈퇴 처리 중 오류가 발생했습니다.", error: error.message });
             }
         });
 
