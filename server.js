@@ -6986,6 +6986,10 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     return res.status(403).json({ message: "계정이 잠겨있습니다. 관리자에게 문의하세요." });
                 }
 
+                // 회원가입 뒤 처음으로 정상 로그인한 경우에만 온보딩을 표시한다.
+                // 로그인 성공 처리 마지막에 lastLogin을 갱신하므로, 갱신 전 값을 사용해야 한다.
+                const isFirstLogin = !user.lastLogin;
+
                 // 🚩 [추가] 로그인 로그 기록
                 await collections.loginLogs.insertOne({
                     userId: user._id,
@@ -7078,6 +7082,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 res.json({
                     message: "로그인 성공",
                     token,
+                    isFirstLogin,
                     attendancePoints,          // 0 이면 오늘 이미 출석, 1 이면 오늘 첫 출석
                     username: user.username,
                     position: position

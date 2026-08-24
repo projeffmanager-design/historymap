@@ -22492,6 +22492,8 @@ const loadingMessages = [
               }
               console.warn(`[SessionCache] territory eviction: removed ${excess} entries`);
           }
+          // 경계 편집기 등 별도 스크립트에서도 현재 타일 영토를 읽을 수 있게 동기화한다.
+          window.territories = territories;
           return added;
       }
 
@@ -44733,8 +44735,60 @@ kingSelect.addEventListener('change', () => {
       // 약간의 딜레이 후 팝업 표시 (지도 로딩 완료 후)
       setTimeout(showWelcomePopup, 1500);
 
+      let loginNotice = null;
+      try {
+        loginNotice = JSON.parse(sessionStorage.getItem('_loginNotice') || 'null');
+      } catch (_) {}
+
+      // 신규 사관의 첫 로그인에는 조작법을 담은 전용 환영 안내를 한 번만 표시한다.
+      if (loginNotice && loginNotice.isFirstLogin === true) {
+        sessionStorage.removeItem('_loginNotice');
+        setTimeout(function() {
+          const overlay = document.createElement('div');
+          overlay.id = 'firstLoginWelcome';
+          overlay.setAttribute('role', 'dialog');
+          overlay.setAttribute('aria-modal', 'true');
+          overlay.setAttribute('aria-labelledby', 'firstLoginWelcomeTitle');
+          overlay.style.cssText = 'position:fixed;inset:0;z-index:1000000;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(5,8,12,.84);backdrop-filter:blur(5px);';
+
+          const card = document.createElement('div');
+          card.style.cssText = 'width:min(520px,100%);max-height:calc(100dvh - 40px);overflow:auto;padding:30px 28px 26px;border:1px solid rgba(212,168,67,.65);border-radius:18px;background:linear-gradient(150deg,#20262d,#11161b);box-shadow:0 24px 80px rgba(0,0,0,.6);color:#e9edf0;font-family:"Noto Sans KR",sans-serif;';
+          card.innerHTML = `
+            <div style="text-align:center;margin-bottom:22px;">
+              <div style="font-size:44px;line-height:1;margin-bottom:12px;">📜</div>
+              <h2 id="firstLoginWelcomeTitle" style="margin:0 0 9px;color:#f1cf72;font-family:'Noto Serif KR',serif;font-size:clamp(22px,5vw,29px);">사관 임관을 환영합니다</h2>
+              <p id="firstLoginWelcomeName" style="margin:0;color:#bec7ce;line-height:1.65;"></p>
+            </div>
+            <div style="display:grid;gap:10px;margin:0 0 22px;">
+              <div style="padding:13px 15px;border-radius:10px;background:rgba(255,255,255,.045);"><b style="color:#f1cf72;">1. 시대 살펴보기</b><div style="margin-top:4px;color:#bdc6cc;font-size:14px;line-height:1.55;">화면 아래 연도·월을 움직이면 그 시대의 강역과 기록이 바뀝니다.</div></div>
+              <div style="padding:13px 15px;border-radius:10px;background:rgba(255,255,255,.045);"><b style="color:#f1cf72;">2. 지도 탐색하기</b><div style="margin-top:4px;color:#bdc6cc;font-size:14px;line-height:1.55;">드래그로 이동하고 휠 또는 두 손가락으로 확대하세요. 표식을 누르면 상세 기록을 볼 수 있습니다.</div></div>
+              <div style="padding:13px 15px;border-radius:10px;background:rgba(255,255,255,.045);"><b style="color:#f1cf72;">3. 사료 남기기</b><div style="margin-top:4px;color:#bdc6cc;font-size:14px;line-height:1.55;">지도에서 우클릭(모바일은 길게 누르기)해 지명과 사료를 제안하세요. 활동 내역과 공적은 MY PAGE에서 확인할 수 있습니다.</div></div>
+            </div>
+            <button type="button" id="firstLoginWelcomeClose" style="width:100%;padding:13px 18px;border:0;border-radius:10px;background:linear-gradient(135deg,#d4a843,#f0cf73);color:#17130a;font-size:16px;font-weight:800;cursor:pointer;">첫 기록을 시작하겠습니다</button>
+          `;
+          const name = card.querySelector('#firstLoginWelcomeName');
+          name.textContent = `${loginNotice.position ? loginNotice.position + ' ' : ''}${loginNotice.username || ''} 사관님, 고려만리지도의 기록에 함께해 주셔서 감사합니다.`;
+          overlay.appendChild(card);
+          document.body.appendChild(overlay);
+          document.body.style.overflow = 'hidden';
+
+          const onFirstWelcomeKey = function(event) {
+            if (event.key === 'Escape') close();
+          };
+          const close = function() {
+            document.removeEventListener('keydown', onFirstWelcomeKey);
+            overlay.remove();
+            document.body.style.overflow = '';
+          };
+          card.querySelector('#firstLoginWelcomeClose').addEventListener('click', close);
+          overlay.addEventListener('click', function(event) { if (event.target === overlay) close(); });
+          document.addEventListener('keydown', onFirstWelcomeKey);
+          card.querySelector('#firstLoginWelcomeClose').focus();
+        }, 1500);
+      }
+
       // 🚩 로그인 직후(방금 로그인한 경우) 사관청 소식 팝업 표시
-      if (sessionStorage.getItem('_loginNotice')) {
+      if (loginNotice && loginNotice.isFirstLogin !== true) {
         setTimeout(function() {
           const nlOverlay = document.getElementById('newsletter-popup-overlay');
           const nlIframe  = document.getElementById('newsletter-popup-iframe');
@@ -49822,6 +49876,13 @@ window.toggleResourceBar = function(btn, forceState) {
     var btn = document.getElementById('territory-geom-save-btn');
     if (btn) { btn.style.display = show ? '' : 'none'; btn.disabled = false; }
   }
+  function _tgLoadedTerritories() {
+    if (Array.isArray(window.territories) && window.territories.length) return window.territories;
+    try {
+      if (typeof territories !== 'undefined' && Array.isArray(territories)) return territories;
+    } catch(e) {}
+    return [];
+  }
 
   /* ── 지오메트리 유틸 ──────────────────────────────────────── */
   function _dpSimp(pts, tol) {
@@ -49915,7 +49976,7 @@ window.toggleResourceBar = function(btn, forceState) {
   }
 
   /* ── 1단계: 영토 선택 모드 진입 ─────────────────────────── */
-  function _tgEnterSelect() {
+  async function _tgEnterSelect() {
     if (_tgEditMode) {
       _tgSetMsg('⚠️ 이미 편집 중입니다. 먼저 저장하거나 취소하세요.','err');
       _tgBarOpen(true);
@@ -49924,8 +49985,20 @@ window.toggleResourceBar = function(btn, forceState) {
     _tgSelectMode = true;
     _tgBarOpen(true);
     _tgSetTitle('🧭 영토 경계 편집');
-    _tgSetMsg('📍 편집할 영토 폴리곤을 지도에서 직접 클릭하세요.');
+    _tgSetMsg('영토 데이터 확인 중...');
     _tgSaveBtn(false);
+
+    if (_tgLoadedTerritories().length === 0 && typeof window.loadTerritoryTiles === 'function') {
+      try { await window.loadTerritoryTiles(); }
+      catch(e) { _tgSetMsg('❌ 영토 데이터 로드 실패: '+e.message, 'err'); return; }
+    }
+    var loadedCount = _tgLoadedTerritories().length;
+    if (!loadedCount) {
+      _tgSetMsg('❌ 현재 화면의 영토 데이터를 불러오지 못했습니다. 영토 레이어를 켠 뒤 다시 시도하세요.', 'err');
+      return;
+    }
+    window.territories = _tgLoadedTerritories();
+    _tgSetMsg('📍 편집할 영토 폴리곤을 지도에서 직접 클릭하세요. (로드: '+loadedCount+'개)');
 
     var pane = map.getPane('territoryPane');
     if (pane) pane.style.pointerEvents = 'auto';
@@ -49970,7 +50043,7 @@ window.toggleResourceBar = function(btn, forceState) {
       return t._bounds;
     }
 
-    var allTerr = window.territories || [];
+    var allTerr = _tgLoadedTerritories();
     var hits = allTerr.filter(function(t) {
       var b = _calcBounds(t);
       if (!b) return false;
