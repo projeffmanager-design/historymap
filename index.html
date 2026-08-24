@@ -18004,6 +18004,26 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const ey = d.end_year   ?? d.endYear   ?? Infinity;
                 return year >= sy && year <= ey;
             });
+        // 긴 경로는 글자가 선의 극히 일부에 뭉치지 않도록 화면상 길이에 비례해 자간을 넓힌다.
+        const getDrawingPathLetterSpacing = (pathLayer, label, fontSize) => {
+            const characterCount = Array.from(String(label || '').replace(/\s/g, '')).length;
+            if (characterCount < 2 || !pathLayer || typeof pathLayer.getLatLngs !== 'function') return 0;
+            const measureLine = latLngs => {
+                if (!Array.isArray(latLngs) || latLngs.length < 2) return 0;
+                if (latLngs[0] && typeof latLngs[0].lat === 'number') {
+                    let length = 0;
+                    for (let i = 1; i < latLngs.length; i++) {
+                        length += map.latLngToLayerPoint(latLngs[i - 1]).distanceTo(map.latLngToLayerPoint(latLngs[i]));
+                    }
+                    return length;
+                }
+                return Math.max(0, ...latLngs.map(measureLine));
+            };
+            const pathPixels = measureLine(pathLayer.getLatLngs());
+            const naturalWidth = characterCount * fontSize;
+            const targetWidth = Math.min(pathPixels * 0.48, naturalWidth + fontSize * 2.2 * (characterCount - 1));
+            return Math.max(0, (targetWidth - naturalWidth) / (characterCount - 1));
+        };
         if (layerVisibility.rivers && (naturalFeatures.length > 0 || riverDrawings.length > 0)) {
             const riverStartTime = performance.now();
             let riverRenderedCount = 0;
@@ -18095,7 +18115,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     const pathLabel = String(drawing.path_label || '').trim();
                     if (pathLabel && typeof visLine.setText === 'function') {
                         const fontSize = Math.min(48, Math.max(8, Number(drawing.path_label_size) || 13));
-                        visLine.setText(`　${pathLabel}　`, {
+                        const letterSpacing = getDrawingPathLetterSpacing(visLine, pathLabel, fontSize);
+                        visLine.setText(pathLabel, {
                             center: true,
                             repeat: false,
                             offset: -(fontSize * 0.55),
@@ -18103,6 +18124,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                                 'class':'drawing-path-label', 'font-size':String(fontSize),
                                 'font-family':'Nanum Myeongjo, Noto Serif KR, serif',
                                 'font-weight':'700', 'fill':'#d8eaff', 'stroke':'#101828',
+                                'letter-spacing':`${letterSpacing.toFixed(1)}px`,
                                 'stroke-width':String(Math.max(2, Math.round(fontSize * 0.22))),
                                 'paint-order':'stroke', 'stroke-linejoin':'round', 'pointer-events':'none'
                             }
@@ -18348,7 +18370,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 renderer: drawingRenderer,
                 onEachFeature: (_feature, pathLayer) => {
                     if (typeof pathLayer.setText !== 'function') return;
-                    pathLayer.setText(`　${label}　`, {
+                    const letterSpacing = getDrawingPathLetterSpacing(pathLayer, label, fontSize);
+                    pathLayer.setText(label, {
                         center: true,
                         repeat: false,
                         offset: -(fontSize * 0.55),
@@ -18359,6 +18382,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                             'font-weight': '700',
                             'fill': '#ead8b7',
                             'stroke': '#24150e',
+                            'letter-spacing': `${letterSpacing.toFixed(1)}px`,
                             'stroke-width': String(Math.max(2, Math.round(fontSize * 0.22))),
                             'paint-order': 'stroke',
                             'stroke-linejoin': 'round',
