@@ -9252,6 +9252,36 @@ body.force-mobile .marker-type-selector button {
             }
         }
 
+        /* 모바일 마커 관리창은 고정 탑바 아래의 남은 화면만 사용한다. */
+        @media (max-width: 967px) {
+            body #castleForm,
+            body.force-mobile #castleForm {
+                top: 54px !important;
+                left: -100vw !important;
+                width: 100vw !important;
+                max-width: none !important;
+                height: calc(100dvh - 54px) !important;
+                max-height: calc(100dvh - 54px) !important;
+                padding: 0 !important;
+                transform: none !important;
+                overflow-y: auto !important;
+            }
+            body #castleForm.active,
+            body.force-mobile #castleForm.active {
+                top: 54px !important;
+                left: 0 !important;
+                transform: none !important;
+            }
+            body #castleForm .edit-panel-header,
+            body.force-mobile #castleForm .edit-panel-header {
+                top: 0 !important;
+                min-height: 44px;
+                padding-top: 6px !important;
+                padding-bottom: 6px !important;
+                z-index: 30;
+            }
+        }
+
         /* 사관청 팝업은 지도 위의 모든 기록·목록·상세 패널보다 앞에 표시한다. */
         #newsletter-popup-overlay {
             z-index: 2147483000 !important;
@@ -18880,10 +18910,10 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const _lodPoliticalPhase = _lodCountry
                 ? (getEffectiveCountryInfo(_lodCountry, year, month) || _lodCountry)
                 : null;
-            const _isPoliticalSettlement = !!(
-                _lodPoliticalPhase?.political_form &&
-                COUNTRY_POLITICAL_FORM_ICONS[_lodPoliticalPhase.political_form]
+            const _lodPoliticalForm = normalizeCountryPoliticalForm(
+                _lodPoliticalPhase?.political_form
             );
+            const _isPoliticalSettlement = !!COUNTRY_POLITICAL_FORM_ICONS[_lodPoliticalForm];
             if (_isMacro && !castle.is_natural_feature && !castle.is_label) return;
             if (_isMacro && castle.is_natural_feature) return; // 거시 모드: 자연지물 숨김
             if (_isMid   && castle.is_natural_feature) return; // 중간 모드: 자연지물 숨김
@@ -19764,8 +19794,19 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         if (!currentCountry) return;
         
         // 🚩 국가 존속 기간 체크
-        const countryStartCombined = yearMonthToTotalMonths(currentCountry.start, currentCountry.start_month);
-        const countryEndCombined = (currentCountry.end === null || isNaN(currentCountry.end)) ? Infinity : yearMonthToTotalMonths(currentCountry.end, currentCountry.end_month); 
+        // 시기별 국호 이력은 start_year/end_year를 사용한다. 기본 국가의
+        // 구형 start/end만 검사하면 비려·실위 같은 초기 부족 시기의
+        // 활성 마커가 이 단계에서 잘못 제거된다.
+        const countryStartYear = currentCountry.start_year ?? currentCountry.start;
+        const countryStartMonth = currentCountry.start_month ?? 1;
+        const countryEndYear = currentCountry.end_year ?? currentCountry.end;
+        const countryEndMonth = currentCountry.end_month ?? 12;
+        const countryStartCombined = Number.isFinite(Number(countryStartYear))
+            ? yearMonthToTotalMonths(Number(countryStartYear), countryStartMonth)
+            : -Infinity;
+        const countryEndCombined = (countryEndYear === null || countryEndYear === undefined || countryEndYear === '' || !Number.isFinite(Number(countryEndYear)))
+            ? Infinity
+            : yearMonthToTotalMonths(Number(countryEndYear), countryEndMonth);
         
         if (!(countryStartCombined <= currentTotalMonths && countryEndCombined >= currentTotalMonths)) return; 
 
@@ -19806,7 +19847,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
 
             const _politicalPhase = getEffectiveCountryInfo(currentCountry, year, month) || currentCountry;
-            const _politicalForm = _politicalPhase?.political_form || 'state';
+            const _politicalForm = normalizeCountryPoliticalForm(
+                _politicalPhase?.political_form || 'state'
+            );
             const _politicalSymbol = COUNTRY_POLITICAL_FORM_ICONS[_politicalForm] || '';
             // 비영토 정치체는 시대 국호보다 국가 객체의 기본명(대개 부족·민족명)을 우선한다.
             const _politicalCountryName = currentCountry?.base_name
@@ -27435,6 +27478,23 @@ const loadingMessages = [
                 el.style.filter = chosen ? 'drop-shadow(0 0 5px #00e5ff) drop-shadow(0 0 2px #fff)' : '';
                 el.style.outline = chosen ? '2px solid #00d9ff' : '';
                 el.style.outlineOffset = chosen ? '3px' : '';
+                let check = el.querySelector?.(':scope > .castle-rule-selection-check');
+                if (chosen && !check && el.tagName !== 'IMG') {
+                    check = document.createElement('span');
+                    check.className = 'castle-rule-selection-check';
+                    check.textContent = '☑︎';
+                    check.setAttribute('aria-hidden', 'true');
+                    Object.assign(check.style, {
+                        position: 'absolute', right: '-13px', top: '-13px', zIndex: '20',
+                        color: '#6ff6ff', fontSize: '18px', fontWeight: '900', lineHeight: '1',
+                        pointerEvents: 'none', textShadow: '-1px -1px 1px #001b24, 1px 1px 1px #001b24, 0 0 5px #00d9ff'
+                    });
+                    el.style.overflow = 'visible';
+                    el.appendChild(check);
+                } else if (!chosen && check) {
+                    check.remove();
+                    el.style.overflow = '';
+                }
             });
         }
         function invalidatePreview() {
