@@ -9686,7 +9686,7 @@ body.force-mobile .marker-type-selector button {
       <section aria-labelledby="site-intro-heading" style="margin:10px 0 16px;padding:12px 13px;border:1px solid rgba(212,168,67,.2);border-radius:8px;background:rgba(212,168,67,.055);">
           <h2 id="site-intro-heading" style="margin:0 0 6px;color:#f5d98b;font:700 13px/1.4 'Noto Serif KR',serif;">시간으로 탐색하는 디지털 역사지도</h2>
           <p style="margin:0;color:#aeb9c4;font-size:11px;line-height:1.65;">고려만리지도는 연도와 월을 이동하며 한국과 동아시아의 국가·영토·도시·인물·사건을 한 지도에서 비교하는 역사 탐색 서비스입니다.</p>
-          <div style="display:flex;gap:10px;margin-top:8px;font-size:11px;"><a href="/about" style="color:#d4af37;">프로젝트 소개</a><a href="/guide" style="color:#8fc7e8;">이용안내</a></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;font-size:11px;"><a href="/about" style="color:#d4af37;">프로젝트 소개</a><a href="/guide" style="color:#8fc7e8;">이용안내</a><a href="/adfit-support" style="color:#c9b48a;">운영 후원</a></div>
       </section>
       <h3>화면 글자 크기</h3>
       <div class="menu-section hm-font-size-section">
@@ -18083,7 +18083,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             window._riverRenderer = riverRenderer;
 
             const riverPolylineOptions = {
-                color: '#1e003d',
+                color: '#3388ff',
                 weight: 1.5,
                 opacity: 1,
                 smoothFactor: 2,
@@ -18094,6 +18094,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             // ── naturalFeatures 기반 강 렌더링 ──
             naturalFeatures.forEach(feature => {
                 if (feature.type !== 'river' || !feature.geometry) return;
+                const featureRiverOptions = { ...riverPolylineOptions, color: feature.color || '#3388ff' };
                 const geomType = feature.geometry.type;
                 const popupContent = `<div style="padding:2px;margin:0;line-height:1.4;"><b style="font-size:13px;">${feature.name}</b>${feature.name_en ? `<br><span style="font-size:11px;color:#9aabbd;">${feature.name_en}</span>` : ''}</div>`;
                 const popupOptions = { className: 'compact-popup', maxWidth: 200, minWidth: 100 };
@@ -18113,8 +18114,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
                 if (geomType === 'LineString') {
                     const latLngs = feature.geometry.coordinates.map(coord => [coord[1], coord[0]]);
-                    const visLine = L.polyline(latLngs, { ...riverPolylineOptions, interactive: false });
-                    const hitLine = L.polyline(latLngs, { ...riverPolylineOptions, weight: 14, opacity: 0.001, interactive: true });
+                    const visLine = L.polyline(latLngs, { ...featureRiverOptions, interactive: false });
+                    const hitLine = L.polyline(latLngs, { ...featureRiverOptions, weight: 14, opacity: 0.001, interactive: true });
                     bindNFEvents(hitLine);
                     riverLayerGroup.addLayer(visLine);
                     riverLayerGroup.addLayer(hitLine);
@@ -18122,8 +18123,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 } else if (geomType === 'MultiLineString') {
                     feature.geometry.coordinates.forEach(lineCoords => {
                         const latLngs = lineCoords.map(coord => [coord[1], coord[0]]);
-                        const visLine = L.polyline(latLngs, { ...riverPolylineOptions, interactive: false });
-                        const hitLine = L.polyline(latLngs, { ...riverPolylineOptions, weight: 14, opacity: 0.001, interactive: true });
+                        const visLine = L.polyline(latLngs, { ...featureRiverOptions, interactive: false });
+                        const hitLine = L.polyline(latLngs, { ...featureRiverOptions, weight: 14, opacity: 0.001, interactive: true });
                         bindNFEvents(hitLine);
                         riverLayerGroup.addLayer(visLine);
                         riverLayerGroup.addLayer(hitLine);
@@ -18136,7 +18137,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             riverDrawings.forEach(drawing => {
                 const geom = drawing.geojson?.geometry;
                 if (!geom) return;
-                const riverColor = '#1e003d'; // 🚩 강제 색상 적용 (drawing.color 무시)
+                const riverColor = drawing.color || '#3388ff';
                 const opts = { ...riverPolylineOptions, color: riverColor };
                 const popupContent = `<div style="padding:2px;margin:0;line-height:1.4;"><b style="font-size:13px;">${drawing.name || '강'}</b></div>`;
                 const popupOptions = { className: 'compact-popup', maxWidth: 200, minWidth: 100 };
@@ -19135,6 +19136,15 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         const countryInfo = getCountryInfoById(countryId);
         const countryName = countryInfo ? countryInfo.name : '알 수 없음';
         const dotColor = countryInfo ? countryInfo.color : 'white';
+        const markerPoliticalPhase = countryInfo
+            ? (getEffectiveCountryInfo(countryInfo, year, month) || countryInfo)
+            : null;
+        const markerPoliticalForm = normalizeCountryPoliticalForm(markerPoliticalPhase?.political_form || 'state');
+        const markerPoliticalSymbol = COUNTRY_POLITICAL_FORM_ICONS[markerPoliticalForm] || '';
+        const markerPoliticalFlag = markerPoliticalPhase?.flag || countryInfo?.flag || '';
+        const markerPoliticalBadgeHtml = markerPoliticalSymbol
+            ? `<div class="cm-political-type" title="${COUNTRY_POLITICAL_FORM_LABELS[markerPoliticalForm] || markerPoliticalForm}" style="font-size:${markerPoliticalForm === 'refugee' ? '20px' : '17px'};line-height:1;margin-bottom:1px;text-shadow:0 1px 3px rgba(255,255,255,.9),0 1px 4px rgba(0,0,0,.65);">${markerPoliticalSymbol}</div>`
+            : '';
 
         // ── 3D용 마커 데이터 수집은 위의 별도 패스에서 완료됨 ──
 
@@ -19601,13 +19611,14 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const _capitalTxtColor = (typeof getContrastColor==='function') ? getContrastColor(sealColor) : '#ffffff';
                 const _capitalRankGlyph2d = _isHwang2d ? '皇' : '王';
                 const capitalIconHtml = `<div class="capital-marker">
-                    ${countryInfo?.flag ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;display:block;margin:0 auto 2px auto;">` : (typeof createCountryFlagSvg==='function' ? `<div style="display:block;margin:0 auto 2px auto;line-height:0;">${createCountryFlagSvg(sealColor, sealChar, 14)}</div>` : '')}
+                    ${markerPoliticalBadgeHtml}
+                    ${markerPoliticalFlag ? `<img class="cm-flag" src="${markerPoliticalFlag}" style="width:14px;height:auto;display:block;margin:0 auto 2px auto;">` : (typeof createCountryFlagSvg==='function' ? `<div style="display:block;margin:0 auto 2px auto;line-height:0;">${createCountryFlagSvg(sealColor, sealChar, 14)}</div>` : '')}
                     <div class="capital-marker-bottom">
                         <div class="capital-seal capital-rank-seal" style="background-color:${sealColor}; border-color:${sealColor}; filter:brightness(0.75); color:${_capitalTxtColor}; text-shadow:${_capitalTxtColor==='#1a1a1a'?'none':'-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000'};">${_capitalRankGlyph2d}</div>
                         <span class="city-name">${castleName}</span>
                     </div>
                 </div>`;
-                const _capDefFlagH = countryInfo?.flag ? 16 : (typeof createCountryFlagSvg === 'function' ? 14 : 0);
+                const _capDefFlagH = (markerPoliticalSymbol ? 19 : 0) + (markerPoliticalFlag ? 16 : (typeof createCountryFlagSvg === 'function' ? 14 : 0));
                 const _capTotalH = _capDefFlagH + 32;
                 capitalIcon = L.divIcon({
                     className: 'custom-capital-flag-marker',
@@ -19665,13 +19676,14 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 // 커스텀 아이콘이 있으면 place_type 아이콘 대신 사용
                 const ciw = castle.icon_width || sz;
                 const cih = castle.icon_height || sz;
-                const _ptFlagHtml = placeType === 'heritage' ? '' : (countryInfo?.flag
-                    ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;margin-bottom:1px;">`
+                const _ptFlagHtml = placeType === 'heritage' ? '' : (markerPoliticalFlag
+                    ? `<img class="cm-flag" src="${markerPoliticalFlag}" style="width:14px;height:auto;margin-bottom:1px;">`
                     : (typeof createCountryFlagSvg==='function' ? `<div style="display:block;line-height:0;margin-bottom:1px;">${createCountryFlagSvg(countryInfo?.color||'#888888',(()=>{const n=countryInfo?.name||'';const hj=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]);if(hj.length)return hj.slice(-1)[0];const hg=(n.match(/[가-힣]/g)||[]);return hg.length?hg.slice(-1)[0]:'?'})(),14)}</div>` : ''));
-                const _ptFlagH = placeType === 'heritage' ? 0 : (countryInfo?.flag ? 14 : (typeof createCountryFlagSvg==='function' && countryInfo ? 14 : 0));
+                const _ptFlagH = placeType === 'heritage' ? 0 : ((markerPoliticalSymbol ? 19 : 0) + (markerPoliticalFlag ? 14 : (typeof createCountryFlagSvg==='function' && countryInfo ? 14 : 0)));
                 _sptAnchorY = _ptFlagH + cih;
                 specialMarkerHtml = `
                 <div class="cm-wrap" style="display:flex; flex-direction:column; align-items:center; gap:0;">
+                  ${placeType === 'heritage' ? '' : markerPoliticalBadgeHtml}
                   ${_ptFlagHtml}
                   <img class="cm-icon" src="${toRawImageUrl(castle.custom_icon)}" style="width:${ciw}px;height:${cih}px;object-fit:contain;display:block;" onerror="this.style.display='none'">
                   <div class="cm-name" style="display:flex;align-items:center;gap:1px;width:max-content;margin-top:1px;">
@@ -19710,13 +19722,14 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                       </div>
                     </div>`;
                 } else {
-                    const _ptDefFlagHtml = placeType === 'heritage' ? '' : (countryInfo?.flag
-                        ? `<img class="cm-flag" src="${countryInfo.flag}" style="width:14px;height:auto;display:block;margin-bottom:1px;">`
+                    const _ptDefFlagHtml = placeType === 'heritage' ? '' : (markerPoliticalFlag
+                        ? `<img class="cm-flag" src="${markerPoliticalFlag}" style="width:14px;height:auto;display:block;margin-bottom:1px;">`
                         : (typeof createCountryFlagSvg==='function' ? `<div style="display:block;line-height:0;margin-bottom:1px;">${createCountryFlagSvg(countryInfo?.color||'#888888',(()=>{const n=countryInfo?.name||'';const hj=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]);if(hj.length)return hj.slice(-1)[0];const hg=(n.match(/[가-힣]/g)||[]);return hg.length?hg.slice(-1)[0]:'?'})(),14)}</div>` : ''));
-                    const _ptDefFlagH = placeType === 'heritage' ? 0 : (countryInfo?.flag ? 14 : (typeof createCountryFlagSvg==='function' && countryInfo ? 14 : 0));
+                    const _ptDefFlagH = placeType === 'heritage' ? 0 : ((markerPoliticalSymbol ? 19 : 0) + (markerPoliticalFlag ? 14 : (typeof createCountryFlagSvg==='function' && countryInfo ? 14 : 0)));
                     _sptAnchorY = _ptDefFlagH + sz;
                     specialMarkerHtml = `
                     <div class="cm-wrap" style="display:flex; flex-direction:column; align-items:center; gap:0;">
+                      ${markerPoliticalBadgeHtml}
                       ${_ptDefFlagHtml}
                       <div class="place-glyph-seal" style="width:${sz}px;height:${sz}px;color:${_hanjaColor};font-size:${Math.max(11, Math.round(sz * .62))}px;">${ptCfg.hanja}</div>
                       <div class="cm-name" style="display:flex;align-items:center;gap:1px;width:max-content;margin-top:1px;">
@@ -19870,15 +19883,16 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             if (_politicalSymbol) {
                 const politicalMarkerHtml = `<div class="cm-wrap nonterritorial-place-marker ${_politicalForm}" style="display:flex;flex-direction:column;align-items:center;gap:0;">
                     <div class="cm-icon" style="font-size:${_politicalForm === 'refugee' ? '29px' : '23px'};line-height:1;font-family:'Noto Sans Egyptian Hieroglyphs','Apple Symbols','Segoe UI Symbol',sans-serif;text-shadow:0 1px 3px rgba(255,255,255,.9),0 1px 4px rgba(0,0,0,.65);">${_politicalSymbol}</div>
+                    ${markerPoliticalFlag ? `<img class="cm-flag" src="${markerPoliticalFlag}" style="width:14px;height:auto;display:block;margin:1px auto;">` : (typeof createCountryFlagSvg === 'function' ? `<div style="display:block;line-height:0;margin-bottom:1px;">${createCountryFlagSvg(_sealColor, _sealChar, 14)}</div>` : '')}
                     <div class="cm-country-name" style="color:#ffe39a;font-family:'Noto Serif KR','Nanum Myeongjo',serif;font-weight:800;font-size:12px;white-space:nowrap;padding-top:2px;text-shadow:0 0 2px #000,0 0 5px #000,1px 1px 1px #000;">${_politicalCountryName}</div>
                     <div class="cm-name city-marker-text" style="color:#c8c1b4;font-family:'Nanum Myeongjo',serif;font-weight:500;font-size:9px;white-space:nowrap;line-height:1.15;text-shadow:0 0 2px #000,0 0 4px #000;">${castleName}</div>
                 </div>`;
                 const politicalIcon = L.divIcon({
                     className: `custom-political-marker custom-${_politicalForm}-marker`,
                     html: politicalMarkerHtml,
-                    iconSize:[170, 58],
-                    iconAnchor:[85, 30],
-                    popupAnchor:[0, -30]
+                    iconSize:[170, 76],
+                    iconAnchor:[85, 48],
+                    popupAnchor:[0, -48]
                 });
                 marker = L.marker([castle.lat, castle.lng], { icon:politicalIcon });
             // 🚩 [추가] 커스텀 아이콘이 있으면 역삼각형(▼) 자리에 이미지를 표시하고 아래에 텍스트(이름) 유지
@@ -40349,7 +40363,7 @@ kingSelect.addEventListener('change', () => {
                 if (typeof naturalFeatures !== 'undefined') {
                     naturalFeatures.forEach(f => {
                         if (f.type !== 'river' || !f.geometry) return;
-                        riverFeatures.push({ type: 'Feature', geometry: f.geometry, properties: { name: f.name || '' } });
+                        riverFeatures.push({ type: 'Feature', geometry: f.geometry, properties: { name: f.name || '', color: f.color || '#3388ff' } });
                     });
                 }
                 if (typeof drawings !== 'undefined') {
@@ -40359,13 +40373,15 @@ kingSelect.addEventListener('change', () => {
                         const sy = d.start_year ?? d.startYear ?? -Infinity;
                         const ey = d.end_year   ?? d.endYear   ?? Infinity;
                         if (!(_rYear >= sy && _rYear <= ey)) return;
-                        riverFeatures.push({ type: 'Feature', geometry: d.geojson.geometry, properties: { name: d.name || '강' } });
+                        riverFeatures.push({ type: 'Feature', geometry: d.geojson.geometry, properties: { name: d.name || '강', color: d.color || '#3388ff' } });
                     });
                 }
                 const riverFC = { type: 'FeatureCollection', features: riverFeatures };
                 if (_m.getSource('3d-rivers')) {
                     // ── 소스 존재 시 setData() 인플레이스 업데이트 ──
                     _m.getSource('3d-rivers').setData(riverFC);
+                    if (_m.getLayer('3d-rivers-fill')) _m.setPaintProperty('3d-rivers-fill', 'fill-color', ['get', 'color']);
+                    if (_m.getLayer('3d-rivers-line')) _m.setPaintProperty('3d-rivers-line', 'line-color', ['get', 'color']);
                     const vis = (_showRivers && riverFeatures.length > 0) ? 'visible' : 'none';
                     ['3d-rivers-fill', '3d-rivers-line'].forEach(id => { if (_m.getLayer(id)) _m.setLayoutProperty(id, 'visibility', vis); });
                 } else if (_showRivers && riverFeatures.length > 0) {
@@ -40373,10 +40389,10 @@ kingSelect.addEventListener('change', () => {
                     _m.addSource('3d-rivers', { type: 'geojson', data: riverFC });
                     _m.addLayer({ id: '3d-rivers-fill', type: 'fill', source: '3d-rivers',
                         filter: ['in', '$type', 'Polygon'],
-                        paint: { 'fill-color': '#1e003d', 'fill-opacity': 0.55 }
+                        paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.55 }
                     });
                     _m.addLayer({ id: '3d-rivers-line', type: 'line', source: '3d-rivers',
-                        paint: { 'line-color': '#1e003d', 'line-width': 2.0, 'line-opacity': 0.9 },
+                        paint: { 'line-color': ['get', 'color'], 'line-width': 2.0, 'line-opacity': 0.9 },
                         layout: { 'line-cap': 'round', 'line-join': 'round' }
                     });
                 }
@@ -40635,6 +40651,10 @@ kingSelect.addEventListener('change', () => {
                     const castleName3d = activeRec?.name || c.name || '';
                     const placeType3d  = activeRec?.place_type || c.place_type || 'normal';
                     const isCapital3d  = !!(activeRec?.is_capital);
+                    const _markerTime3d = (typeof getCurrentYearMonth === 'function') ? getCurrentYearMonth() : { year: 0, month: 1 };
+                    const effectiveCi3d = ci ? (getEffectiveCountryInfo(ci, _markerTime3d.year, _markerTime3d.month) || ci) : null;
+                    const politicalForm3d = normalizeCountryPoliticalForm(effectiveCi3d?.political_form || 'state');
+                    const politicalSymbol3d = COUNTRY_POLITICAL_FORM_ICONS[politicalForm3d] || '';
 
                     // ── 우선순위 결정 (충돌 감지용) ──
                     // 2=수도, 1=자연지물/지명, 0=일반
@@ -40657,9 +40677,13 @@ kingSelect.addEventListener('change', () => {
                     // 깃발 HTML 헬퍼: 이미지 있으면 img, 없으면 SVG 자동 생성 (14px 기준)
                     const _mkFlagHtml = (flagUrl, color, seal, size = 14, noMargin = false) => {
                         const mb = noMargin ? '0' : '1px';
-                        if (flagUrl) return `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(flagUrl):flagUrl}" style="width:${size}px;height:auto;display:block;margin:0 auto ${mb} auto;vertical-align:bottom;" onerror="this.style.display='none'">`;
-                        if (typeof createCountryFlagSvg === 'function') return `<div style="display:block;margin:0 auto -10px auto;line-height:0;font-size:0;vertical-align:bottom;">${createCountryFlagSvg(color||'#888', seal||'?', size)}</div>`;
-                        return '';
+                        const effectiveFlagUrl = effectiveCi3d?.flag || flagUrl;
+                        const politicalBadge = politicalSymbol3d
+                            ? `<div class="cm-political-type" style="font-size:${politicalForm3d === 'refugee' ? '20px' : '17px'};line-height:1;margin:0 auto 1px;text-align:center;">${politicalSymbol3d}</div>`
+                            : '';
+                        if (effectiveFlagUrl) return `${politicalBadge}<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(effectiveFlagUrl):effectiveFlagUrl}" style="width:${size}px;height:auto;display:block;margin:0 auto ${mb} auto;vertical-align:bottom;" onerror="this.style.display='none'">`;
+                        if (typeof createCountryFlagSvg === 'function') return `${politicalBadge}<div style="display:block;margin:0 auto -10px auto;line-height:0;font-size:0;vertical-align:bottom;">${createCountryFlagSvg(color||'#888', seal||'?', size)}</div>`;
+                        return politicalBadge;
                     };
 
                     if (isCapital3d || placeType3d === 'capital' || placeType3d === 'hwangseong') {
