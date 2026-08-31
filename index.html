@@ -13683,6 +13683,13 @@ body.force-mobile .marker-type-selector button {
     window.territoryEditLayerGroup = territoryEditLayerGroup; // 🧭 경계편집 IIFE에서 접근
     let waterLevelLayerGroup = L.layerGroup({ pane: 'waterLevelPane' }).addTo(map);
     let riverLayerGroup = L.layerGroup().addTo(map);     // 🌊 강 레이어 그룹 (별도 분리)
+    const DEFAULT_RIVER_COLOR = '#1e003d';
+    // 그리기 편집기의 기존 자동 기본값(#3388ff)은 사용자 지정색이 아니라
+    // 레거시 기본값으로 취급해 종전의 강 색상을 유지한다.
+    const resolveRiverColor = color => {
+        const normalized = String(color || '').trim().toLowerCase();
+        return (!normalized || normalized === '#3388ff') ? DEFAULT_RIVER_COLOR : color;
+    };
     // 기본 OFF 레이어이므로 생성 시 지도에 바로 추가하지 않는다.
     let contributionLayerGroup = L.layerGroup(); // 🚩 [추가] 기여 레이어 그룹
     let labelLayerGroup = L.layerGroup().addTo(map); // 🚩 [추가] 라벨 레이어 그룹
@@ -18083,7 +18090,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             window._riverRenderer = riverRenderer;
 
             const riverPolylineOptions = {
-                color: '#3388ff',
+                color: DEFAULT_RIVER_COLOR,
                 weight: 1.5,
                 opacity: 1,
                 smoothFactor: 2,
@@ -18094,7 +18101,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             // ── naturalFeatures 기반 강 렌더링 ──
             naturalFeatures.forEach(feature => {
                 if (feature.type !== 'river' || !feature.geometry) return;
-                const featureRiverOptions = { ...riverPolylineOptions, color: feature.color || '#3388ff' };
+                const featureRiverOptions = { ...riverPolylineOptions, color: resolveRiverColor(feature.color) };
                 const geomType = feature.geometry.type;
                 const popupContent = `<div style="padding:2px;margin:0;line-height:1.4;"><b style="font-size:13px;">${feature.name}</b>${feature.name_en ? `<br><span style="font-size:11px;color:#9aabbd;">${feature.name_en}</span>` : ''}</div>`;
                 const popupOptions = { className: 'compact-popup', maxWidth: 200, minWidth: 100 };
@@ -18137,7 +18144,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             riverDrawings.forEach(drawing => {
                 const geom = drawing.geojson?.geometry;
                 if (!geom) return;
-                const riverColor = drawing.color || '#3388ff';
+                const riverColor = resolveRiverColor(drawing.color);
                 const opts = { ...riverPolylineOptions, color: riverColor };
                 const popupContent = `<div style="padding:2px;margin:0;line-height:1.4;"><b style="font-size:13px;">${drawing.name || '강'}</b></div>`;
                 const popupOptions = { className: 'compact-popup', maxWidth: 200, minWidth: 100 };
@@ -40363,7 +40370,7 @@ kingSelect.addEventListener('change', () => {
                 if (typeof naturalFeatures !== 'undefined') {
                     naturalFeatures.forEach(f => {
                         if (f.type !== 'river' || !f.geometry) return;
-                        riverFeatures.push({ type: 'Feature', geometry: f.geometry, properties: { name: f.name || '', color: f.color || '#3388ff' } });
+                        riverFeatures.push({ type: 'Feature', geometry: f.geometry, properties: { name: f.name || '', color: resolveRiverColor(f.color) } });
                     });
                 }
                 if (typeof drawings !== 'undefined') {
@@ -40373,7 +40380,7 @@ kingSelect.addEventListener('change', () => {
                         const sy = d.start_year ?? d.startYear ?? -Infinity;
                         const ey = d.end_year   ?? d.endYear   ?? Infinity;
                         if (!(_rYear >= sy && _rYear <= ey)) return;
-                        riverFeatures.push({ type: 'Feature', geometry: d.geojson.geometry, properties: { name: d.name || '강', color: d.color || '#3388ff' } });
+                        riverFeatures.push({ type: 'Feature', geometry: d.geojson.geometry, properties: { name: d.name || '강', color: resolveRiverColor(d.color) } });
                     });
                 }
                 const riverFC = { type: 'FeatureCollection', features: riverFeatures };
