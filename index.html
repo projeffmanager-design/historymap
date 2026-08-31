@@ -104,11 +104,6 @@
     .leaflet-territory-pane {
         mix-blend-mode: multiply;
     }
-    /* 🌑 다크모드에서는 multiply → screen 으로 전환
-       (검정 배경에 multiply하면 모든 색이 검정이 되므로, screen으로 밝게 합성) */
-    body.dark-map .leaflet-territory-pane {
-        mix-blend-mode: screen;
-    }
     /* Leaflet 기본 파란색 path 스타일 완전 차단 — JS style 옵션이 적용되기 전 원색 깜빡임 방지 */
     .leaflet-territory-pane svg path {
         fill: transparent;
@@ -10130,8 +10125,6 @@ body.force-mobile .marker-type-selector button {
         <!-- 🚩 [추가] 지도 타일 선택 컴팩트 토글 — 지도 우측 상단 고정 -->
         <div id="map-tile-toggle-group">
             <button class="map-tile-btn active" data-tile="위성모드">위성</button>
-            <button class="map-tile-btn" data-tile="다크모드">다크</button>
-            <button class="map-tile-btn" data-tile="라이트모드">라이트</button>
             <button class="map-tile-btn" data-tile="일반모드">일반</button>
             <button class="map-tile-btn" id="btn-3d-mode" title="3D 지형 지도">3D</button>
             <button class="map-tile-btn" id="map-refresh-btn" title="데이터 새로고침">↻</button>
@@ -13550,32 +13543,6 @@ body.force-mobile .marker-type-selector button {
         }).on('tileerror', function(e) {
             console.warn('🗺️ [지도 타일 오류] 위성모드 타일 로딩 실패:', e);
         }),
-        '다크모드': L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: 'CartoDB Dark Matter',
-            maxZoom: 18,
-            keepBuffer: 8,
-            updateWhenIdle: false,
-            updateInterval: 200,
-            unloadInvisibleTiles: true,
-            fadeAnimation: true,
-            opacity: 1,
-            transition: 'opacity 0.5s ease-in-out'
-        }).on('tileerror', function(e) {
-            console.warn('🗺️ [지도 타일 오류] 다크모드 타일 로딩 실패:', e);
-        }),
-        '라이트모드': L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-            attribution: 'CartoDB Positron',
-            maxZoom: 18,
-            keepBuffer: 8,
-            updateWhenIdle: false,
-            updateInterval: 200,
-            unloadInvisibleTiles: true,
-            fadeAnimation: true,
-            opacity: 1,
-            transition: 'opacity 0.5s ease-in-out'
-        }).on('tileerror', function(e) {
-            console.warn('🗺️ [지도 타일 오류] 라이트모드 타일 로딩 실패:', e);
-        }),
         '일반모드': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             keepBuffer: 8,
@@ -13598,11 +13565,6 @@ body.force-mobile .marker-type-selector button {
     // 🚩 [수정] L.control.layers 제거 — 컴팩트 토글 버튼으로 대체
     // L.control.layers(baseMaps, overlayMaps, { position: 'topright', collapsed: true }).addTo(map);
 
-    // 🌑 Leaflet 레이어 컨트롤로 타일 전환 시 dark-map 클래스 동기화
-    map.on('baselayerchange', function(e) {
-        document.body.classList.toggle('dark-map', e.name === '다크모드');
-    });
-    
     // 🚩 [제거] 연대표 토글 이벤트 리스너 (overlayMaps에서 제거됨)
     
     // 🚩 [수정] 창 크기 변경 시 timeline-control 위치 조정 (timeline-sidebar는 항상 표시)
@@ -43108,9 +43070,6 @@ kingSelect.addEventListener('change', () => {
                         document.body.classList.add('tile-vintage');
                     }
                 }
-
-                // 🌑 다크모드 여부에 따라 영토 블렌딩 모드 전환
-                document.body.classList.toggle('dark-map', newLayerKey === '다크모드');
 
                 // 모바일 버튼 상태 업데이트
                 if (satelliteBtn) satelliteBtn.classList.remove('active');
