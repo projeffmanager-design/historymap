@@ -20467,11 +20467,17 @@ function invalidateCountryLookupCache() {
             }
         }
         
-        const response = await fetch(`${API_BASE_URL}/${endpoint}`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
+        const requestData = () => fetch(`${API_BASE_URL}/${endpoint}`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+            cache: endpoint === 'drawings' ? 'no-store' : 'default'
         });
+        let response = await requestData();
+        // 강/도형 데이터는 서버리스 DB 연결이 순간적으로 실패해도 빈 배열로
+        // 기존 캐시를 덮어쓰지 않도록 한 번 재시도한다.
+        if (endpoint === 'drawings' && response.status >= 500) {
+            await new Promise(resolve => setTimeout(resolve, 800));
+            response = await requestData();
+        }
         
         // 🚩 [수정] 토큰 만료 시 게스트라면 login.html로 보내지 않음
         if (response.status === 401 || response.status === 403) {
@@ -20480,7 +20486,7 @@ function invalidateCountryLookupCache() {
             const payload = currentToken ? parseJwt(currentToken) : null;
             if (payload && payload.isGuest) {
                 console.warn('게스트 인증 오류, 무시하고 계속 진행');
-                return [];
+                return endpoint === 'drawings' ? null : [];
             }
             // alert 제거 - 세션이 거의 만료되지 않으므로 불필요
             localStorage.removeItem('token');
@@ -20518,7 +20524,8 @@ function invalidateCountryLookupCache() {
             }
         }
         
-        return []; 
+        // drawings 실패를 []로 반환하면 호출부가 정상 캐시를 빈 배열로 덮어쓴다.
+        return endpoint === 'drawings' ? null : [];
       }
     }
 
