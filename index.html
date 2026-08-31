@@ -10297,6 +10297,8 @@ body.force-mobile .marker-type-selector button {
                     </select>
                     <input type="color" id="drawingColor" value="#3388ff" style="width:28px;height:24px;padding:1px;border:1px solid #5d7185;background:none;cursor:pointer;border-radius:3px;">
                     <span id="drawingColorHex" style="font-size:10px;color:#95a5a6;min-width:46px;">#3388ff</span>
+                    <label for="drawingLineWidth" style="font-size:10px;color:#95a5a6;white-space:nowrap;">굵기</label>
+                    <input type="number" id="drawingLineWidth" value="1.5" min="0.5" max="20" step="0.5" title="강 선 굵기" style="width:45px;padding:3px 4px;font-size:11px;">
                 </div>
 
                 <!-- 2행: 시작연도 + 종료연도 -->
@@ -18145,7 +18147,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const geom = drawing.geojson?.geometry;
                 if (!geom) return;
                 const riverColor = resolveRiverColor(drawing.color);
-                const opts = { ...riverPolylineOptions, color: riverColor };
+                const riverWeight = Math.min(20, Math.max(0.5, Number(drawing.line_width) || 1.5));
+                const opts = { ...riverPolylineOptions, color: riverColor, weight: riverWeight };
                 const popupContent = `<div style="padding:2px;margin:0;line-height:1.4;"><b style="font-size:13px;">${drawing.name || '강'}</b></div>`;
                 const popupOptions = { className: 'compact-popup', maxWidth: 200, minWidth: 100 };
 
@@ -18205,7 +18208,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     const polyLayer = L.geoJSON(drawing.geojson, {
                         style: {
                             color: riverColor,
-                            weight: 1.5,
+                            weight: riverWeight,
                             opacity: 1,
                             fillColor: riverColor,
                             fillOpacity: 0.45,
@@ -32665,6 +32668,7 @@ kingSelect.addEventListener('change', () => {
             name: document.getElementById('drawingName').value,
             type: document.getElementById('drawingType').value,
             color: document.getElementById('drawingColor').value, // 🚩 [추가] 색상 필드
+            line_width: Math.min(20, Math.max(0.5, parseFloat(document.getElementById('drawingLineWidth').value) || 1.5)),
             path_label: document.getElementById('drawingPathLabel').value.trim(),
             path_label_size: Math.min(48, Math.max(8, parseInt(document.getElementById('drawingPathLabelSize').value, 10) || 13)),
             hide_path_line: document.getElementById('drawingHidePathLine').checked,
@@ -33075,6 +33079,7 @@ kingSelect.addEventListener('change', () => {
             name: originalName + ' (복제)',
             type: document.getElementById('drawingType').value,
             color: document.getElementById('drawingColor').value,
+            line_width: Math.min(20, Math.max(0.5, parseFloat(document.getElementById('drawingLineWidth').value) || 1.5)),
             path_label: document.getElementById('drawingPathLabel').value.trim(),
             path_label_size: Math.min(48, Math.max(8, parseInt(document.getElementById('drawingPathLabelSize').value, 10) || 13)),
             hide_path_line: document.getElementById('drawingHidePathLine').checked,
@@ -33131,6 +33136,7 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('drawingType').value = drawingData.type;
             document.getElementById('drawingColor').value = drawingData.color || '#3388ff'; // 🚩 [추가] 색상 로드
             document.getElementById('drawingColorHex').textContent = drawingData.color || '#3388ff';
+            document.getElementById('drawingLineWidth').value = Math.min(20, Math.max(0.5, Number(drawingData.line_width) || 1.5));
             document.getElementById('drawingPathLabel').value = drawingData.path_label || '';
             document.getElementById('drawingPathLabelSize').value = drawingData.path_label_size || 13;
             document.getElementById('drawingHidePathLine').checked = drawingData.hide_path_line === true;
@@ -33157,6 +33163,7 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('drawingMongoId').value = '';
             document.getElementById('drawingColor').value = '#3388ff'; // 🚩 [추가] 기본 색상
             document.getElementById('drawingColorHex').textContent = '#3388ff';
+            document.getElementById('drawingLineWidth').value = 1.5;
             document.getElementById('drawingPathLabel').value = '';
             document.getElementById('drawingPathLabelSize').value = 13;
             document.getElementById('drawingHidePathLine').checked = false;
@@ -40370,7 +40377,7 @@ kingSelect.addEventListener('change', () => {
                 if (typeof naturalFeatures !== 'undefined') {
                     naturalFeatures.forEach(f => {
                         if (f.type !== 'river' || !f.geometry) return;
-                        riverFeatures.push({ type: 'Feature', geometry: f.geometry, properties: { name: f.name || '', color: resolveRiverColor(f.color) } });
+                        riverFeatures.push({ type: 'Feature', geometry: f.geometry, properties: { name: f.name || '', color: resolveRiverColor(f.color), line_width: Math.min(20, Math.max(0.5, Number(f.line_width) || 1.5)) } });
                     });
                 }
                 if (typeof drawings !== 'undefined') {
@@ -40380,7 +40387,7 @@ kingSelect.addEventListener('change', () => {
                         const sy = d.start_year ?? d.startYear ?? -Infinity;
                         const ey = d.end_year   ?? d.endYear   ?? Infinity;
                         if (!(_rYear >= sy && _rYear <= ey)) return;
-                        riverFeatures.push({ type: 'Feature', geometry: d.geojson.geometry, properties: { name: d.name || '강', color: resolveRiverColor(d.color) } });
+                        riverFeatures.push({ type: 'Feature', geometry: d.geojson.geometry, properties: { name: d.name || '강', color: resolveRiverColor(d.color), line_width: Math.min(20, Math.max(0.5, Number(d.line_width) || 1.5)) } });
                     });
                 }
                 const riverFC = { type: 'FeatureCollection', features: riverFeatures };
@@ -40389,6 +40396,7 @@ kingSelect.addEventListener('change', () => {
                     _m.getSource('3d-rivers').setData(riverFC);
                     if (_m.getLayer('3d-rivers-fill')) _m.setPaintProperty('3d-rivers-fill', 'fill-color', ['get', 'color']);
                     if (_m.getLayer('3d-rivers-line')) _m.setPaintProperty('3d-rivers-line', 'line-color', ['get', 'color']);
+                    if (_m.getLayer('3d-rivers-line')) _m.setPaintProperty('3d-rivers-line', 'line-width', ['get', 'line_width']);
                     const vis = (_showRivers && riverFeatures.length > 0) ? 'visible' : 'none';
                     ['3d-rivers-fill', '3d-rivers-line'].forEach(id => { if (_m.getLayer(id)) _m.setLayoutProperty(id, 'visibility', vis); });
                 } else if (_showRivers && riverFeatures.length > 0) {
@@ -40399,7 +40407,7 @@ kingSelect.addEventListener('change', () => {
                         paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.55 }
                     });
                     _m.addLayer({ id: '3d-rivers-line', type: 'line', source: '3d-rivers',
-                        paint: { 'line-color': ['get', 'color'], 'line-width': 2.0, 'line-opacity': 0.9 },
+                        paint: { 'line-color': ['get', 'color'], 'line-width': ['get', 'line_width'], 'line-opacity': 0.9 },
                         layout: { 'line-cap': 'round', 'line-join': 'round' }
                     });
                 }
