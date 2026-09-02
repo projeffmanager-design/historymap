@@ -1544,6 +1544,11 @@ app.get(['/map', '/map/', '/index.html'], (req, res) => {
     res.redirect(301, '/');
 });
 
+// 서버 엔트리 파일이 정적 파일 미들웨어를 통해 외부에 노출되지 않도록 차단한다.
+app.all('/server.js', (req, res) => {
+    res.status(404).type('application/json').send({ message: 'Not found' });
+});
+
 app.use(express.static(__dirname, {
     index: false,
     setHeaders(res, filePath) {
@@ -10792,5 +10797,16 @@ if (require.main === module) {
 // Vercel 배포를 위해 Express 앱 인스턴스를 내보냅니다.
 module.exports = async (req, res) => {
     await setupRoutesAndCollections(); // Ensure app is fully configured
+    // Vercel rewrite가 실행 경로를 /server.js로 바꾸므로 원래 API/페이지 경로를 복원한다.
+    const rewrittenUrl = new URL(req.url, 'http://localhost');
+    const apiPath = rewrittenUrl.searchParams.get('__api_path');
+    const pagePath = rewrittenUrl.searchParams.get('__page_path');
+    if (apiPath !== null || pagePath !== null) {
+        rewrittenUrl.searchParams.delete('__api_path');
+        rewrittenUrl.searchParams.delete('__page_path');
+        const restoredPath = apiPath !== null ? `/api/${apiPath}` : `/${pagePath || ''}`;
+        const remainingQuery = rewrittenUrl.searchParams.toString();
+        req.url = restoredPath + (remainingQuery ? `?${remainingQuery}` : '');
+    }
     return app(req, res); // Let Express handle the request
 };

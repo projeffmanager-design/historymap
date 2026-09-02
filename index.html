@@ -29432,14 +29432,23 @@ const loadingMessages = [
           // 🚩 [추가] 토큰 만료 체크
           if (handleApiError(response, '성 저장')) return;
 
+          const responseText = await response.text();
+          let responseData = null;
+          if (responseText) {
+              try {
+                  responseData = JSON.parse(responseText);
+              } catch (_) {
+                  if (!response.ok) throw new Error(`성 저장 API 오류 (${response.status})`);
+                  throw new Error('성 저장 API가 JSON이 아닌 응답을 반환했습니다.');
+              }
+          }
           if (!response.ok) {
-              const errorData = await response.json();
               // 🚩 [중복 방지] 409: 같은 이름+좌표의 castle이 이미 존재
               if (response.status === 409) {
-                  alert(`⚠️ 중복 오류: ${errorData.message}\n\n기존 마커를 클릭해서 편집 모드로 수정해주세요.`);
+                  alert(`⚠️ 중복 오류: ${responseData?.message || '같은 위치에 마커가 존재합니다.'}\n\n기존 마커를 클릭해서 편집 모드로 수정해주세요.`);
                   return;
               }
-              throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+              throw new Error(responseData?.message || `HTTP error! status: ${response.status}`);
           }
 
           // 🚩 [추가] 기여 변환이었다면, 해당 기여 상태를 'approved'로 변경
@@ -29479,7 +29488,6 @@ const loadingMessages = [
           }
           
           // 🚩 [최적화] 전체 fetch 대신 메모리에서 증분 업데이트
-          const responseData = await response.json();
           console.log('📥 서버 응답 데이터:', responseData);
           
           if (isUpdate) {
@@ -44194,6 +44202,10 @@ kingSelect.addEventListener('change', () => {
                 });
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const contentType = response.headers.get('content-type') || '';
+                if (!contentType.includes('application/json')) {
+                    throw new Error(`랭킹 API 응답 형식 오류 (${contentType || 'unknown'})`);
                 }
                 const users = await response.json();
                 
