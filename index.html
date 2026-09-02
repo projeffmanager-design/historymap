@@ -11287,10 +11287,11 @@ body.force-mobile .marker-type-selector button {
 
     <!-- 🚩 [이동] 왕 패널 & 역사 패널: #map(filter 적용) 밖으로 이동 → position:fixed 정상 동작 -->
     <!-- 🚩 왕 목록 투명 박스 (지도변경 토글바 바로 왼쪽) -->
-    <div id="map-king-panel" style="position: fixed; top: 40px; right: 0; width: 468px; min-width: 200px; min-height: 40px; z-index: 997; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; border: none; padding: 0; border-radius: 8px; box-shadow: none; overflow: hidden; pointer-events: auto; display: none; box-sizing: border-box; font-size: 11px; font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; color: white; text-shadow: 1px 1px 3px rgba(0,0,0,0.9); line-height: 1.6; transition: background 0.25s ease, box-shadow 0.25s ease;">
+    <div id="map-king-panel" style="position: fixed; top: calc(var(--topbar-h, 46px) + 6px); right: 0; width: 468px; min-width: 200px; min-height: 40px; z-index: 997; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; border: none; padding: 0; border-radius: 8px; box-shadow: none; overflow: hidden; pointer-events: auto; display: none; box-sizing: border-box; font-size: 11px; font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; color: white; text-shadow: 1px 1px 3px rgba(0,0,0,0.9); line-height: 1.6; transition: background 0.25s ease, box-shadow 0.25s ease;">
         <div id="map-king-panel-header" style="display: flex; justify-content: space-between; align-items: center; padding: 5px 10px 4px; cursor: grab; user-select: none; border-bottom: 1px solid rgba(241,196,15,0.15);">
             <h3 style="margin: 0; font-size: 12px; color: #f1c40f; letter-spacing: 0.5px; font-weight: normal; display: flex; align-items: center; gap: 4px;">⠿ <span>국가별 왕 목록</span></h3>
             <div style="display: flex; gap: 5px; align-items: center; flex-shrink: 0;">
+                <button id="map-king-reset-btn" class="app-panel-close-btn" title="창 위치·크기 초기화" aria-label="창 위치와 크기 초기화" style="font-size:14px;">↺</button>
                 <button id="map-king-close-btn" class="app-panel-close-btn" title="닫기">&times;</button>
             </div>
         </div>
@@ -23791,7 +23792,10 @@ const loadingMessages = [
           const width = Math.min(Math.max(bounds.width, 200), window.innerWidth);
           const height = Math.min(Math.max(bounds.height, 40), window.innerHeight);
           const left = Math.min(Math.max(bounds.left, 0), Math.max(0, window.innerWidth - width));
-          const top = Math.min(Math.max(bounds.top, 0), Math.max(0, window.innerHeight - height));
+          const topbarBottom = document.getElementById('top-bar-container')?.getBoundingClientRect().bottom
+              || parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h')) || 46;
+          const minTop = panelId === 'map-king-panel' ? topbarBottom + 6 : 0;
+          const top = Math.min(Math.max(bounds.top, minTop), Math.max(minTop, window.innerHeight - height));
           panel.classList.add('user-positioned');
           panel.style.setProperty('left', `${left}px`, 'important');
           panel.style.setProperty('top', `${top}px`, 'important');
@@ -23928,7 +23932,10 @@ const loadingMessages = [
               let newLeft = e.clientX - offsetX;
               let newTop  = e.clientY - offsetY;
               newLeft = Math.max(0, Math.min(window.innerWidth  - panel.offsetWidth,  newLeft));
-              newTop  = Math.max(0, Math.min(window.innerHeight - panel.offsetHeight, newTop));
+              const topbarBottom = document.getElementById('top-bar-container')?.getBoundingClientRect().bottom
+                  || parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h')) || 46;
+              const minTop = panelId === 'map-king-panel' ? topbarBottom + 6 : 0;
+              newTop  = Math.max(minTop, Math.min(window.innerHeight - panel.offsetHeight, newTop));
               panel.style.left = newLeft + 'px';
               panel.style.top  = newTop  + 'px';
           });
@@ -23946,6 +23953,21 @@ const loadingMessages = [
 
       // 🚩 [추가] 왕 패널 드래그 이동 (top/right 기반 → left 전환)
       makePanelDraggable('map-king-panel', 'map-king-panel-header', { clearRight: true });
+
+      document.getElementById('map-king-reset-btn')?.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const panel = document.getElementById('map-king-panel');
+          if (!panel) return;
+          const allBounds = readStoredPanelBounds();
+          delete allBounds['map-king-panel'];
+          try { localStorage.setItem(PANEL_BOUNDS_STORAGE_KEY, JSON.stringify(allBounds)); } catch (_) {}
+          panel.classList.remove('user-positioned');
+          ['left', 'top', 'right', 'bottom', 'width', 'height'].forEach(prop => panel.style.removeProperty(prop));
+          panel.style.setProperty('right', '0', 'important');
+          panel.style.setProperty('width', '468px', 'important');
+          positionKingPanelBelowRanking();
+      });
 
       // 🚩 [추가] 역사 기록 패널 드래그 이동 (right/bottom 기반 → left/top 전환)
       makePanelDraggable('map-history-panel', 'map-history-panel-header', { clearRight: true, clearBottom: true });
@@ -26516,11 +26538,19 @@ const loadingMessages = [
         requestAnimationFrame(function() {
             const ranking = document.getElementById('rankingDisplay');
             const king = document.getElementById('map-king-panel');
-            if (!ranking || !king) return;
-            const rect = ranking.getBoundingClientRect();
-            king.style.top = (rect.bottom + 6) + 'px';
-            king.style.right = '0';
-            king.style.left = 'auto';
+            if (!king) return;
+            const topbarBottom = document.getElementById('top-bar-container')?.getBoundingClientRect().bottom
+                || parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h')) || 46;
+            if (king.classList.contains('user-positioned')) {
+                const currentTop = king.getBoundingClientRect().top;
+                if (currentTop < topbarBottom + 6) king.style.setProperty('top', `${topbarBottom + 6}px`, 'important');
+                return;
+            }
+            const rankingVisible = !!ranking && getComputedStyle(ranking).display !== 'none';
+            const rankingBottom = rankingVisible ? ranking.getBoundingClientRect().bottom + 6 : 0;
+            king.style.setProperty('top', `${Math.max(topbarBottom + 6, rankingBottom)}px`, 'important');
+            king.style.setProperty('right', '0', 'important');
+            king.style.removeProperty('left');
         });
     }
 
@@ -29181,6 +29211,7 @@ const loadingMessages = [
     // 성 폼 제출 (저장/업데이트)
     addCastleForm.addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (addCastleForm.dataset.submitting === 'true') return;
       
       // 🚩 [핵심 수정] 숨겨진 필드의 required 속성을 임시로 제거하여 HTML5 검증 우회
       const historyRows = document.querySelectorAll('#castleHistoryList .history-record-row');
@@ -29381,7 +29412,13 @@ const loadingMessages = [
       }
 
       console.log('📤 서버 전송 데이터:', JSON.stringify(data, null, 2));
-      
+      const castleSubmitBtn = addCastleForm.querySelector('button[type="submit"]');
+      addCastleForm.dataset.submitting = 'true';
+      if (castleSubmitBtn) {
+          castleSubmitBtn.disabled = true;
+          castleSubmitBtn.dataset.originalText = castleSubmitBtn.textContent;
+          castleSubmitBtn.textContent = '저장 중…';
+      }
       try {
           const response = await fetch(url, {
               method: method,
@@ -29501,6 +29538,13 @@ const loadingMessages = [
       } catch (error) {
         console.error("Castle 저장 중 오류:", error);
         alert(`Castle 저장 실패: ${error.message}`);
+      } finally {
+        addCastleForm.dataset.submitting = 'false';
+        if (castleSubmitBtn) {
+            castleSubmitBtn.disabled = false;
+            castleSubmitBtn.textContent = castleSubmitBtn.dataset.originalText || (isUpdate ? '수정' : '추가');
+            delete castleSubmitBtn.dataset.originalText;
+        }
       }
     });
 

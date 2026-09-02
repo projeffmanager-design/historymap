@@ -1218,8 +1218,23 @@ async function notifyHistorianMentions(cols, text, senderId, senderName, sourceT
 // 🚩 [추가] 액티비티 로그 기록 헬퍼 함수
 // type: 'register' | 'submit' | 'review' | 'approve' | 'comment' | 'rankup' | 'checkin' | 'checkout'
 // userId(옵션): 전달 시 DB에서 실시간 직급을 계산하여 actorPosition을 덮어씀
+const recentActivityLogKeys = new Map();
 async function logActivity(type, actor, actorPosition, targetName, extra = {}, userId = null) {
+    let dedupeKey = null;
     try {
+        // 저장 버튼 연속 클릭·네트워크 재전송으로 같은 성 수정 로그가 두 번 생기는 것을 방지한다.
+        if (type === 'castle_update' && extra?.castle_id) {
+            dedupeKey = `${type}:${String(userId || actor)}:${String(extra.castle_id)}`;
+            const now = Date.now();
+            const previous = recentActivityLogKeys.get(dedupeKey) || 0;
+            if (now - previous < 3000) return;
+            recentActivityLogKeys.set(dedupeKey, now);
+            if (recentActivityLogKeys.size > 500) {
+                for (const [key, timestamp] of recentActivityLogKeys) {
+                    if (now - timestamp > 60000) recentActivityLogKeys.delete(key);
+                }
+            }
+        }
         const { collections: cols } = await require('./db').connectToDatabase();
 
         // 🚩 userId가 있으면 DB에서 실시간 직급 계산 (토큰 캐시 직급 오류 방지)
@@ -1300,6 +1315,7 @@ async function logActivity(type, actor, actorPosition, targetName, extra = {}, u
             }
         }
     } catch (e) {
+        if (dedupeKey) recentActivityLogKeys.delete(dedupeKey);
         // non-fatal: 로그 실패가 서비스에 영향 주지 않도록
         console.warn('⚠️ [logActivity] 기록 실패:', e.message);
     }
