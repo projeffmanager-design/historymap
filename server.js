@@ -1556,6 +1556,8 @@ app.use(express.static(__dirname, {
             res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
             res.set('Pragma', 'no-cache');
             res.set('Expires', '0');
+        } else if (filePath.endsWith('coastline-low.json') || filePath.endsWith('history-outline-worker.js')) {
+            res.set('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
         }
     }
 }));
@@ -4137,7 +4139,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
 
 // GET: 앱 버전 반환 (login.html 등 외부 페이지용)
 app.get('/api/app-version', (req, res) => {
-    res.json({ version: '3.8.0' });
+    res.json({ version: '3.9.0' });
 });
 
 // GET: 모든 장수 정보 반환
