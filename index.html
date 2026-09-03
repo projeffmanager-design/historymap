@@ -40302,6 +40302,9 @@ kingSelect.addEventListener('change', () => {
             let is3d      = false;
             let _3dMarkers = [];    // maplibregl.Marker 인스턴스 목록 (culling용)
             let _3dMarkersMap = new Map(); // key→Marker (깜빡임 없는 diff 갱신용)
+            // 레이어 토글 등 외부 UI에서 3D 마커 캐시를 비울 수 있도록 참조를 노출한다.
+            window._3dMarkers = _3dMarkers;
+            window._3dMarkersMap = _3dMarkersMap;
             let _3dHeroMarkers = [];
             let _3dHeroRenderKey = null;
             let _3dHeroRenderSeq = 0;
@@ -41498,6 +41501,7 @@ kingSelect.addEventListener('change', () => {
 
                 // _3dMarkers 배열 재구성 (살아남은 마커 유지)
                 _3dMarkers = [..._3dMarkersMap.values()];
+                window._3dMarkers = _3dMarkers;
 
                 const _makeMarker = ({ castle: c, activeRec, countryInfo: ci }) => {
 
@@ -41820,6 +41824,9 @@ kingSelect.addEventListener('change', () => {
                     });
                     const mk = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, 6] })
                         .setLngLat([c.lng, c.lat]).addTo(_m);
+                    if (c.is_label) {
+                        el.dataset.ml3dLabelType = c.label_type || 'place';
+                    }
                     // diff Map에 등록
                     const _entryKey = `mk_${c._id||c.name+'@'+c.lat+'_'+c.lng}_${activeRec?.name||c.name||''}_${ci?.color||''}_${ci?.name||''}`;
                     _3dMarkersMap.set(_entryKey, mk);
@@ -41887,7 +41894,7 @@ kingSelect.addEventListener('change', () => {
                             ? `<img src="${(typeof toRawImageUrl === 'function') ? toRawImageUrl(country.flag) : country.flag}" style="width:77px;height:auto;object-fit:contain;display:block;flex-shrink:0;" onerror="this.style.display='none'">`
                             : `<div style="display:inline-block;flex-shrink:0;line-height:0;">${(typeof createCountryFlagSvg === 'function') ? createCountryFlagSvg(countryColor, _3dLblSealChar, 37) : ''}</div>`;
                         const ethnicHtml = (typeof layerVisibility !== 'undefined' && layerVisibility.ethnicLabel && country.ethnicity)
-                            ? `<div style="font-size:10px;color:${countryColor};opacity:0.8;text-align:center;text-shadow:-1px -1px 0 #000,1px 1px 0 #000;margin-top:1px;">${country.ethnicity}</div>`
+                            ? `<div class="ml3d-ethnic-label" style="font-size:10px;color:${countryColor};opacity:0.8;text-align:center;text-shadow:-1px -1px 0 #000,1px 1px 0 #000;margin-top:1px;">${country.ethnicity}</div>`
                             : '';
                         // 깃발 오른쪽에 국가명 중앙정렬, 깃발 하단이 지도 좌표에 닿도록 anchor:bottom offset:0
                         const labelHtml = `<div style="display:inline-flex;flex-direction:row;align-items:center;gap:0px;pointer-events:none;transform:scale(var(--macro-flag-scale,1));transform-origin:bottom center;">
@@ -41900,6 +41907,7 @@ kingSelect.addEventListener('change', () => {
                         const labelEl = document.createElement('div');
                         labelEl.style.cssText = 'pointer-events:none;';
                         labelEl.dataset.ml3dPriority = '3'; // 국가명 최우선
+                        if (country.ethnicity) labelEl.dataset.ml3dEthnicLabel = '1';
                         labelEl.innerHTML = `<div class="ml3d-txt" style="display:flex;flex-direction:column;align-items:center;">${labelHtml}</div>`;
                         const lblKey = `lbl_${countryId}`;
                         if (_3dMarkersMap.has(lblKey)) return; // 이미 존재 → 재생성 생략
@@ -42012,6 +42020,17 @@ kingSelect.addEventListener('change', () => {
                     const countryLabelGapY = z < 4 ? 54 : 42;
                     _3dMarkers.forEach(mk => {
                         const el = mk.getElement();
+                        const labelType = el.dataset.ml3dLabelType;
+                        if (labelType) {
+                            const lv = (typeof layerVisibility !== 'undefined') ? layerVisibility : {};
+                            const visible = labelType === 'ethnic' ? lv.ethnicLabel !== false
+                                : (labelType === 'country' || labelType === 'admin') ? lv.adminLabel !== false
+                                : lv.placeLabel !== false;
+                            el.style.display = visible ? '' : 'none';
+                            if (!visible) return;
+                        }
+                        const ethnicEl = el.querySelector('.ml3d-ethnic-label');
+                        if (ethnicEl) ethnicEl.style.display = layerVisibility?.ethnicLabel === false ? 'none' : '';
                         if (el.classList.contains('ml3d-battle-wrap')) return;
                         // 국가명 라벨 (priority=3): 도시 마커가 보이면 숨김
                         if (el.dataset.ml3dPriority === '3') {
@@ -43421,10 +43440,19 @@ kingSelect.addEventListener('change', () => {
 
             // 기본 지도: 지명/도로를 덜어낸 MapLibre 지형 Globe.
             setTimeout(() => {
-                // 초기 로딩에서는 2D 지도를 유지한다. 과거에는 여기서 Globe(3D)를
-                // 자동 진입시켜 2D 타일이 잠깐 보였다가 사라지는 깜빡임이 발생했다.
-                // 3D/Globe는 사용자가 지도 보기 버튼을 눌렀을 때만 진입한다.
-                if (window._is3dMode) return;
+                if (window._is3dMode || typeof window._enterHistoryGlobe !== 'function') return;
+                // 2D 타일이 먼저 페인트되지 않도록 전환 중에는 지도를 숨긴다.
+                const mapEl = document.getElementById('map');
+                if (mapEl) mapEl.style.visibility = 'hidden';
+                map.setView([36.4, 118.5], 5.2, { animate: false });
+                window._historyInitialCamera = { lat: 36.4, lng: 118.5, zoom: 5.2 };
+                window._historyMapMode = true;
+                window._historyVectorMode = true;
+                document.body.classList.add('history-map-mode', 'history-vector-mode');
+                window._enterHistoryGlobe('terrain');
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    if (mapEl) mapEl.style.visibility = '';
+                }));
             }, 0);
 
             // 다른 타일 버튼 클릭 시 3D 종료 (3D 모드일 때만)
@@ -44306,7 +44334,9 @@ kingSelect.addEventListener('change', () => {
                                     if (!d) continue;
                                     const isLabel = !!d.is_label;
                                     const lt = d.label_type || (isLabel ? 'place' : null);
-                                    if (isLabel && lt === labelKind) {
+                                    // 구형 데이터는 행정구역명을 label_type='admin'으로 저장하기도 한다.
+                                    const matchesAdmin = layerType === 'adminLabel' && (lt === 'country' || lt === 'admin');
+                                    if (isLabel && (lt === labelKind || matchesAdmin)) {
                                         if (map.hasLayer(m)) map.removeLayer(m);
                                         // also remove from labelLayerGroup if present
                                         try { labelLayerGroup.removeLayer(m); } catch(e) {}
@@ -44316,8 +44346,26 @@ kingSelect.addEventListener('change', () => {
                             } catch (err) { console.warn('라벨 즉시 제거 중 오류:', err); }
                         }
                     }
-                     const { year, month } = getCurrentYearMonth();
+                    const { year, month } = getCurrentYearMonth();
                      updateMap(year, month);
+                     // 비동기 재렌더링 경로에서 남은 행정구역명도 한 번 더 정리한다.
+                     if (layerName === 'adminLabel' && !checkbox.checked) {
+                         setTimeout(() => {
+                             try {
+                                 labelLayerGroup.eachLayer(m => {
+                                     const d = m?._castleData;
+                                     const lt = d?.label_type;
+                                     if (d?.is_label && (lt === 'country' || lt === 'admin')) labelLayerGroup.removeLayer(m);
+                                 });
+                                 if (window._is3dMode && Array.isArray(window._3dMarkers)) {
+                                     window._3dMarkers.forEach(m => { try { m.remove(); } catch (_) {} });
+                                     window._3dMarkers.length = 0;
+                                     window._3dMarkersMap?.clear?.();
+                                     window._3dRefreshLayers?.();
+                                 }
+                             } catch (_) {}
+                         }, 0);
+                     }
                  }
                  // ── 2D natural 토글: naturalFeatureLayerGroup 즉시 show/hide ──
                  if (layerType === 'natural' && typeof applyLODMode === 'function') {
