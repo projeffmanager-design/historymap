@@ -27277,6 +27277,9 @@ const loadingMessages = [
         
         updateMap(year, month, cacheOnly); // 🚩 cacheOnly 매개변수 전달
         if (typeof refreshWaterLevelOverlay === 'function') refreshWaterLevelOverlay(year);
+        if (!cacheOnly && typeof window._refreshPopulationForTime === 'function') {
+            window._refreshPopulationForTime(year);
+        }
         refreshHeroPinsForTime(year, month, cacheOnly);
         updateUI(year, month);
         checkAndDisplayEvent(year, month);
@@ -40938,6 +40941,12 @@ kingSelect.addEventListener('change', () => {
                 clearTimeout(_refreshLayersTimer);
                 _refreshLayersThrottled();
             };
+            window._force3dMarkerRefresh = function() {
+                _refreshLayersCacheKey = null;
+                _refreshMarkerKey = null;
+                clearTimeout(_refreshLayersTimer);
+                _refreshLayersThrottled();
+            };
 
             // setStyle()은 MapLibre에 추가한 모든 사용자 source/layer를 제거한다.
             // 캐시 키만 초기화하는 것으로는 연도 갱신/debounce와 경합할 수 있으므로,
@@ -41323,6 +41332,9 @@ kingSelect.addEventListener('change', () => {
             function _refreshLayersInner(rebuildTerritory = true, rebuildMarkers = true) {
                 const _m = window.mlMap3d;
                 if (!_m) { console.error('[3D] _m is null!'); return; }
+                const { year, month } = (typeof getCurrentYearMonth === 'function')
+                    ? getCurrentYearMonth()
+                    : { year: 0, month: 1 };
 
                 // terrain이 활성화된 상태에서 fill 레이어 추가 시 드레이프 패스에서 제외되는 버그 방지
                 // → terrain 일시 해제 후 레이어 추가 후 복원
@@ -43226,6 +43238,7 @@ kingSelect.addEventListener('change', () => {
                             mlMap.on('pitchend', _lodHandler);
                             refreshLayers();
                             _schedule3dHeroPins(true);
+                            if (window._refresh3dPopulation) window._refresh3dPopulation();
                         });
                     } else {
                         const c = map.getCenter();
@@ -43313,6 +43326,7 @@ kingSelect.addEventListener('change', () => {
                         // 🚩 자원 마커 재렌더 (재진입 시)
                         setTimeout(function() {
                             if (window._refresh3dResources) window._refresh3dResources();
+                            if (window._refresh3dPopulation) window._refresh3dPopulation();
                         }, 500);
                     }
                 });
@@ -43358,6 +43372,8 @@ kingSelect.addEventListener('change', () => {
                 // 3D 자원 마커 제거
                 (window._3dResourceMarkers || []).forEach(function(mk){ try { mk.remove(); } catch(e){} });
                 window._3dResourceMarkers = [];
+                (window._3dPopulationMarkers || []).forEach(function(mk){ try { mk.remove(); } catch(e){} });
+                window._3dPopulationMarkers = [];
                 // 🚩 캐시 키 초기화 — 재진입 시 전체 재렌더 보장
                 _refreshLayersCacheKey = null;
                 _refreshTerritoryDataKey = null;
@@ -44539,10 +44555,20 @@ kingSelect.addEventListener('change', () => {
                                      if (d?.is_label && (lt === 'country' || lt === 'admin')) labelLayerGroup.removeLayer(m);
                                  });
                                  if (window._is3dMode && Array.isArray(window._3dMarkers)) {
-                                     window._3dMarkers.forEach(m => { try { m.remove(); } catch (_) {} });
-                                     window._3dMarkers.length = 0;
-                                     window._3dMarkersMap?.clear?.();
-                                     window._3dRefreshLayers?.();
+                                     // 행정구역명만 제거한다. 국가명(lbl_*)과 도시/자연 마커까지
+                                     // 모두 비우면 캐시가 같은 상태에서 국가명이 복원되지 않는다.
+                                     const markerMap = window._3dMarkersMap;
+                                     if (markerMap?.entries) {
+                                         for (const [key, marker] of markerMap.entries()) {
+                                             const labelType = marker?.getElement?.()?.dataset?.ml3dLabelType;
+                                             if (labelType === 'country' || labelType === 'admin') {
+                                                 try { marker.remove(); } catch (_) {}
+                                                 markerMap.delete(key);
+                                             }
+                                         }
+                                         window._3dMarkers = [...markerMap.values()];
+                                     }
+                                     window._force3dMarkerRefresh?.();
                                  }
                              } catch (_) {}
                          }, 0);
@@ -50134,6 +50160,7 @@ async function castleFormDeleteVoice() {
   var _on = false, _busy = false;
   var _data = [];
   var _currentYear = 1000;
+  window._3dPopulationMarkers = window._3dPopulationMarkers || [];
 
   function getToken() {
     return localStorage.getItem('token') || sessionStorage.getItem('token') || '';
@@ -50172,6 +50199,70 @@ async function castleFormDeleteVoice() {
     if (h >= 1000)     return (h / 1000).toFixed(1)      + '천호';
     return h.toLocaleString() + '호';
   }
+
+  function clear3dPopulation() {
+    (window._3dPopulationMarkers || []).forEach(function(marker) {
+      try { marker.remove(); } catch (e) {}
+    });
+    window._3dPopulationMarkers = [];
+  }
+
+  // Leaflet 호구수 레이어와 같은 값·색상·크기로 MapLibre HTML 마커를 만든다.
+  function build3dPopulation(year) {
+    clear3dPopulation();
+    if (!_on || !window._is3dMode || !window.mlMap3d || !window.maplibregl) return;
+
+    var mlMap = window.mlMap3d;
+    var active = _data.filter(function(d) { return getPopForYear(d, year) > 0; });
+    if (!active.length) return;
+    var allValues = [];
+    _data.forEach(function(d) {
+      Object.values(d.pop_by_year || {}).forEach(function(value) {
+        var numeric = Number(value);
+        if (Number.isFinite(numeric)) allValues.push(numeric);
+      });
+      var estimate = Number(d.est_population || 0);
+      if (Number.isFinite(estimate)) allValues.push(estimate);
+    });
+    var fixedMax = Math.max.apply(null, allValues.concat([1]));
+
+    active.forEach(function(d) {
+      var coords = d.location && d.location.coordinates;
+      var lat = coords ? Number(coords[1]) : Number(d.lat);
+      var lng = coords ? Number(coords[0]) : Number(d.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+      var pop = getPopForYear(d, year);
+      var ratio = Math.max(0, pop / fixedMax);
+      var radius = Math.max(4, ratio * 55);
+      var diameter = Math.max(12, radius * 2);
+      var color = ratio > 0.15 ? '#ef4444'
+                : ratio > 0.08 ? '#f97316'
+                : ratio > 0.04 ? '#eab308' : '#3b82f6';
+      var fontSize = Math.max(8, Math.min(13, Math.round(ratio * 60 + 7)));
+      var el = document.createElement('div');
+      el.dataset.ml3dPriority = '2';
+      el.style.cssText = 'position:relative;width:' + diameter + 'px;height:' + diameter
+        + 'px;border-radius:50%;background:' + color + '40;border:1px solid ' + color
+        + '80;box-sizing:border-box;pointer-events:none;overflow:visible;';
+      el.innerHTML = '<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);'
+        + 'color:' + color + ';font-size:' + fontSize + 'px;font-weight:700;white-space:nowrap;'
+        + 'text-shadow:0 1px 3px rgba(0,0,0,.95);line-height:1;">'
+        + popToHousehold(pop) + '</div>';
+      var marker = new maplibregl.Marker({ element: el, anchor: 'center', occludedOpacity: 0.2 })
+        .setLngLat([lng, lat]).addTo(mlMap);
+      window._3dPopulationMarkers.push(marker);
+    });
+  }
+
+  window._refresh3dPopulation = function() {
+    var ym = typeof getCurrentYearMonth === 'function' ? getCurrentYearMonth() : null;
+    build3dPopulation(ym ? ym.year : _currentYear);
+  };
+  window._refreshPopulationForTime = function(year) {
+    _currentYear = Number(year);
+    if (_on && _data.length) buildLayer(_currentYear);
+  };
 
   // 호구수 버블 + 숫자 레이어 생성
   function buildLayer(year) {
@@ -50232,6 +50323,7 @@ async function castleFormDeleteVoice() {
     });
 
     if (_on) _layer.addTo(m);
+    build3dPopulation(year);
   }
 
   // 슬라이더 연동
@@ -50276,9 +50368,11 @@ async function castleFormDeleteVoice() {
     _on = !_on;
     if (_on) {
       _layer && _layer.addTo(m);
+      build3dPopulation(_currentYear);
       if (btn) { btn.classList.add('active'); btn.textContent = '호구수 ●'; }
     } else {
       _layer && m.removeLayer(_layer);
+      clear3dPopulation();
       if (btn) { btn.classList.remove('active'); btn.textContent = '호구수'; }
     }
   };
