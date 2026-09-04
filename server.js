@@ -1928,6 +1928,8 @@ async function setupRoutesAndCollections() {
         }
 
         let _tileRebuildInProgress = false;
+        let _tileRebuildRetryTimer = null;
+        let _tileRebuildRetryAttempt = 0;
 
         // ─── 증분 타일 재빌드: 변경된 영토 ID Set만 처리 ────────────────────────
         // affectedIds: Set<string> — 비어 있으면 전체 재빌드 (force 모드)
@@ -1936,9 +1938,16 @@ async function setupRoutesAndCollections() {
                 console.log(`⏳ [타일 스킵] 이미 진행 중 (사유: ${reason})`);
                 return;
             }
+            if (_tileRebuildRetryTimer) {
+                clearTimeout(_tileRebuildRetryTimer);
+                _tileRebuildRetryTimer = null;
+            }
             _tileRebuildInProgress = true;
             const startTime = Date.now();
             const isFullRebuild = !affectedIds || affectedIds.size === 0;
+            const dirtyIdsAtStart = new Set(_dirtyTerritoryIds);
+            const processedIds = isFullRebuild ? dirtyIdsAtStart : new Set(affectedIds);
+            let rebuildSucceeded = false;
             console.log(`🗺️  [타일 ${isFullRebuild ? '전체' : '증분'} 재빌드 시작] (사유: ${reason}, 대상: ${isFullRebuild ? '전체' : affectedIds.size + '개 영토'})`);
 
             try {
@@ -1955,6 +1964,25 @@ async function setupRoutesAndCollections() {
                             const m = filename.match(/^tile_(-?\d+)_(-?\d+)\.json$/);
                             if (m) affectedTileKeys.add(`${m[1]}_${m[2]}`);
                         }
+                    }
+
+                    // 신규 영토는 기존 타일에 ID가 없으므로 DB geometry/bbox에서 대상 타일을 추가한다.
+                    const affectedObjectIds = [...affectedIds].map(id => {
+                        try { return require('mongodb').ObjectId.createFromHexString(String(id)); }
+                        catch (e) { return id; }
+                    });
+                    const affectedDocs = await collections.territories.find(
+                        { _id: { $in: affectedObjectIds } },
+                        { projection: { bbox: 1, geometry: 1, type: 1, coordinates: 1 } }
+                    ).toArray();
+                    for (const territory of affectedDocs) {
+                        const geometry = territory.geometry
+                            || (territory.type && territory.coordinates
+                                ? { type: territory.type, coordinates: territory.coordinates } : null);
+                        const bbox = territory.bbox || (geometry ? _getBboxFromGeometry(geometry) : null);
+                        if (!bbox) continue;
+                        const keys = _getTileKeysForBbox(bbox.minLat, bbox.maxLat, bbox.minLng, bbox.maxLng);
+                        keys.forEach(key => affectedTileKeys.add(key));
                     }
                 }
 
@@ -2049,8 +2077,11 @@ async function setupRoutesAndCollections() {
 
                 // 5. index.json 갱신 ────────────────────────────────────────────
                 const tileCount = _rebuildTileIndex();
-                _territoryDirty = false;
-                _dirtyTerritoryIds = new Set();
+                // 이 빌드가 시작된 뒤 추가로 들어온 ID는 다음 빌드용으로 남겨둔다.
+                processedIds.forEach(id => _dirtyTerritoryIds.delete(String(id)));
+                _territoryDirty = _dirtyTerritoryIds.size > 0;
+                rebuildSucceeded = true;
+                _tileRebuildRetryAttempt = 0;
                 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
                 console.log(`✅ [타일 재빌드 완료] ${tileCount}개 타일 (${isFullRebuild ? '전체' : '증분'}, ${elapsed}초)`);
 
@@ -2059,8 +2090,25 @@ async function setupRoutesAndCollections() {
 
             } catch (e) {
                 console.error('❌ [타일 재빌드 실패]', e.message);
+                _territoryDirty = true;
+                processedIds.forEach(id => _dirtyTerritoryIds.add(String(id)));
+                _tileRebuildRetryAttempt += 1;
             } finally {
                 _tileRebuildInProgress = false;
+                // 진행 중 추가된 요청은 즉시 후속 빌드, DB 등 일시 오류는 지수 backoff 재시도.
+                if (_territoryDirty && _dirtyTerritoryIds.size > 0 && !_tileRebuildRetryTimer) {
+                    const retryDelay = rebuildSucceeded
+                        ? 300
+                        : Math.min(60000, 5000 * Math.pow(2, Math.min(_tileRebuildRetryAttempt - 1, 4)));
+                    const retryIds = new Set(_dirtyTerritoryIds);
+                    console.log(`🔁 [타일 후속 빌드 예약] ${retryIds.size}개, ${Math.round(retryDelay / 1000)}초 후`);
+                    _tileRebuildRetryTimer = setTimeout(() => {
+                        _tileRebuildRetryTimer = null;
+                        rebuildTerritoryTilesIncremental('대기/실패 자동 재시도', new Set(_dirtyTerritoryIds)).catch(error =>
+                            console.error('❌ [타일 자동 재시도 실패]', error.message)
+                        );
+                    }, retryDelay);
+                }
             }
         }
 

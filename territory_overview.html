@@ -511,6 +511,7 @@ let _editedGeometry = null;
 let _originalGeometry = null;
 let _fullTerritoryCache = {};
 let pendingRebuildQueue = new Map(); // id -> action(add|delete)
+let serverDirtyTerritoryCount = 0;
 
 // ── 유틸 ──
 function getColor(t)   { return TYPE_COLORS[t.type] || TYPE_COLORS.default; }
@@ -598,8 +599,11 @@ function updatePendingRebuildUI() {
   const lbl = document.getElementById('lbl-pending-rebuild');
   const btn = document.getElementById('btn-trigger-rebuild');
   if (!ids.length) {
-    lbl.textContent = '재빌드 대기 없음';
-    btn.disabled = true;
+    lbl.textContent = serverDirtyTerritoryCount > 0
+      ? `서버 재빌드 대기 ${serverDirtyTerritoryCount}건`
+      : '전체 재빌드 가능';
+    // 서버 재시작으로 메모리 dirty ID가 초기화된 경우에도 수동 복구 가능해야 한다.
+    btn.disabled = false;
     return;
   }
   const addCount = Array.from(pendingRebuildQueue.values()).filter(v => v === 'add').length;
@@ -616,12 +620,24 @@ function markTerritoryDirtyForRebuild(id, action = 'add') {
   updatePendingRebuildUI();
 }
 async function triggerManualTileRebuild() {
-  if (!pendingRebuildQueue.size) return;
   const btn = document.getElementById('btn-trigger-rebuild');
   const lbl = document.getElementById('lbl-pending-rebuild');
   btn.disabled = true;
   lbl.textContent = '재빌드 요청 중...';
   try {
+    // 브라우저 대기 ID가 없어도 서버 dirty가 남아 있으면 전체 타일을 복구한다.
+    if (!pendingRebuildQueue.size) {
+      const full = await fetch(`${LOCAL_API}/internal/tile-notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'rebuild', ids: [] })
+      });
+      if (!full.ok) throw new Error(`full rebuild notify HTTP ${full.status}`);
+      serverDirtyTerritoryCount = 0;
+      lbl.textContent = '✅ 전체 재빌드 요청 완료';
+      loadDeployStatus();
+      return;
+    }
     const grouped = { add: [], delete: [] };
     for (const [id, action] of pendingRebuildQueue.entries()) {
       grouped[action === 'delete' ? 'delete' : 'add'].push(id);
@@ -1477,15 +1493,20 @@ async function loadDeployStatus() {
     if (!res.ok) throw new Error();
     const d = await res.json();
     const b = d.localBuild;
+    serverDirtyTerritoryCount = Number(b.dirtyCount) || 0;
+    const rebuildBtn = document.getElementById('btn-trigger-rebuild');
     if (b.inProgress) {
       dotBuild.className = 'deploy-dot spin'; lblBuild.textContent = '🔨 타일 재빌드 중...';
       barBuild.style.width = '60%'; barBuild.style.background = '#f2c94c';
+      rebuildBtn.disabled = true;
     } else if (b.dirty || b.dirtyCount > 0) {
       dotBuild.className = 'deploy-dot yellow'; lblBuild.textContent = `⚠️ ${b.dirtyCount}개 미반영`;
       barBuild.style.width = '80%'; barBuild.style.background = '#f2c94c';
+      rebuildBtn.disabled = false;
     } else {
       dotBuild.className = 'deploy-dot green'; lblBuild.textContent = '✅ 빌드 완료';
       barBuild.style.width = '100%'; barBuild.style.background = '#6fcf97';
+      rebuildBtn.disabled = false;
     }
     const g = d.git;
     if (g?.sha) {
