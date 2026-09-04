@@ -16388,6 +16388,23 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         return baseMonths + (month - 1);
     }
 
+    // 지도 항목의 유효 기간을 모든 2D/3D 렌더 경로에서 동일하게 판정한다.
+    // start/end와 built/destroyed가 혼용된 구형 지명 데이터도 지원한다.
+    function isTimedMapItemActive(item, year, month) {
+        if (!item) return false;
+        const startYear = item.start_year ?? item.built_year ?? null;
+        const endYear = item.end_year ?? item.destroyed_year ?? null;
+        const currentMonth = Number.isFinite(Number(month)) ? Math.min(12, Math.max(1, Number(month))) : 1;
+        const startMonthRaw = item.start_month ?? item.built_month ?? 1;
+        const endMonthRaw = item.end_month ?? item.destroyed_month ?? 12;
+        const startMonth = Math.min(12, Math.max(1, Number(startMonthRaw) || 1));
+        const endMonth = Math.min(12, Math.max(1, Number(endMonthRaw) || 12));
+        const current = yearMonthToTotalMonths(Number(year), currentMonth);
+        const start = startYear == null ? -Infinity : yearMonthToTotalMonths(Number(startYear), startMonth);
+        const end = endYear == null ? Infinity : yearMonthToTotalMonths(Number(endYear), endMonth);
+        return current >= start && current <= end;
+    }
+
     /**
      * '총 월수'를 연도와 월 객체로 변환합니다.
      * @param {number} totalMonths - 총 월수
@@ -17332,7 +17349,7 @@ function updateKingLabel(year, month) {
         const labelType = newCastle.label_type || 'place';
 
         // 🚩 label_type='country'는 adminLabel 레이어로 제어
-        if (labelType === 'country') {
+        if (labelType === 'country' || labelType === 'admin') {
             if (!layerVisibility.adminLabel) return;
             // adminLabel이 켜져 있으면 아래에서 렌더링 진행
         } else {
@@ -17885,7 +17902,7 @@ function renderImmediateCountryLabels(year, month) {
         const importance = label.importance || 0;
         const forceShow = false; // 초기 로딩 시에도 토글 버튼으로 제어
         
-        if (labelType === 'country') {
+        if (labelType === 'country' || labelType === 'admin') {
             shouldRender = shouldRenderAdmin;
         } else if (labelType === 'ethnic') {
             shouldRender = shouldRenderEthnic;
@@ -17896,13 +17913,11 @@ function renderImmediateCountryLabels(year, month) {
         if (!shouldRender) return;
         
         // 시간 범위 체크
-        const startYear = label.start_year || label.built_year || -Infinity;
-        const endYear = label.end_year || label.destroyed_year || Infinity;
-        if (!(startYear <= year && endYear >= year)) return;
+        if (!isTimedMapItemActive(label, year, month)) return;
         
         // 국가 색상 가져오기 (있으면)
         let labelColor = label.label_color || '#d8cdb8';
-        if (labelType === 'country' && countries && countries.length > 0) {
+        if ((labelType === 'country' || labelType === 'admin') && countries && countries.length > 0) {
             const country = countries.find(c => c.name === label.country_id);
             if (country && country.color) {
                 labelColor = country.color;
@@ -19639,11 +19654,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 }
                 // 지명 라벨
                 if (castle.is_label) {
-                    const _builtY = castle.built_year ?? null;
-                    const _destY  = castle.destroyed_year ?? null;
-                    if (_builtY != null || _destY != null) {
-                        if (!((_builtY ?? -Infinity) <= year && (_destY ?? Infinity) >= year)) return;
-                    }
+                    if (!isTimedMapItemActive(castle, year, month)) return;
                     const cid = castle.country_id || castle.countryId;
                     const ci  = getCountryInfoById(cid);
                     window._3dCastleData.push({ castle, activeRec: null, countryInfo: ci });
@@ -19787,7 +19798,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 if (window._historyMapMode && map.getZoom() < 8 && labelType !== 'ethnic') return;
 
                 // 🚩 label_type='country'는 adminLabel 레이어로 제어
-                if (labelType === 'country') {
+                if (labelType === 'country' || labelType === 'admin') {
                     if (!layerVisibility.adminLabel) return;
                     // adminLabel 켜져있으면 아래에서 렌더링 진행
                 } else {
@@ -19800,11 +19811,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     
                     if (!shouldRender) return;
                 }                // 라벨의 시간 범위 체크 (built_year/destroyed_year 사용)
-                const startYear = castle.start_year || castle.built_year || -Infinity;
-                const endYear = castle.end_year || castle.destroyed_year || Infinity;
-                const isWithinDuration = startYear <= year && endYear >= year;
-                
-                if (!isWithinDuration) return;
+                if (!isTimedMapItemActive(castle, year, month)) return;
                 
                 const castleName = castle.name;
                 const builtText = castle.built_year ? `${castle.built_year}년` : '미상';
@@ -40858,6 +40865,7 @@ kingSelect.addEventListener('change', () => {
             let _refreshMarkerKey = null;        // 마커 전용 캐시 키 (zoom/LOD 의존)
             let _refreshLayersTimer = null;
             let _styleReloadGeneration = 0;
+            let _markerRenderGeneration = 0;
 
             function refreshLayers() {
                 if (!mlMap) return;
@@ -40887,7 +40895,8 @@ kingSelect.addEventListener('change', () => {
                 const newTerritoryKey = `${year}_${month}_${(_td?.country?.length||0)}_${(_td?.province?.length||0)}_${(_td?.city?.length||0)}_${_showTerritory}_${_showRivers}`;
                 // ── 마커 캐시 키: 연도/월/castle 수/zoom/pitch/LOD + 레이어 토글 상태 ──
                 const _lv = (typeof layerVisibility !== 'undefined') ? layerVisibility : {};
-                const _lvKey = `${_lv.natural?1:0}${_lv.city?1:0}${_lv.military?1:0}${_lv.relic?1:0}`;
+                const _lvKey = `${_lv.natural?1:0}${_lv.city?1:0}${_lv.military?1:0}${_lv.relic?1:0}`
+                    + `${_lv.countryLabel?1:0}${_lv.adminLabel?1:0}${_lv.placeLabel?1:0}${_lv.ethnicLabel?1:0}`;
                 const newMarkerKey = `${year}_${month}_${(window._3dCastleData||[]).length}_${mlMap.getZoom().toFixed(1)}_${mlMap.getPitch().toFixed(0)}_${_lodMode}_${_lvKey}`;
 
                 const territoryChanged = newTerritoryKey !== _refreshTerritoryDataKey;
@@ -41531,6 +41540,10 @@ kingSelect.addEventListener('change', () => {
 
                 if (!rebuildMarkers) return; // 마커 변경 없으면 종료
 
+                // 이전 갱신에서 예약된 requestAnimationFrame 청크가 새 시점/토글 상태에
+                // 마커를 뒤늦게 추가하지 못하도록 렌더 세대를 바꾼다.
+                const _thisMarkerRenderGeneration = ++_markerRenderGeneration;
+
                 if (_3dRenderListener) { _m.off('render', _3dRenderListener); _3dRenderListener = null; }
 
                 // ── 성/도시 HTML 마커 — window._3dCastleData 사용 (2D updateMap이 이미 계산 완료) ──
@@ -41596,6 +41609,13 @@ kingSelect.addEventListener('change', () => {
                         if (_3dRelicTypesPre.includes(_nft) && _lv.relic === false) continue;
                         if (!_3dRelicTypesPre.includes(_nft) && _lv.natural === false) continue;
                     }
+                    if (c.is_label) {
+                        const _labelTypePre = c.label_type || 'place';
+                        if ((_labelTypePre === 'country' || _labelTypePre === 'admin') && _lv.adminLabel === false) continue;
+                        if (_labelTypePre === 'ethnic' && _lv.ethnicLabel === false) continue;
+                        if (!['country', 'admin', 'ethnic'].includes(_labelTypePre) && _lv.placeLabel === false) continue;
+                        if (!isTimedMapItemActive(c, year, month)) continue;
+                    }
                     if (!c.is_natural_feature && !c.is_military_flag && !c.is_label && _lv.city === false) continue;
                     const _mk = `mk_${c._id||c.name+'@'+c.lat+'_'+c.lng}_${activeRec?.name||c.name||''}_${ci?.color||''}_${ci?.name||''}`;
                     _newMarkerKeys.add(_mk);
@@ -41623,6 +41643,11 @@ kingSelect.addEventListener('change', () => {
                 window._3dMarkers = _3dMarkers;
 
                 const _makeMarker = ({ castle: c, activeRec, countryInfo: ci }) => {
+
+                    if (_thisMarkerRenderGeneration !== _markerRenderGeneration) return;
+                    const _liveMarkerTime = (typeof getCurrentYearMonth === 'function')
+                        ? getCurrentYearMonth() : { year, month };
+                    if (c.is_label && !isTimedMapItemActive(c, _liveMarkerTime.year, _liveMarkerTime.month)) return;
 
                     // ── priority 기반 LOD 필터 (pitch 보정 effective zoom 반영) ──
                     const _3dIsCapital = !!(activeRec && (
@@ -41965,6 +41990,7 @@ kingSelect.addEventListener('change', () => {
                 const _chunkSize = 60;
                 let _chunkIdx = 0;
                 const _renderNextChunk = () => {
+                    if (_thisMarkerRenderGeneration !== _markerRenderGeneration) return;
                     const end = Math.min(_chunkIdx + _chunkSize, _toCreate.length);
                     for (let i = _chunkIdx; i < end; i++) {
                         _makeMarker(_toCreate[i]);
@@ -44504,7 +44530,7 @@ kingSelect.addEventListener('change', () => {
                     const { year, month } = getCurrentYearMonth();
                      updateMap(year, month);
                      // 비동기 재렌더링 경로에서 남은 행정구역명도 한 번 더 정리한다.
-                     if (layerName === 'adminLabel' && !checkbox.checked) {
+                     if (layerType === 'adminLabel' && !layerVisibility.adminLabel) {
                          setTimeout(() => {
                              try {
                                  labelLayerGroup.eachLayer(m => {
