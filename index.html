@@ -38935,6 +38935,22 @@ kingSelect.addEventListener('change', () => {
         let currentUiFontScale = Math.min(1.5, Math.max(1, Number(localStorage.getItem(UI_FONT_SCALE_KEY)) || 1));
         let fontScaleFrame = 0;
 
+        function getMobileSymbolTextSizeExpression(scale = currentUiFontScale) {
+            const safeScale = Math.min(1.5, Math.max(1, Number(scale) || 1));
+            return ['*', safeScale, ['case',
+                ['==', ['get', 'label_type'], 'admin'], 12,
+                ['==', ['get', 'kind'], 'label'], 11,
+                10
+            ]];
+        }
+
+        function updateMobileSymbolFontScale() {
+            const vectorMap = window.mlMap3d;
+            const layerId = 'mobile-simple-marker-labels';
+            if (!vectorMap?.getLayer?.(layerId)) return;
+            vectorMap.setLayoutProperty(layerId, 'text-size', getMobileSymbolTextSizeExpression());
+        }
+
         function isReadableTextElement(el) {
             if (!(el instanceof HTMLElement) || el.matches(fontScaleExclusion) || el.closest(fontScaleExclusion)) return false;
             if (el.matches('.capital-seal, .place-glyph-seal, .flag-icon-symbol, .af-icon')) return false;
@@ -38969,6 +38985,7 @@ kingSelect.addEventListener('change', () => {
             if (fontScaleSlider) fontScaleSlider.value = String(percent);
             if (fontScaleValue) fontScaleValue.textContent = `${percent}%`;
             if (persist) localStorage.setItem(UI_FONT_SCALE_KEY, String(currentUiFontScale));
+            updateMobileSymbolFontScale();
         }
 
         function scheduleUiFontScale(percent) {
@@ -41780,11 +41797,7 @@ kingSelect.addEventListener('change', () => {
                                 ['==', ['get', 'kind'], 'label'], ['get', 'name'],
                                 ['concat', ['get', 'glyph'], ' ', ['get', 'name']]
                             ],
-                            'text-size': ['case',
-                                ['==', ['get', 'label_type'], 'admin'], 12,
-                                ['==', ['get', 'kind'], 'label'], 11,
-                                10
-                            ],
+                            'text-size': getMobileSymbolTextSizeExpression(),
                             'text-anchor': 'top',
                             'text-offset': [0, 0.45],
                             'text-allow-overlap': false,
@@ -42310,6 +42323,12 @@ kingSelect.addEventListener('change', () => {
                     // ── 거리 페이드: zoom에 따라 가시 반경(km) 결정 ──
                     const _z = _m.getZoom();
                     const _pitch = _m.getPitch();
+                    const _globeHemisphereCull = !!window._historyGlobeMode && _z <= 5.5;
+                    const _globeCenter = _globeHemisphereCull ? _m.getCenter() : null;
+                    const _centerLatRad = _globeCenter ? _globeCenter.lat * Math.PI / 180 : 0;
+                    const _centerLngRad = _globeCenter ? _globeCenter.lng * Math.PI / 180 : 0;
+                    const _centerSinLat = Math.sin(_centerLatRad);
+                    const _centerCosLat = Math.cos(_centerLatRad);
                     // 기준점: 화면 하단 중앙을 지도 좌표로 변환
                     const _bottomCenter = _mobile3dPerformance ? null : _m.unproject([cw / 2, ch]);
                     // 모바일에서는 마커마다 거리 계산하는 원근 페이드를 생략한다.
@@ -42323,11 +42342,23 @@ kingSelect.addEventListener('change', () => {
                     const _pitchFactor = Math.min(1, _pitch / 40);
 
                     _3dMarkers.forEach(mk => {
-                        const pt = _m.project(mk.getLngLat());
+                        const markerLngLat = mk.getLngLat();
+                        const pt = _m.project(markerLngLat);
                         // 전장 효과 마커는 연기가 위로 올라오므로 컬링을 더 관대하게
                         const isBattleFx = mk.getElement().classList.contains('ml3d-battle-wrap');
                         const effectiveTopCut = isBattleFx ? topCut - 40 : topCut;
-                        const hidden = pt.y < effectiveTopCut
+                        // 화면 좌표만 보면 지구 반대편 점도 엣지 부근에 투영될 수 있다.
+                        // 중심점과의 구면 내적이 0 이하이면 가시 반구 밖이므로 숨긴다.
+                        let behindGlobe = false;
+                        if (_globeHemisphereCull) {
+                            const markerLatRad = markerLngLat.lat * Math.PI / 180;
+                            const markerLngRad = markerLngLat.lng * Math.PI / 180;
+                            const hemisphereDot = _centerSinLat * Math.sin(markerLatRad)
+                                + _centerCosLat * Math.cos(markerLatRad) * Math.cos(markerLngRad - _centerLngRad);
+                            // 엣지에서 큰 깃발 그림이 먼저 삐져나오지 않도록 약간 안쪽에서 자른다.
+                            behindGlobe = hemisphereDot < 0.035;
+                        }
+                        const hidden = behindGlobe || pt.y < effectiveTopCut
                             || pt.x < -sidePad || pt.x > cw + sidePad
                             || pt.y > ch + sidePad;
                         const el = mk.getElement();
@@ -42342,8 +42373,7 @@ kingSelect.addEventListener('change', () => {
 
                         // ── 거리 페이드: 마커 전체(텍스트+아이콘) 흐리게 ──
                         if (!_mobile3dPerformance && !isBattleFx && _pitchFactor > 0.1) {
-                            const ll = mk.getLngLat();
-                            const dist = _haverDist(_bottomCenter.lng, _bottomCenter.lat, ll.lng, ll.lat);
+                            const dist = _haverDist(_bottomCenter.lng, _bottomCenter.lat, markerLngLat.lng, markerLngLat.lat);
                             let opacity = 1;
                             if (dist >= _maxDistKm) {
                                 opacity = 0;
