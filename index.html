@@ -9899,10 +9899,10 @@ body.force-mobile .marker-type-selector button {
           <label><input type="checkbox" id="menu-layer-contributions"> 사관 사료</label>
           <label><input type="checkbox" id="menu-layer-ranking" checked> 사관 랭킹</label>
           <label><input type="checkbox" id="menu-layer-activity-feed" checked> 활동 소식</label>
-          <label><input type="checkbox" id="menu-layer-caption" checked> 🎬 역사 자막</label>
+          <label><input type="checkbox" id="menu-layer-caption"> 🎬 역사 자막</label>
           <label><input type="checkbox" id="menu-layer-pop-heat"> 👥 호구수</label>
           <label><input type="checkbox" id="menu-layer-resource" onchange="toggleResourceBar(this.checked)"> ⛏ 자원</label>
-          <label><input type="checkbox" id="menu-layer-heroes" checked
+          <label><input type="checkbox" id="menu-layer-heroes"
               onchange="if(window.heroSystem) heroSystem.toggleLayer(this)"> 🦸 영웅</label>
           <label><input type="checkbox" id="menu-layer-water-level"> 🌊 고환경(당·송)</label>
           </div>
@@ -10239,7 +10239,7 @@ body.force-mobile .marker-type-selector button {
                 <button type="button" class="layer-toggle-btn" data-layer="eventSidebar" style="padding: 2px 4px; font-size: 10px;">사건목록</button>
                 <button id="btn-pop-heat" type="button" class="layer-toggle-btn" onclick="togglePopHeat(this)" style="padding: 2px 4px; font-size: 10px;">👥 호구수</button>
                 <button id="btn-resource-bar" type="button" class="layer-toggle-btn" onclick="toggleResourceBar(this)" style="padding:2px 8px;font-size:10px;">⛏ 자원</button>
-                <button id="heroLayerToggleBtn" type="button" class="layer-toggle-btn active" style="padding: 2px 6px; font-size: 10px;" onclick="heroSystem.toggleLayer(this)">🦸 영웅</button>
+                <button id="heroLayerToggleBtn" type="button" class="layer-toggle-btn" style="padding: 2px 6px; font-size: 10px;" onclick="heroSystem.toggleLayer(this)">🦸 영웅</button>
             </div>
             
             <!-- 🚩 [추가] PC용 편집 버튼 (모바일에서 숨김) -->
@@ -13174,7 +13174,7 @@ body.force-mobile .marker-type-selector button {
         userContributions: false, // 🚩 [추가] 유저 기여 레이어
         rankingPanel: false, // 사관 랭킹 패널 최초 화면 OFF
         activityFeed: true,  // 🚩 [추가] 사관활동 소식 피드
-        captionPanel: true,  // 🚩 [추가] 역사 서사 자막 패널 (기본 ON)
+        captionPanel: false, // 역사 서사 자막 패널 (기본 OFF, 사용자가 켰을 때만 표시)
         eventSidebar: false, // 🚩 [과제2] 사건목록 사이드바 토글
         drawingPanel: false,  // 🚩 [과제2] 그리기 패널 토글
         heatmap: false,      // 🚩 [과제2] 히트맵 레이어 토글 (기본 OFF)
@@ -21505,6 +21505,10 @@ function invalidateCountryLookupCache() {
         }
         if (Object.prototype.hasOwnProperty.call(settings, 'timeline')) {
             setTimelinePanelVisibility(settings.timeline === true, { rebuild:false });
+        }
+        if (Object.prototype.hasOwnProperty.call(settings, 'captionPanel')
+            && typeof toggleHistoryCaption === 'function') {
+            toggleHistoryCaption(settings.captionPanel === true);
         }
         const simplePanels = {
             rankingPanel:'rankingDisplay', activityFeed:'activity-feed-panel'
@@ -34528,7 +34532,7 @@ kingSelect.addEventListener('change', () => {
             };
         }
         let _layer = null;       // Leaflet LayerGroup
-        let _visible = true;
+        let _visible = false;
         let _currentYear = 0;
         let _currentMonth = 1;
         let _cachedYear = null;  // 마지막으로 렌더된 연도 (캐시 키)
@@ -40431,6 +40435,7 @@ kingSelect.addEventListener('change', () => {
             let _3dHeroRenderSeq = 0;
             const _3dHeroCache = new Map();
             let _3dRenderListener = null; // behind-globe culling 리스너
+            let _3dZoomScaleListener = null; // 마커 재구축 시 중복 등록 방지
             let terrainOn = true;
             let orbitOn   = false;
             let orbitTimer = null;
@@ -41605,8 +41610,11 @@ kingSelect.addEventListener('change', () => {
 
                 // MapLibre 화면 bounds (viewport 필터용)
                 const _3dBounds = _m.getBounds();
+                const _mobile3dPerformance = window.innerWidth <= 967
+                    || document.body.classList.contains('force-mobile');
                 const _inViewport = (lat, lng) => {
-                    const pad = 0.5; // 화면 밖 여유 (도 단위)
+                    // 모바일은 화면 밖 DOM 마커를 덜 유지해 메모리와 레이아웃 비용을 줄인다.
+                    const pad = _mobile3dPerformance ? 0.2 : 0.5; // 화면 밖 여유 (도 단위)
                     return lat >= _3dBounds.getSouth() - pad && lat <= _3dBounds.getNorth() + pad &&
                            lng >= _3dBounds.getWest()  - pad && lng <= _3dBounds.getEast()  + pad;
                 };
@@ -42035,7 +42043,8 @@ kingSelect.addEventListener('change', () => {
                     const _k = `mk_${c._id||c.name+'@'+c.lat+'_'+c.lng}_${activeRec?.name||c.name||''}_${ci?.color||''}_${ci?.name||''}`;
                     return _newMarkerKeys.has(_k) && !_3dMarkersMap.has(_k);
                 });
-                const _chunkSize = 60;
+                // 한 프레임에 만드는 DOM 양을 줄여 모바일 터치/지도 렌더에 시간을 양보한다.
+                const _chunkSize = _mobile3dPerformance ? 18 : 60;
                 let _chunkIdx = 0;
                 const _renderNextChunk = () => {
                     if (_thisMarkerRenderGeneration !== _markerRenderGeneration) return;
@@ -42141,23 +42150,32 @@ kingSelect.addEventListener('change', () => {
                     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
                 };
 
+                let _last3dCullAt = 0;
                 _3dRenderListener = () => {
+                    // MapLibre render는 이동 중 초당 수십 회 발생한다. 모든 HTML 마커를
+                    // 매 프레임 project/Haversine 계산하면 모바일 메인 스레드를 독점한다.
+                    const now = performance.now();
+                    const minInterval = _mobile3dPerformance ? 100 : 32;
+                    if (now - _last3dCullAt < minInterval) return;
+                    _last3dCullAt = now;
+
                     const cw = _cullCanvas.width  / (window.devicePixelRatio || 1);
                     const ch = _cullCanvas.height / (window.devicePixelRatio || 1);
-                    const sidePad = 300;  // 좌우/아래: 화면 밖 여유
+                    const sidePad = _mobile3dPerformance ? 80 : 300; // 좌우/아래 화면 밖 여유
                     const topCut  = -60;  // 위(하늘/지구 뒤): 거의 허용 안 함
 
                     // ── 거리 페이드: zoom에 따라 가시 반경(km) 결정 ──
                     const _z = _m.getZoom();
                     const _pitch = _m.getPitch();
                     // 기준점: 화면 하단 중앙을 지도 좌표로 변환
-                    const _bottomCenter = _m.unproject([cw / 2, ch]);
-                    // 화면 중앙까지의 거리를 fadeStart로 사용 (중앙~상단에서만 페이드)
-                    const _midPoint = _m.unproject([cw / 2, ch / 2]);
-                    const _fadeStartKm = _haverDist(_bottomCenter.lng, _bottomCenter.lat, _midPoint.lng, _midPoint.lat);
-                    // maxDist = 화면 상단까지의 거리
-                    const _topPoint = _m.unproject([cw / 2, 0]);
-                    const _maxDistKm = _haverDist(_bottomCenter.lng, _bottomCenter.lat, _topPoint.lng, _topPoint.lat);
+                    const _bottomCenter = _mobile3dPerformance ? null : _m.unproject([cw / 2, ch]);
+                    // 모바일에서는 마커마다 거리 계산하는 원근 페이드를 생략한다.
+                    const _midPoint = _mobile3dPerformance ? null : _m.unproject([cw / 2, ch / 2]);
+                    const _fadeStartKm = _mobile3dPerformance ? 0
+                        : _haverDist(_bottomCenter.lng, _bottomCenter.lat, _midPoint.lng, _midPoint.lat);
+                    const _topPoint = _mobile3dPerformance ? null : _m.unproject([cw / 2, 0]);
+                    const _maxDistKm = _mobile3dPerformance ? 0
+                        : _haverDist(_bottomCenter.lng, _bottomCenter.lat, _topPoint.lng, _topPoint.lat);
                     // pitch가 낮으면(탑다운) 페이드 효과 약하게
                     const _pitchFactor = Math.min(1, _pitch / 40);
 
@@ -42170,15 +42188,17 @@ kingSelect.addEventListener('change', () => {
                             || pt.x < -sidePad || pt.x > cw + sidePad
                             || pt.y > ch + sidePad;
                         const el = mk.getElement();
-                        el.style.visibility = hidden ? 'hidden' : '';
+                        const nextVisibility = hidden ? 'hidden' : '';
+                        if (el.style.visibility !== nextVisibility) el.style.visibility = nextVisibility;
                         // ── 깊이 정렬: pitch 뷰에서 화면 아래쪽(=카메라에 가까운 곳)이 앞에 오도록
                         // priority 가중치(국가명=3, 수도=2, 일반=1)를 z-index 오프셋으로 반영
                         const priority = parseInt(el.dataset.ml3dPriority || '1', 10);
                         const depthZ = Math.round(Math.max(0, pt.y)) + priority * 100;
-                        el.style.zIndex = String(depthZ);
+                        const nextZ = String(depthZ);
+                        if (el.style.zIndex !== nextZ) el.style.zIndex = nextZ;
 
                         // ── 거리 페이드: 마커 전체(텍스트+아이콘) 흐리게 ──
-                        if (!isBattleFx && _pitchFactor > 0.1) {
+                        if (!_mobile3dPerformance && !isBattleFx && _pitchFactor > 0.1) {
                             const ll = mk.getLngLat();
                             const dist = _haverDist(_bottomCenter.lng, _bottomCenter.lat, ll.lng, ll.lat);
                             let opacity = 1;
@@ -42278,7 +42298,9 @@ kingSelect.addEventListener('change', () => {
                     });
                 };
                 _updateMarkerZoomScale(); // 초기 적용
-                _m.on('zoom', _updateMarkerZoomScale);
+                if (_3dZoomScaleListener) _m.off('zoom', _3dZoomScaleListener);
+                _3dZoomScaleListener = _updateMarkerZoomScale;
+                _m.on('zoom', _3dZoomScaleListener);
                 // 레이어 토글 시 즉시 마커 표시/숨김 반영
                 window._3dUpdateMarkerZoomScale = _updateMarkerZoomScale;
 
@@ -42647,14 +42669,26 @@ kingSelect.addEventListener('change', () => {
 
                             // 지도 회전·확대와 같은 중심으로 성도 전체를 변환한다.
                             // pitch에는 반응하지 않아 위아래로 미끄러지지 않는다.
+                            // bearing뿐 아니라 현재 보고 있는 경도도 반대로 적용해야
+                            // 지구 반대편으로 돌렸을 때 같은 별밭이 화면에 고정되지 않는다.
                             const mapBearing = mlMap && typeof mlMap.getBearing === 'function' ? mlMap.getBearing() : 0;
+                            const mapCenter = mlMap && typeof mlMap.getCenter === 'function'
+                                ? mlMap.getCenter()
+                                : { lng: 118.5, lat: 36.4 };
+                            const normalizeLongitudeDelta = value => ((value + 540) % 360) - 180;
+                            const celestialLongitudeDelta = normalizeLongitudeDelta((Number(mapCenter.lng) || 0) - 118.5);
+                            const celestialRotation = -(mapBearing + celestialLongitudeDelta);
+                            // 남북 이동도 천구의 보이는 중심을 바꾸므로 과도하지 않은 범위에서 이동한다.
+                            const celestialLatitudeShift = Math.max(-0.18, Math.min(0.18,
+                                ((Number(mapCenter.lat) || 0) - 36.4) / 180
+                            )) * window.innerHeight;
                             const mapZoom = mlMap && typeof mlMap.getZoom === 'function' ? mlMap.getZoom() : 2.35;
                             const celestialZoomScale = Math.min(2.65, Math.max(0.72,
                                 Math.pow(2, (mapZoom - 2.35) * 0.19)
                             ));
                             starContext.save();
-                            starContext.translate(celestialChart.cx, celestialChart.cy);
-                            starContext.rotate(-mapBearing * Math.PI / 180);
+                            starContext.translate(celestialChart.cx, celestialChart.cy + celestialLatitudeShift);
+                            starContext.rotate(celestialRotation * Math.PI / 180);
                             starContext.scale(celestialZoomScale, celestialZoomScale);
                             starContext.translate(-celestialChart.cx, -celestialChart.cy);
 
@@ -49163,7 +49197,7 @@ body.guest-mode #activity-feed-panel { display: none !important; }
     let _captionPaused = false;
 
     // 자막 패널 표시 여부 (레이어 컨트롤에서 제어 가능하도록 전역 노출)
-    window._historyCaptionVisible = true; // 기본 ON
+    window._historyCaptionVisible = false; // 기본 OFF
 
     function getCaptionPanel() { return document.getElementById('history-caption-panel'); }
     function getCaptionInner() { return document.getElementById('history-caption-inner'); }
@@ -49366,10 +49400,16 @@ body.guest-mode #activity-feed-panel { display: none !important; }
         const inner = getCaptionInner();
         if (!panel || !inner) return;
 
-        // 레이어 visibility 확인 (layerVisibility 또는 fallback 플래그)
-        const isVisible = (typeof layerVisibility !== 'undefined' && layerVisibility.captionPanel)
-                       || window._historyCaptionVisible;
-        if (!isVisible) return;
+        // layerVisibility가 존재하면 그것만을 기준으로 삼는다. OR 조건을 사용하면
+        // 저장 설정이 false여도 fallback 기본값 때문에 자막이 다시 나타난다.
+        const isVisible = typeof layerVisibility !== 'undefined'
+            ? layerVisibility.captionPanel === true
+            : window._historyCaptionVisible === true;
+        if (!isVisible) {
+            panel.style.display = 'none';
+            stopScroll();
+            return;
+        }
 
         stopScroll();
 
