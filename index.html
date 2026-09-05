@@ -27262,6 +27262,9 @@ const loadingMessages = [
     // 🚩 역사 패널 debounce/AbortController 변수 (var: 호이스팅으로 TDZ 완전 방지)
     var _historyPanelTimer = null;
     var _historyPanelAbort = null;
+    // 역사 패널과 자막은 같은 기록 요청을 공유한다. 사용자가 시점을 빠르게
+    // 바꿀 때 이전 요청의 응답이 현재 시점 자막을 덮어쓰지 않도록 목표 연도를 보관한다.
+    var _historyPanelTargetYear = null;
     var _historyPanelCache;          // lazy init: 첫 사용 시 new Map() 생성
     var _HISTORY_CACHE_MAX = 20;
     var _HISTORY_CACHE_TTL = 5 * 60 * 1000;
@@ -27481,8 +27484,11 @@ const loadingMessages = [
     // (선언은 updateTime보다 앞에 있어야 TDZ 오류 없음 → 상단으로 이동됨)
 
     function scheduleHistoryPanelUpdate(year) {
-        // 패널이 표시 중이 아니면 스킵 (layerVisibility로 정확하게 체크)
-        if (!layerVisibility.historyPanel) return;
+        _historyPanelTargetYear = Number(year);
+
+        // 역사 패널과 역사 자막은 서로 독립된 레이어다. 둘 중 하나라도 보이면
+        // 기록을 갱신해야 한다. (기존에는 역사 패널을 끄면 자막도 과거 시점에 멈췄다.)
+        if (!layerVisibility.historyPanel && !layerVisibility.captionPanel) return;
 
         // 이전 예약 취소
         if (_historyPanelTimer) clearTimeout(_historyPanelTimer);
@@ -27504,6 +27510,9 @@ const loadingMessages = [
     }
 
     async function updateHistoryPanel(year) {
+      year = Number(year);
+      _historyPanelTargetYear = year;
+
       // 🚩 이전 진행 중인 fetch가 있으면 취소 (race condition 방지)
       if (_historyPanelAbort) _historyPanelAbort.abort();
       _historyPanelAbort = new AbortController();
@@ -27525,6 +27534,7 @@ const loadingMessages = [
       if (_historyPanelCache.has(year)) {
         const cached = _historyPanelCache.get(year);
         if (Date.now() - cached.ts < _HISTORY_CACHE_TTL) {
+          if (_historyPanelTargetYear !== year) return;
           _renderHistoryPanel(year, cached.historyRecords, cached.sourceRecords, cached.heroFigures);
           return;
         }
@@ -27548,7 +27558,7 @@ const loadingMessages = [
         const heroFigures = Array.isArray(heroBase?.figures) ? heroBase.figures : [];
 
         // fetch 완료 후 다시 연도가 바뀐 경우 덮어쓰지 않음
-        if (signal.aborted) return;
+        if (signal.aborted || _historyPanelTargetYear !== year) return;
 
         // 캐시 저장 (LRU: 초과 시 가장 오래된 항목 제거)
         _historyPanelCache.set(year, { historyRecords, sourceRecords, heroFigures, ts: Date.now() });
