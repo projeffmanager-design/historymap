@@ -15021,7 +15021,7 @@ body.force-mobile .marker-type-selector button {
                 const markerEl = document.createElement('div');
                 markerEl.style.cssText = 'font-size:25px;line-height:1;filter:drop-shadow(0 2px 4px #000);cursor:default;';
                 markerEl.textContent = '📍';
-                _gotoGlobeMarker = new maplibregl.Marker({ element: markerEl, anchor: 'bottom' })
+                _gotoGlobeMarker = new maplibregl.Marker({ element: markerEl, anchor: 'bottom', occludedOpacity: 0 })
                     .setLngLat([lng, lat])
                     .setPopup(new maplibregl.Popup({ offset: 18, className: 'ml3d-popup' })
                         .setHTML(`<b>좌표 이동</b><br>위도 ${lat.toFixed(5)}<br>경도 ${lng.toFixed(5)}`))
@@ -40709,7 +40709,7 @@ kingSelect.addEventListener('change', () => {
                             window.heroSystem._showHeroToast('인물 상세 정보를 찾을 수 없습니다.');
                         }
                     });
-                    const mk = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -1], occludedOpacity: 1.0 })
+                    const mk = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -1], occludedOpacity: 0 })
                         .setLngLat(resolvedLngLats[index] || entry.baseLngLat)
                         .addTo(mlMap);
                     _3dHeroMarkers.push(mk);
@@ -40892,7 +40892,7 @@ kingSelect.addEventListener('change', () => {
                 const _lodMode = getLodMode(mlMap);
                 const _showTerritory = (typeof layerVisibility === 'undefined') || layerVisibility.territoryPolygon !== false;
                 const _showRivers    = ((typeof layerVisibility === 'undefined') || layerVisibility.rivers !== false)
-                    && mlMap.getZoom() > 4.5;
+                    && getEffectiveZoom(mlMap) >= 5.5;
 
                 // ── 영토 캐시 키: 연도/월/데이터 수/표시여부만 — zoom·pan 무관 ──
                 const newTerritoryKey = `${year}_${month}_${(_td?.country?.length||0)}_${(_td?.province?.length||0)}_${(_td?.city?.length||0)}_${_showTerritory}_${_showRivers}`;
@@ -41322,6 +41322,32 @@ kingSelect.addEventListener('change', () => {
                 if (effectivePlaceType === 'chon')             return 5; // 마을은 가장 낮은 우선순위
                 return 4; // 일반 성/현
             }
+            // 유형별 3D 최소 유효 줌. 단계형 priority만으로 표현하기 어려운
+            // 6.0/6.3/6.5 경계를 직접 판정한다.
+            function getMarkerMinEffectiveZoom(c, activeRec = null) {
+                const placeType = String(activeRec?.place_type || c.place_type || '').toLowerCase();
+                const isCapital = activeRec
+                    ? (activeRec.is_capital === true || placeType === 'capital' || placeType === 'hwangseong')
+                    : (c.is_capital === true || placeType === 'capital' || placeType === 'hwangseong');
+                if (isCapital) return 5.0;
+                if (c.is_label) {
+                    const labelType = c.label_type || 'place';
+                    if (labelType === 'country' || labelType === 'admin') return 6.3;
+                    return 6.5;
+                }
+                if (c.is_natural_feature) {
+                    const featureType = c.natural_feature_type || 'other';
+                    if (featureType === 'river') return 5.5;
+                    if (featureType === 'battle') return 6.5;
+                    // 자연·유적은 CSS로 사후 숨김 처리하지 않고 생성 단계부터 제한한다.
+                    // 비동기 마커 청크가 줌 갱신 뒤 추가되며 5.1에서 한꺼번에 보이던 문제를 막는다.
+                    return 7.0;
+                }
+                if (placeType === 'ju' || placeType === '주' || placeType === 'seong' || placeType === '성' || placeType === 'city') return 6.0;
+                if (placeType === 'chon' || placeType === '촌' || placeType === 'village') return 6.5;
+                if (c.is_military_flag || placeType === 'battle' || Number(c.population || 0) > 100000) return 6.5;
+                return 7.5;
+            }
             // LOD 모드별 최대 priority
             //   country: 0 (국가라벨만)
             //   capital: 2 (수도 + 자연지물 + 지명라벨)
@@ -41391,7 +41417,7 @@ kingSelect.addEventListener('change', () => {
 
                 // ── 강 레이어 (MapLibre GeoJSON line) — 영토 위에 렌더링 ──
                 const _showRivers = ((typeof layerVisibility === 'undefined') || layerVisibility.rivers !== false)
-                    && _m.getZoom() > 4.5;
+                    && getEffectiveZoom(_m) >= 5.5;
                 const riverFeatures = [];
                 if (typeof naturalFeatures !== 'undefined') {
                     naturalFeatures.forEach(f => {
@@ -41610,7 +41636,7 @@ kingSelect.addEventListener('change', () => {
                         activeRec.place_type === 'hwangseong'
                     ));
                     const _prePriority = _isCapPre ? 1 : getMarkerPriority(c, activeRec);
-                    if (_prePriority > _maxPriority) continue;
+                    if (_m.getZoom() <= 5.0 || _ez < getMarkerMinEffectiveZoom(c, activeRec)) continue;
                     if (_prePriority > 1 && !_inViewport(c.lat, c.lng)) continue;
                     // ── layerVisibility 사전 필터 (토글 off 시 pre-scan에서도 제외) ──
                     const _lv = (typeof layerVisibility !== 'undefined') ? layerVisibility : {};
@@ -41669,7 +41695,7 @@ kingSelect.addEventListener('change', () => {
                     ));
                     // activeRec.is_capital이 있으면 priority 1로 상향
                     const _cPriority = _3dIsCapital ? 1 : getMarkerPriority(c, activeRec);
-                    if (_cPriority > _maxPriority) return; // LOD 컷오프
+                    if (_m.getZoom() <= 5.0 || _ez < getMarkerMinEffectiveZoom(c, activeRec)) return;
 
                     // ── viewport 필터 (priority 1 이하(수도/국가라벨)는 항상 표시) ──
                     if (_cPriority > 1 && !_inViewport(c.lat, c.lng)) return;
@@ -41978,7 +42004,7 @@ kingSelect.addEventListener('change', () => {
                             }
                         }
                     });
-                    const mk = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, 6] })
+                    const mk = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, 6], occludedOpacity: 0 })
                         .setLngLat([c.lng, c.lat]).addTo(_m);
                     if (c.is_label) {
                         el.dataset.ml3dLabelType = c.label_type || 'place';
@@ -42084,7 +42110,7 @@ kingSelect.addEventListener('change', () => {
                         labelEl.innerHTML = `<div class="ml3d-txt" style="display:flex;flex-direction:column;align-items:center;">${labelHtml}</div>`;
                         const lblKey = `lbl_${countryId}`;
                         if (_3dMarkersMap.has(lblKey)) return; // 이미 존재 → 재생성 생략
-                        const mk = new maplibregl.Marker({ element: labelEl, anchor: 'bottom', offset: [0, 0], occludedOpacity: 1.0 })
+                        const mk = new maplibregl.Marker({ element: labelEl, anchor: 'bottom', offset: [0, 0], occludedOpacity: 0 })
                             .setLngLat([labelLng, labelLat]).addTo(_m);
                         _3dMarkersMap.set(lblKey, mk);
                         _3dMarkers.push(mk);
@@ -42180,9 +42206,9 @@ kingSelect.addEventListener('change', () => {
                     // z < 6.5 : 일반 성 텍스트 숨김
                     // z < 5.5 : 일반 성 전체 숨김 + 왕성(수도) 텍스트 숨김
                     // z >= 6.5 : 도시 마커가 보이는 줌 → 국가명 라벨 숨김 (중복 방지)
-                    const hideNatural = z < 7.5;
-                    const hideNormal = z < 6.5;
-                    const hideNormalAll = z < 5.5;
+                    const hideNatural = getEffectiveZoom(_m) < 7.0;
+                    const hideNormal = getEffectiveZoom(_m) < 6.0;
+                    const hideNormalAll = getEffectiveZoom(_m) < 6.0;
                     const hideCapital = z < 5.5;
                     const hideCapitalAll = z < 4.5;
                     const hideCountryLabel = z >= 6.5;
@@ -50249,7 +50275,7 @@ async function castleFormDeleteVoice() {
         + 'color:' + color + ';font-size:' + fontSize + 'px;font-weight:700;white-space:nowrap;'
         + 'text-shadow:0 1px 3px rgba(0,0,0,.95);line-height:1;">'
         + popToHousehold(pop) + '</div>';
-      var marker = new maplibregl.Marker({ element: el, anchor: 'center', occludedOpacity: 0.2 })
+      var marker = new maplibregl.Marker({ element: el, anchor: 'center', occludedOpacity: 0 })
         .setLngLat([lng, lat]).addTo(mlMap);
       window._3dPopulationMarkers.push(marker);
     });
@@ -51855,7 +51881,7 @@ window._refresh3dResources = function _refresh3dResources() {
       pop.on('close', function() { if (window._sharedPopup3d === pop) window._sharedPopup3d = null; });
       window._sharedPopup3d = pop;
     });
-    var mk = new maplibregl.Marker({ element: el, anchor: 'bottom', occludedOpacity: 1.0 })
+    var mk = new maplibregl.Marker({ element: el, anchor: 'bottom', occludedOpacity: 0 })
       .setLngLat([lng, lat])
       .addTo(mlMap);
     window._3dResourceMarkers.push(mk);
