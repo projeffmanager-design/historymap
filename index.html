@@ -43549,6 +43549,17 @@ kingSelect.addEventListener('change', () => {
                 });
             }
 
+            function setGlobeBaseSymbolVisibility(visible) {
+                if (!mlMap || !_globeBaseLayerVisibility) return;
+                _globeBaseLayerVisibility.forEach((_visibility, id) => {
+                    const layer = mlMap.getLayer(id);
+                    if (!layer || layer.type !== 'symbol') return;
+                    try {
+                        mlMap.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+                    } catch (e) {}
+                });
+            }
+
             function ensureSatelliteOverlay() {
                 if (!mlMap) return;
                 const sourceId = 'history-globe-satellite-source';
@@ -43638,6 +43649,9 @@ kingSelect.addEventListener('change', () => {
                 if (mlMap.getLayer('history-globe-hillshade')) {
                     mlMap.setLayoutProperty('history-globe-hillshade', 'visibility', mode === 'terrain' ? 'visible' : 'none');
                 }
+                // 위성 영상에서는 OpenFreeMap의 국가·도시 symbol을 완전히 숨긴다.
+                // 역사 국가명과 마커는 capture 대상에서 제외되어 영향을 받지 않는다.
+                if (mode === 'satellite') setGlobeBaseSymbolVisibility(false);
                 if (mode === 'terrain') applyMinimalTerrainStyle();
                 apply3dTerritoryBasemapOpacity();
             }
