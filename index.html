@@ -40914,6 +40914,7 @@ kingSelect.addEventListener('change', () => {
             let _refreshLayersTimer = null;
             let _styleReloadGeneration = 0;
             let _markerRenderGeneration = 0;
+            let _mobileSymbolEventsSetup = false;
 
             function refreshLayers() {
                 if (!mlMap) return;
@@ -41668,6 +41669,41 @@ kingSelect.addEventListener('change', () => {
                 const _outVP = castleData3d.filter(({ castle: c }) => c.lat != null && c.lng != null && !_inViewport(c.lat, c.lng));
                 const _sortedCastleData = [..._inVP, ..._outVP];
 
+                // 모바일 일반 마커는 DOM 대신 MapLibre가 한 번에 그리는 GeoJSON 레이어로 보낸다.
+                // 원본은 동일한 _3dCastleData이므로 관리자 수정 시 별도 symbol 데이터 수정은 필요 없다.
+                const _mobileSymbolFeatures = [];
+                const _useMobileSymbols = _mobile3dPerformance;
+                const _isMobileSimpleMarker = (c, activeRec) => {
+                    if (!_useMobileSymbols || !c) return false;
+                    const placeType = String(activeRec?.place_type || c.place_type || '').toLowerCase();
+                    const isCapital = !!(activeRec?.is_capital || c.is_capital
+                        || placeType === 'capital' || placeType === 'hwangseong');
+                    if (isCapital || c.is_military_flag || placeType === 'battle'
+                        || c.natural_feature_type === 'battle' || c.custom_icon) return false;
+                    return true;
+                };
+                const _mobileSymbolFeature = (c, activeRec, ci) => {
+                    const placeType = String(activeRec?.place_type || c.place_type || 'city').toLowerCase();
+                    const labelType = c.is_label ? String(c.label_type || 'place') : '';
+                    const kind = c.is_label ? 'label' : (c.is_natural_feature ? 'natural' : 'city');
+                    const glyphByType = {
+                        ju:'州', '주':'州', gun:'郡', '군':'郡', hyeon:'縣', '현':'縣',
+                        seong:'城', '성':'城', jin:'鎭', '진':'鎭', gateway:'關', chon:'村', village:'村'
+                    };
+                    return {
+                        type: 'Feature',
+                        geometry: { type: 'Point', coordinates: [Number(c.lng), Number(c.lat)] },
+                        properties: {
+                            castle_id: String(c._id || ''),
+                            name: String(activeRec?.name || c.name || ''),
+                            kind,
+                            label_type: labelType,
+                            glyph: kind === 'city' ? (glyphByType[placeType] || '·') : (kind === 'natural' ? '◆' : ''),
+                            color: String(c.label_color || ci?.color || (kind === 'natural' ? '#9eb68a' : '#d8cdb8'))
+                        }
+                    };
+                };
+
                 // ── diff를 위한 새 키셋 수집 (필터 통과 여부는 _makeMarker 내에서 판단) ──
                 // 마커 고유 키: 성ID + 활성이름 + 국가색 (연도/국가 변화 시 자동 재생성)
                 const _newMarkerKeys = new Set();
@@ -41684,8 +41720,9 @@ kingSelect.addEventListener('change', () => {
                         activeRec.place_type === 'hwangseong'
                     ));
                     const _prePriority = _isCapPre ? 1 : getMarkerPriority(c, activeRec);
+                    const _simpleMobilePre = _isMobileSimpleMarker(c, activeRec);
                     if (_m.getZoom() <= 5.0 || _ez < getMarkerMinEffectiveZoom(c, activeRec)) continue;
-                    if (_prePriority > 1 && !_inViewport(c.lat, c.lng)) continue;
+                    if (!_simpleMobilePre && _prePriority > 1 && !_inViewport(c.lat, c.lng)) continue;
                     // ── layerVisibility 사전 필터 (토글 off 시 pre-scan에서도 제외) ──
                     const _lv = (typeof layerVisibility !== 'undefined') ? layerVisibility : {};
                     const _3dRelicTypesPre = ['tomb','construction','hunting','temple','palace','mine','port','kiln','farmland','heritage'];
@@ -41703,10 +41740,86 @@ kingSelect.addEventListener('change', () => {
                         if (!isTimedMapItemActive(c, year, month)) continue;
                     }
                     if (!c.is_natural_feature && !c.is_military_flag && !c.is_label && _lv.city === false) continue;
+                    if (_simpleMobilePre) {
+                        // MapLibre가 화면 컬링과 충돌 처리를 담당하므로 전체 활성 데이터 전달.
+                        _mobileSymbolFeatures.push(_mobileSymbolFeature(c, activeRec, ci));
+                        continue;
+                    }
                     const _mk = `mk_${c._id||c.name+'@'+c.lat+'_'+c.lng}_${activeRec?.name||c.name||''}_${ci?.color||''}_${ci?.name||''}`;
                     _newMarkerKeys.add(_mk);
                     _newMarkerEntries.set(_mk, entry);
                 }
+
+                const _mobileSymbolSourceId = 'mobile-simple-markers';
+                const _mobileSymbolCircleId = 'mobile-simple-marker-dots';
+                const _mobileSymbolTextId = 'mobile-simple-marker-labels';
+                const _mobileSymbolData = { type: 'FeatureCollection', features: _mobileSymbolFeatures };
+                if (_m.getSource(_mobileSymbolSourceId)) {
+                    _m.getSource(_mobileSymbolSourceId).setData(_mobileSymbolData);
+                } else if (_useMobileSymbols) {
+                    _m.addSource(_mobileSymbolSourceId, { type: 'geojson', data: _mobileSymbolData });
+                    _m.addLayer({
+                        id: _mobileSymbolCircleId,
+                        type: 'circle',
+                        source: _mobileSymbolSourceId,
+                        filter: ['!=', ['get', 'kind'], 'label'],
+                        paint: {
+                            'circle-radius': ['case', ['==', ['get', 'kind'], 'natural'], 3, 3.5],
+                            'circle-color': ['get', 'color'],
+                            'circle-stroke-color': 'rgba(10,10,12,.9)',
+                            'circle-stroke-width': 1,
+                            'circle-opacity': 0.92
+                        }
+                    });
+                    _m.addLayer({
+                        id: _mobileSymbolTextId,
+                        type: 'symbol',
+                        source: _mobileSymbolSourceId,
+                        layout: {
+                            'text-field': ['case',
+                                ['==', ['get', 'kind'], 'label'], ['get', 'name'],
+                                ['concat', ['get', 'glyph'], ' ', ['get', 'name']]
+                            ],
+                            'text-size': ['case',
+                                ['==', ['get', 'label_type'], 'admin'], 12,
+                                ['==', ['get', 'kind'], 'label'], 11,
+                                10
+                            ],
+                            'text-anchor': 'top',
+                            'text-offset': [0, 0.45],
+                            'text-allow-overlap': false,
+                            'text-ignore-placement': false,
+                            'symbol-sort-key': ['case', ['==', ['get', 'kind'], 'label'], 1, 2]
+                        },
+                        paint: {
+                            'text-color': ['get', 'color'],
+                            'text-halo-color': 'rgba(8,8,10,.92)',
+                            'text-halo-width': 1.2,
+                            'text-halo-blur': 0.4
+                        }
+                    });
+                    const openMobileSymbol = event => {
+                        const feature = event.features?.[0];
+                        const id = String(feature?.properties?.castle_id || '');
+                        const entry = (window._3dCastleData || []).find(item => String(item?.castle?._id || '') === id);
+                        if (!entry) return;
+                        window._closeSharedPopup?.(0);
+                        if (typeof openDetailPanel === 'function') {
+                            openDetailPanel(entry.castle, entry.activeRec, entry.countryInfo);
+                        }
+                    };
+                    if (!_mobileSymbolEventsSetup) {
+                        _mobileSymbolEventsSetup = true;
+                        [_mobileSymbolCircleId, _mobileSymbolTextId].forEach(id => {
+                            _m.on('click', id, openMobileSymbol);
+                            _m.on('mouseenter', id, () => { _m.getCanvas().style.cursor = 'pointer'; });
+                            _m.on('mouseleave', id, () => { _m.getCanvas().style.cursor = ''; });
+                        });
+                    }
+                }
+                [_mobileSymbolCircleId, _mobileSymbolTextId].forEach(id => {
+                    if (_m.getLayer(id)) _m.setLayoutProperty(id, 'visibility', _useMobileSymbols ? 'visible' : 'none');
+                });
 
                 // 국가 라벨도 키에 포함 (대략 country ID 기반)
                 const _showCountryLabelPre = (typeof layerVisibility === 'undefined') || layerVisibility.countryLabel !== false;
@@ -42611,6 +42724,8 @@ kingSelect.addEventListener('change', () => {
                         let backdropComets = [];
                         let celestialChart = { cx: 0, cy: 0, radius: 0 };
                         let lastStarFrame = 0;
+                        const isMobileStarfield = () => window.innerWidth <= 967
+                            || document.body.classList.contains('force-mobile');
                         const resizeStarBackdrop = () => {
                             const ratio = Math.min(window.devicePixelRatio || 1, 2);
                             starBackdrop.width = Math.round(window.innerWidth * ratio);
@@ -42623,7 +42738,10 @@ kingSelect.addEventListener('change', () => {
                             celestialChart = { cx, cy, radius: chartRadius };
                             // 지구본 둘레가 비어 보이지 않도록 기존보다 약 2.5배 조밀하게 배치한다.
                             // 화면 면적에 비례하되 고해상도 화면에서도 애니메이션 부하를 제한한다.
-                            const count = Math.min(2200, Math.max(1200, Math.round(window.innerWidth * window.innerHeight / 1200)));
+                            const mobileStarfield = isMobileStarfield();
+                            const count = mobileStarfield
+                                ? Math.min(650, Math.max(420, Math.round(window.innerWidth * window.innerHeight / 2800)))
+                                : Math.min(2200, Math.max(1200, Math.round(window.innerWidth * window.innerHeight / 1200)));
                             const overscan = Math.hypot(window.innerWidth, window.innerHeight) * 0.16;
                             backdropStars = Array.from({ length: count }, (_, index) => {
                                 // 성도 바깥도 비지 않도록 일부 별은 화면 전체에 펼친다.
@@ -42678,7 +42796,7 @@ kingSelect.addEventListener('change', () => {
                             });
 
                             // 짧은 꼬리를 가진 혜성. 각자 긴 휴지기를 두어 화면을 산만하게 만들지 않는다.
-                            backdropComets = Array.from({ length: 3 }, (_, index) => ({
+                            backdropComets = Array.from({ length: mobileStarfield ? 1 : 3 }, (_, index) => ({
                                 delay: index * 6400 + Math.random() * 3500,
                                 duration: 2100 + Math.random() * 1100,
                                 cycle: 17500 + index * 4300,
@@ -42691,7 +42809,10 @@ kingSelect.addEventListener('change', () => {
                         };
                         const drawStarBackdrop = timestamp => {
                             requestAnimationFrame(drawStarBackdrop);
-                            if (timestamp - lastStarFrame < 33 || starBackdrop.style.display === 'none') return;
+                            // 모바일은 별 수와 함께 갱신률도 약 12.5fps로 제한한다.
+                            // 지도 WebGL 렌더가 사용할 메인 스레드 시간을 확보하기 위함이다.
+                            const starFrameInterval = isMobileStarfield() ? 80 : 33;
+                            if (timestamp - lastStarFrame < starFrameInterval || starBackdrop.style.display === 'none') return;
                             lastStarFrame = timestamp;
                             starContext.clearRect(0, 0, window.innerWidth, window.innerHeight);
                             starContext.fillStyle = '#050b10';
