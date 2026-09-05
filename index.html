@@ -22344,8 +22344,38 @@ const loadingMessages = [
         showLoadingStatus(lastMsg, 100);
     }
 
+    // 첫 화면은 2D Leaflet이 아니라 3D 위성 Globe다. 데이터 캐시가 먼저 준비돼도
+    // Globe의 스타일·현재 화면 타일이 첫 렌더를 마치기 전에는 로딩 화면을 닫지 않는다.
+    window._initialGlobeReady = window._initialGlobeReady === true;
+    window._initialLoadingHideRequested = false;
+    let _initialGlobeLoadingFallbackTimer = null;
+    window._markInitialGlobeReady = function() {
+        if (window._initialGlobeReady) return;
+        window._initialGlobeReady = true;
+        if (_initialGlobeLoadingFallbackTimer) {
+            clearTimeout(_initialGlobeLoadingFallbackTimer);
+            _initialGlobeLoadingFallbackTimer = null;
+        }
+        if (window._initialLoadingHideRequested) {
+            requestAnimationFrame(() => requestAnimationFrame(hideLoadingStatus));
+        }
+    };
+
     function hideLoadingStatus() {
         if (window._loadingStatusHidden) return;
+        if (!window._initialGlobeReady && !window._prefer2dEditing) {
+            window._initialLoadingHideRequested = true;
+            showLoadingStatus('3D 위성 지구본을 준비하고 있습니다...', Math.max(_fakeProgress, 96));
+            // 외부 타일 장애 시에도 사용자가 로딩 화면에 영구히 갇히지 않게 한다.
+            if (!_initialGlobeLoadingFallbackTimer) {
+                _initialGlobeLoadingFallbackTimer = setTimeout(() => {
+                    console.warn('⚠️ 3D 위성 지구본 준비 제한 시간 초과 — 현재 렌더 상태로 시작합니다.');
+                    window._initialGlobeReady = true;
+                    hideLoadingStatus();
+                }, 15000);
+            }
+            return;
+        }
         window._loadingStatusHidden = true;
         // 100% 채운 뒤 페이드아웃
         completeFakeProgress();
@@ -43309,6 +43339,9 @@ kingSelect.addEventListener('change', () => {
                             refreshLayers();
                             _schedule3dHeroPins(true);
                             if (window._refresh3dPopulation) window._refresh3dPopulation();
+                            // MapLibre load는 스타일 정의만 준비된 시점이다. 현재 화면의
+                            // 위성 타일까지 그린 첫 idle 프레임에서 초기 로딩 화면을 해제한다.
+                            mlMap.once('idle', () => window._markInitialGlobeReady?.());
                         });
                     } else {
                         const c = map.getCenter();
