@@ -245,6 +245,12 @@
   #btn-hide-territory.hidden-state:hover { background: #450a0a; }
   .territory-item.hidden-item { opacity: 0.4; }
   .territory-item.hidden-item .t-name::after { content: ' 🙈'; font-size: 9px; }
+  .list-section-title {
+    position: sticky; top: 0; z-index: 1;
+    padding: 5px 12px; background: #101b31; border-bottom: 1px solid #0f3460;
+    color: #93a4bd; font-size: 10px; font-weight: 700;
+  }
+  .list-section-title.hidden-title { color: #86efac; background: #12231d; }
 
   #geom-edit-bar {
     display: none;
@@ -362,6 +368,12 @@
     <option value="">전체</option>
     <option value="ok">있음</option>
     <option value="none">없음 ⚠️</option>
+  </select>
+  <span class="ctrl-label">표시 상태:</span>
+  <select id="filter-hidden">
+    <option value="">전체</option>
+    <option value="visible">표시 중</option>
+    <option value="hidden">숨김 폴리곤</option>
   </select>
   <button class="ctrl-btn" id="btn-fit">전체 보기</button>
   <button class="ctrl-btn active" id="btn-labels">이름 표시</button>
@@ -1056,11 +1068,14 @@ function updateStats() {
 function getFiltered() {
   const typeF  = document.getElementById('filter-type').value;
   const geomF  = document.getElementById('filter-geom').value;
+  const hiddenF = document.getElementById('filter-hidden').value;
   const search = document.getElementById('search-box').value.toLowerCase();
   return allTerritories.filter(t => {
     if (typeF && t.type !== typeF) return false;
     if (geomF === 'none' && hasBbox(t))  return false;
     if (geomF === 'ok'   && !hasBbox(t)) return false;
+    if (hiddenF === 'hidden' && !t.hidden) return false;
+    if (hiddenF === 'visible' && t.hidden) return false;
     if (search) {
       const lbl = (t.name_ko || t.name_en || t.name || t.code || '').toLowerCase();
       if (!lbl.includes(search)) return false;
@@ -1074,10 +1089,32 @@ const LIST_PAGE_SIZE = 300;
 function renderList() {
   const list = document.getElementById('territory-list');
   const filtered = getFiltered();
-  const visible  = filtered.slice(0, LIST_PAGE_SIZE);
+  const hiddenFilter = document.getElementById('filter-hidden').value;
+  // 전체 목록에서도 숨김 항목이 300개 제한 뒤로 밀리지 않도록 항상 먼저 노출한다.
+  const hiddenItems = filtered.filter(t => t.hidden);
+  const normalItems = filtered.filter(t => !t.hidden);
+  const visible = (hiddenFilter === '')
+    ? hiddenItems.concat(normalItems.slice(0, Math.max(0, LIST_PAGE_SIZE - hiddenItems.length)))
+    : filtered.slice(0, LIST_PAGE_SIZE);
   const fragment = document.createDocumentFragment();
 
-  visible.forEach(t => {
+  const appendSectionTitle = (text, className = '') => {
+    const title = document.createElement('div');
+    title.className = `list-section-title ${className}`.trim();
+    title.textContent = text;
+    fragment.appendChild(title);
+  };
+
+  if (hiddenFilter === '' && hiddenItems.length) {
+    appendSectionTitle(`🙈 숨김 폴리곤 ${hiddenItems.length}개`, 'hidden-title');
+  } else if (hiddenFilter === 'hidden') {
+    appendSectionTitle(`🙈 숨김 폴리곤 ${filtered.length}개`, 'hidden-title');
+  }
+
+  visible.forEach((t, index) => {
+    if (hiddenFilter === '' && hiddenItems.length && index === hiddenItems.length && normalItems.length) {
+      appendSectionTitle(`👁️ 표시 중 ${normalItems.length}개`);
+    }
     const div = document.createElement('div');
     div.className = 'territory-item' + (t._id === selectedId ? ' selected' : '') + (t.hidden ? ' hidden-item' : '');
     div.dataset.id = t._id;
@@ -1189,6 +1226,7 @@ const _debouncedMapMove   = debounce(() => renderBboxLayer(), 200);
 // ── 이벤트 바인딩 ──
 document.getElementById('filter-type').addEventListener('change', _debouncedBbox);
 document.getElementById('filter-geom').addEventListener('change', _debouncedBbox);
+document.getElementById('filter-hidden').addEventListener('change', _debouncedBbox);
 document.getElementById('search-box').addEventListener('input',   _debouncedRenderAll);
 
 // ── 숨기기 토글 ──

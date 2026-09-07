@@ -2149,6 +2149,7 @@ async function setupRoutesAndCollections() {
         // 극초경량(JSON 1줄)이므로 캐시 체크용으로 매 페이지 로드 시 호출해도 무방
         app.get('/api/castle/version', async (req, res) => {
             try {
+                res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
                 // 최근 수정된 항목 (updatedAt 기준)
                 const latestUpdated = await collections.castle.findOne(
                     { updatedAt: { $exists: true } },
@@ -4548,6 +4549,7 @@ app.post('/api/countries/:sourceId/replace-castle-references', verifyAdmin, asyn
 
         let directReferences = 0;
         let historyReferences = 0;
+        const referenceUpdatedAt = new Date();
         const operations = affected.map(castle => {
             const update = {};
             if (String(castle.country_id || '') === sourceId) {
@@ -4565,7 +4567,16 @@ app.post('/api/countries/:sourceId/replace-castle-references', verifyAdmin, asyn
                 if (changed) update.history = history;
             }
             return Object.keys(update).length ? {
-                updateOne: { filter: { _id: castle._id }, update: { $set: update } }
+                updateOne: {
+                    filter: { _id: castle._id },
+                    update: {
+                        $set: {
+                            ...update,
+                            updatedAt: referenceUpdatedAt,
+                            lastModifiedBy: req.user.username
+                        }
+                    }
+                }
             } : null;
         }).filter(Boolean);
 
@@ -4642,7 +4653,14 @@ app.post('/api/countries/:sourceId/replace-castle-references', verifyAdmin, asyn
             return res.json({ message: '국가 ID 대체 영향 범위', dry_run: true, ...impactPayload });
         }
 
-        if (operations.length) await collections.castle.bulkWrite(operations, { ordered: false });
+        if (operations.length) {
+            await collections.castle.bulkWrite(operations, { ordered: false });
+            // 일괄 갱신도 일반 CRUD와 동일하게 브라우저 버전 검사와 서버 캐시에 반영한다.
+            // 다음 /api/castle 요청은 MongoDB를 다시 읽으므로 기존 국가 ID가 남지 않는다.
+            _castleCache = null;
+            _castleCacheTime = 0;
+            _castleLastModified = referenceUpdatedAt.getTime();
+        }
         const sourceKingDocIds = new Set(sourceKingDocs.map(doc => String(doc._id)));
         const targetKingDoc = await collections.kings.findOne({ country_id: { $in: countryIdQueryValues(targetId) } });
         const targetMappedEntry = mappedKingDocs.find(entry => String(entry.doc._id) === String(targetKingDoc?._id));
