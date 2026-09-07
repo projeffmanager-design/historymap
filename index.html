@@ -13561,7 +13561,7 @@ body.force-mobile .marker-type-selector button {
 
     function ensureHistoryCountryOutlineWorker() {
         if (_historyCountryOutlineWorker || typeof Worker === 'undefined') return _historyCountryOutlineWorker;
-        _historyCountryOutlineWorker = new Worker('/public/history-outline-worker.js?v=20260905-same-level-overlap-1');
+        _historyCountryOutlineWorker = new Worker('/public/history-outline-worker.js?v=20260907-parent-first-overlap-cap-2');
         _historyCountryOutlineWorker.onmessage = ({ data }) => {
             if (!data?.key) return;
             _historyCountryOutlineCache.set(data.key, data.outline || null);
@@ -14664,8 +14664,8 @@ body.force-mobile .marker-type-selector button {
     /**
      * [과제1 핵심] 줌 레벨 기반 거시/미시 모드 전환 (LOD)
      * zoom < 6:   거시 모드(0) — 국가명만 표시          (약 300km+ 뷰)
-     * zoom 6~<7:  중간 모드(1) — 국가명 + 수도만 표시   (약 200km 뷰)
-     * zoom >= 7:  미시 모드(2) — 국가명 + 수도 + 모든 성 표시 (약 100km 뷰)
+     * zoom 6~<7:  중간 모드(1) — 수도만 표시            (약 200km 뷰)
+     * zoom >= 7:  미시 모드(2) — 수도 + 모든 성 표시    (약 100km 뷰)
      * 자연지물:   zoom >= 7.5 에서만 표시 (일반 성보다 먼저 사라짐, 3D와 동일)
      */
     function applyLODMode(skipRender = false) {
@@ -14727,6 +14727,9 @@ body.force-mobile .marker-type-selector button {
 
         // layerVisibility.countryLabel이 꺼져 있으면 국가명 비표시
         if (!layerVisibility.countryLabel) return;
+        // 수도 마커가 나타나는 중간/미시 LOD에서는 같은 국가명이 겹치므로
+        // 국가명은 수도가 아직 표시되지 않는 거시 LOD에서만 렌더링한다.
+        if (currentMacroMode >= 1) return;
 
         const { year, month } = typeof getCurrentYearMonth === 'function' 
             ? getCurrentYearMonth() 
@@ -14770,7 +14773,7 @@ body.force-mobile .marker-type-selector button {
         const labelCandidates = [];
 
         _renderedCountryIds.forEach(countryId => {
-            const country = getCountryInfoById(countryId);
+            const country = getCountryInfoById(countryId, year, month);
             if (!country) return;
 
             // 민족 필터 적용
@@ -19726,7 +19729,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         // � [메모리 최적화] 마커 렌더링 시 현재 padded bounds 기록 (moveend 재렌더링 판단용)
         window._lastMarkerRenderBounds = map.getBounds().pad(1.0);
 
-        // �🚩 국가명 텍스트 항상 갱신 (줌 레벨 무관)
+        // 국가명은 수도가 나타나기 전 거시 LOD에서만 갱신
         renderMacroCountryNames();
         if (!map.hasLayer(macroCountryLayer)) macroCountryLayer.addTo(map);
 
@@ -21116,7 +21119,7 @@ function getEffectiveCountryInfo(country, year = null, month = null) {
     };
 }
 
-function getCountryInfoById(id) {
+function getCountryInfoById(id, year = null, month = null) {
     if (!id) return null;
 
     // countries 배열이 변경되면 캐시 재구축
@@ -21125,7 +21128,7 @@ function getCountryInfoById(id) {
     }
 
     const country = _countryLookupMap.get(String(id)) || null;
-    return country ? getEffectiveCountryInfo(country) : null;
+    return country ? getEffectiveCountryInfo(country, year, month) : null;
 }
 
 // 🚩 [추가] 국가 정보 변경 시 캐시 강제 무효화
@@ -42281,7 +42284,8 @@ kingSelect.addEventListener('change', () => {
                 });
 
                 // 국가 라벨도 키에 포함 (대략 country ID 기반)
-                const _showCountryLabelPre = (typeof layerVisibility === 'undefined') || layerVisibility.countryLabel !== false;
+                const _showCountryLabelPre = ((typeof layerVisibility === 'undefined') || layerVisibility.countryLabel !== false)
+                    && (typeof currentMacroMode === 'undefined' || currentMacroMode <= 0);
                 if (_showCountryLabelPre && typeof _renderedCountryIds !== 'undefined') {
                     _renderedCountryIds.forEach(cid => {
                         _newMarkerKeys.add(`lbl_${cid}`);
@@ -42660,7 +42664,8 @@ kingSelect.addEventListener('change', () => {
                 if (_toCreate.length > 0) requestAnimationFrame(_renderNextChunk);
 
                 // ── 3D 국가명 라벨 렌더링 (2D renderMacroCountryNames와 동일 로직) ──
-                const _showCountryLabel = (typeof layerVisibility === 'undefined') || layerVisibility.countryLabel !== false;
+                const _showCountryLabel = ((typeof layerVisibility === 'undefined') || layerVisibility.countryLabel !== false)
+                    && (typeof currentMacroMode === 'undefined' || currentMacroMode <= 0);
                 if (_showCountryLabel && typeof _renderedCountryIds !== 'undefined' && _renderedCountryIds.size > 0) {
                     const { year: _lYear, month: _lMonth } = (typeof getCurrentYearMonth === 'function') ? getCurrentYearMonth() : { year: 400, month: 1 };
                     const _lTotalMonths = yearMonthToTotalMonths(_lYear, _lMonth);
@@ -42680,7 +42685,9 @@ kingSelect.addEventListener('change', () => {
                     }
 
                     _renderedCountryIds.forEach(countryId => {
-                        const country = (typeof getCountryInfoById === 'function') ? getCountryInfoById(countryId) : null;
+                        const country = (typeof getCountryInfoById === 'function')
+                            ? getCountryInfoById(countryId, _lYear, _lMonth)
+                            : null;
                         if (!country) return;
 
                         let labelLat, labelLng;
@@ -42730,7 +42737,20 @@ kingSelect.addEventListener('change', () => {
                         if (country.ethnicity) labelEl.dataset.ml3dEthnicLabel = '1';
                         labelEl.innerHTML = `<div class="ml3d-txt" style="display:flex;flex-direction:column;align-items:center;">${labelHtml}</div>`;
                         const lblKey = `lbl_${countryId}`;
-                        if (_3dMarkersMap.has(lblKey)) return; // 이미 존재 → 재생성 생략
+                        const existingLabel = _3dMarkersMap.get(lblKey);
+                        if (existingLabel) {
+                            // 같은 국가 객체의 시대별 국호가 바뀌어도 마커 키는 동일하다.
+                            // 기존 DOM을 재사용하되 이름·기간·국기·민족과 위치는 현재 연도로 갱신한다.
+                            const existingEl = existingLabel.getElement?.();
+                            if (existingEl) {
+                                existingEl.innerHTML = labelEl.innerHTML;
+                                existingEl.dataset.ml3dPriority = '3';
+                                if (country.ethnicity) existingEl.dataset.ml3dEthnicLabel = '1';
+                                else delete existingEl.dataset.ml3dEthnicLabel;
+                            }
+                            existingLabel.setLngLat([labelLng, labelLat]);
+                            return;
+                        }
                         const mk = new maplibregl.Marker({ element: labelEl, anchor: 'bottom', offset: [0, 0], occludedOpacity: 0 })
                             .setLngLat([labelLng, labelLat]).addTo(_m);
                         _3dMarkersMap.set(lblKey, mk);

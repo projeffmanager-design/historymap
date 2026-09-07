@@ -45,9 +45,15 @@ self.onmessage = event => {
                 try { return turf.difference(turf.featureCollection([feature, mask])); }
                 catch (_) { return feature; }
             };
+            const safeIntersection = (feature, mask) => {
+                if (!feature || !mask) return null;
+                try { return turf.intersect(turf.featureCollection([feature, mask])); }
+                catch (_) { return null; }
+            };
             // 같은 레벨에서도 기존 수작업 경계와 신규 행정경계가 겹칠 수 있다.
-            // 먼저 동일 표시색(3D는 동일 국가)의 조각을 합치고, city → province → country
-            // 순서 및 같은 레벨에서는 작은 면적 순으로 점유시켜 모든 중복 면적을 제거한다.
+            // 먼저 동일 표시색(3D는 동일 국가)의 조각을 합치고, country → province → city
+            // 순서로 처리한다. 부모와 같은 색인 작은 영토는 생략하고,
+            // 다른 색의 경합만 최대 두 겹으로 남긴다.
             const mergeLevelByOwner = (list, level) => {
                 const groups = new Map();
                 list.forEach(feature => {
@@ -69,19 +75,41 @@ self.onmessage = event => {
             };
 
             const candidates = [
-                ...mergeLevelByOwner(byLevel.city, 'city'),
+                ...mergeLevelByOwner(byLevel.country, 'country'),
                 ...mergeLevelByOwner(byLevel.province, 'province'),
-                ...mergeLevelByOwner(byLevel.country, 'country')
+                ...mergeLevelByOwner(byLevel.city, 'city')
             ];
             const output = [];
+            const claimedByOwner = new Map();
             let claimedMask = null;
+            let doubleClaimedMask = null;
             for (const candidate of candidates) {
-                const visiblePiece = safeDifference(candidate, claimedMask);
+                const ownerKey = mode === 'hierarchy-pieces'
+                    ? String(candidate?.properties?.color_key || candidate?.properties?.fillColor || candidate?.properties?.country_id || '__unowned__')
+                    : String(candidate?.properties?.country_id || '__unowned__');
+
+                // country → province → city 순으로 처리한다.
+                // 부모와 같은 소유색이면 현재의 작은 후보를 빼서 부모만 칠하고,
+                // 다른 소유색이면 경합 표현을 위해 작은 영토를 한 번 더 겹친다.
+                // 이미 두 번 점유된 면적은 더 작은 후보에서 제거해 최대 2겹을 보장한다.
+                const ownerDistinctPiece = safeDifference(candidate, claimedByOwner.get(ownerKey) || null);
+                let visiblePiece = ownerDistinctPiece;
+                visiblePiece = safeDifference(visiblePiece, doubleClaimedMask);
                 if (visiblePiece) {
-                    visiblePiece.properties = { ...(candidate.properties || {}), level: 'country', merged: 1 };
+                    visiblePiece.properties = { ...(candidate.properties || {}), merged: 1 };
                     output.push(visiblePiece);
                 }
+
+                // 같은 소유색끼리 겹친 면적은 이미 생략했으므로 중첩 횟수에 세지 않는다.
+                const newlyDoubled = safeIntersection(ownerDistinctPiece, claimedMask);
+                if (newlyDoubled) {
+                    doubleClaimedMask = safeUnion(doubleClaimedMask
+                        ? [doubleClaimedMask, newlyDoubled]
+                        : [newlyDoubled]);
+                }
                 claimedMask = safeUnion(claimedMask ? [claimedMask, candidate] : [candidate]);
+                const ownerMask = claimedByOwner.get(ownerKey);
+                claimedByOwner.set(ownerKey, safeUnion(ownerMask ? [ownerMask, candidate] : [candidate]));
             }
             const result = turf.featureCollection(output);
             cache.set(key, result);
