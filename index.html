@@ -13652,8 +13652,8 @@ body.force-mobile .marker-type-selector button {
             resolved.forEach(feature => {
                 feature.properties = {
                     ...(feature.properties || {}),
-                    // 지형 질감은 남기되 영토가 흐리지 않은 짙은 색조
-                    fillOpacity: 1,
+                    // 2D에서도 하단 지형이 보이도록 최종 합성 영토를 50%로 유지한다.
+                    fillOpacity: 0.5,
                     lineOpacity: feature.properties?.lineOpacity ?? 0.4
                 };
             });
@@ -13980,6 +13980,9 @@ body.force-mobile .marker-type-selector button {
         const source = historyVectorMap.getSource(sourceId);
         if (source) {
             source.setData(data);
+            if (historyVectorMap.getLayer(fillId)) {
+                historyVectorMap.setPaintProperty(fillId, 'fill-opacity', 0.5);
+            }
             if (features.length > 0) confirmHistoryVectorTerritoriesRendered(fillId);
             return;
         }
@@ -13990,11 +13993,8 @@ body.force-mobile .marker-type-selector button {
             source: sourceId,
             paint: {
                 'fill-color': ['coalesce', ['get', 'fillColor'], '#77736b'],
-                // 합성 전 원본 면은 불투명하게 그려 중첩돼도 같은 색이 진해지지 않는다.
-                // 국가별 union이 끝난 최종 면만 베이스 지형이 비치도록 반투명하게 표시한다.
-                // 바탕 지형/음영이 비치면 같은 국가색도 지역마다 다른 농도로 보인다.
-                // 최종 영토색은 모든 지도 모드에서 완전 불투명하게 통일한다.
-                'fill-opacity': 1
+                // 2D 벡터 지도에서도 하단 지형이 보이도록 항상 50%로 고정한다.
+                'fill-opacity': 0.5
             }
         });
         historyVectorMap.addLayer({
@@ -52707,6 +52707,7 @@ window.toggleResourceBar = function(btn, forceState) {
   var _tgEraserDown     = false;
   var _tgEraserStroke   = [];
   var _tgEraserPreview  = null;
+  var _tgEraserVertices = null;
   var _tgEraserRadiusPx = 18;
 
   /* ── 토큰 ─────────────────────────────────────────────────── */
@@ -52859,6 +52860,7 @@ window.toggleResourceBar = function(btn, forceState) {
   function _tgStopEraser(keepMessage) {
     _tgEraserMode=false; _tgEraserDown=false; _tgEraserStroke=[];
     if (_tgEraserPreview) { map.removeLayer(_tgEraserPreview); _tgEraserPreview=null; }
+    if (_tgEraserVertices) { map.removeLayer(_tgEraserVertices); _tgEraserVertices=null; }
     map.dragging.enable();
     var btn=document.getElementById('territory-geom-eraser-btn');
     if (btn) { btn.classList.remove('active'); btn.textContent='🧽 지우개'; }
@@ -52872,10 +52874,28 @@ window.toggleResourceBar = function(btn, forceState) {
     if (_tgEraserMode) { _tgStopEraser(); return; }
     _tgEraserMode=true;
     if (_tgEditableLayer) _tgEditableLayer.eachLayer(function(layer){ if(layer.pm) layer.pm.disable(); });
+    _tgRenderEraserVertices();
     var btn=document.getElementById('territory-geom-eraser-btn');
     if (btn) { btn.classList.add('active'); btn.textContent='🧽 지우개 ON'; }
     map.getContainer().style.cursor='crosshair';
     _tgSetMsg('지울 꼭짓점을 클릭한 채 드래그하세요. 경계 저장 전까지 DB에는 반영되지 않습니다.','dirty');
+  }
+
+  function _tgRenderEraserVertices() {
+    if (_tgEraserVertices) map.removeLayer(_tgEraserVertices);
+    _tgEraserVertices=L.layerGroup().addTo(map);
+    if(!_tgEditedGeometry||!_tgEditedGeometry.coordinates)return;
+    function addRing(ring) {
+      (ring||[]).slice(0,-1).forEach(function(coord){
+        L.circleMarker([coord[1],coord[0]],{
+          pane:'territoryEditPane',radius:4,weight:1.5,
+          color:'#2f88ff',fillColor:'#fff',fillOpacity:.95,
+          opacity:1,interactive:false
+        }).addTo(_tgEraserVertices);
+      });
+    }
+    if(_tgEditedGeometry.type==='Polygon')_tgEditedGeometry.coordinates.forEach(addRing);
+    else if(_tgEditedGeometry.type==='MultiPolygon')_tgEditedGeometry.coordinates.forEach(function(poly){poly.forEach(addRing);});
   }
 
   function _tgUpdateEraserPreview() {
@@ -52915,6 +52935,7 @@ window.toggleResourceBar = function(btn, forceState) {
       _tgEditedGeometry=next;
       if (!_tgRenderEditable(_tgEditedGeometry)) throw new Error('편집 레이어 재생성 실패');
       if (_tgEraserMode) _tgEditableLayer.eachLayer(function(layer){if(layer.pm)layer.pm.disable();});
+      _tgRenderEraserVertices();
       _tgSetMsg('꼭짓점 '+removed+'개 삭제됨 · 경계 저장으로 확정하거나 취소로 되돌릴 수 있습니다.','dirty');
     } catch(e) { _tgSetMsg('❌ 지우개 적용 실패: '+e.message,'err'); }
   }
