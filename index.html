@@ -17214,7 +17214,15 @@ function updateKingLabel(year, month) {
                 // 이름 문자열인 경우 countries 배열에서 ObjectId로 변환
                 const fallbackStr = String(fallbackCid);
                 if (/^[0-9a-f]{24}$/i.test(fallbackStr)) {
-                    return { countryId: fallbackStr, isExclusive: true, countriesInZone: [fallbackStr] };
+                    // 영토에 예전 국가 ID가 남아 있어도 그 국가의 존속 기간이 끝났다면
+                    // 현재 시대의 지배국으로 되살리지 않는다. (예: A.D.115의 서한)
+                    const fallbackCountry = countries.find(c => {
+                        const id = c?._id?.$oid || c?._id || c?.id;
+                        return String(id || '') === fallbackStr;
+                    });
+                    if (fallbackCountry && isCountryActiveAt(fallbackCountry, year, month)) {
+                        return { countryId: fallbackStr, isExclusive: true, countriesInZone: [fallbackStr] };
+                    }
                 } else {
                     const matched = countries.find(c =>
                         isCountryActiveAt(c, year, month) && (
