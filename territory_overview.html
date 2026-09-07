@@ -75,6 +75,17 @@
     font-size: 11px;
     color: #f2c94c;
   }
+  #build-progress-detail {
+    display: none; flex-shrink: 0; padding: 6px 16px;
+    background: #091522; border-bottom: 1px solid #0f3460;
+    font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  #build-progress-head { color: #7dd3fc; margin-bottom: 4px; }
+  #build-progress-log {
+    max-height: 92px; overflow: auto; white-space: pre-wrap;
+    color: #9ca3af; background: #060d16; border: 1px solid #18324f;
+    border-radius: 4px; padding: 5px 8px;
+  }
   .stat-badge {
     display: inline-block; padding: 2px 8px; border-radius: 10px;
     font-size: 11px; font-weight: 600; margin: 0 2px;
@@ -350,6 +361,10 @@
   </div>
   <button id="btn-trigger-rebuild" onclick="triggerManualTileRebuild()" disabled>🧱 타일 재빌드</button>
   <button id="btn-refresh-deploy" onclick="loadDeployStatus()">↻</button>
+</div>
+<div id="build-progress-detail">
+  <div id="build-progress-head">재빌드 준비 중...</div>
+  <pre id="build-progress-log"></pre>
 </div>
 
 <div id="controls">
@@ -1524,6 +1539,9 @@ async function loadDeployStatus() {
   const dotVercel = document.getElementById('dot-vercel');
   const lblVercel = document.getElementById('lbl-vercel');
   const lblCommit = document.getElementById('lbl-commit');
+  const detail = document.getElementById('build-progress-detail');
+  const detailHead = document.getElementById('build-progress-head');
+  const detailLog = document.getElementById('build-progress-log');
   dotBuild.className = 'deploy-dot spin';
   dotVercel.className = 'deploy-dot spin';
   try {
@@ -1531,20 +1549,53 @@ async function loadDeployStatus() {
     if (!res.ok) throw new Error();
     const d = await res.json();
     const b = d.localBuild;
+    const build = b.lastBuild || null;
     serverDirtyTerritoryCount = Number(b.dirtyCount) || 0;
     const rebuildBtn = document.getElementById('btn-trigger-rebuild');
     if (b.inProgress) {
       dotBuild.className = 'deploy-dot spin'; lblBuild.textContent = '🔨 타일 재빌드 중...';
-      barBuild.style.width = '60%'; barBuild.style.background = '#f2c94c';
+      barBuild.style.width = `${Math.max(2, Number(build?.progress) || 2)}%`; barBuild.style.background = '#4fc3f7';
       rebuildBtn.disabled = true;
     } else if (b.dirty || b.dirtyCount > 0) {
-      dotBuild.className = 'deploy-dot yellow'; lblBuild.textContent = `⚠️ ${b.dirtyCount}개 미반영`;
+      const failed = b.lastBuild?.status === 'failed';
+      const retry = b.retryScheduled ? ` · 자동 재시도 ${b.retryAttempt || 1}회차 대기` : '';
+      dotBuild.className = `deploy-dot ${failed ? 'red' : 'yellow'}`;
+      lblBuild.textContent = failed
+        ? `❌ ${b.dirtyCount}개 미반영 · 재빌드 실패${retry}`
+        : `⚠️ ${b.dirtyCount}개 미반영${retry}`;
+      const ids = Array.isArray(b.dirtyIds) ? b.dirtyIds : [];
+      const detail = [
+        b.lastBuild?.error ? `실패 원인: ${b.lastBuild.error}` : '',
+        b.lastBuild?.reason ? `직전 작업: ${b.lastBuild.reason}` : '',
+        ids.length ? `대기 ID (${ids.length}):\n${ids.join('\n')}` : ''
+      ].filter(Boolean).join('\n\n');
+      lblBuild.title = detail;
+      if (failed) console.error('[영토 타일 재빌드 실패]', b.lastBuild?.error || '원인 미상', { dirtyIds: ids, lastBuild: b.lastBuild });
+      else console.warn('[영토 타일 미반영]', { dirtyCount: b.dirtyCount, dirtyIds: ids, lastBuild: b.lastBuild });
       barBuild.style.width = '80%'; barBuild.style.background = '#f2c94c';
       rebuildBtn.disabled = false;
     } else {
       dotBuild.className = 'deploy-dot green'; lblBuild.textContent = '✅ 빌드 완료';
       barBuild.style.width = '100%'; barBuild.style.background = '#6fcf97';
       rebuildBtn.disabled = false;
+    }
+    if (build && (b.inProgress || b.dirty || build.status === 'failed')) {
+      detail.style.display = 'block';
+      const amount = Number(build.total) > 0 ? ` · ${Number(build.current)||0}/${build.total}` : '';
+      detailHead.textContent = `${build.mode || ''} 재빌드 · ${build.phaseLabel || build.phase || build.status}${amount} · ${Number(build.progress)||0}%`;
+      const lines = (build.logs || []).map(entry => {
+        const time = entry.at ? new Date(entry.at).toLocaleTimeString('ko-KR', { hour12:false }) : '--:--:--';
+        return `[${time}] ${entry.message}`;
+      });
+      if (build.error) lines.push(`[오류] ${build.error}`);
+      detailLog.textContent = lines.join('\n') || '진행 로그를 기다리는 중...';
+      detailLog.scrollTop = detailLog.scrollHeight;
+    } else if (build?.status === 'completed') {
+      detail.style.display = 'block';
+      detailHead.textContent = `✅ ${build.mode || ''} 재빌드 완료 · 타일 ${build.tileCount || 0}개 · ${build.elapsedSeconds || 0}초`;
+      detailLog.textContent = (build.logs || []).map(entry => `[${new Date(entry.at).toLocaleTimeString('ko-KR',{hour12:false})}] ${entry.message}`).join('\n');
+    } else {
+      detail.style.display = 'none';
     }
     const g = d.git;
     if (g?.sha) {
@@ -1557,7 +1608,10 @@ async function loadDeployStatus() {
     dotVercel.className = `deploy-dot ${sMap[v.state] || ''}`;
     lblVercel.textContent = lMap[v.state] || `Vercel: ${v.state}`;
     if (v.url) lblVercel.href = v.url;
-    if (b.inProgress || v.state === 'in_progress' || v.state === 'queued') setTimeout(loadDeployStatus, 10000);
+    // dirty 상태도 계속 폴링해야 자동 재시도/완료 결과가 화면에 반영된다.
+    if (b.inProgress || b.dirty || b.dirtyCount > 0 || v.state === 'in_progress' || v.state === 'queued') {
+      setTimeout(loadDeployStatus, b.inProgress ? 1500 : 10000);
+    }
   } catch(e) {
     dotBuild.className = 'deploy-dot red'; lblBuild.textContent = '⚠️ 로컬 서버 미연결';
     dotVercel.className = 'deploy-dot'; lblVercel.textContent = '—';

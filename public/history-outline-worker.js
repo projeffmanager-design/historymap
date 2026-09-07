@@ -35,20 +35,57 @@ self.onmessage = event => {
                 const level = feature?.properties?.level || 'city';
                 (byLevel[level] || byLevel.city).push(feature);
             });
+            const repairFeature = feature => {
+                if (!feature?.geometry) return null;
+                try {
+                    const cleaned = turf.cleanCoords(feature, { mutate: false });
+                    if (cleaned.geometry.type === 'Polygon') {
+                        const pieces = turf.unkinkPolygon(cleaned)?.features || [];
+                        return pieces.length > 1 ? turf.union(turf.featureCollection(pieces)) : (pieces[0] || cleaned);
+                    }
+                    if (cleaned.geometry.type === 'MultiPolygon') {
+                        const pieces = turf.flatten(cleaned).features.flatMap(part =>
+                            turf.unkinkPolygon(part)?.features || [part]
+                        );
+                        return pieces.length > 1 ? turf.union(turf.featureCollection(pieces)) : (pieces[0] || cleaned);
+                    }
+                    return cleaned;
+                } catch (_) {
+                    // buffer(0)는 잘못 닫힌 링과 가벼운 자기교차를 복구하는 마지막 수단이다.
+                    try { return turf.buffer(feature, 0, { units: 'kilometers', steps: 8 }); }
+                    catch (_) { return null; }
+                }
+            };
             const safeUnion = list => {
-                if (!list.length) return null;
-                if (list.length === 1) return list[0];
-                return turf.union(turf.featureCollection(list));
+                const valid = list.map(repairFeature).filter(Boolean);
+                if (!valid.length) return null;
+                if (valid.length === 1) return valid[0];
+                try { return turf.union(turf.featureCollection(valid)); }
+                catch (_) {
+                    // 한 도형 때문에 전체 합성이 무너지지 않도록 정상 조각만 순차 합성한다.
+                    let merged = valid[0];
+                    for (let i = 1; i < valid.length; i++) {
+                        try { merged = turf.union(turf.featureCollection([merged, valid[i]])); }
+                        catch (_) { /* 손상 조각은 겹친 원본으로 되살리지 않고 제외 */ }
+                    }
+                    return merged;
+                }
             };
             const safeDifference = (feature, mask) => {
-                if (!mask) return feature;
-                try { return turf.difference(turf.featureCollection([feature, mask])); }
-                catch (_) { return feature; }
-            };
-            const safeIntersection = (feature, mask) => {
-                if (!feature || !mask) return null;
-                try { return turf.intersect(turf.featureCollection([feature, mask])); }
-                catch (_) { return null; }
+                const repaired = repairFeature(feature);
+                if (!repaired) return null;
+                if (!mask) return repaired;
+                try { return turf.difference(turf.featureCollection([repaired, mask])); }
+                catch (_) {
+                    const repairedMask = repairFeature(mask);
+                    if (!repairedMask) return repaired;
+                    try { return turf.difference(turf.featureCollection([repaired, repairedMask])); }
+                    catch (_) {
+                        // 서로 닿지 않는 정상 조각은 제거할 이유가 없으므로 공백 없이 유지한다.
+                        try { return turf.booleanDisjoint(repaired, repairedMask) ? repaired : null; }
+                        catch (_) { return null; }
+                    }
+                }
             };
             // 같은 레벨에서도 기존 수작업 경계와 신규 행정경계가 겹칠 수 있다.
             // 먼저 동일 표시색(3D는 동일 국가)의 조각을 합치고, country → province → city
@@ -80,36 +117,24 @@ self.onmessage = event => {
                 ...mergeLevelByOwner(byLevel.city, 'city')
             ];
             const output = [];
-            const claimedByOwner = new Map();
-            let claimedMask = null;
-            let doubleClaimedMask = null;
+            const claimedParts = [];
             for (const candidate of candidates) {
-                const ownerKey = mode === 'hierarchy-pieces'
-                    ? String(candidate?.properties?.color_key || candidate?.properties?.fillColor || candidate?.properties?.country_id || '__unowned__')
-                    : String(candidate?.properties?.country_id || '__unowned__');
-
-                // country → province → city 순으로 처리한다.
-                // 부모와 같은 소유색이면 현재의 작은 후보를 빼서 부모만 칠하고,
-                // 다른 소유색이면 경합 표현을 위해 작은 영토를 한 번 더 겹친다.
-                // 이미 두 번 점유된 면적은 더 작은 후보에서 제거해 최대 2겹을 보장한다.
-                const ownerDistinctPiece = safeDifference(candidate, claimedByOwner.get(ownerKey) || null);
-                let visiblePiece = ownerDistinctPiece;
-                visiblePiece = safeDifference(visiblePiece, doubleClaimedMask);
+                // 엄격한 단일 채우기: 소유 국가와 관계없이 이미 칠한 모든 면적을 뺀다.
+                // country → province → city 순이므로 큰 영역이 먼저 자리를 차지하고,
+                // 작은 영역은 아직 비어 있는 부분만 보완한다.
+                // 누적 union 하나만 마스크로 쓰면 union 복구 과정에서 제외된 손상 조각이
+                // 다음 후보에 다시 칠해질 수 있다. 이미 출력한 모든 조각을 개별적으로
+                // 차감하면 union 성공 여부와 무관하게 같은 픽셀이 두 번 채워지지 않는다.
+                let visiblePiece = candidate;
+                for (const claimed of claimedParts) {
+                    visiblePiece = safeDifference(visiblePiece, claimed);
+                    if (!visiblePiece) break;
+                }
                 if (visiblePiece) {
                     visiblePiece.properties = { ...(candidate.properties || {}), merged: 1 };
                     output.push(visiblePiece);
+                    claimedParts.push(visiblePiece);
                 }
-
-                // 같은 소유색끼리 겹친 면적은 이미 생략했으므로 중첩 횟수에 세지 않는다.
-                const newlyDoubled = safeIntersection(ownerDistinctPiece, claimedMask);
-                if (newlyDoubled) {
-                    doubleClaimedMask = safeUnion(doubleClaimedMask
-                        ? [doubleClaimedMask, newlyDoubled]
-                        : [newlyDoubled]);
-                }
-                claimedMask = safeUnion(claimedMask ? [claimedMask, candidate] : [candidate]);
-                const ownerMask = claimedByOwner.get(ownerKey);
-                claimedByOwner.set(ownerKey, safeUnion(ownerMask ? [ownerMask, candidate] : [candidate]));
             }
             const result = turf.featureCollection(output);
             cache.set(key, result);

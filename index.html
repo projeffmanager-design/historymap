@@ -8405,6 +8405,8 @@ body.force-mobile .marker-type-selector button {
     }
 
     #territory-geom-edit-actions button,
+    #territory-geom-layer-picker button,
+    #territory-geom-layer-picker select,
     .territory-popup-edit-btn {
         border: 1px solid #5d7185;
         border-radius: 4px;
@@ -8431,7 +8433,8 @@ body.force-mobile .marker-type-selector button {
         color: #ffaaa2;
     }
 
-    #territory-geom-eraser-btn.active {
+    #territory-geom-eraser-btn.active,
+    #territory-geom-add-vertex-btn.active {
         background: rgba(231, 76, 60, 0.34);
         border-color: #ff776b;
         color: #ffd2ce;
@@ -9836,8 +9839,15 @@ body.force-mobile .marker-type-selector button {
   <div id="territory-geom-edit-bar">
       <div id="territory-geom-edit-title">영토 경계 편집</div>
       <div id="territory-geom-edit-msg">편집할 영토를 선택하세요.</div>
+      <div id="territory-geom-layer-picker" style="display:none; gap:6px; align-items:center; flex-wrap:wrap; margin-top:7px;">
+          <select id="territory-geom-layer-select" aria-label="겹친 영토 레이어 선택" style="min-width:260px; max-width:min(520px,72vw);"></select>
+          <button type="button" id="territory-geom-layer-confirm">선택한 영토 편집</button>
+      </div>
       <div id="territory-geom-edit-actions">
+          <button type="button" id="territory-geom-simplify-btn" style="display:none">🪶 500개로 단순화</button>
+          <button type="button" id="territory-geom-add-vertex-btn" style="display:none">➕ 꼭짓점 추가</button>
           <button type="button" class="danger" id="territory-geom-eraser-btn" style="display:none">🧽 지우개</button>
+          <button type="button" class="danger" id="territory-geom-hide-btn" style="display:none">🙈 영토 숨김</button>
           <button type="button" class="primary" id="territory-geom-save-btn">경계 저장</button>
           <button type="button" id="territory-geom-cancel-btn">취소</button>
       </div>
@@ -13571,7 +13581,7 @@ body.force-mobile .marker-type-selector button {
 
     function ensureHistoryCountryOutlineWorker() {
         if (_historyCountryOutlineWorker || typeof Worker === 'undefined') return _historyCountryOutlineWorker;
-        _historyCountryOutlineWorker = new Worker('/public/history-outline-worker.js?v=20260907-parent-first-overlap-cap-2');
+        _historyCountryOutlineWorker = new Worker('/public/history-outline-worker.js?v=20260907-part-mask-single-fill-v3');
         _historyCountryOutlineWorker.onmessage = ({ data }) => {
             if (!data?.key) return;
             _historyCountryOutlineCache.set(data.key, data.outline || null);
@@ -13643,10 +13653,12 @@ body.force-mobile .marker-type-selector button {
             if (current.year !== year || current.month !== month) return;
             const resolved = result?.features || [];
             if (!resolved.length) {
-                // Worker 실패 시에는 지도가 비지 않도록 원본을 폴백 표시한다.
+                // Worker 실패 시 소유권별 가장 큰 계층만 남겨 공백과 중첩을 최소화한다.
+                window._3dTerritoryData = { country: [], province: [], city: selectHierarchyFallback(features) };
                 if (window._historyVectorMode && typeof window._refreshHistoryVectorTerritories === 'function') {
                     window._refreshHistoryVectorTerritories(true);
                 }
+                if (typeof window._force3dTerritoryRefresh === 'function') window._force3dTerritoryRefresh();
                 return;
             }
             resolved.forEach(feature => {
@@ -13666,6 +13678,22 @@ body.force-mobile .marker-type-selector button {
             }
             if (typeof window._force3dTerritoryRefresh === 'function') window._force3dTerritoryRefresh();
             else if (typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
+        });
+    }
+
+    function selectHierarchyFallback(features) {
+        const rank = { country: 0, province: 1, city: 2 };
+        const groups = new Map();
+        for (const feature of features || []) {
+            // 같은 색을 쓰는 서로 다른 국가까지 한 그룹으로 합치면 한쪽의 하위 영토가
+            // 통째로 사라질 수 있으므로, 실제 소유 국가를 최우선 그룹 키로 사용한다.
+            const owner = String(feature?.properties?.country_id || feature?.properties?.color_key || feature?.properties?.fillColor || '__unowned__');
+            if (!groups.has(owner)) groups.set(owner, []);
+            groups.get(owner).push(feature);
+        }
+        return [...groups.values()].flatMap(group => {
+            const bestRank = Math.min(...group.map(feature => rank[feature?.properties?.level] ?? 2));
+            return group.filter(feature => (rank[feature?.properties?.level] ?? 2) === bestRank);
         });
     }
 
@@ -16181,10 +16209,14 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
             map.removeLayer(_eventLocationPickMarker);
             _eventLocationPickMarker = null;
         }
-        // 🚩 castleForm 닫힐 때 좌표 피커 핀 제거
-        if (formId === 'castleForm' && window._coordPickerPin) {
-            try { map.removeLayer(window._coordPickerPin); } catch(e) {}
-            window._coordPickerPin = null;
+        // 🚩 castleForm 닫힐 때 2D/3D 좌표 선택용 임시 핀을 모두 제거
+        if (formId === 'castleForm') {
+            if (typeof window._clearCastleLocationPins === 'function') {
+                window._clearCastleLocationPins();
+            } else if (window._coordPickerPin) {
+                try { map.removeLayer(window._coordPickerPin); } catch(e) {}
+                window._coordPickerPin = null;
+            }
         }
         // 마커 관리의 × 버튼이 기존 취소 버튼과 동일하게 임시 편집 상태를 정리한다.
         if (formId === 'castleForm') {
@@ -17114,6 +17146,52 @@ function updateKingLabel(year, month) {
             lng += Number(coords[i][0]); lat += Number(coords[i][1]); count++;
         }
         return count ? [lat / count, lng / count] : null;
+    }
+
+    // 소유권이 없는 행정 폴리곤이 동일 국가 영토에 포함되거나 둘러싸인 경우의 보정.
+    // 기존 영토 폴리곤만 대상으로 하므로 바다나 실제 미등록 공백을 임의로 생성하지 않는다.
+    function inferSurroundedTerritoryCountry(territory, resolvedRecords) {
+        const geometry = territory?.geometry
+            || territory?.geojson?.geometry
+            || (territory?.type && territory?.coordinates ? { type: territory.type, coordinates: territory.coordinates } : null);
+        const bounds = getTerritoryBounds(territory);
+        const center = getGeometryRepresentativePoint(geometry);
+        if (!geometry || !bounds || !center || !resolvedRecords?.length) return null;
+        const levelRank = { country: 0, province: 1, city: 2 };
+        const targetRank = levelRank[territory.level] ?? 2;
+        const areaOf = b => Math.max(0, b.maxLat-b.minLat) * Math.max(0, b.maxLng-b.minLng);
+
+        // 1) 같은 지점의 상위 행정 폴리곤이 있으면 가장 작은 상위 영역의 소유권을 상속한다.
+        const containers = resolvedRecords.filter(record => {
+            if ((levelRank[record.level] ?? 2) >= targetRank) return false;
+            const b=record.bounds;
+            if (center[0]<b.minLat||center[0]>b.maxLat||center[1]<b.minLng||center[1]>b.maxLng) return false;
+            return geometryContainsAnyPoint(record.geometry,[center]);
+        }).sort((a,b)=>areaOf(a.bounds)-areaOf(b.bounds));
+        if (containers.length) return containers[0].countryId;
+
+        // 2) 상위 폴리곤이 없으면 경계 바로 바깥 8방향을 표본 검사한다.
+        // 네 방향 이상에서 같은 한 국가만 검출될 때만 '둘러싸임'으로 인정한다.
+        const dLat=Math.max(.015,(bounds.maxLat-bounds.minLat)*.08);
+        const dLng=Math.max(.015,(bounds.maxLng-bounds.minLng)*.08);
+        const midLat=(bounds.minLat+bounds.maxLat)/2,midLng=(bounds.minLng+bounds.maxLng)/2;
+        const samples=[
+            [bounds.maxLat+dLat,midLng],[bounds.minLat-dLat,midLng],
+            [midLat,bounds.maxLng+dLng],[midLat,bounds.minLng-dLng],
+            [bounds.maxLat+dLat,bounds.maxLng+dLng],[bounds.maxLat+dLat,bounds.minLng-dLng],
+            [bounds.minLat-dLat,bounds.maxLng+dLng],[bounds.minLat-dLat,bounds.minLng-dLng]
+        ];
+        const owners=[];
+        for(const point of samples){
+            const matches=resolvedRecords.filter(record=>{
+                const b=record.bounds;
+                return point[0]>=b.minLat&&point[0]<=b.maxLat&&point[1]>=b.minLng&&point[1]<=b.maxLng
+                    && geometryContainsAnyPoint(record.geometry,[point]);
+            }).sort((a,b)=>areaOf(a.bounds)-areaOf(b.bounds));
+            if(matches.length)owners.push(matches[0].countryId);
+        }
+        const unique=[...new Set(owners)];
+        return owners.length>=4&&unique.length===1?unique[0]:null;
     }
 
     function geometryContainsAnyPoint(geometry, points) {
@@ -18377,6 +18455,33 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             }).filter(c => c && c.countryId);
             // 캐시 무효화 — 이 updateMap 호출에 맞게 새로 계산했으므로 캐시 클리어
             _dominantCountryCache.clear();
+
+            // 무색 영토의 둘러싸임 보정을 위해 직접 판정 가능한 영토를 먼저 확정한다.
+            // 이 결과만 이웃 판정의 근거로 사용하여 연쇄적으로 잘못 번지는 것을 막는다.
+            const directTerritoryOwners = new Map();
+            const resolvedTerritoryRecords = [];
+            const territoryIdentity = territory => String(territory?._id?.$oid || territory?._id || territory?.id || `${territory?.name || ''}:${territory?.level || ''}`);
+            territories.forEach(territory => {
+                if (territory?.hidden === true) return;
+                const tStart = territory.start != null ? Number(territory.start) : -Infinity;
+                const tEnd = territory.end != null ? Number(territory.end) : Infinity;
+                if (year < tStart || year > tEnd) return;
+                const direct = getCachedDominantCountry(territory, year, month);
+                if (!direct?.countryId) return;
+                const countryId = resolveTerritoryDisplayCountryId(direct.countryId, year, month);
+                const countryInfo = getCountryInfoById(countryId);
+                if (!countryInfo || getEffectiveCountryInfo(countryInfo, year, month)?.territory_enabled === false) return;
+                const geometry = territory.geometry || territory.geojson?.geometry
+                    || (territory.type && territory.coordinates ? { type: territory.type, coordinates: territory.coordinates } : null);
+                const bounds = getTerritoryBounds(territory);
+                if (!geometry || !bounds) return;
+                directTerritoryOwners.set(territoryIdentity(territory), direct);
+                resolvedTerritoryRecords.push({
+                    territory, geometry, bounds, countryId,
+                    level: territory.level || 'city'
+                });
+            });
+            let surroundedTerritoryFillCount = 0;
             
             // 🚀 [최적화] 렌더링된 국가 추적 초기화 (거시 모드 국가명용)
             _renderedCountryIds.clear();
@@ -18421,7 +18526,21 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 }
 
                 // 🚀 [v3.6] 캐시된 국가 계산 사용
-                const dominantResult = getCachedDominantCountry(territory, year, month);
+                let dominantResult = directTerritoryOwners.get(territoryIdentity(territory))
+                    || getCachedDominantCountry(territory, year, month);
+                if (!dominantResult) {
+                    const inferredCountryId = inferSurroundedTerritoryCountry(territory, resolvedTerritoryRecords);
+                    if (inferredCountryId) {
+                        dominantResult = {
+                            countryId: inferredCountryId,
+                            isExclusive: true,
+                            countriesInZone: [inferredCountryId],
+                            inferredFromSurroundings: true
+                        };
+                        surroundedTerritoryFillCount++;
+                        if (window.DEBUG_TERRITORY) console.log('[SURROUNDED_FILL]', territory.name, '→', inferredCountryId);
+                    }
+                }
                 if (!dominantResult) {
                     if (/Jilin|Changchun|Baicheng|길림|창춘|바이청/.test(territory.name || '')) {
                         if (window.DEBUG_TERRITORY) console.log('[NO_COUNTRY]', territory.name, '→ dominantCountry=null (성 없음)');
@@ -18517,6 +18636,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                             ? [...new Set((dominantResult.countriesInZone || []).map(id => resolveTerritoryDisplayCountryId(id, year, month)))]
                             : dominantResult.countriesInZone,
                         level: territory.level || 'city',
+                        inferredFromSurroundings: dominantResult.inferredFromSurroundings === true,
                         hasActiveCastle: getTerritoryHasActiveCastle(territory, geometry, year, month)
                     }
                 };
@@ -18599,20 +18719,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     const targetGroup = territoryLayerGroup;
                     let settled = false;
                     let fallbackRendered = false;
-                    // 중국 전역처럼 도형이 큰 경우에도 지도가 비어 보이지 않도록 먼저 안전한
-                    // 상위 영토 렌더를 보여주고, Worker 완료 후 차집합 결과로 교체한다.
-                    const fallbackTimer = setTimeout(() => {
-                        if (settled || targetGroup !== territoryLayerGroup || !map.hasLayer(targetGroup)) return;
-                        fallbackRendered = true;
-                        renderFeatureMap(featureMap, true);
-                    }, 120);
-                    requestHistoryTerritoryHierarchy(sourceFeatures, hierarchyKey, result => {
-                        settled = true;
-                        clearTimeout(fallbackTimer);
-                        if (targetGroup !== territoryLayerGroup || !map.hasLayer(targetGroup)) return;
-                        if (fallbackRendered) targetGroup.clearLayers();
+                    const buildResolvedMap = (features) => {
                         const resolvedMap = new Map();
-                        for (const feature of result?.features || sourceFeatures) {
+                        for (const feature of features || []) {
                             const countryId = String(feature.properties?.country_id || '__unowned__');
                             const sourceBucket = bucketsByCountry.get(countryId);
                             if (!sourceBucket) continue;
@@ -18621,6 +18730,24 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                             }
                             resolvedMap.get(countryId).features.push(feature);
                         }
+                        return resolvedMap;
+                    };
+                    // 중국 전역처럼 도형이 큰 경우에도 지도가 비어 보이지 않도록 먼저 안전한
+                    // 단일 계층 렌더를 보여주고, Worker 완료 후 차집합 결과로 교체한다.
+                    const fallbackTimer = setTimeout(() => {
+                        if (settled || targetGroup !== territoryLayerGroup || !map.hasLayer(targetGroup)) return;
+                        fallbackRendered = true;
+                        renderFeatureMap(buildResolvedMap(selectHierarchyFallback(sourceFeatures)), true);
+                    }, 120);
+                    requestHistoryTerritoryHierarchy(sourceFeatures, hierarchyKey, result => {
+                        settled = true;
+                        clearTimeout(fallbackTimer);
+                        if (targetGroup !== territoryLayerGroup || !map.hasLayer(targetGroup)) return;
+                        if (fallbackRendered) targetGroup.clearLayers();
+                        const resolvedFeatures = result?.features?.length
+                            ? result.features
+                            : selectHierarchyFallback(sourceFeatures);
+                        const resolvedMap = buildResolvedMap(resolvedFeatures);
                         renderFeatureMap(resolvedMap, true);
                     }, 'hierarchy-pieces');
                     return;
@@ -18914,7 +19041,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
             window._3dTerritoryData = _3dTerr;
             mergeGlobeTerritoriesByCountry(_3dTerr, year, month);
-            console.log(`[3D] 렌더 완료: country=${_3dTerr.country.length} province=${_3dTerr.province.length} city=${_3dTerr.city.length}`);
+            console.log(`[3D] 렌더 완료: country=${_3dTerr.country.length} province=${_3dTerr.province.length} city=${_3dTerr.city.length} 주변 동일국가 보정=${surroundedTerritoryFillCount}`);
 
             // 🔧 [elegant fix] Leaflet 1.7.1 L.canvas는 pane 옵션을 무시하고 항상 overlayPane에 추가함
             // → Canvas element를 territoryPane으로 직접 이동하여 mix-blend-mode: multiply 적용
@@ -28779,6 +28906,19 @@ const loadingMessages = [
             if (hov)    { hov.style.display = 'none'; hov.textContent = ''; }
         }
 
+        window._clear2dCastleLocationPin = () => {
+            _stopPicker();
+            if (_pickerPin) {
+                try { if (map.hasLayer(_pickerPin)) map.removeLayer(_pickerPin); } catch(e) {}
+                _pickerPin = null;
+            }
+            window._coordPickerPin = null;
+        };
+        window._clearCastleLocationPins = () => {
+            window._clear2dCastleLocationPin?.();
+            window._clearGlobeCastleLocationPin?.();
+        };
+
         // 버튼 이벤트 연결 (DOM 준비 후)
         document.addEventListener('DOMContentLoaded', () => {
             const btn = document.getElementById('btnPickCoord');
@@ -30309,6 +30449,18 @@ const loadingMessages = [
               return;
           }
 
+          const reversedPeriodIdx = historyData.findIndex(h =>
+              h.start_year != null && h.end_year != null &&
+              yearMonthToTotalMonths(h.start_year, h.start_month || 1) >
+              yearMonthToTotalMonths(h.end_year, h.end_month || 12)
+          );
+          if (reversedPeriodIdx !== -1) {
+              const bad = historyData[reversedPeriodIdx];
+              alert(`⚠️ ${reversedPeriodIdx + 1}번째 역사 기록의 시작 시점이 종료 시점보다 늦습니다.\nB.C. 연도는 음수로 입력해주세요. (예: B.C. 391 → -391)`);
+              historyRows[reversedPeriodIdx]?.querySelector('input.history-start-year')?.focus();
+              return;
+          }
+
           data.history = historyData;
           // 호환성을 위해 첫 번째 기록을 대표값으로 저장
           data.country_id = historyData[0]?.country_id || null;
@@ -30522,9 +30674,17 @@ const loadingMessages = [
           if (!isNaturalFeature) {
               // 맵 업데이트 (기여 핀 제거 및 새 오브젝트 표시)
               const { year, month } = getCurrentYearMonth();
-              updateMap(year, month);
+              updateMap(year, month, false, !isUpdate);
           } else {
               console.log('🌳 자연 지형지물 업데이트 완료, 전체 맵 갱신 생략');
+          }
+          // 3D 벡터는 DOM 마커를 별도 캐시하므로 신규 저장 직후 캐시를 반드시 무효화한다.
+          // updateMap의 계층/영토 Worker 완료 전후 어느 쪽에서도 새 마커가 누락되지 않도록
+          // 즉시 한 번, 비동기 데이터 반영 뒤 한 번 더 갱신한다.
+          if (!isUpdate && responseData.castle) {
+              window._clearCastleLocationPins?.();
+              window._force3dMarkerRefresh?.();
+              setTimeout(() => window._force3dMarkerRefresh?.(), 500);
           }
           cloningCastleOriginalName = null;
       } catch (error) {
@@ -43114,6 +43274,16 @@ kingSelect.addEventListener('change', () => {
 
             let globeLocationPopup = null;
             let globeEditPin = null;
+            window._clearGlobeCastleLocationPin = () => {
+                if (globeEditPin) {
+                    try { globeEditPin.remove(); } catch(e) {}
+                    globeEditPin = null;
+                }
+            };
+            window._clearCastleLocationPins = () => {
+                window._clear2dCastleLocationPin?.();
+                window._clearGlobeCastleLocationPin?.();
+            };
 
             function isGlobeAdmin() {
                 return currentUser?.role === 'admin' || currentUser?.role === 'superuser';
@@ -52714,6 +52884,9 @@ window.toggleResourceBar = function(btn, forceState) {
   var _tg3dClickHandler = null;
   var _tg3dEraseDown    = false;
   var _tg3dErasePoints  = [];
+  var _tg3dAddMode      = false;
+  var _tg3dEditClickHandler = null;
+  var _tgCurrentHidden  = false;
 
   /* ── 토큰 ─────────────────────────────────────────────────── */
   function _tgToken() {
@@ -52729,11 +52902,59 @@ window.toggleResourceBar = function(btn, forceState) {
     var el = document.getElementById('territory-geom-edit-title');
     if (el) el.textContent = t;
   }
+  function _tgDisplayId(id) {
+    if(id&&typeof id==='object')return String(id.$oid||id.oid||id._id||'');
+    return String(id||'');
+  }
   function _tgSetMsg(msg, cls) {
     var el = document.getElementById('territory-geom-edit-msg');
     if (!el) return;
     el.textContent = msg;
     el.className   = cls || '';
+  }
+  function _tgHideLayerPicker() {
+    var picker=document.getElementById('territory-geom-layer-picker');
+    if(picker)picker.style.display='none';
+  }
+  function _tgTerritoryId(t) {
+    var raw=t&&t.properties?(t.properties.territory_id||t.properties._id||t.id):(t&&(t._id||t.id));
+    return _tgDisplayId(raw);
+  }
+  function _tgTerritoryName(t) {
+    var p=t&&t.properties?t.properties:t||{};
+    return p.name_ko||p.name_en||p.name||_tgTerritoryId(t).slice(-6)||'이름 없음';
+  }
+  function _tgTerritoryLevel(t) {
+    var p=t&&t.properties?t.properties:t||{};
+    return p.level||'미지정';
+  }
+  function _tgChooseTerritory(hits, onChoose) {
+    var unique=[],seen=new Set();
+    (hits||[]).forEach(function(t){var id=_tgTerritoryId(t);if(id&&!seen.has(id)){seen.add(id);unique.push(t);}});
+    var rank={city:0,province:1,country:2};
+    unique.sort(function(a,b){return (rank[_tgTerritoryLevel(a)]??9)-(rank[_tgTerritoryLevel(b)]??9);});
+    if(!unique.length)return false;
+    if(unique.length===1){_tgHideLayerPicker();onChoose(unique[0]);return true;}
+    var picker=document.getElementById('territory-geom-layer-picker');
+    var select=document.getElementById('territory-geom-layer-select');
+    var confirm=document.getElementById('territory-geom-layer-confirm');
+    if(!picker||!select||!confirm)return false;
+    select.innerHTML='';
+    unique.forEach(function(t,i){
+      var id=_tgTerritoryId(t),opt=document.createElement('option');
+      opt.value=String(i);
+      opt.textContent='['+_tgTerritoryLevel(t)+'] '+_tgTerritoryName(t)+' · '+id;
+      select.appendChild(opt);
+    });
+    picker.style.display='flex';
+    _tgSetMsg('🧭 이 위치에 '+unique.length+'개 영토가 겹칩니다. 편집할 레이어를 선택하세요.','dirty');
+    confirm.onclick=function(){
+      var chosen=unique[Number(select.value)||0];
+      if(!chosen)return;
+      _tgHideLayerPicker();
+      onChoose(chosen);
+    };
+    return true;
   }
   function _tgSaveBtn(show) {
     var btn = document.getElementById('territory-geom-save-btn');
@@ -52742,6 +52963,20 @@ window.toggleResourceBar = function(btn, forceState) {
   function _tgEraserBtn(show) {
     var btn=document.getElementById('territory-geom-eraser-btn');
     if (btn) btn.style.display=show?'':'none';
+  }
+  function _tgAddVertexBtn(show) {
+    var btn=document.getElementById('territory-geom-add-vertex-btn');
+    if(btn)btn.style.display=show?'':'none';
+  }
+  function _tgSimplifyBtn(show) {
+    var btn=document.getElementById('territory-geom-simplify-btn');
+    if(btn){btn.style.display=show?'':'none';btn.disabled=false;}
+  }
+  function _tgHideBtn(show, hidden) {
+    var btn=document.getElementById('territory-geom-hide-btn');
+    if(!btn)return;
+    btn.style.display=show?'':'none';btn.disabled=false;
+    btn.textContent=hidden?'👁️ 영토 숨김 해제':'🙈 영토 숨김';
   }
   function _tgLoadedTerritories() {
     if (Array.isArray(window.territories) && window.territories.length) return window.territories;
@@ -52906,33 +53141,43 @@ window.toggleResourceBar = function(btn, forceState) {
       if(m.getSource('territory-3d-edit'))m.removeSource('territory-3d-edit');
       m.getCanvas().style.cursor='';m.dragPan.enable();
     }
-    _tg3dSelecting=false;_tg3dEraseDown=false;_tg3dErasePoints=[];
+    _tg3dSelecting=false;_tg3dEraseDown=false;_tg3dErasePoints=[];_tg3dAddMode=false;
+    var addBtn=document.getElementById('territory-geom-add-vertex-btn');
+    if(addBtn){addBtn.classList.remove('active');addBtn.textContent='➕ 꼭짓점 추가';}
+    _tgAddVertexBtn(false);
+    _tgSimplifyBtn(false);
+    _tgHideBtn(false,false);
   }
   async function _tgOpen3dEdit(id,name) {
     try{
       var m=window.mlMap3d;
-      _tg3dSelecting=false;if(_tg3dClickHandler){m.off('click',_tg3dClickHandler);_tg3dClickHandler=null;}
-      _tgEditMode=true;_tgEditId=id;_tgSetTitle('🧭 '+(name||id)+' 3D 경계 편집');_tgSetMsg('geometry 불러오는 중...');
+      var displayId=_tgDisplayId(id);
+      _tgHideLayerPicker();_tg3dSelecting=false;if(_tg3dClickHandler){m.off('click',_tg3dClickHandler);_tg3dClickHandler=null;}
+      _tgEditMode=true;_tgEditId=displayId;_tgSetTitle('🧭 '+(name||displayId)+' 3D 경계 편집 · Object ID: '+displayId);_tgSetMsg('geometry 불러오는 중...');
       var full=await _tgFetch(id);var geom=full.geometry||(full.geojson&&full.geojson.geometry);
       if(!geom)throw new Error('편집할 geometry가 없습니다.');
+      displayId=_tgDisplayId(full._id||full.id||displayId);_tgEditId=displayId;
+      _tgCurrentHidden=full.hidden===true;
+      _tgSetTitle('🧭 '+(name||full.name||displayId)+' 3D 경계 편집 · Object ID: '+displayId);
       _tgOriginalGeom=JSON.parse(JSON.stringify(geom));_tgEditedGeometry=JSON.parse(JSON.stringify(geom));
-      _tg3dSetGeometry(_tgEditedGeometry);_tg3dRefreshMarkers();_tgSaveBtn(true);_tgEraserBtn(true);
-      _tgSetMsg('3D 꼭짓점 드래그 → 이동 · 지우개 → 드래그로 꼭짓점 삭제');
+      _tg3dSetGeometry(_tgEditedGeometry);_tg3dRefreshMarkers();_tgSaveBtn(true);_tgEraserBtn(true);_tgAddVertexBtn(true);_tgSimplifyBtn(true);_tgHideBtn(true,_tgCurrentHidden);
+      _tgSetMsg('3D 꼭짓점 드래그 → 이동 · 꼭짓점 추가 → 경계선 클릭 · 지우개 → 드래그 삭제');
     }catch(e){_tgSetMsg('❌ '+e.message,'err');_tgEditMode=false;}
   }
   function _tgEnter3dSelect() {
     var m=window.mlMap3d;if(!m)return;
     _tgBind3dEraser();
-    _tgSelectMode=false;_tg3dSelecting=true;_tgBarOpen(true);_tgSaveBtn(false);_tgEraserBtn(false);
+    _tgHideLayerPicker();_tgSelectMode=false;_tg3dSelecting=true;_tgBarOpen(true);_tgSaveBtn(false);_tgEraserBtn(false);_tgSimplifyBtn(false);_tgHideBtn(false,false);
     _tgSetTitle('🧭 3D 영토 경계 편집');_tgSetMsg('편집할 영토 폴리곤을 3D 지도에서 클릭하세요.');m.getCanvas().style.cursor='crosshair';
     _tg3dClickHandler=function(e){
       if(!_tg3dSelecting)return;
       var ids=['territory-fill-city','territory-fill-province','territory-fill-country'].filter(function(x){return !!m.getLayer(x);});
-      var hits=ids.length?m.queryRenderedFeatures(e.point,{layers:ids}):[];
-      var hit=hits.find(function(f){return f.properties&&(f.properties.territory_id||f.properties._id);});
-      if(!hit){_tgSetMsg('⚠️ 이 위치에서 편집 가능한 영토를 찾지 못했습니다.','err');return;}
-      var id=hit.properties.territory_id||hit.properties._id;
-      _tgOpen3dEdit(String(id),hit.properties.name||String(id));
+      var hits=(ids.length?m.queryRenderedFeatures(e.point,{layers:ids}):[])
+        .filter(function(f){return !!_tgTerritoryId(f);});
+      if(!hits.length){_tgSetMsg('⚠️ 이 위치에서 편집 가능한 영토를 찾지 못했습니다.','err');return;}
+      _tgChooseTerritory(hits,function(hit){
+        _tgOpen3dEdit(_tgTerritoryId(hit),_tgTerritoryName(hit));
+      });
     };
     m.on('click',_tg3dClickHandler);
   }
@@ -52957,6 +53202,7 @@ window.toggleResourceBar = function(btn, forceState) {
   function _tgStartEraser() {
     if (!_tgEditMode||!_tgEditedGeometry) return;
     if (_tgEraserMode) { _tgStopEraser(); return; }
+    if(_tg3dAddMode)_tgToggle3dAddVertex();
     _tgEraserMode=true;
     if(window._is3dMode&&window.mlMap3d){
       _tg3dRefreshMarkers();
@@ -53016,13 +53262,31 @@ window.toggleResourceBar = function(btn, forceState) {
       function eraseRing(ring) {
         if(!ring||ring.length<4)return ring;
         var open=ring.slice(0,-1);
-        var keep=open.filter(function(c){var hit=touched(c);if(hit)removed++;return !hit;});
-        if(keep.length<3){removed-=open.length-keep.length;return ring;}
+        var hitCount=0;
+        var keep=open.filter(function(c){var hit=touched(c);if(hit)hitCount++;return !hit;});
+        if(!hitCount)return ring;
+        removed+=hitCount;
+        // 유효한 링을 만들 꼭짓점이 3개 미만이면 해당 링 자체를 지운다.
+        if(keep.length<3)return null;
         keep.push(keep[0].slice()); return keep;
       }
       var next=JSON.parse(JSON.stringify(_tgEditedGeometry));
-      if(next.type==='Polygon') next.coordinates=next.coordinates.map(eraseRing);
-      else if(next.type==='MultiPolygon') next.coordinates=next.coordinates.map(function(poly){return poly.map(eraseRing);});
+      if(next.type==='Polygon') {
+        var polygonRings=next.coordinates.map(eraseRing);
+        if(!polygonRings[0]){
+          _tgSetMsg('⚠️ 영토 전체의 마지막 도형은 지울 수 없습니다. 영토 숨김 또는 삭제 기능을 사용하세요.','err');return;
+        }
+        next.coordinates=[polygonRings[0]].concat(polygonRings.slice(1).filter(Boolean));
+      }
+      else if(next.type==='MultiPolygon') {
+        next.coordinates=next.coordinates.map(function(poly){
+          var rings=poly.map(eraseRing);
+          return rings[0]?[rings[0]].concat(rings.slice(1).filter(Boolean)):null;
+        }).filter(Boolean);
+        if(!next.coordinates.length){
+          _tgSetMsg('⚠️ 영토 전체의 마지막 도형은 지울 수 없습니다. 영토 숨김 또는 삭제 기능을 사용하세요.','err');return;
+        }
+      }
       else throw new Error('Polygon/MultiPolygon만 지원합니다.');
       if(!removed){_tgSetMsg('지우개 경로 안에 꼭짓점이 없습니다. 조금 더 가까이 지나가세요.','dirty');return;}
       _tgEditedGeometry=next;
@@ -53051,16 +53315,56 @@ window.toggleResourceBar = function(btn, forceState) {
     var removed=0;
     function eraseRing(ring){
       var open=ring.slice(0,-1);
-      var keep=open.filter(function(c){var hit=touched(c);if(hit)removed++;return !hit;});
-      if(keep.length<3){removed-=open.length-keep.length;return ring;}
+      var hitCount=0;
+      var keep=open.filter(function(c){var hit=touched(c);if(hit)hitCount++;return !hit;});
+      if(!hitCount)return ring;
+      removed+=hitCount;
+      // 삼각형에서 하나라도 지우면 무효 링으로 남기지 않고 도형 단위로 제거한다.
+      if(keep.length<3)return null;
       keep.push(keep[0].slice());return keep;
     }
     var next=JSON.parse(JSON.stringify(_tgEditedGeometry));
-    if(next.type==='Polygon')next.coordinates=next.coordinates.map(eraseRing);
-    else if(next.type==='MultiPolygon')next.coordinates=next.coordinates.map(function(poly){return poly.map(eraseRing);});
+    if(next.type==='Polygon'){
+      var polygonRings=next.coordinates.map(eraseRing);
+      if(!polygonRings[0]){_tgSetMsg('⚠️ 영토 전체의 마지막 도형은 지울 수 없습니다. 영토 숨김 또는 삭제 기능을 사용하세요.','err');return;}
+      next.coordinates=[polygonRings[0]].concat(polygonRings.slice(1).filter(Boolean));
+    }
+    else if(next.type==='MultiPolygon'){
+      next.coordinates=next.coordinates.map(function(poly){
+        var rings=poly.map(eraseRing);
+        return rings[0]?[rings[0]].concat(rings.slice(1).filter(Boolean)):null;
+      }).filter(Boolean);
+      if(!next.coordinates.length){_tgSetMsg('⚠️ 영토 전체의 마지막 도형은 지울 수 없습니다. 영토 숨김 또는 삭제 기능을 사용하세요.','err');return;}
+    }
     if(!removed){_tgSetMsg('지우개 경로 안에 꼭짓점이 없습니다.','dirty');return;}
     _tgEditedGeometry=next;_tg3dSetGeometry(next);_tg3dRefreshMarkers();
     _tgSetMsg('꼭짓점 '+removed+'개 삭제됨 · 경계 저장으로 확정하세요.','dirty');
+  }
+  function _tgToggle3dAddVertex() {
+    if(!window._is3dMode||!_tgEditMode)return;
+    if(_tgEraserMode){_tgStopEraser(true);_tg3dRefreshMarkers();}
+    _tg3dAddMode=!_tg3dAddMode;
+    var btn=document.getElementById('territory-geom-add-vertex-btn');
+    if(btn){btn.classList.toggle('active',_tg3dAddMode);btn.textContent=_tg3dAddMode?'➕ 경계선 클릭 중':'➕ 꼭짓점 추가';}
+    if(window.mlMap3d)window.mlMap3d.getCanvas().style.cursor=_tg3dAddMode?'crosshair':'';
+    _tgSetMsg(_tg3dAddMode?'새 꼭짓점을 넣을 경계선 위를 클릭하세요.':'꼭짓점 추가 모드를 종료했습니다.',_tg3dAddMode?'dirty':'');
+  }
+  function _tg3dInsertVertex(point,lngLat) {
+    var m=window.mlMap3d,best=null,bestDist=Infinity;
+    function segmentDistance(p,a,b){var dx=b.x-a.x,dy=b.y-a.y;if(!dx&&!dy)return Math.hypot(p.x-a.x,p.y-a.y);var t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy)));return Math.hypot(p.x-(a.x+t*dx),p.y-(a.y+t*dy));}
+    function scanRing(ring){
+      for(var i=0;i<ring.length-1;i++){
+        var d=segmentDistance(point,m.project(ring[i]),m.project(ring[i+1]));
+        if(d<bestDist){bestDist=d;best={ring:ring,index:i+1};}
+      }
+    }
+    if(_tgEditedGeometry.type==='Polygon')_tgEditedGeometry.coordinates.forEach(scanRing);
+    else if(_tgEditedGeometry.type==='MultiPolygon')_tgEditedGeometry.coordinates.forEach(function(poly){poly.forEach(scanRing);});
+    if(!best||bestDist>24){_tgSetMsg('⚠️ 경계선에 더 가까이 클릭하세요.','err');return;}
+    best.ring.splice(best.index,0,[lngLat.lng,lngLat.lat]);
+    best.ring[best.ring.length-1]=best.ring[0].slice();
+    _tg3dSetGeometry(_tgEditedGeometry);_tg3dRefreshMarkers();
+    _tgSetMsg('꼭짓점 1개 추가됨 · 계속 추가하거나 경계 저장으로 확정하세요.','dirty');
   }
   function _tgBind3dEraser() {
     var m=window.mlMap3d;if(!m||m._tgEraserBound)return;
@@ -53073,6 +53377,9 @@ window.toggleResourceBar = function(btn, forceState) {
       if(!_tg3dEraseDown)return;
       var last=_tg3dErasePoints[_tg3dErasePoints.length-1];
       if(Math.hypot(last.x-e.point.x,last.y-e.point.y)>=3)_tg3dErasePoints.push(e.point);
+    });
+    m.on('click',function(e){
+      if(_tg3dAddMode&&_tgEditMode&&window._is3dMode)_tg3dInsertVertex(e.point,e.lngLat);
     });
     document.addEventListener('mouseup',function(){
       if(!_tg3dEraseDown)return;
@@ -53116,6 +53423,7 @@ window.toggleResourceBar = function(btn, forceState) {
       _tgBarOpen(true);
       return;
     }
+    _tgHideLayerPicker();
     _tgSelectMode = true;
     _tgBarOpen(true);
     _tgSetTitle('🧭 영토 경계 편집');
@@ -53204,35 +53512,15 @@ window.toggleResourceBar = function(btn, forceState) {
       return aA-bA;
     });
 
-    var _tgTerritoryId = function(t) {
-      return String(t._id && t._id.$oid ? t._id.$oid : (t._id || ''));
-    };
-    var _tgTerritoryName = function(t) {
-      return t.name_ko || t.name_en || t.name || _tgTerritoryId(t).slice(-6);
-    };
-
-    if (hits.length > 1) {
-      var top = hits.slice(0,6);
-      var lines = top.map(function(t,i){
-        return (i+1)+'. ['+(t.level||'?')+'] '+_tgTerritoryName(t);
-      }).join('\n');
-      var choice = prompt('🧭 '+hits.length+'개 영토가 겹칩니다. 번호를 입력하세요:\n\n'+lines,'1');
-      if (choice===null) return;
-      var idx=parseInt(choice)-1;
-      if (isNaN(idx)||idx<0||idx>=top.length) {
-        _tgSetMsg('❌ 올바른 번호를 입력하세요.','err'); return;
-      }
-      var chosen=top[idx];
-      _tgOpenEdit(_tgTerritoryId(chosen), _tgTerritoryName(chosen));
-    } else {
-      var t=hits[0];
-      _tgOpenEdit(_tgTerritoryId(t), _tgTerritoryName(t));
-    }
+    _tgChooseTerritory(hits,function(chosen){
+      _tgOpenEdit(_tgTerritoryId(chosen),_tgTerritoryName(chosen));
+    });
   }
 
   /* ── 3단계: geometry 로드 & geoman 편집 시작 ─────────────── */
   async function _tgOpenEdit(id, name) {
     try {
+      _tgHideLayerPicker();
       _tgSelectMode = false;
       _tgEditMode   = true;
       map.off('click', _tgMapClick);
@@ -53300,6 +53588,7 @@ window.toggleResourceBar = function(btn, forceState) {
   function _tgCancel() {
     _tgStopEraser(true);
     _tg3dClear();
+    _tgHideLayerPicker();
     _tgSelectMode=false; _tgEditMode=false;
     _tgEditId=null; _tgEditedGeometry=null; _tgOriginalGeom=null; _tgEditableLayer=null;
     map.off('click',_tgMapClick);
@@ -53312,6 +53601,129 @@ window.toggleResourceBar = function(btn, forceState) {
   }
 
   /* ── 저장 ──────────────────────────────────────────────────── */
+  function _tgWatchTileBuild(saveStartedAt) {
+    if(!['localhost','127.0.0.1'].includes(location.hostname))return;
+    var watchId=Date.now();window._tgTileBuildWatchId=watchId;
+    var deadline=Date.now()+10*60*1000;
+    async function poll(){
+      if(window._tgTileBuildWatchId!==watchId)return;
+      try{
+        var response=await fetch('/api/internal/tile-status?v='+Date.now(),{cache:'no-store'});
+        if(response.ok){
+          var status=await response.json();var build=status.lastBuild;
+          if(build&&Number(build.startedAt)>=saveStartedAt&&build.status==='completed'){
+            var message='✅ 타일 재빌드 완료 · '+(build.mode||'증분')+' · '+(build.tileCount||0)+'개 · '+(build.elapsedSeconds||0)+'초';
+            if(typeof showToast==='function')showToast(message,'success');
+            _tgSetMsg(message,'ok');return;
+          }
+          if(build&&Number(build.startedAt)>=saveStartedAt&&build.status==='failed'){
+            var errorMessage='❌ 타일 재빌드 실패: '+(build.error||'서버 로그를 확인하세요.');
+            if(typeof showToast==='function')showToast(errorMessage,'error');
+            _tgSetMsg(errorMessage,'err');return;
+          }
+        }
+      }catch(e){}
+      if(Date.now()<deadline)setTimeout(poll,1500);
+      else if(typeof showToast==='function')showToast('⚠️ 타일 재빌드 완료 확인 시간이 초과되었습니다. 서버 로그를 확인하세요.','warning');
+    }
+    setTimeout(poll,700);
+  }
+
+  async function _tgSimplify500() {
+    if(!_tgEditId||!window._is3dMode)return;
+    if(!confirm('현재 저장된 영토 '+_tgEditId+'를 목표 꼭짓점 500개로 단순화할까요?\n저장하지 않은 현재 편집 내용은 단순화 결과로 교체됩니다.'))return;
+    var btn=document.getElementById('territory-geom-simplify-btn');
+    var token=_tgToken();var startedAt=Date.now();
+    if(btn){btn.disabled=true;btn.textContent='🪶 단순화 중…';}
+    _tgSetMsg('Object ID '+_tgEditId+' · 500개로 단순화 중...');
+    try{
+      var response=await fetch('/api/territories/'+encodeURIComponent(_tgEditId)+'/simplify',{
+        method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+        body:JSON.stringify({targetVertices:500})
+      });
+      var result=await response.json();
+      if(!response.ok)throw new Error(result.message+(result.error?' · '+result.error:''));
+      var geometry=result.geometry;
+      if(!geometry)throw new Error('서버 응답에 단순화 geometry가 없습니다.');
+      _tgOriginalGeom=JSON.parse(JSON.stringify(geometry));
+      _tgEditedGeometry=JSON.parse(JSON.stringify(geometry));
+      _tgFullCache[_tgEditId]=Object.assign({},_tgFullCache[_tgEditId]||{},result,{geometry:geometry,bbox:result.bbox});
+      if(window.territories){
+        var index=window.territories.findIndex(function(t){return _tgDisplayId(t._id)===String(_tgEditId);});
+        if(index!==-1)window.territories[index]=Object.assign({},window.territories[index],{
+          geometry:geometry,type:geometry.type,coordinates:geometry.coordinates,bbox:result.bbox,
+          geojson:{type:'Feature',properties:window.territories[index].geojson?.properties||{},geometry:geometry}
+        });
+      }
+      _tg3dSetGeometry(geometry);_tg3dRefreshMarkers();
+      if(typeof _historyCountryOutlineCache!=='undefined')_historyCountryOutlineCache.clear();
+      _tgWatchTileBuild(startedAt);
+      _tgSetMsg('✅ Object ID '+_tgEditId+' · '+result.beforeVertices+' → '+result.afterVertices+'개 단순화 완료 · 타일 재빌드 중…','ok');
+      if(typeof showToast==='function')showToast('🪶 영토 단순화 완료: '+result.beforeVertices+' → '+result.afterVertices+'개','success');
+    }catch(error){
+      _tgSetMsg('❌ 단순화 실패: '+error.message,'err');
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent='🪶 500개로 단순화';}
+    }
+  }
+
+  async function _tgToggleHidden() {
+    if(!_tgEditId||!window._is3dMode)return;
+    var nextHidden=!_tgCurrentHidden;
+    var action=nextHidden?'숨김':'숨김 해제';
+    if(!confirm('Object ID '+_tgEditId+' 영토를 '+action+' 처리할까요?\n타일 재빌드 후 전체 지도에 반영됩니다.'))return;
+    var btn=document.getElementById('territory-geom-hide-btn');
+    var token=_tgToken();var startedAt=Date.now();
+    if(!token||token==='null'||token==='undefined'){
+      _tgSetMsg('❌ 로그인 토큰이 없습니다. 다시 로그인하세요.','err');return;
+    }
+    if(btn){btn.disabled=true;btn.textContent='⏳ '+action+' 중…';}
+    _tgSetMsg('Object ID '+_tgEditId+' · 영토 '+action+' 저장 중...');
+    try{
+      var response=await fetch('/api/territories/'+encodeURIComponent(_tgEditId)+'/hidden',{
+        method:'PATCH',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+        body:JSON.stringify({hidden:nextHidden})
+      });
+      var result=await response.json();
+      if(!response.ok)throw new Error(result.message||('HTTP '+response.status));
+      _tgCurrentHidden=result.hidden===true;
+      if(_tgFullCache[_tgEditId])_tgFullCache[_tgEditId].hidden=_tgCurrentHidden;
+
+      // 현재 화면에서도 즉시 제거/상태 갱신한다. 정적 타일은 백그라운드 재빌드가 교체한다.
+      var list=window.territories;
+      if(Array.isArray(list)){
+        var index=list.findIndex(function(t){return _tgDisplayId(t._id||t.id)===String(_tgEditId);});
+        if(index!==-1){
+          if(_tgCurrentHidden)list.splice(index,1);
+          else list[index].hidden=false;
+        }
+      }
+      if(window._sessionMapCache?.territoriesById){
+        if(_tgCurrentHidden)window._sessionMapCache.territoriesById.delete(String(_tgEditId));
+        else if(Array.isArray(list)){
+          var restored=list.find(function(t){return _tgDisplayId(t._id||t.id)===String(_tgEditId);});
+          if(restored)window._sessionMapCache.territoriesById.set(String(_tgEditId),restored);
+        }
+      }
+      if(typeof _historyCountryOutlineCache!=='undefined')_historyCountryOutlineCache.clear();
+      if(typeof _dominantCountryCache!=='undefined')_dominantCountryCache.clear();
+      if(typeof _activeCastleTerritoryCache!=='undefined')_activeCastleTerritoryCache.clear();
+      _tgWatchTileBuild(startedAt);
+      if(typeof showToast==='function')showToast('✅ 영토 '+action+' 완료 · 타일 재빌드 중…','success');
+      _tgSetMsg('✅ 영토 '+action+' 완료 · 타일 재빌드 중…','ok');
+      setTimeout(function(){
+        _tgCancel();
+        var current=typeof getCurrentYearMonth==='function'?getCurrentYearMonth():null;
+        if(current&&typeof updateMap==='function')updateMap(current.year,current.month,false,true);
+        else if(typeof updateVisibleTerritories==='function')updateVisibleTerritories();
+      },500);
+    }catch(error){
+      _tgSetMsg('❌ 영토 '+action+' 실패: '+error.message,'err');
+      _tgHideBtn(true,_tgCurrentHidden);
+    }
+  }
+
   async function _tgSave() {
     if (!_tgEditId) return;
     var token=_tgToken();
@@ -53346,6 +53758,7 @@ window.toggleResourceBar = function(btn, forceState) {
     if (saveBtn) saveBtn.disabled=true;
 
     try {
+      var saveStartedAt=Date.now();
       /* ① DB 저장 */
       var res=await fetch('/api/territories/'+_tgEditId,{
         method:'PUT',
@@ -53357,6 +53770,7 @@ window.toggleResourceBar = function(btn, forceState) {
         _tgSetMsg('❌ '+(json.message||'저장 실패'),'err');
         if(saveBtn)saveBtn.disabled=false; return;
       }
+      _tgWatchTileBuild(saveStartedAt);
 
       /* ② 캐시 갱신 */
       _tgFullCache[_tgEditId]=Object.assign({},_tgFullCache[_tgEditId]||{},json,{geometry:geometry,bbox:bbox});
@@ -53384,7 +53798,8 @@ window.toggleResourceBar = function(btn, forceState) {
       if (typeof _activeCastleTerritoryCache!=='undefined') _activeCastleTerritoryCache.clear();
       if (typeof _simplifiedCoordsCache!=='undefined') _simplifiedCoordsCache.clear();
 
-      _tgSetMsg('✅ 경계 저장 완료! 서버 타일 재빌드 중 — 지도 ↻ 새로고침으로 즉시 반영 가능','ok');
+      _tgSetMsg('✅ 경계 저장 완료 · 타일 재빌드 중… 완료되면 화면에 알려드립니다.','ok');
+      if(typeof showToast==='function')showToast('🗺️ 경계 저장 완료 · 타일 재빌드 중…','info');
 
       /* ⑤ 편집 종료 & 지도 재렌더 */
       setTimeout(function(){
@@ -53412,6 +53827,15 @@ window.toggleResourceBar = function(btn, forceState) {
 
     var eraserBtn=document.getElementById('territory-geom-eraser-btn');
     if (eraserBtn) eraserBtn.addEventListener('click',_tgStartEraser);
+
+    var addVertexBtn=document.getElementById('territory-geom-add-vertex-btn');
+    if(addVertexBtn)addVertexBtn.addEventListener('click',_tgToggle3dAddVertex);
+
+    var simplifyBtn=document.getElementById('territory-geom-simplify-btn');
+    if(simplifyBtn)simplifyBtn.addEventListener('click',_tgSimplify500);
+
+    var hideBtn=document.getElementById('territory-geom-hide-btn');
+    if(hideBtn)hideBtn.addEventListener('click',_tgToggleHidden);
 
     map.on('mousedown',function(e){
       if(!_tgEraserMode||e.originalEvent.button!==0)return;
