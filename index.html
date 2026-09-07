@@ -13428,7 +13428,7 @@ body.force-mobile .marker-type-selector button {
         try {
             // Global override: force uniform dark style for all territories when enabled
             if (window.forceUniformTerritoryStyle) {
-                return { color: '#111111', weight: 1, opacity: 1.0, fillColor: '#111111', fillOpacity: 0.75 };
+                return { color: '#111111', weight: 1, opacity: 1.0, fillColor: '#111111', fillOpacity: 0.5 };
             }
             const spec = window.territoryColorSpec;
             // 사용자 지정 함수인 경우 직접 호출
@@ -13448,7 +13448,7 @@ body.force-mobile .marker-type-selector button {
 
             // 🔑 province/city 모두 동일한 fillOpacity — 실제 level별 opacity는 renderBucket에서 덮어씀
             //    (country:0.55 / province:0.70 / city:0.82 — 독립 영토일수록 진하게)
-            const baseOpacity = 0.72;
+            const baseOpacity = 0.5;
             // 🔑 [개선] countryInfo가 null (국가 로딩 중)이면 회색 fallback 표시
             const baseColor = countryInfo && countryInfo.color ? countryInfo.color : '#888888';
 
@@ -13504,7 +13504,7 @@ body.force-mobile .marker-type-selector button {
         } catch (e) {
             console.error('getTerritoryStyle error:', e);
             const base = countryInfo && countryInfo.color ? countryInfo.color : '#888888';
-            return { color: base, weight: 1, opacity: 0.8, fillColor: base, fillOpacity: 0.28 };
+            return { color: base, weight: 1, opacity: 0.8, fillColor: base, fillOpacity: 0.5 };
         }
     }
 
@@ -13527,7 +13527,9 @@ body.force-mobile .marker-type-selector button {
 
         return Object.assign({}, baseStyle, {
             fillColor,
-            fillOpacity: 1,
+            // Leaflet 기반 2D 지도에서는 하단 지형이 보이도록 영토를 50%로 고정한다.
+            // 3D/지구본은 feature properties의 별도 fillOpacity를 사용하므로 영향받지 않는다.
+            fillOpacity: 0.5,
             color: selected ? '#f3d79b' : '#aaa99e',
             // 채우기 조각에는 선을 긋지 않는다. 국가별 합성 외곽선은 별도 레이어가 담당한다.
             opacity: 0,
@@ -18723,7 +18725,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 //   - country: 0.55 (배경 레이어)
                 //   - province (독립): 0.70 (국가와 다른 경계선이 있는 경우 식별 가능하게)
                 //   - city    (독립): 0.82 (가장 세밀한 행정구역, 가장 진하게)
-                const LEVEL_OPACITY = { country: 1, province: 1, city: 1 };
+                const LEVEL_OPACITY = { country: 0.5, province: 0.5, city: 0.5 };
 
                 const renderBucket = (bucket) => {
                     if (!bucket || bucket.features.length === 0) return;
@@ -42283,9 +42285,23 @@ kingSelect.addEventListener('change', () => {
                     if (_m.getLayer(id)) _m.setLayoutProperty(id, 'visibility', _useMobileSymbols ? 'visible' : 'none');
                 });
 
+                // 3D에서는 수도가 실제 생성되는 조건과 국가명 전환 조건을 동일하게 쓴다.
+                // Leaflet LOD(currentMacroMode)는 pitch 보정 유효 줌과 달라 5~6.5 구간에서
+                // 국가명과 수도가 함께 보였으므로, 현재 활성 수도의 실제 렌더 가능 여부로 판정한다.
+                const _capitalMarkerVisible = ((typeof layerVisibility === 'undefined') || layerVisibility.city !== false)
+                    && _m.getZoom() > 5.0
+                    && castleData3d.some(({ castle: c, activeRec }) => {
+                        const placeType = String(activeRec?.place_type || c?.place_type || '').toLowerCase();
+                        const isCapital = !!(
+                            activeRec?.is_capital === true || c?.is_capital === true ||
+                            placeType === 'capital' || placeType === 'hwangseong'
+                        );
+                        return isCapital && _ez >= getMarkerMinEffectiveZoom(c, activeRec);
+                    });
+
                 // 국가 라벨도 키에 포함 (대략 country ID 기반)
                 const _showCountryLabelPre = ((typeof layerVisibility === 'undefined') || layerVisibility.countryLabel !== false)
-                    && (typeof currentMacroMode === 'undefined' || currentMacroMode <= 0);
+                    && !_capitalMarkerVisible;
                 if (_showCountryLabelPre && typeof _renderedCountryIds !== 'undefined') {
                     _renderedCountryIds.forEach(cid => {
                         _newMarkerKeys.add(`lbl_${cid}`);
@@ -42665,7 +42681,7 @@ kingSelect.addEventListener('change', () => {
 
                 // ── 3D 국가명 라벨 렌더링 (2D renderMacroCountryNames와 동일 로직) ──
                 const _showCountryLabel = ((typeof layerVisibility === 'undefined') || layerVisibility.countryLabel !== false)
-                    && (typeof currentMacroMode === 'undefined' || currentMacroMode <= 0);
+                    && !_capitalMarkerVisible;
                 if (_showCountryLabel && typeof _renderedCountryIds !== 'undefined' && _renderedCountryIds.size > 0) {
                     const { year: _lYear, month: _lMonth } = (typeof getCurrentYearMonth === 'function') ? getCurrentYearMonth() : { year: 400, month: 1 };
                     const _lTotalMonths = yearMonthToTotalMonths(_lYear, _lMonth);
