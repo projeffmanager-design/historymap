@@ -8431,6 +8431,13 @@ body.force-mobile .marker-type-selector button {
         color: #ffaaa2;
     }
 
+    #territory-geom-eraser-btn.active {
+        background: rgba(231, 76, 60, 0.34);
+        border-color: #ff776b;
+        color: #ffd2ce;
+        box-shadow: 0 0 0 2px rgba(231, 76, 60, 0.14);
+    }
+
     #territory-geom-edit-actions button:hover,
     .territory-popup-edit-btn:hover {
         border-color: #00aaff;
@@ -9830,6 +9837,7 @@ body.force-mobile .marker-type-selector button {
       <div id="territory-geom-edit-title">영토 경계 편집</div>
       <div id="territory-geom-edit-msg">편집할 영토를 선택하세요.</div>
       <div id="territory-geom-edit-actions">
+          <button type="button" class="danger" id="territory-geom-eraser-btn" style="display:none">🧽 지우개</button>
           <button type="button" class="primary" id="territory-geom-save-btn">경계 저장</button>
           <button type="button" id="territory-geom-cancel-btn">취소</button>
       </div>
@@ -52695,6 +52703,11 @@ window.toggleResourceBar = function(btn, forceState) {
   var _tgEditedGeometry = null;   // 수정된 geometry
   var _tgOriginalGeom   = null;   // 원본 geometry (복원용)
   var _tgFullCache      = {};     // id → full territory
+  var _tgEraserMode     = false;
+  var _tgEraserDown     = false;
+  var _tgEraserStroke   = [];
+  var _tgEraserPreview  = null;
+  var _tgEraserRadiusPx = 18;
 
   /* ── 토큰 ─────────────────────────────────────────────────── */
   function _tgToken() {
@@ -52719,6 +52732,10 @@ window.toggleResourceBar = function(btn, forceState) {
   function _tgSaveBtn(show) {
     var btn = document.getElementById('territory-geom-save-btn');
     if (btn) { btn.style.display = show ? '' : 'none'; btn.disabled = false; }
+  }
+  function _tgEraserBtn(show) {
+    var btn=document.getElementById('territory-geom-eraser-btn');
+    if (btn) btn.style.display=show?'':'none';
   }
   function _tgLoadedTerritories() {
     if (Array.isArray(window.territories) && window.territories.length) return window.territories;
@@ -52792,6 +52809,114 @@ window.toggleResourceBar = function(btn, forceState) {
       return null;
     }
     return gj;
+  }
+  function _tgPointInRing(lng,lat,ring) {
+    var inside=false;
+    for(var i=0,j=ring.length-1;i<ring.length;j=i++){
+      var xi=ring[i][0],yi=ring[i][1],xj=ring[j][0],yj=ring[j][1];
+      if(((yi>lat)!==(yj>lat))&&(lng<(xj-xi)*(lat-yi)/((yj-yi)||1e-12)+xi))inside=!inside;
+    }
+    return inside;
+  }
+  function _tgPointInGeometry(lng,lat,geometry) {
+    if(!geometry)return false;
+    var polygons=geometry.type==='Polygon'?[geometry.coordinates]
+      :geometry.type==='MultiPolygon'?geometry.coordinates:[];
+    return polygons.some(function(poly){
+      if(!poly.length||!_tgPointInRing(lng,lat,poly[0]))return false;
+      for(var h=1;h<poly.length;h++)if(_tgPointInRing(lng,lat,poly[h]))return false;
+      return true;
+    });
+  }
+
+  function _tgEnableLayerEditing(layer) {
+    if (!layer.pm) return false;
+    layer.off('pm:edit',_tgSync);
+    layer.off('pm:update',_tgSync);
+    layer.off('pm:markerdragend',_tgSync);
+    layer.off('pm:vertexremoved',_tgSync);
+    layer.pm.enable({
+      allowSelfIntersection:true, allowEditing:true, allowRemoval:true,
+      allowCutting:false, allowRotation:false, allowDrag:false, snappable:false
+    });
+    layer.on('pm:edit',_tgSync);
+    layer.on('pm:update',_tgSync);
+    layer.on('pm:markerdragend',_tgSync);
+    layer.on('pm:vertexremoved',_tgSync);
+    return true;
+  }
+  function _tgRenderEditable(geometry) {
+    window.territoryEditLayerGroup.clearLayers();
+    _tgEditableLayer=L.geoJSON(
+      {type:'Feature',properties:{_id:_tgEditId},geometry:geometry},
+      {style:{color:'#f5d98b',weight:2.5,fillOpacity:0.18,fillColor:'#d4a843'}}
+    ).addTo(window.territoryEditLayerGroup);
+    var count=0;
+    _tgEditableLayer.eachLayer(function(layer){ if (_tgEnableLayerEditing(layer)) count++; });
+    return count;
+  }
+
+  function _tgStopEraser(keepMessage) {
+    _tgEraserMode=false; _tgEraserDown=false; _tgEraserStroke=[];
+    if (_tgEraserPreview) { map.removeLayer(_tgEraserPreview); _tgEraserPreview=null; }
+    map.dragging.enable();
+    var btn=document.getElementById('territory-geom-eraser-btn');
+    if (btn) { btn.classList.remove('active'); btn.textContent='🧽 지우개'; }
+    map.getContainer().style.cursor='';
+    if (!keepMessage&&_tgEditableLayer) _tgEditableLayer.eachLayer(function(layer){ _tgEnableLayerEditing(layer); });
+    if (!keepMessage && _tgEditMode) _tgSetMsg('꼭지점 드래그 → 이동 · 지우개 → 클릭한 채 지나간 영역 삭제');
+  }
+
+  function _tgStartEraser() {
+    if (!_tgEditMode||!_tgEditedGeometry) return;
+    if (_tgEraserMode) { _tgStopEraser(); return; }
+    _tgEraserMode=true;
+    if (_tgEditableLayer) _tgEditableLayer.eachLayer(function(layer){ if(layer.pm) layer.pm.disable(); });
+    var btn=document.getElementById('territory-geom-eraser-btn');
+    if (btn) { btn.classList.add('active'); btn.textContent='🧽 지우개 ON'; }
+    map.getContainer().style.cursor='crosshair';
+    _tgSetMsg('지울 꼭짓점을 클릭한 채 드래그하세요. 경계 저장 전까지 DB에는 반영되지 않습니다.','dirty');
+  }
+
+  function _tgUpdateEraserPreview() {
+    if (_tgEraserPreview) map.removeLayer(_tgEraserPreview);
+    if (!_tgEraserStroke.length) return;
+    _tgEraserPreview=L.polyline(_tgEraserStroke,{pane:'territoryEditPane',color:'#ff564a',weight:_tgEraserRadiusPx*2,opacity:.48,lineCap:'round',interactive:false}).addTo(map);
+  }
+  function _tgApplyEraserStroke() {
+    if (!_tgEraserStroke.length||!_tgEditedGeometry) return;
+    try {
+      var strokePts=_tgEraserStroke.map(function(ll){return map.latLngToContainerPoint(ll);});
+      function pointSegmentDistance(p,a,b) {
+        var dx=b.x-a.x,dy=b.y-a.y;
+        if (!dx&&!dy) return p.distanceTo(a);
+        var t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy)));
+        return p.distanceTo(L.point(a.x+t*dx,a.y+t*dy));
+      }
+      function touched(coord) {
+        var p=map.latLngToContainerPoint(L.latLng(coord[1],coord[0]));
+        if (strokePts.length===1) return p.distanceTo(strokePts[0])<=_tgEraserRadiusPx;
+        for(var i=1;i<strokePts.length;i++) if(pointSegmentDistance(p,strokePts[i-1],strokePts[i])<=_tgEraserRadiusPx)return true;
+        return false;
+      }
+      var removed=0;
+      function eraseRing(ring) {
+        if(!ring||ring.length<4)return ring;
+        var open=ring.slice(0,-1);
+        var keep=open.filter(function(c){var hit=touched(c);if(hit)removed++;return !hit;});
+        if(keep.length<3){removed-=open.length-keep.length;return ring;}
+        keep.push(keep[0].slice()); return keep;
+      }
+      var next=JSON.parse(JSON.stringify(_tgEditedGeometry));
+      if(next.type==='Polygon') next.coordinates=next.coordinates.map(eraseRing);
+      else if(next.type==='MultiPolygon') next.coordinates=next.coordinates.map(function(poly){return poly.map(eraseRing);});
+      else throw new Error('Polygon/MultiPolygon만 지원합니다.');
+      if(!removed){_tgSetMsg('지우개 경로 안에 꼭짓점이 없습니다. 조금 더 가까이 지나가세요.','dirty');return;}
+      _tgEditedGeometry=next;
+      if (!_tgRenderEditable(_tgEditedGeometry)) throw new Error('편집 레이어 재생성 실패');
+      if (_tgEraserMode) _tgEditableLayer.eachLayer(function(layer){if(layer.pm)layer.pm.disable();});
+      _tgSetMsg('꼭짓점 '+removed+'개 삭제됨 · 경계 저장으로 확정하거나 취소로 되돌릴 수 있습니다.','dirty');
+    } catch(e) { _tgSetMsg('❌ 지우개 적용 실패: '+e.message,'err'); }
   }
 
   /* ── API: full territory (geometry 포함) ─────────────────── */
@@ -52893,7 +53018,8 @@ window.toggleResourceBar = function(btn, forceState) {
       if (!b) return false;
       // bbox 사전 필터 (빠른 제외)
       if (lat < b.minLat || lat > b.maxLat || lng < b.minLng || lng > b.maxLng) return false;
-      return true;
+      var geometry=t.geometry||(t.geojson&&t.geojson.geometry)||(t.type&&t.coordinates?{type:t.type,coordinates:t.coordinates}:null);
+      return geometry?_tgPointInGeometry(lng,lat,geometry):true;
     });
 
     if (!hits.length) {
@@ -52980,27 +53106,8 @@ window.toggleResourceBar = function(btn, forceState) {
       }
       _tgEditedGeometry = editGeom;
 
-      /* 편집 레이어 생성 (territoryEditPane, zIndex 760) */
-      window.territoryEditLayerGroup.clearLayers();
-      _tgEditableLayer = L.geoJSON(
-        {type:'Feature',properties:{_id:id},geometry:editGeom},
-        {style:{color:'#f5d98b',weight:2.5,fillOpacity:0.18,fillColor:'#d4a843'}}
-      ).addTo(window.territoryEditLayerGroup);
-
-      /* geoman 꼭지점 편집 활성화 */
-      var cnt=0;
-      _tgEditableLayer.eachLayer(function(layer){
-        if (!layer.pm) return;
-        layer.pm.enable({
-          allowSelfIntersection:true, allowEditing:true, allowRemoval:true,
-          allowCutting:false, allowRotation:false, allowDrag:false, snappable:false
-        });
-        layer.on('pm:edit',          _tgSync);
-        layer.on('pm:update',        _tgSync);
-        layer.on('pm:markerdragend', _tgSync);
-        layer.on('pm:vertexremoved', _tgSync);
-        cnt++;
-      });
+      /* 편집 레이어 생성 + geoman 꼭지점 편집 활성화 */
+      var cnt=_tgRenderEditable(editGeom);
       if (cnt===0) {
         _tgSetMsg('⚠️ geoman 초기화 실패. 페이지를 새로고침하세요.','err');
         _tgEditMode=false; return;
@@ -53014,6 +53121,7 @@ window.toggleResourceBar = function(btn, forceState) {
       if (bounds.isValid()) map.fitBounds(bounds,{padding:[40,40],maxZoom:9});
 
       _tgSaveBtn(true);
+      _tgEraserBtn(true);
       if (vCount<=VLIMIT)
         _tgSetMsg('꼭지점 드래그 → 이동  ·  우클릭 → 삭제  ·  자연환경에 맞게 경계를 조정하세요.');
 
@@ -53025,6 +53133,7 @@ window.toggleResourceBar = function(btn, forceState) {
 
   /* ── 취소 ──────────────────────────────────────────────────── */
   function _tgCancel() {
+    _tgStopEraser(true);
     _tgSelectMode=false; _tgEditMode=false;
     _tgEditId=null; _tgEditedGeometry=null; _tgOriginalGeom=null; _tgEditableLayer=null;
     map.off('click',_tgMapClick);
@@ -53032,6 +53141,7 @@ window.toggleResourceBar = function(btn, forceState) {
     var pane=map.getPane('territoryPane');
     if (pane) pane.style.pointerEvents='none';
     window.territoryEditLayerGroup.clearLayers();
+    _tgEraserBtn(false);
     _tgBarOpen(false);
   }
 
@@ -53134,6 +53244,29 @@ window.toggleResourceBar = function(btn, forceState) {
   function _bind() {
     var saveBtn=document.getElementById('territory-geom-save-btn');
     if (saveBtn) saveBtn.addEventListener('click',_tgSave);
+
+    var eraserBtn=document.getElementById('territory-geom-eraser-btn');
+    if (eraserBtn) eraserBtn.addEventListener('click',_tgStartEraser);
+
+    map.on('mousedown',function(e){
+      if(!_tgEraserMode||e.originalEvent.button!==0)return;
+      L.DomEvent.stop(e.originalEvent);
+      _tgEraserDown=true; _tgEraserStroke=[e.latlng];
+      map.dragging.disable(); _tgUpdateEraserPreview();
+    });
+    map.on('mousemove',function(e){
+      if(!_tgEraserMode||!_tgEraserDown)return;
+      var last=_tgEraserStroke[_tgEraserStroke.length-1];
+      if(map.latLngToContainerPoint(last).distanceTo(map.latLngToContainerPoint(e.latlng))<3)return;
+      _tgEraserStroke.push(e.latlng); _tgUpdateEraserPreview();
+    });
+    document.addEventListener('mouseup',function(){
+      if(!_tgEraserDown)return;
+      _tgEraserDown=false; map.dragging.enable();
+      _tgApplyEraserStroke();
+      if(_tgEraserPreview){map.removeLayer(_tgEraserPreview);_tgEraserPreview=null;}
+      _tgEraserStroke=[];
+    });
 
     var cancelBtn=document.getElementById('territory-geom-cancel-btn');
     if (cancelBtn) cancelBtn.addEventListener('click',_tgCancel);
