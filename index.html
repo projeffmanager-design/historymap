@@ -53382,14 +53382,39 @@ window.toggleResourceBar = function(btn, forceState) {
       _tgChooseTerritory(hits,function(hit){m.off('click',_tgPairClickHandler);_tgPairClickHandler=null;_tgPreparePair(_tgTerritoryId(hit),_tgTerritoryName(hit));});
     };m.on('click',_tgPairClickHandler);
   }
+  function _tgCrossingVertices(){
+    var crossing=new Set();
+    function intersects(a,b,c,d){
+      function orient(p,q,r){return (q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]);}
+      var o1=orient(a,b,c),o2=orient(a,b,d),o3=orient(c,d,a),o4=orient(c,d,b);
+      return ((o1>1e-10&&o2< -1e-10)||(o1< -1e-10&&o2>1e-10))
+        &&((o3>1e-10&&o4< -1e-10)||(o3< -1e-10&&o4>1e-10));
+    }
+    [_tgEditedGeometry,_tgPairGeometry].filter(Boolean).forEach(function(geometry){
+      _tgGeometryRings(geometry).forEach(function(ring){
+        var n=ring.length-1;
+        function vertex(index){return index===n?ring[0]:ring[index];}
+        for(var i=0;i<n;i++)for(var j=i+2;j<n;j++){
+          if(i===0&&j===n-1)continue;
+          if(intersects(ring[i],ring[i+1],ring[j],ring[j+1])){
+            crossing.add(vertex(i));crossing.add(vertex(i+1));crossing.add(vertex(j));crossing.add(vertex(j+1));
+          }
+        }
+      });
+    });
+    return crossing;
+  }
   function _tg3dRefreshMarkers() {
     var m=window.mlMap3d;if(!m||!window.maplibregl)return;
     _tg3dRemoveMarkers();
+    var crossingVertices=_tgCrossingVertices();
     function addRing(ring){
       (ring||[]).slice(0,-1).forEach(function(coord){
         var el=document.createElement('div');
-        el.style.cssText='width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid #3288ff;box-sizing:border-box;box-shadow:0 1px 3px #000;cursor:'+
+        var crossing=crossingVertices.has(coord);
+        el.style.cssText='width:'+(crossing?'16':'12')+'px;height:'+(crossing?'16':'12')+'px;border-radius:50%;background:'+(crossing?'#ff2d2d':'#fff')+';border:'+(crossing?'3px solid #fff':'2px solid #3288ff')+';box-sizing:border-box;box-shadow:'+(crossing?'0 0 0 3px rgba(255,45,45,.45),0 1px 5px #000':'0 1px 3px #000')+';cursor:'+
           (_tgEraserMode?'crosshair':'grab')+';pointer-events:'+(_tgEraserMode?'none':'auto');
+        if(crossing)el.title='자기교차 선분의 꼭지점';
         var marker=new maplibregl.Marker({element:el,draggable:!_tgEraserMode}).setLngLat(coord).addTo(m);
         if(!_tgEraserMode)marker.on('dragend',function(){
           var ll=marker.getLngLat(),snapped=_tgSnapLngLat(ll);
@@ -53397,6 +53422,7 @@ window.toggleResourceBar = function(btn, forceState) {
           coord[0]=ll.lng;coord[1]=ll.lat;
           ring[ring.length-1]=ring[0].slice();
           _tg3dSetGeometry(_tgEditedGeometry);
+          _tg3dRefreshMarkers();
           _tgSetMsg(snapped
             ? '🧲 '+snapped.name+'의 '+snapped.kind+'에 맞물림 · 경계 저장으로 확정하세요.'
             : '꼭짓점 이동됨 · 경계 저장을 눌러 확정하세요.','dirty');
