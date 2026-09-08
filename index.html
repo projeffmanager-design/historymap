@@ -53374,6 +53374,13 @@ window.toggleResourceBar = function(btn, forceState) {
     for(var i=0;i<run.length;i++)out.push(open[(run.start+i)%open.length]);
     return out;
   }
+  function _tgLineEndpointCost(source,target,reverse){
+    if(!source?.length||!target?.length)return Infinity;
+    var first=reverse?target[target.length-1]:target[0];
+    var last=reverse?target[0]:target[target.length-1];
+    return Math.hypot(source[0][0]-first[0],source[0][1]-first[1])+
+      Math.hypot(source[source.length-1][0]-last[0],source[source.length-1][1]-last[1]);
+  }
   function _tgResampleLine(points,count){
     var lengths=[0];for(var i=1;i<points.length;i++)lengths[i]=lengths[i-1]+Math.hypot(points[i][0]-points[i-1][0],points[i][1]-points[i-1][1]);
     var total=lengths[lengths.length-1];if(!total)return Array.from({length:count},function(){return points[0].slice();});
@@ -53412,7 +53419,7 @@ window.toggleResourceBar = function(btn, forceState) {
     });});
     if(!best)return null;
     var pa=_tgRunPoints(best.a.ring,best.ra),pb=_tgRunPoints(best.b.ring,best.rb);
-    var reversed=Math.hypot(pa[0][0]-pb[pb.length-1][0],pa[0][1]-pb[pb.length-1][1])<Math.hypot(pa[0][0]-pb[0][0],pa[0][1]-pb[0][1]);
+    var reversed=_tgLineEndpointCost(pa,pb,true)<_tgLineEndpointCost(pa,pb,false);
     if(reversed)pb.reverse();
     var count=Math.max(3,Math.min(160,Math.max(pa.length,pb.length))),aa=_tgResampleLine(pa,count),bb=_tgResampleLine(pb,count);
     var mid=aa.map(function(p,i){return [(p[0]+bb[i][0])/2,(p[1]+bb[i][1])/2];});
@@ -53423,18 +53430,26 @@ window.toggleResourceBar = function(btn, forceState) {
   function _tgFitFirstToSecond(first,second){
     var bboxA=_tgBBox(first),bboxB=_tgBBox(second);if(!bboxA||!bboxB)return null;
     var span=Math.max(bboxA.maxLng-bboxA.minLng,bboxA.maxLat-bboxA.minLat,bboxB.maxLng-bboxB.minLng,bboxB.maxLat-bboxB.minLat);
-    var tolerance=Math.max(.0005,Math.min(.012,span*.004)),best=null;
+    var tolerance=Math.max(.0005,Math.min(.012,span*.004)),candidates=[];
     _tgOuterRingRefs(first).forEach(function(a){_tgOuterRingRefs(second).forEach(function(b){
       var ra=_tgLongestNearRun(a.ring,b.ring,tolerance),rb=_tgLongestNearRun(b.ring,a.ring,tolerance);
-      if(ra&&rb&&(!best||Math.min(ra.length,rb.length)>best.score))best={a:a,b:b,ra:ra,rb:rb,score:Math.min(ra.length,rb.length)};
+      if(ra&&rb){
+        var pa=_tgRunPoints(a.ring,ra),pb=_tgRunPoints(b.ring,rb);
+        candidates.push({a:a,b:b,ra:ra,rb:rb,score:Math.min(ra.length,rb.length),sparse:!!(ra.sparse||rb.sparse),endpointCost:Math.min(_tgLineEndpointCost(pa,pb,false),_tgLineEndpointCost(pa,pb,true))});
+      }
     });});
-    if(!best)return null;
-    var pointsA=_tgRunPoints(best.a.ring,best.ra),referenceB=_tgRunPoints(best.b.ring,best.rb);
-    var reverse=Math.hypot(pointsA[0][0]-referenceB[referenceB.length-1][0],pointsA[0][1]-referenceB[referenceB.length-1][1])<Math.hypot(pointsA[0][0]-referenceB[0][0],pointsA[0][1]-referenceB[0][1]);
-    var originalRing=best.a.ring;
-    _tgReplaceRingRun(best.a,best.ra,reverse?referenceB.slice().reverse():referenceB.slice());
-    if(_tgGeometryHasSelfIntersection(first)){best.a.container[best.a.index]=originalRing;best.a.ring=originalRing;return null;}
-    return referenceB;
+    // MultiPolygon은 서로 가까운 링 후보가 여럿이다. 첫 후보가 자기교차를
+    // 만들더라도 실제 접경 링까지 계속 시도한다. 충분한 연속 구간을 우선한다.
+    candidates.sort(function(x,y){return Number(x.sparse)-Number(y.sparse)||x.endpointCost-y.endpointCost||y.score-x.score;});
+    for(var i=0;i<candidates.length;i++){
+      var best=candidates[i],pointsA=_tgRunPoints(best.a.ring,best.ra),referenceB=_tgRunPoints(best.b.ring,best.rb);
+      var reverse=_tgLineEndpointCost(pointsA,referenceB,true)<_tgLineEndpointCost(pointsA,referenceB,false);
+      var originalRing=best.a.ring;
+      _tgReplaceRingRun(best.a,best.ra,reverse?referenceB.slice().reverse():referenceB.slice());
+      if(!_tgGeometryHasSelfIntersection(first))return referenceB;
+      best.a.container[best.a.index]=originalRing;best.a.ring=originalRing;
+    }
+    return null;
   }
   function _tgAttachToSharedLines(geometry,sharedLines){
     var bbox=_tgBBox(geometry);if(!bbox)return null;
@@ -53445,7 +53460,7 @@ window.toggleResourceBar = function(btn, forceState) {
     });});
     if(!best)return null;
     var nativePoints=_tgRunPoints(best.ref.ring,best.run),line=best.line;
-    var reverse=Math.hypot(nativePoints[0][0]-line[line.length-1][0],nativePoints[0][1]-line[line.length-1][1])<Math.hypot(nativePoints[0][0]-line[0][0],nativePoints[0][1]-line[0][1]);
+    var reverse=_tgLineEndpointCost(nativePoints,line,true)<_tgLineEndpointCost(nativePoints,line,false);
     var originalRing=best.ref.ring;
     _tgReplaceRingRun(best.ref,best.run,reverse?line.slice().reverse():line.slice());
     if(_tgGeometryHasSelfIntersection(geometry)){best.ref.container[best.ref.index]=originalRing;best.ref.ring=originalRing;return null;}
