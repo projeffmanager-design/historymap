@@ -53513,19 +53513,25 @@ window.toggleResourceBar = function(btn, forceState) {
     if(!bestB){_tgSetMsg('❌ 기준 B에서 연속된 꼭지점을 2개 이상 선택하세요.','err');return;}
     var selectedA=_tgBoundarySelected.get(String(_tgEditId)),hasASelection=_tgOuterRingRefs(_tgEditedGeometry).some(function(ref){return !!_tgRunFromSelection(ref.ring,selectedA);});
     if(!hasASelection){_tgSetMsg('❌ A에서도 연속된 꼭지점을 2개 이상 선택하세요.','err');return;}
-    var line=_tgRunPoints(bestB.ref.ring,bestB.run),linkedIds=new Set([reference.id]),failedA=false;
+    var rawLine=_tgRunPoints(bestB.ref.ring,bestB.run),m=window.mlMap3d;
+    var center=m?m.project(rawLine[Math.floor(rawLine.length/2)]):null,tolerance=.0001;
+    if(m&&center){var p0=m.unproject(center),p1=m.unproject({x:center.x+1.5,y:center.y});tolerance=Math.max(.000001,Math.hypot(p1.lng-p0.lng,p1.lat-p0.lat));}
+    var line=_dpSimp(rawLine,tolerance),limit=240;
+    while(line.length>limit){tolerance*=1.5;line=_dpSimp(rawLine,tolerance);}
+    var originalBRing=bestB.ref.ring;_tgReplaceRingRun(bestB.ref,bestB.run,line);
+    var linkedIds=new Set([reference.id]),failedA=false;
     _tgGroupItems().forEach(function(item){if(item.id===reference.id||failedA)return;var selected=_tgBoundarySelected.get(item.id),best=null;
       _tgOuterRingRefs(item.geometry).forEach(function(ref){var run=_tgRunFromSelection(ref.ring,selected);if(run&&(!best||run.length>best.run.length))best={ref:ref,run:run};});
       if(!best)return;var points=_tgRunPoints(best.ref.ring,best.run),reverse=Math.hypot(points[0][0]-line[line.length-1][0],points[0][1]-line[line.length-1][1])<Math.hypot(points[0][0]-line[0][0],points[0][1]-line[0][1]);
       var original=best.ref.ring;_tgReplaceRingRun(best.ref,best.run,reverse?line.slice().reverse():line.slice());
       if(_tgGeometryHasSelfIntersection(item.geometry)){best.ref.container[best.ref.index]=original;best.ref.ring=original;if(item.id===String(_tgEditId))failedA=true;}else linkedIds.add(item.id);
     });
-    if(failedA){_tgSetMsg('❌ 선택한 A 구간을 B에 연결하면 자기교차가 생깁니다. A 선택 범위를 다시 지정하세요.','err');return;}
+    if(failedA){bestB.ref.container[bestB.ref.index]=originalBRing;bestB.ref.ring=originalBRing;_tgSetMsg('❌ 선택한 A 구간을 B에 연결하면 자기교차가 생깁니다. A 선택 범위를 다시 지정하세요.','err');return;}
     _tgPairMembers=_tgPairMembers.filter(function(member){return linkedIds.has(member.id);});
     _tgPairId=_tgPairMembers[0]?.id||null;_tgPairGeometry=_tgPairMembers[0]?.geometry||null;
-    _tgPairSharedLines=[line];_tgBoundarySelectMode=false;_tgBoundaryBtns(true,false);var m=window.mlMap3d;
+    _tgPairSharedLines=[line];_tgBoundarySelectMode=false;_tgBoundaryBtns(true,false);
     if(m){if(m.getSource('territory-3d-shared-line'))m.getSource('territory-3d-shared-line').setData({type:'MultiLineString',coordinates:[line]});else{m.addSource('territory-3d-shared-line',{type:'geojson',data:{type:'MultiLineString',coordinates:[line]}});m.addLayer({id:'territory-3d-shared-line',type:'line',source:'territory-3d-shared-line',paint:{'line-color':'#ff56d8','line-width':5,'line-opacity':.95}});}m.dragPan.enable();m.getCanvas().style.cursor='';}
-    _tg3dSetGeometry(_tgEditedGeometry);_tg3dRefreshMarkers();_tgSetMsg('✅ 선택 공유구간 확정 · 연결 영토 '+linkedIds.size+'개 · 이동·추가·지우개 편집 후 저장하세요.','dirty');
+    _tg3dSetGeometry(_tgEditedGeometry);_tg3dRefreshMarkers();_tgSetMsg('✅ B 기존 꼭지점 '+rawLine.length+'개 → 제어점 '+line.length+'개 · 연결 영토 '+linkedIds.size+'개','dirty');
   }
   function _tgBindBoundaryBrush(){
     var m=window.mlMap3d;if(!m||m._tgBoundaryBrushBound)return;m._tgBoundaryBrushBound=true;
@@ -53591,7 +53597,7 @@ window.toggleResourceBar = function(btn, forceState) {
       });
     }
     if(_tgPairMembers.length&&!_tgPairSharedLines.length){
-      _tgGroupItems().forEach(function(item){var selected=_tgBoundarySelected.get(item.id);if(selected?.size)addRing(null,false,Array.from(selected));});
+      _tgGroupItems().forEach(function(item){var selected=_tgBoundarySelected.get(item.id);if(selected?.size){var points=Array.from(selected),step=Math.max(1,Math.ceil(points.length/120));addRing(null,false,points.filter(function(_,index){return index%step===0||index===points.length-1;}));}});
     }else if(_tgPairSharedLines.length){
       _tgPairSharedLines.forEach(function(line){addRing(null,false,line);});
     }else{
