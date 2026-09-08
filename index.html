@@ -53180,7 +53180,14 @@ window.toggleResourceBar = function(btn, forceState) {
         }});
       }
       _tgSnapBtn(true);
-      _tgSetMsg('인접 경계 '+neighbors.length+'개 로드 · 꼭짓점을 청록색 경계 가까이 옮기면 자동으로 맞물립니다.');
+      var autoCount=_tgAutoSnapGeometryToNeighbors();
+      if(autoCount>0){
+        _tg3dSetGeometry(_tgEditedGeometry);
+        _tg3dRefreshMarkers();
+        _tgSetMsg('🧲 인접 경계 '+neighbors.length+'개 기준 · 꼭짓점 '+autoCount+'개 자동 맞물림 · 확인 후 미세 조절하고 저장하세요.','dirty');
+      }else{
+        _tgSetMsg('인접 경계 '+neighbors.length+'개 로드 · 자동 보정 대상 없음 · 가까이 옮기면 스냅됩니다.');
+      }
     }catch(error){
       _tgSnapBtn(true);
       _tgSetMsg('⚠️ 인접 경계 스냅 데이터 로드 실패: '+error.message,'err');
@@ -53205,6 +53212,34 @@ window.toggleResourceBar = function(btn, forceState) {
       }
     });
     return best?{lng:best.coord[0],lat:best.coord[1],name:best.name,kind:best.kind,distance:bestDist}:null;
+  }
+  function _tgAutoSnapGeometryToNeighbors() {
+    if(!_tgSnapEnabled||!_tgEditedGeometry||!_tgSnapSegments.length)return 0;
+    var bbox=_tgBBox(_tgEditedGeometry);
+    if(!bbox)return 0;
+    // 저줌에서 18px가 수십~수백 km가 되지 않도록 좌표 거리에도 상한을 둔다.
+    var span=Math.max(bbox.maxLat-bbox.minLat,bbox.maxLng-bbox.minLng);
+    var maxGeo=Math.max(.008,Math.min(.08,span*.025));
+    var changed=0;
+    function same(a,b){return a&&b&&Math.abs(a[0]-b[0])<1e-9&&Math.abs(a[1]-b[1])<1e-9;}
+    function snapRing(ring){
+      if(!ring||ring.length<4)return;
+      for(var i=0;i<ring.length-1;i++){
+        var original=ring[i],snap=_tgSnapLngLat({lng:original[0],lat:original[1]});
+        if(!snap)continue;
+        var geoDist=Math.hypot(snap.lng-original[0],snap.lat-original[1]);
+        if(geoDist>maxGeo)continue;
+        var candidate=[snap.lng,snap.lat];
+        var prev=i>0?ring[i-1]:ring[ring.length-2];
+        var next=i<ring.length-2?ring[i+1]:ring[0];
+        // 인접 꼭짓점과 합쳐져 링이 망가지는 자동 보정은 건너뛴다.
+        if(same(candidate,prev)||same(candidate,next))continue;
+        if(!same(candidate,original)){ring[i]=candidate;changed++;}
+      }
+      ring[ring.length-1]=ring[0].slice();
+    }
+    _tgGeometryRings(_tgEditedGeometry).forEach(snapRing);
+    return changed;
   }
   function _tgToggleSnap() {
     _tgSnapEnabled=!_tgSnapEnabled;
