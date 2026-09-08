@@ -6488,7 +6488,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // POST: 영역 교차 검색 (bbox 기반) - territory_manager에서 사용
         app.post('/api/territories/intersect', verifyAdmin, async (req, res) => {
             try {
-                const { bbox, include_geometry, limit } = req.body;
+                const { bbox, include_geometry, limit, exclude_id, level, year, snap_tolerance } = req.body;
                 if (!bbox || bbox.minLat === undefined || bbox.maxLat === undefined || bbox.minLng === undefined || bbox.maxLng === undefined) {
                     return res.status(400).json({ message: "bbox (minLat, maxLat, minLng, maxLng) 필드가 필요합니다." });
                 }
@@ -6503,6 +6503,18 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     'bbox.maxLng': { $gte: bbox.minLng },
                     hidden: { $ne: true }
                 };
+                if (exclude_id) {
+                    const excludedObjectId = toObjectId(exclude_id);
+                    if (excludedObjectId) query._id = { $ne: excludedObjectId };
+                }
+                if (level) query.level = String(level);
+                if (Number.isFinite(Number(year))) {
+                    const y = Number(year);
+                    query.$and = [
+                        { $or: [{ start_year: { $exists: false } }, { start_year: null }, { start_year: { $lte: y } }] },
+                        { $or: [{ end_year: { $exists: false } }, { end_year: null }, { end_year: { $gte: y } }] }
+                    ];
+                }
 
                 const projection = {
                         _id: 1,
@@ -6523,7 +6535,21 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     projection.coordinates = 1; // 구형 type+coordinates 문서도 스냅 대상으로 지원
                 }
                 const resultLimit = Math.min(200, Math.max(1, Number(limit) || 100));
-                const territories = await collections.territories.find(query, { projection }).limit(resultLimit).toArray();
+                let territories = await collections.territories.find(query, { projection }).limit(resultLimit).toArray();
+                if (include_geometry === true) {
+                    const tolerance = Math.min(0.01, Math.max(0.0002, Number(snap_tolerance) || 0.0015));
+                    territories = territories.map(territory => {
+                        const rawGeometry = territory.geometry
+                            || (territory.type && territory.coordinates
+                                ? { type: territory.type, coordinates: territory.coordinates } : null);
+                        return {
+                            ...territory,
+                            geometry: rawGeometry ? _simplifyGeometry(rawGeometry, tolerance) : null,
+                            coordinates: undefined,
+                            snap_simplified: true
+                        };
+                    });
+                }
 
                 console.log(`✅ 교차 검색 결과: ${territories.length}개`);
                 res.json({ territories });
@@ -6545,6 +6571,36 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             } catch (error) {
                 console.error("영토 단건 조회 중 오류:", error);
                 res.status(500).json({ message: "영토 조회 실패", error: error.message });
+            }
+        });
+
+        // PUT: 영토 폴리곤 업데이트
+        app.put('/api/territories/shared-boundary', verifyAdmin, async (req, res) => {
+            try {
+                const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
+                if (updates.length !== 2) return res.status(400).json({ message: '공유 경계 저장에는 영토 2개가 필요합니다.' });
+                const ids = new Set();
+                const operations = updates.map(update => {
+                    const _id = toObjectId(update.id);
+                    if (!_id || !update.geometry || !update.bbox) throw new Error('영토 ID 또는 geometry/bbox가 올바르지 않습니다.');
+                    ids.add(String(update.id));
+                    return { updateOne: { filter: { _id }, update: { $set: { geometry: update.geometry, bbox: update.bbox } } } };
+                });
+                if (ids.size !== 2) return res.status(400).json({ message: '서로 다른 영토 2개를 선택해야 합니다.' });
+                const objectIds = operations.map(operation => operation.updateOne.filter._id);
+                const existingCount = await collections.territories.countDocuments({ _id: { $in: objectIds } });
+                if (existingCount !== 2) return res.status(404).json({ message: '공유 경계 대상 영토 일부를 찾지 못했습니다.' });
+                const result = await collections.territories.bulkWrite(operations, { ordered: true });
+                if (result.matchedCount !== 2) return res.status(404).json({ message: '공유 경계 대상 영토 일부를 찾지 못했습니다.' });
+                territoriesCache = null; territoriesCacheTime = null;
+                ids.forEach(id => _dirtyTerritoryIds.add(id));
+                _territoryDirty = true;
+                rebuildTerritoryTilesIncremental('공유 경계 수정', ids).catch(error =>
+                    console.error('❌ [공유 경계 타일 재빌드 실패]', error.message));
+                res.json({ message: '공유 경계 영토 2개 저장 완료', ids: [...ids] });
+            } catch (error) {
+                console.error('공유 경계 저장 실패:', error);
+                res.status(500).json({ message: '공유 경계 저장 실패', error: error.message });
             }
         });
 
