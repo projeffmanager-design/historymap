@@ -53507,11 +53507,15 @@ window.toggleResourceBar = function(btn, forceState) {
     var m=window.mlMap3d;if(!m||!window.maplibregl)return;
     _tg3dRemoveMarkers();
     var crossingVertices=_tgCrossingVertices();
-    function addRing(ring){
-      (ring||[]).slice(0,-1).forEach(function(coord){
-        var el=document.createElement('div');
+    var renderedCoords=new Set();
+    function addRing(ring,onlyCrossing,sharedLine){
+      var coordinates=sharedLine||((ring||[]).slice(0,-1));
+      coordinates.forEach(function(coord){
         var crossing=crossingVertices.has(coord);
-        el.style.cssText='width:'+(crossing?'16':'12')+'px;height:'+(crossing?'16':'12')+'px;border-radius:50%;background:'+(crossing?'#ff2d2d':'#fff')+';border:'+(crossing?'3px solid #fff':'2px solid #3288ff')+';box-sizing:border-box;box-shadow:'+(crossing?'0 0 0 3px rgba(255,45,45,.45),0 1px 5px #000':'0 1px 3px #000')+';cursor:'+
+        if((onlyCrossing&&!crossing)||renderedCoords.has(coord))return;
+        renderedCoords.add(coord);
+        var el=document.createElement('div');
+        el.style.cssText='width:'+(crossing?'16':'12')+'px;height:'+(crossing?'16':'12')+'px;border-radius:50%;background:'+(crossing?'#ff2d2d':'#fff')+';border:'+(crossing?'3px solid #fff':'2px solid '+(sharedLine?'#ff56d8':'#3288ff'))+';box-sizing:border-box;box-shadow:'+(crossing?'0 0 0 3px rgba(255,45,45,.45),0 1px 5px #000':'0 1px 3px #000')+';cursor:'+
           (_tgEraserMode?'crosshair':'grab')+';pointer-events:'+(_tgEraserMode?'none':'auto');
         if(crossing)el.title='자기교차 선분의 꼭지점';
         var marker=new maplibregl.Marker({element:el,draggable:!_tgEraserMode}).setLngLat(coord).addTo(m);
@@ -53519,18 +53523,22 @@ window.toggleResourceBar = function(btn, forceState) {
           var ll=marker.getLngLat(),snapped=_tgSnapLngLat(ll);
           if(snapped){ll=snapped;marker.setLngLat([ll.lng,ll.lat]);}
           coord[0]=ll.lng;coord[1]=ll.lat;
-          ring[ring.length-1]=ring[0].slice();
+          if(ring)ring[ring.length-1]=ring[0].slice();
           _tg3dSetGeometry(_tgEditedGeometry);
           _tg3dRefreshMarkers();
           _tgSetMsg(snapped
             ? '🧲 '+snapped.name+'의 '+snapped.kind+'에 맞물림 · 경계 저장으로 확정하세요.'
             : '꼭짓점 이동됨 · 경계 저장을 눌러 확정하세요.','dirty');
         });
-        marker._tgCoord=coord;marker._tgRing=ring;_tg3dMarkers.push(marker);
+        marker._tgCoord=coord;marker._tgRing=ring||null;_tg3dMarkers.push(marker);
       });
     }
-    if(_tgEditedGeometry.type==='Polygon')_tgEditedGeometry.coordinates.forEach(addRing);
-    else if(_tgEditedGeometry.type==='MultiPolygon')_tgEditedGeometry.coordinates.forEach(function(p){p.forEach(addRing);});
+    if(_tgPairSharedLines.length){
+      _tgPairSharedLines.forEach(function(line){addRing(null,false,line);});
+    }else{
+      if(_tgEditedGeometry.type==='Polygon')_tgEditedGeometry.coordinates.forEach(function(ring){addRing(ring,false);});
+      else if(_tgEditedGeometry.type==='MultiPolygon')_tgEditedGeometry.coordinates.forEach(function(p){p.forEach(function(ring){addRing(ring,false);});});
+    }
   }
   function _tg3dClear() {
     var m=window.mlMap3d;
@@ -54159,8 +54167,15 @@ window.toggleResourceBar = function(btn, forceState) {
     function rc(ring){var n=ring.length-1;for(var i=0;i<n-1;i++)for(var j=i+2;j<n;j++){if(i===0&&j===n-1)continue;if(sx(ring[i],ring[i+1],ring[j],ring[j+1]))return true;}return false;}
     function gc(g){if(!g)return false;var rs=g.type==='Polygon'?g.coordinates:g.type==='MultiPolygon'?g.coordinates.flat():[];return rs.some(rc);}
 
-    if (gc(geometry)||pairUpdates.some(function(update){return gc(update.geometry);})) {
-      _tgSetMsg('❌ 빨간 꼭지점으로 표시된 자기교차를 먼저 해소해야 저장할 수 있습니다.','err');
+    var invalidNames=[];
+    if(gc(geometry))invalidNames.push('A('+(_tgFullCache[_tgEditId]?.name_ko||_tgFullCache[_tgEditId]?.name||String(_tgEditId).slice(-6))+')');
+    pairUpdates.forEach(function(update,index){if(gc(update.geometry)){var member=_tgPairMembers[index];invalidNames.push((member?.name||String(update.id).slice(-6)));}});
+    if (invalidNames.length) {
+      var crossingCount=_tgCrossingVertices().size;
+      _tg3dRefreshMarkers();
+      _tgSetMsg(_tgPairSharedLines.length
+        ? '❌ 자기교차 영토: '+invalidNames.join(', ')+' · 공유선 밖의 문제는 해당 영토를 단독 편집해 해소하세요.'
+        : '❌ 자기교차 영토: '+invalidNames.join(', ')+' · 빨간 문제 꼭지점 '+crossingCount+'개를 먼저 해소하세요.','err');
       return;
     }
 
