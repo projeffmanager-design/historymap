@@ -8421,6 +8421,15 @@ body.force-mobile .marker-type-selector button {
         font-size: 12px;
     }
 
+    #territory-geom-layer-multi .tg-group-row {
+        display: grid;
+        grid-template-columns: 58px 70px minmax(220px, 1fr);
+        gap: 8px;
+        align-items: center;
+        padding: 5px 7px;
+        border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+
     #territory-geom-edit-actions button.primary {
         background: rgba(212, 168, 67, 0.16);
         border-color: #d4a843;
@@ -9843,6 +9852,7 @@ body.force-mobile .marker-type-selector button {
       <div id="territory-geom-edit-msg">편집할 영토를 선택하세요.</div>
       <div id="territory-geom-layer-picker" style="display:none; gap:6px; align-items:center; flex-wrap:wrap; margin-top:7px;">
           <select id="territory-geom-layer-select" aria-label="겹친 영토 레이어 선택" style="min-width:260px; max-width:min(520px,72vw);"></select>
+          <div id="territory-geom-layer-multi" style="display:none; width:100%; max-height:220px; overflow:auto;"></div>
           <button type="button" id="territory-geom-layer-confirm">선택한 영토 편집</button>
       </div>
       <div id="territory-geom-edit-actions">
@@ -52924,6 +52934,7 @@ window.toggleResourceBar = function(btn, forceState) {
   function _tgHideLayerPicker() {
     var picker=document.getElementById('territory-geom-layer-picker');
     if(picker)picker.style.display='none';
+    var multi=document.getElementById('territory-geom-layer-multi');if(multi)multi.style.display='none';
   }
   function _tgTerritoryId(t) {
     var raw=t&&t.properties?(t.properties.territory_id||t.properties._id||t.id):(t&&(t._id||t.id));
@@ -52948,6 +52959,7 @@ window.toggleResourceBar = function(btn, forceState) {
     var select=document.getElementById('territory-geom-layer-select');
     var confirm=document.getElementById('territory-geom-layer-confirm');
     if(!picker||!select||!confirm)return false;
+    var multi=document.getElementById('territory-geom-layer-multi');if(multi)multi.style.display='none';select.style.display='';
     select.innerHTML='';
     unique.forEach(function(t,i){
       var id=_tgTerritoryId(t),opt=document.createElement('option');
@@ -52962,6 +52974,36 @@ window.toggleResourceBar = function(btn, forceState) {
       if(!chosen)return;
       _tgHideLayerPicker();
       onChoose(chosen);
+    };
+    return true;
+  }
+  function _tgChooseTerritoryGroup(hits,side,onChoose){
+    var unique=[],seen=new Set();
+    (hits||[]).forEach(function(t){var id=_tgTerritoryId(t);if(id&&!seen.has(id)){seen.add(id);unique.push(t);}});
+    var rank={city:0,province:1,country:2};
+    unique.sort(function(a,b){return (rank[_tgTerritoryLevel(a)]??9)-(rank[_tgTerritoryLevel(b)]??9);});
+    if(!unique.length)return false;
+    if(unique.length===1){_tgHideLayerPicker();onChoose(unique[0],[]);return true;}
+    var picker=document.getElementById('territory-geom-layer-picker'),select=document.getElementById('territory-geom-layer-select');
+    var multi=document.getElementById('territory-geom-layer-multi'),confirm=document.getElementById('territory-geom-layer-confirm');
+    if(!picker||!multi||!confirm)return false;
+    if(select)select.style.display='none';multi.innerHTML='';multi.style.display='block';
+    unique.forEach(function(t,index){
+      var row=document.createElement('label');row.className='tg-group-row';
+      var reference=document.createElement('input');reference.type='radio';reference.name='tg-reference-'+side;reference.value=String(index);reference.checked=index===0;
+      var referenceLabel=document.createElement('span');referenceLabel.appendChild(reference);referenceLabel.appendChild(document.createTextNode(' 기준 '+side));
+      var togetherLabel=document.createElement('span'),together=document.createElement('input');together.type='checkbox';together.dataset.index=String(index);together.disabled=index===0;
+      togetherLabel.appendChild(together);togetherLabel.appendChild(document.createTextNode(' 함께 수정'));
+      var title=document.createElement('span');title.textContent='['+_tgTerritoryLevel(t)+'] '+_tgTerritoryName(t)+' · '+_tgTerritoryId(t);
+      reference.addEventListener('change',function(){multi.querySelectorAll('input[type="checkbox"]').forEach(function(box){box.disabled=box.dataset.index===reference.value;if(box.disabled)box.checked=false;});});
+      row.append(referenceLabel,togetherLabel,title);multi.appendChild(row);
+    });
+    picker.style.display='flex';confirm.textContent=side+' 영역 선택 확정';
+    _tgSetMsg(side+' 기준 영토와 함께 수정할 중첩 영토를 각각 선택하세요.','dirty');
+    confirm.onclick=function(){
+      var selected=multi.querySelector('input[type="radio"]:checked'),referenceIndex=selected?Number(selected.value):0;
+      var companions=Array.from(multi.querySelectorAll('input[type="checkbox"]:checked')).map(function(box){return unique[Number(box.dataset.index)];}).filter(Boolean);
+      _tgHideLayerPicker();confirm.textContent='선택한 영토 편집';onChoose(unique[referenceIndex],companions);
     };
     return true;
   }
@@ -53419,7 +53461,9 @@ window.toggleResourceBar = function(btn, forceState) {
       var hits=(ids.length?m.queryRenderedFeatures(e.point,{layers:ids}):[]).filter(function(f){return _tgTerritoryId(f)&&_tgTerritoryId(f)!==String(_tgEditId);});
       if(!hits.length){_tgSetMsg('⚠️ 이 위치에 선택 가능한 다른 영토가 없습니다.','err');return;}
       m.off('click',_tgPairClickHandler);_tgPairClickHandler=null;
-      _tgChooseTerritory(hits,function(reference){_tgPreparePair(hits,_tgTerritoryId(reference));});
+      _tgChooseTerritoryGroup(hits,'B',function(reference,bCompanions){
+        _tgPreparePair([reference].concat(bCompanions),_tgTerritoryId(reference));
+      });
     };m.on('click',_tgPairClickHandler);
   }
   function _tgCrossingVertices(){
@@ -53523,8 +53567,8 @@ window.toggleResourceBar = function(btn, forceState) {
       var hits=(ids.length?m.queryRenderedFeatures(e.point,{layers:ids}):[])
         .filter(function(f){return !!_tgTerritoryId(f);});
       if(!hits.length){_tgSetMsg('⚠️ 이 위치에서 편집 가능한 영토를 찾지 못했습니다.','err');return;}
-      _tgChooseTerritory(hits,function(hit){
-        _tgOpen3dEdit(_tgTerritoryId(hit),_tgTerritoryName(hit),hits);
+      _tgChooseTerritoryGroup(hits,'A',function(hit,aCompanions){
+        _tgOpen3dEdit(_tgTerritoryId(hit),_tgTerritoryName(hit),aCompanions);
       });
     };
     m.on('click',_tg3dClickHandler);
