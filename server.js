@@ -6488,7 +6488,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // POST: 영역 교차 검색 (bbox 기반) - territory_manager에서 사용
         app.post('/api/territories/intersect', verifyAdmin, async (req, res) => {
             try {
-                const { bbox } = req.body;
+                const { bbox, include_geometry, limit } = req.body;
                 if (!bbox || bbox.minLat === undefined || bbox.maxLat === undefined || bbox.minLng === undefined || bbox.maxLng === undefined) {
                     return res.status(400).json({ message: "bbox (minLat, maxLat, minLng, maxLng) 필드가 필요합니다." });
                 }
@@ -6500,11 +6500,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     'bbox.minLat': { $lte: bbox.maxLat },
                     'bbox.maxLat': { $gte: bbox.minLat },
                     'bbox.minLng': { $lte: bbox.maxLng },
-                    'bbox.maxLng': { $gte: bbox.minLng }
+                    'bbox.maxLng': { $gte: bbox.minLng },
+                    hidden: { $ne: true }
                 };
 
-                const territories = await collections.territories.find(query, {
-                    projection: {
+                const projection = {
                         _id: 1,
                         name: 1,
                         name_ko: 1,
@@ -6515,9 +6515,15 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         osm_id: 1,
                         admin_level: 1,
                         country: 1,
-                        level: 1
-                    }
-                }).toArray();
+                        level: 1,
+                        bbox: 1
+                };
+                if (include_geometry === true) {
+                    projection.geometry = 1;
+                    projection.coordinates = 1; // 구형 type+coordinates 문서도 스냅 대상으로 지원
+                }
+                const resultLimit = Math.min(200, Math.max(1, Number(limit) || 100));
+                const territories = await collections.territories.find(query, { projection }).limit(resultLimit).toArray();
 
                 console.log(`✅ 교차 검색 결과: ${territories.length}개`);
                 res.json({ territories });
