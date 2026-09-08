@@ -1928,13 +1928,20 @@ async function setupRoutesAndCollections() {
                 const { execSync } = require('child_process');
                 execSync('git add public/tiles/', { cwd: __dirname });
                 const diff = execSync('git diff --cached --stat', { cwd: __dirname }).toString().trim();
-                if (!diff) { console.log(`⏭️  [Vercel 스킵] 타일 변경 없음 (${label})`); return; }
+                if (!diff) {
+                    // 이전 싱크에서 commit은 됐지만 push만 실패한 경우도 복구한다.
+                    execSync('git push', { cwd: __dirname });
+                    console.log(`✅ [수동 싱크 확인] 신규 타일 커밋 없음 · 기존 미push 커밋 반영 (${label})`);
+                    return { ok: true, changed: false, message: '신규 타일 커밋 없음 · 기존 미push 커밋 싱크 완료' };
+                }
                 const today = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
                 execSync(`git commit -m "chore: 영토 타일 증분 갱신 ${label} (${today})"`, { cwd: __dirname });
                 execSync('git push', { cwd: __dirname });
                 console.log(`✅ [Vercel 배포] 타일 push 완료 → Vercel 자동 재배포 (${label})`);
+                return { ok: true, changed: true, message: '타일 push 완료' };
             } catch (e) {
                 console.error(`❌ [Vercel 배포 실패] ${e.message}`);
+                return { ok: false, changed: false, message: e.message };
             }
         }
 
@@ -2147,12 +2154,10 @@ async function setupRoutesAndCollections() {
                 _tileRebuildRetryAttempt = 0;
                 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
                 console.log(`✅ [타일 재빌드 완료] ${tileCount}개 타일 (${isFullRebuild ? '전체' : '증분'}, ${elapsed}초)`);
-                // 6. Vercel 자동 배포 ───────────────────────────────────────────
-                updateProgress('publish', 'Git/Vercel 반영', 98, tileCount, tileCount,
-                    `타일 ${tileCount}개 저장 완료 · Git 반영 시작`);
-                await _gitPushTiles(reason);
+                // 서버 반영은 territory_overview.html의 "서버 싱크" 버튼에서만 실행한다.
+                // 편집 시에는 로컬 타일만 갱신해 여러 변경을 한 번에 묶어 배포할 수 있다.
                 updateProgress('completed', '재빌드 완료', 100, tileCount, tileCount,
-                    `타일 재빌드 완료 (${elapsed}초)`);
+                    `로컬 타일 재빌드 완료 (${elapsed}초) · 서버 싱크 대기`);
                 _lastTerritoryTileBuild = {
                     ..._lastTerritoryTileBuild, status: 'completed', completedAt: Date.now(),
                     tileCount, elapsedSeconds: Number(elapsed)
@@ -9536,6 +9541,21 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             rebuildTerritoryTiles('admin 수동 트리거', true).catch(e =>
                 console.error('❌ [타일 수동 재빌드 실패]', e.message)
             );
+        });
+
+        // 로컬에서 재빌드해 둔 타일 변경분을 사용자가 명시적으로 서버에 싱크한다.
+        app.post('/api/admin/sync-territory-tiles', verifyAdmin, async (req, res) => {
+            if (_tileRebuildInProgress) {
+                return res.status(409).json({ message: '타일 재빌드가 진행 중입니다. 완료 후 싱크하세요.' });
+            }
+            const result = await _gitPushTiles('관리자 수동 서버 싱크');
+            if (!result.ok) return res.status(500).json({ message: '서버 싱크 실패', error: result.message });
+            res.json({
+                message: result.changed
+                    ? '✅ 영토 타일 서버 싱크 완료 · Vercel 배포가 시작됩니다.'
+                    : '✅ 서버와 이미 동일합니다. 싱크할 타일 변경분이 없습니다.',
+                changed: result.changed
+            });
         });
 
         // 🔔 내부 webhook: Vercel API 호출 후 로컬 서버에 증분 재빌드 알림 (localhost 전용)

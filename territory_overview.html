@@ -55,7 +55,7 @@
     cursor: pointer;
   }
   #btn-refresh-deploy:hover { background: #1a4080; color: #e0e0e0; }
-  #btn-trigger-rebuild {
+  #btn-trigger-rebuild, #btn-sync-tiles {
     background: #7c3aed;
     border: 1px solid #8b5cf6;
     color: #fff;
@@ -64,8 +64,8 @@
     font-size: 11px;
     cursor: pointer;
   }
-  #btn-trigger-rebuild:hover { background: #8b5cf6; }
-  #btn-trigger-rebuild:disabled {
+  #btn-trigger-rebuild:hover, #btn-sync-tiles:hover { background: #8b5cf6; }
+  #btn-trigger-rebuild:disabled, #btn-sync-tiles:disabled {
     background: #2a2a3a;
     border-color: #444;
     color: #777;
@@ -360,6 +360,7 @@
     <span id="lbl-pending-rebuild">재빌드 대기 없음</span>
   </div>
   <button id="btn-trigger-rebuild" onclick="triggerManualTileRebuild()" disabled>🧱 타일 재빌드</button>
+  <button id="btn-sync-tiles" onclick="syncTerritoryTilesToServer()" disabled>☁️ 서버 싱크</button>
   <button id="btn-refresh-deploy" onclick="loadDeployStatus()">↻</button>
 </div>
 <div id="build-progress-detail">
@@ -692,6 +693,29 @@ async function triggerManualTileRebuild() {
   } catch (e) {
     lbl.textContent = `❌ 재빌드 요청 실패: ${e.message}`;
     btn.disabled = false;
+  }
+}
+async function syncTerritoryTilesToServer() {
+  const btn = document.getElementById('btn-sync-tiles');
+  const lbl = document.getElementById('lbl-pending-rebuild');
+  if (!confirm('로컬에서 재빌드된 영토 타일 변경분을 서버에 싱크할까요?\n타일 커밋·push 후 Vercel 배포가 시작됩니다.')) return;
+  btn.disabled = true;
+  const previous = lbl.textContent;
+  lbl.textContent = '☁️ 서버 싱크 중...';
+  try {
+    const res = await fetch(`${LOCAL_API}/admin/sync-territory-tiles`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${getToken()}` }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || data.message || `HTTP ${res.status}`);
+    lbl.textContent = data.message;
+    await loadDeployStatus();
+  } catch (error) {
+    lbl.textContent = `❌ 서버 싱크 실패: ${error.message}`;
+    btn.disabled = false;
+    console.error('[영토 타일 수동 싱크 실패]', error);
+    setTimeout(() => { if (lbl.textContent.startsWith('❌')) lbl.textContent = previous; }, 10000);
   }
 }
 function setGeomEditBar(open, title = '🧭 경계 편집 모드') {
@@ -1552,10 +1576,12 @@ async function loadDeployStatus() {
     const build = b.lastBuild || null;
     serverDirtyTerritoryCount = Number(b.dirtyCount) || 0;
     const rebuildBtn = document.getElementById('btn-trigger-rebuild');
+    const syncBtn = document.getElementById('btn-sync-tiles');
     if (b.inProgress) {
       dotBuild.className = 'deploy-dot spin'; lblBuild.textContent = '🔨 타일 재빌드 중...';
       barBuild.style.width = `${Math.max(2, Number(build?.progress) || 2)}%`; barBuild.style.background = '#4fc3f7';
       rebuildBtn.disabled = true;
+      syncBtn.disabled = true;
     } else if (b.dirty || b.dirtyCount > 0) {
       const failed = b.lastBuild?.status === 'failed';
       const retry = b.retryScheduled ? ` · 자동 재시도 ${b.retryAttempt || 1}회차 대기` : '';
@@ -1601,6 +1627,10 @@ async function loadDeployStatus() {
     if (g?.sha) {
       lblCommit.textContent = `${g.sha} ${g.date ? relTime(new Date(g.date)) : ''}${g.unpushedCount > 0 ? ` · ⬆️ ${g.unpushedCount}미push` : ''}`;
       lblCommit.title = g.msg || '';
+      syncBtn.disabled = b.inProgress || !(Number(g.localDirtyTiles) > 0 || Number(g.unpushedCount) > 0);
+      syncBtn.title = Number(g.localDirtyTiles) > 0
+        ? `로컬 타일 변경 파일 ${g.localDirtyTiles}개를 서버에 싱크합니다.`
+        : Number(g.unpushedCount) > 0 ? `미push 커밋 ${g.unpushedCount}개를 서버에 싱크합니다.` : '서버와 동일합니다.';
     }
     const v = d.vercel;
     const sMap = { success:'green', completed:'green', failure:'red', error:'red', in_progress:'spin', queued:'yellow', pending:'yellow', neutral:'green' };
