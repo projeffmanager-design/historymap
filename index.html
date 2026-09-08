@@ -52894,7 +52894,7 @@ window.toggleResourceBar = function(btn, forceState) {
   var _tgSnapEnabled    = true;
   var _tgSnapSegments   = [];
   var _tgSnapDistancePx = 18;
-  var _tgPairId=null,_tgPairGeometry=null,_tgPairOriginal=null,_tgPairClickHandler=null,_tgPairSharedLine=null;
+  var _tgPairId=null,_tgPairGeometry=null,_tgPairOriginal=null,_tgPairClickHandler=null,_tgPairSharedLines=[],_tgPairMembers=[];
 
   /* ── 토큰 ─────────────────────────────────────────────────── */
   function _tgToken() {
@@ -52996,7 +52996,7 @@ window.toggleResourceBar = function(btn, forceState) {
   function _tgPairBtn(show,active) {
     var btn=document.getElementById('territory-geom-pair-btn');if(!btn)return;
     btn.style.display=show?'':'none';btn.classList.toggle('active',!!active);
-    btn.textContent=active?'↔ 두 번째 영토 선택 중':'↔ 공유 경계 맞춤';
+    btn.textContent=active?'↔ 겹친 영토 선택 중':'↔ 겹친 경계 일괄 맞춤';
   }
   function _tgLoadedTerritories() {
     if (Array.isArray(window.territories) && window.territories.length) return window.territories;
@@ -53123,7 +53123,7 @@ window.toggleResourceBar = function(btn, forceState) {
   }
   function _tg3dSetGeometry(geometry) {
     var m=window.mlMap3d;if(!m)return;
-    [_tgEditedGeometry,_tgPairGeometry].filter(Boolean).forEach(function(g){_tgGeometryRings(g).forEach(function(r){if(r.length>2)r[r.length-1]=r[0].slice();});});
+    [_tgEditedGeometry].concat(_tgPairMembers.map(function(member){return member.geometry;})).filter(Boolean).forEach(function(g){_tgGeometryRings(g).forEach(function(r){if(r.length>2)r[r.length-1]=r[0].slice();});});
     var fc={type:'FeatureCollection',features:[{type:'Feature',properties:{_id:_tgEditId},geometry:geometry}]};
     if(m.getSource('territory-3d-edit'))m.getSource('territory-3d-edit').setData(fc);
     else {
@@ -53131,15 +53131,15 @@ window.toggleResourceBar = function(btn, forceState) {
       m.addLayer({id:'territory-3d-edit-fill',type:'fill',source:'territory-3d-edit',paint:{'fill-color':'#d4a843','fill-opacity':.2}});
       m.addLayer({id:'territory-3d-edit-line',type:'line',source:'territory-3d-edit',paint:{'line-color':'#ffe58f','line-width':3,'line-opacity':1}});
     }
-    if(_tgPairId&&_tgPairGeometry){
-      var pair={type:'Feature',properties:{_id:_tgPairId},geometry:_tgPairGeometry};
+    if(_tgPairMembers.length){
+      var pair={type:'FeatureCollection',features:_tgPairMembers.map(function(member){return {type:'Feature',properties:{_id:member.id,name:member.name},geometry:member.geometry};})};
       if(m.getSource('territory-3d-pair-edit'))m.getSource('territory-3d-pair-edit').setData(pair);
       else{
         m.addSource('territory-3d-pair-edit',{type:'geojson',data:pair});
         m.addLayer({id:'territory-3d-pair-fill',type:'fill',source:'territory-3d-pair-edit',paint:{'fill-color':'#35d5d0','fill-opacity':.16}});
         m.addLayer({id:'territory-3d-pair-line',type:'line',source:'territory-3d-pair-edit',paint:{'line-color':'#73fff7','line-width':3}});
       }
-      if(_tgPairSharedLine&&m.getSource('territory-3d-shared-line'))m.getSource('territory-3d-shared-line').setData({type:'LineString',coordinates:_tgPairSharedLine});
+      if(_tgPairSharedLines.length&&m.getSource('territory-3d-shared-line'))m.getSource('territory-3d-shared-line').setData({type:'MultiLineString',coordinates:_tgPairSharedLines});
     }
   }
   function _tgGeometryRings(geometry) {
@@ -53352,34 +53352,57 @@ window.toggleResourceBar = function(btn, forceState) {
     _tgReplaceRingRun(best.b,best.rb,(reversed?mid.slice().reverse():mid.slice()));
     return mid;
   }
+  function _tgAttachToSharedLines(geometry,sharedLines){
+    var bbox=_tgBBox(geometry);if(!bbox)return null;
+    var span=Math.max(bbox.maxLng-bbox.minLng,bbox.maxLat-bbox.minLat),tolerance=Math.max(.006,Math.min(.18,span*.025)),best=null;
+    _tgOuterRingRefs(geometry).forEach(function(ref){(sharedLines||[]).forEach(function(line){
+      var run=_tgLongestNearRun(ref.ring,line,tolerance);
+      if(run&&(!best||run.length>best.run.length))best={ref:ref,run:run,line:line};
+    });});
+    if(!best)return null;
+    var nativePoints=_tgRunPoints(best.ref.ring,best.run),line=best.line;
+    var reverse=Math.hypot(nativePoints[0][0]-line[line.length-1][0],nativePoints[0][1]-line[line.length-1][1])<Math.hypot(nativePoints[0][0]-line[0][0],nativePoints[0][1]-line[0][1]);
+    _tgReplaceRingRun(best.ref,best.run,reverse?line.slice().reverse():line.slice());
+    return line;
+  }
   function _tgClearPair(){
     var m=window.mlMap3d;
     if(m&&_tgPairClickHandler){m.off('click',_tgPairClickHandler);_tgPairClickHandler=null;}
     if(m){['territory-3d-shared-line','territory-3d-pair-fill','territory-3d-pair-line'].forEach(function(id){if(m.getLayer(id))m.removeLayer(id);});['territory-3d-shared-line','territory-3d-pair-edit'].forEach(function(id){if(m.getSource(id))m.removeSource(id);});}
-    _tgPairId=null;_tgPairGeometry=null;_tgPairOriginal=null;_tgPairSharedLine=null;_tgPairBtn(false,false);
+    _tgPairId=null;_tgPairGeometry=null;_tgPairOriginal=null;_tgPairSharedLines=[];_tgPairMembers=[];_tgPairBtn(false,false);
   }
-  async function _tgPreparePair(id,name){
+  async function _tgPreparePair(hits){
     try{
-      var full=await _tgFetch(id),geom=full.geometry||(full.geojson&&full.geojson.geometry);if(!geom)throw new Error('두 번째 영토 geometry가 없습니다.');
-      _tgPairId=_tgDisplayId(full._id||id);_tgPairOriginal=JSON.parse(JSON.stringify(geom));_tgPairGeometry=JSON.parse(JSON.stringify(geom));
-      var shared=_tgMakeSharedBoundary(_tgEditedGeometry,_tgPairGeometry);if(!shared)throw new Error('서로 가까운 연속 경계를 찾지 못했습니다. 더 가까운 두 영토를 선택하세요.');
-      _tgPairSharedLine=shared;
+      var unique=[],seen=new Set([String(_tgEditId)]);
+      (hits||[]).forEach(function(hit){var id=_tgTerritoryId(hit);if(id&&!seen.has(id)){seen.add(id);unique.push({id:id,name:_tgTerritoryName(hit)});}});
+      if(!unique.length)throw new Error('겹친 다른 영토를 찾지 못했습니다.');
+      var loaded=await Promise.all(unique.map(async function(item){var full=await _tgFetch(item.id);return {id:_tgDisplayId(full._id||item.id),name:item.name,full:full};}));
+      _tgPairMembers=[];_tgPairSharedLines=[];
+      loaded.forEach(function(item){
+        var geom=item.full.geometry||(item.full.geojson&&item.full.geojson.geometry);if(!geom)return;
+        var member={id:item.id,name:item.name,original:JSON.parse(JSON.stringify(geom)),geometry:JSON.parse(JSON.stringify(geom))};
+        var shared=_tgAttachToSharedLines(member.geometry,_tgPairSharedLines);
+        if(!shared)shared=_tgMakeSharedBoundary(_tgEditedGeometry,member.geometry);
+        if(shared){_tgPairMembers.push(member);if(!_tgPairSharedLines.includes(shared))_tgPairSharedLines.push(shared);}
+      });
+      if(!_tgPairMembers.length)throw new Error('서로 가까운 연속 경계를 찾지 못했습니다. 더 가까운 경계 지점을 선택하세요.');
+      _tgPairId=_tgPairMembers[0].id;_tgPairGeometry=_tgPairMembers[0].geometry;_tgPairOriginal=_tgPairMembers[0].original;
       var m=window.mlMap3d;_tg3dSetGeometry(_tgEditedGeometry);
-      m.addSource('territory-3d-shared-line',{type:'geojson',data:{type:'LineString',coordinates:shared}});
+      m.addSource('territory-3d-shared-line',{type:'geojson',data:{type:'MultiLineString',coordinates:_tgPairSharedLines}});
       m.addLayer({id:'territory-3d-shared-line',type:'line',source:'territory-3d-shared-line',paint:{'line-color':'#ff56d8','line-width':5,'line-opacity':.95}});
       _tg3dRefreshMarkers();_tgPairBtn(true,false);m.getCanvas().style.cursor='';
-      _tgSetMsg('↔ '+(name||_tgPairId)+'와 공유 중간선을 만들었습니다. 분홍 선의 꼭짓점을 미세 조절한 뒤 저장하세요.','dirty');
+      _tgSetMsg('↔ 겹친 영토 '+_tgPairMembers.length+'개와 공유 중간선을 만들었습니다. 분홍 선을 미세 조절한 뒤 그룹 저장하세요.','dirty');
     }catch(error){_tgClearPair();_tgPairBtn(true,false);_tgSetMsg('❌ 공유 경계 맞춤 실패: '+error.message,'err');}
   }
   function _tgStartPairSelect(){
     var m=window.mlMap3d;if(!m||!_tgEditId||!_tgEditedGeometry)return;
     if(_tgPairClickHandler){_tgClearPair();_tgPairBtn(true,false);_tgSetMsg('공유 경계 선택을 취소했습니다.');return;}
-    _tgPairBtn(true,true);m.getCanvas().style.cursor='crosshair';_tgSetMsg('↔ 맞물릴 두 번째 영토를 지도에서 클릭하세요.','dirty');
+    _tgPairBtn(true,true);m.getCanvas().style.cursor='crosshair';_tgSetMsg('↔ 맞물릴 경계 지점을 클릭하세요. 그 위치의 겹친 영토를 모두 불러옵니다.','dirty');
     _tgPairClickHandler=function(e){
       var ids=['territory-fill-city','territory-fill-province','territory-fill-country'].filter(function(x){return !!m.getLayer(x);});
       var hits=(ids.length?m.queryRenderedFeatures(e.point,{layers:ids}):[]).filter(function(f){return _tgTerritoryId(f)&&_tgTerritoryId(f)!==String(_tgEditId);});
       if(!hits.length){_tgSetMsg('⚠️ 이 위치에 선택 가능한 다른 영토가 없습니다.','err');return;}
-      _tgChooseTerritory(hits,function(hit){m.off('click',_tgPairClickHandler);_tgPairClickHandler=null;_tgPreparePair(_tgTerritoryId(hit),_tgTerritoryName(hit));});
+      m.off('click',_tgPairClickHandler);_tgPairClickHandler=null;_tgHideLayerPicker();_tgPreparePair(hits);
     };m.on('click',_tgPairClickHandler);
   }
   function _tgCrossingVertices(){
@@ -53390,7 +53413,7 @@ window.toggleResourceBar = function(btn, forceState) {
       return ((o1>1e-10&&o2< -1e-10)||(o1< -1e-10&&o2>1e-10))
         &&((o3>1e-10&&o4< -1e-10)||(o3< -1e-10&&o4>1e-10));
     }
-    [_tgEditedGeometry,_tgPairGeometry].filter(Boolean).forEach(function(geometry){
+    [_tgEditedGeometry].concat(_tgPairMembers.map(function(member){return member.geometry;})).filter(Boolean).forEach(function(geometry){
       _tgGeometryRings(geometry).forEach(function(ring){
         var n=ring.length-1;
         function vertex(index){return index===n?ring[0]:ring[index];}
@@ -54043,10 +54066,9 @@ window.toggleResourceBar = function(btn, forceState) {
 
     var geometry=_tgEditedGeometry||_tgOriginalGeom;
     var bbox=_tgBBox(geometry);
-    var pairGeometry=_tgPairId?_tgPairGeometry:null;
-    var pairBbox=pairGeometry?_tgBBox(pairGeometry):null;
+    var pairUpdates=_tgPairMembers.map(function(member){return {id:member.id,geometry:member.geometry,bbox:_tgBBox(member.geometry)};});
     if (!geometry||!bbox) { _tgSetMsg('❌ geometry/bbox 계산 실패','err'); return; }
-    if(_tgPairId&&(!pairGeometry||!pairBbox)){_tgSetMsg('❌ 두 번째 영토 geometry/bbox 계산 실패','err');return;}
+    if(pairUpdates.some(function(update){return !update.geometry||!update.bbox;})){_tgSetMsg('❌ 편집 그룹의 geometry/bbox 계산 실패','err');return;}
 
     /* 자기교차 감지 */
     function sx(p1,p2,p3,p4){
@@ -54059,7 +54081,7 @@ window.toggleResourceBar = function(btn, forceState) {
     function rc(ring){var n=ring.length-1;for(var i=0;i<n-1;i++)for(var j=i+2;j<n;j++){if(i===0&&j===n-1)continue;if(sx(ring[i],ring[i+1],ring[j],ring[j+1]))return true;}return false;}
     function gc(g){if(!g)return false;var rs=g.type==='Polygon'?g.coordinates:g.type==='MultiPolygon'?g.coordinates.flat():[];return rs.some(rc);}
 
-    if ((gc(geometry)||gc(pairGeometry))&&!_tgSave._w) {
+    if ((gc(geometry)||pairUpdates.some(function(update){return gc(update.geometry);}))&&!_tgSave._w) {
       _tgSave._w=true;
       _tgSetMsg('⚠️ 자기교차 상태입니다. 계속 저장하려면 다시 저장 버튼을 누르세요.','err');
       return;
@@ -54073,14 +54095,11 @@ window.toggleResourceBar = function(btn, forceState) {
     try {
       var saveStartedAt=Date.now();
       /* ① DB 저장 */
-      var pairMode=!!(_tgPairId&&pairGeometry);
+      var pairMode=pairUpdates.length>0;
       var res=await fetch(pairMode?'/api/territories/shared-boundary':'/api/territories/'+_tgEditId,{
         method:'PUT',
         headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
-        body:JSON.stringify(pairMode?{updates:[
-          {id:_tgEditId,geometry:geometry,bbox:bbox},
-          {id:_tgPairId,geometry:pairGeometry,bbox:pairBbox}
-        ]}:{geometry:geometry,bbox:bbox})
+        body:JSON.stringify(pairMode?{updates:[{id:_tgEditId,geometry:geometry,bbox:bbox}].concat(pairUpdates)}:{geometry:geometry,bbox:bbox})
       });
       var json=await res.json();
       if (!res.ok){
@@ -54091,7 +54110,7 @@ window.toggleResourceBar = function(btn, forceState) {
 
       /* ② 캐시 갱신 */
       _tgFullCache[_tgEditId]=Object.assign({},_tgFullCache[_tgEditId]||{},json,{geometry:geometry,bbox:bbox});
-      if(pairMode)_tgFullCache[_tgPairId]=Object.assign({},_tgFullCache[_tgPairId]||{},{geometry:pairGeometry,bbox:pairBbox});
+      pairUpdates.forEach(function(update){_tgFullCache[update.id]=Object.assign({},_tgFullCache[update.id]||{},{geometry:update.geometry,bbox:update.bbox});});
 
       /* ③ 수정 좌표를 즉시 유지한다. 재빌드 전 구 타일을 다시 읽어 덮어쓰지 않는다. */
 
@@ -54108,13 +54127,13 @@ window.toggleResourceBar = function(btn, forceState) {
           geometry:geometry,
           geojson:{type:'Feature',properties:window.territories[fi].geojson?.properties||{},geometry:geometry}
         });
-        if(pairMode){
-          var pi=window.territories.findIndex(function(t){return _tgDisplayId(t._id||t.id)===String(_tgPairId);});
+        pairUpdates.forEach(function(update){
+          var pi=window.territories.findIndex(function(t){return _tgDisplayId(t._id||t.id)===String(update.id);});
           if(pi!==-1)window.territories[pi]=Object.assign({},window.territories[pi],{
-            bbox:pairBbox,type:pairGeometry.type,coordinates:pairGeometry.coordinates,geometry:pairGeometry,
-            geojson:{type:'Feature',properties:window.territories[pi].geojson?.properties||{},geometry:pairGeometry}
+            bbox:update.bbox,type:update.geometry.type,coordinates:update.geometry.coordinates,geometry:update.geometry,
+            geojson:{type:'Feature',properties:window.territories[pi].geojson?.properties||{},geometry:update.geometry}
           });
-        }
+        });
       }
 
       /* 경계가 같아 보이는 이전 union 결과와 소유권 판정 캐시를 즉시 폐기 */
@@ -54123,8 +54142,8 @@ window.toggleResourceBar = function(btn, forceState) {
       if (typeof _activeCastleTerritoryCache!=='undefined') _activeCastleTerritoryCache.clear();
       if (typeof _simplifiedCoordsCache!=='undefined') _simplifiedCoordsCache.clear();
 
-      _tgSetMsg(pairMode?'✅ 공유 경계 양쪽 저장 완료 · 타일 재빌드 중…':'✅ 경계 저장 완료 · 타일 재빌드 중… 완료되면 화면에 알려드립니다.','ok');
-      if(typeof showToast==='function')showToast(pairMode?'↔ 공유 경계 양쪽 저장 완료 · 타일 재빌드 중…':'🗺️ 경계 저장 완료 · 타일 재빌드 중…','info');
+      _tgSetMsg(pairMode?'✅ 공유 경계 '+(pairUpdates.length+1)+'개 영토 일괄 저장 완료 · 타일 재빌드 중…':'✅ 경계 저장 완료 · 타일 재빌드 중… 완료되면 화면에 알려드립니다.','ok');
+      if(typeof showToast==='function')showToast(pairMode?'↔ 공유 경계 '+(pairUpdates.length+1)+'개 영토 저장 완료 · 타일 재빌드 중…':'🗺️ 경계 저장 완료 · 타일 재빌드 중…','info');
 
       /* ⑤ 편집 종료 & 지도 재렌더 */
       setTimeout(function(){

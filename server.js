@@ -6578,7 +6578,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         app.put('/api/territories/shared-boundary', verifyAdmin, async (req, res) => {
             try {
                 const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
-                if (updates.length !== 2) return res.status(400).json({ message: '공유 경계 저장에는 영토 2개가 필요합니다.' });
+                if (updates.length < 2 || updates.length > 25) return res.status(400).json({ message: '공유 경계 저장에는 서로 다른 영토 2~25개가 필요합니다.' });
                 const ids = new Set();
                 const operations = updates.map(update => {
                     const _id = toObjectId(update.id);
@@ -6586,18 +6586,18 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     ids.add(String(update.id));
                     return { updateOne: { filter: { _id }, update: { $set: { geometry: update.geometry, bbox: update.bbox } } } };
                 });
-                if (ids.size !== 2) return res.status(400).json({ message: '서로 다른 영토 2개를 선택해야 합니다.' });
+                if (ids.size !== updates.length) return res.status(400).json({ message: '공유 경계 그룹에 중복된 영토 ID가 있습니다.' });
                 const objectIds = operations.map(operation => operation.updateOne.filter._id);
                 const existingCount = await collections.territories.countDocuments({ _id: { $in: objectIds } });
-                if (existingCount !== 2) return res.status(404).json({ message: '공유 경계 대상 영토 일부를 찾지 못했습니다.' });
+                if (existingCount !== updates.length) return res.status(404).json({ message: '공유 경계 대상 영토 일부를 찾지 못했습니다.' });
                 const result = await collections.territories.bulkWrite(operations, { ordered: true });
-                if (result.matchedCount !== 2) return res.status(404).json({ message: '공유 경계 대상 영토 일부를 찾지 못했습니다.' });
+                if (result.matchedCount !== updates.length) return res.status(404).json({ message: '공유 경계 대상 영토 일부를 찾지 못했습니다.' });
                 territoriesCache = null; territoriesCacheTime = null;
                 ids.forEach(id => _dirtyTerritoryIds.add(id));
                 _territoryDirty = true;
                 rebuildTerritoryTilesIncremental('공유 경계 수정', ids).catch(error =>
                     console.error('❌ [공유 경계 타일 재빌드 실패]', error.message));
-                res.json({ message: '공유 경계 영토 2개 저장 완료', ids: [...ids] });
+                res.json({ message: `공유 경계 영토 ${updates.length}개 저장 완료`, ids: [...ids] });
             } catch (error) {
                 console.error('공유 경계 저장 실패:', error);
                 res.status(500).json({ message: '공유 경계 저장 실패', error: error.message });
