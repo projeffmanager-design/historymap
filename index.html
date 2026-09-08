@@ -53377,6 +53377,17 @@ window.toggleResourceBar = function(btn, forceState) {
     if(next.length<3)return false;
     next.push(next[0].slice());ref.container[ref.index]=next;ref.ring=next;return true;
   }
+  function _tgRingHasSelfIntersection(ring){
+    function cross(a,b,c,d){
+      function orient(p,q,r){return (q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]);}
+      var o1=orient(a,b,c),o2=orient(a,b,d),o3=orient(c,d,a),o4=orient(c,d,b);
+      return ((o1>1e-10&&o2< -1e-10)||(o1< -1e-10&&o2>1e-10))&&((o3>1e-10&&o4< -1e-10)||(o3< -1e-10&&o4>1e-10));
+    }
+    var n=(ring||[]).length-1;
+    for(var i=0;i<n;i++)for(var j=i+2;j<n;j++){if(i===0&&j===n-1)continue;if(cross(ring[i],ring[i+1],ring[j],ring[j+1]))return true;}
+    return false;
+  }
+  function _tgGeometryHasSelfIntersection(geometry){return !!geometry&&_tgGeometryRings(geometry).some(_tgRingHasSelfIntersection);}
   function _tgMakeSharedBoundary(first,second){
     var bboxA=_tgBBox(first),bboxB=_tgBBox(second);if(!bboxA||!bboxB)return null;
     var span=Math.max(bboxA.maxLng-bboxA.minLng,bboxA.maxLat-bboxA.minLat,bboxB.maxLng-bboxB.minLng,bboxB.maxLat-bboxB.minLat);
@@ -53406,7 +53417,9 @@ window.toggleResourceBar = function(btn, forceState) {
     if(!best)return null;
     var pointsA=_tgRunPoints(best.a.ring,best.ra),referenceB=_tgRunPoints(best.b.ring,best.rb);
     var reverse=Math.hypot(pointsA[0][0]-referenceB[referenceB.length-1][0],pointsA[0][1]-referenceB[referenceB.length-1][1])<Math.hypot(pointsA[0][0]-referenceB[0][0],pointsA[0][1]-referenceB[0][1]);
+    var originalRing=best.a.ring;
     _tgReplaceRingRun(best.a,best.ra,reverse?referenceB.slice().reverse():referenceB.slice());
+    if(_tgGeometryHasSelfIntersection(first)){best.a.container[best.a.index]=originalRing;best.a.ring=originalRing;return null;}
     return referenceB;
   }
   function _tgAttachToSharedLines(geometry,sharedLines){
@@ -53419,7 +53432,9 @@ window.toggleResourceBar = function(btn, forceState) {
     if(!best)return null;
     var nativePoints=_tgRunPoints(best.ref.ring,best.run),line=best.line;
     var reverse=Math.hypot(nativePoints[0][0]-line[line.length-1][0],nativePoints[0][1]-line[line.length-1][1])<Math.hypot(nativePoints[0][0]-line[0][0],nativePoints[0][1]-line[0][1]);
+    var originalRing=best.ref.ring;
     _tgReplaceRingRun(best.ref,best.run,reverse?line.slice().reverse():line.slice());
+    if(_tgGeometryHasSelfIntersection(geometry)){best.ref.container[best.ref.index]=originalRing;best.ref.ring=originalRing;return null;}
     return line;
   }
   function _tgClearPair(){
@@ -54144,12 +54159,10 @@ window.toggleResourceBar = function(btn, forceState) {
     function rc(ring){var n=ring.length-1;for(var i=0;i<n-1;i++)for(var j=i+2;j<n;j++){if(i===0&&j===n-1)continue;if(sx(ring[i],ring[i+1],ring[j],ring[j+1]))return true;}return false;}
     function gc(g){if(!g)return false;var rs=g.type==='Polygon'?g.coordinates:g.type==='MultiPolygon'?g.coordinates.flat():[];return rs.some(rc);}
 
-    if ((gc(geometry)||pairUpdates.some(function(update){return gc(update.geometry);}))&&!_tgSave._w) {
-      _tgSave._w=true;
-      _tgSetMsg('⚠️ 자기교차 상태입니다. 계속 저장하려면 다시 저장 버튼을 누르세요.','err');
+    if (gc(geometry)||pairUpdates.some(function(update){return gc(update.geometry);})) {
+      _tgSetMsg('❌ 빨간 꼭지점으로 표시된 자기교차를 먼저 해소해야 저장할 수 있습니다.','err');
       return;
     }
-    _tgSave._w=false;
 
     _tgSetMsg('저장 중...');
     var saveBtn=document.getElementById('territory-geom-save-btn');

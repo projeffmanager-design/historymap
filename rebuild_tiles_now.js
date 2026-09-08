@@ -80,7 +80,7 @@ function _territoryToFeature(territory) {
     if (!geometry) return null;
     return {
         type: 'Feature',
-        geometry: _simplifyGeometry(geometry, 0.005),
+        geometry: territory.boundary_preserve === true ? geometry : _simplifyGeometry(geometry, 0.005),
         properties: {
             _id: territory._id.toString(),
             name: territory.name,

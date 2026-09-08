@@ -1886,6 +1886,25 @@ async function setupRoutesAndCollections() {
             return { minLat, maxLat, minLng, maxLng };
         }
 
+        function _geometryHasSelfIntersection(geometry) {
+            const rings = geometry?.type === 'Polygon' ? geometry.coordinates
+                : geometry?.type === 'MultiPolygon' ? geometry.coordinates.flat() : [];
+            const orient = (a, b, c) => (b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
+            const crosses = (a,b,c,d) => {
+                const o1=orient(a,b,c),o2=orient(a,b,d),o3=orient(c,d,a),o4=orient(c,d,b);
+                return ((o1>1e-10&&o2< -1e-10)||(o1< -1e-10&&o2>1e-10))
+                    && ((o3>1e-10&&o4< -1e-10)||(o3< -1e-10&&o4>1e-10));
+            };
+            return rings.some(ring => {
+                const n=(ring?.length||0)-1;
+                for(let i=0;i<n;i++)for(let j=i+2;j<n;j++){
+                    if(i===0&&j===n-1)continue;
+                    if(crosses(ring[i],ring[i+1],ring[j],ring[j+1]))return true;
+                }
+                return false;
+            });
+        }
+
         // ─── 영토 doc → GeoJSON Feature 변환 ────────────────────────────────────
         function _territoryToFeature(territory) {
             const geometry = territory.geometry
@@ -1894,7 +1913,9 @@ async function setupRoutesAndCollections() {
             if (!geometry) return null;
             return {
                 type: 'Feature',
-                geometry: _simplifyGeometry(geometry, 0.005),
+                // 경계 편집기로 확정한 좌표는 다시 단순화하면 공유 꼭지점이 서로 다르게
+                // 탈락해 틈/돌출이 생기므로 원본 좌표열을 그대로 타일에 기록한다.
+                geometry: territory.boundary_preserve === true ? geometry : _simplifyGeometry(geometry, 0.005),
                 properties: {
                     _id: territory._id.toString(),
                     name: territory.name, name_ko: territory.name_ko,
@@ -6579,12 +6600,13 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             try {
                 const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
                 if (updates.length < 2 || updates.length > 25) return res.status(400).json({ message: '공유 경계 저장에는 서로 다른 영토 2~25개가 필요합니다.' });
+                if (updates.some(update => _geometryHasSelfIntersection(update.geometry))) return res.status(400).json({ message: '자기교차가 포함된 영토는 저장할 수 없습니다.' });
                 const ids = new Set();
                 const operations = updates.map(update => {
                     const _id = toObjectId(update.id);
                     if (!_id || !update.geometry || !update.bbox) throw new Error('영토 ID 또는 geometry/bbox가 올바르지 않습니다.');
                     ids.add(String(update.id));
-                    return { updateOne: { filter: { _id }, update: { $set: { geometry: update.geometry, bbox: update.bbox } } } };
+                    return { updateOne: { filter: { _id }, update: { $set: { geometry: update.geometry, bbox: update.bbox, boundary_preserve: true } } } };
                 });
                 if (ids.size !== updates.length) return res.status(400).json({ message: '공유 경계 그룹에 중복된 영토 ID가 있습니다.' });
                 const objectIds = operations.map(operation => operation.updateOne.filter._id);
@@ -6613,6 +6635,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
 
                 const updatedTerritory = req.body;
                 if (updatedTerritory._id) delete updatedTerritory._id;
+                if (updatedTerritory.geometry && _geometryHasSelfIntersection(updatedTerritory.geometry)) return res.status(400).json({ message: '자기교차가 포함된 영토는 저장할 수 없습니다.' });
+                if (updatedTerritory.geometry) updatedTerritory.boundary_preserve = true;
 
                 // null 값은 $unset, 나머지는 $set으로 분리
                 const setFields = {}, unsetFields = {};
