@@ -9849,7 +9849,7 @@ body.force-mobile .marker-type-selector button {
           <button type="button" id="territory-geom-simplify-btn" style="display:none">🪶 500개로 단순화</button>
           <button type="button" id="territory-geom-add-vertex-btn" style="display:none">➕ 꼭짓점 추가</button>
           <button type="button" id="territory-geom-snap-btn" style="display:none">🧲 경계 스냅 ON</button>
-          <button type="button" id="territory-geom-pair-btn" style="display:none">↔ 공유 경계 맞춤</button>
+          <button type="button" id="territory-geom-pair-btn" style="display:none">A → B 경계 맞춤</button>
           <button type="button" class="danger" id="territory-geom-eraser-btn" style="display:none">🧽 지우개</button>
           <button type="button" class="danger" id="territory-geom-hide-btn" style="display:none">🙈 영토 숨김</button>
           <button type="button" class="primary" id="territory-geom-save-btn">경계 저장</button>
@@ -52895,6 +52895,7 @@ window.toggleResourceBar = function(btn, forceState) {
   var _tgSnapSegments   = [];
   var _tgSnapDistancePx = 18;
   var _tgPairId=null,_tgPairGeometry=null,_tgPairOriginal=null,_tgPairClickHandler=null,_tgPairSharedLines=[],_tgPairMembers=[];
+  var _tgAOverlapCandidates=[];
 
   /* ── 토큰 ─────────────────────────────────────────────────── */
   function _tgToken() {
@@ -52996,7 +52997,7 @@ window.toggleResourceBar = function(btn, forceState) {
   function _tgPairBtn(show,active) {
     var btn=document.getElementById('territory-geom-pair-btn');if(!btn)return;
     btn.style.display=show?'':'none';btn.classList.toggle('active',!!active);
-    btn.textContent=active?'↔ 겹친 영토 선택 중':'↔ 겹친 경계 일괄 맞춤';
+    btn.textContent=active?'B 기준 영토 선택 중':'A → B 경계 일괄 맞춤';
   }
   function _tgLoadedTerritories() {
     if (Array.isArray(window.territories) && window.territories.length) return window.territories;
@@ -53352,6 +53353,20 @@ window.toggleResourceBar = function(btn, forceState) {
     _tgReplaceRingRun(best.b,best.rb,(reversed?mid.slice().reverse():mid.slice()));
     return mid;
   }
+  function _tgFitFirstToSecond(first,second){
+    var bboxA=_tgBBox(first),bboxB=_tgBBox(second);if(!bboxA||!bboxB)return null;
+    var span=Math.max(bboxA.maxLng-bboxA.minLng,bboxA.maxLat-bboxA.minLat,bboxB.maxLng-bboxB.minLng,bboxB.maxLat-bboxB.minLat);
+    var tolerance=Math.max(.006,Math.min(.18,span*.025)),best=null;
+    _tgOuterRingRefs(first).forEach(function(a){_tgOuterRingRefs(second).forEach(function(b){
+      var ra=_tgLongestNearRun(a.ring,b.ring,tolerance),rb=_tgLongestNearRun(b.ring,a.ring,tolerance);
+      if(ra&&rb&&(!best||Math.min(ra.length,rb.length)>best.score))best={a:a,b:b,ra:ra,rb:rb,score:Math.min(ra.length,rb.length)};
+    });});
+    if(!best)return null;
+    var pointsA=_tgRunPoints(best.a.ring,best.ra),referenceB=_tgRunPoints(best.b.ring,best.rb);
+    var reverse=Math.hypot(pointsA[0][0]-referenceB[referenceB.length-1][0],pointsA[0][1]-referenceB[referenceB.length-1][1])<Math.hypot(pointsA[0][0]-referenceB[0][0],pointsA[0][1]-referenceB[0][1]);
+    _tgReplaceRingRun(best.a,best.ra,reverse?referenceB.slice().reverse():referenceB.slice());
+    return referenceB;
+  }
   function _tgAttachToSharedLines(geometry,sharedLines){
     var bbox=_tgBBox(geometry);if(!bbox)return null;
     var span=Math.max(bbox.maxLng-bbox.minLng,bbox.maxLat-bbox.minLat),tolerance=Math.max(.006,Math.min(.18,span*.025)),best=null;
@@ -53371,18 +53386,18 @@ window.toggleResourceBar = function(btn, forceState) {
     if(m){['territory-3d-shared-line','territory-3d-pair-fill','territory-3d-pair-line'].forEach(function(id){if(m.getLayer(id))m.removeLayer(id);});['territory-3d-shared-line','territory-3d-pair-edit'].forEach(function(id){if(m.getSource(id))m.removeSource(id);});}
     _tgPairId=null;_tgPairGeometry=null;_tgPairOriginal=null;_tgPairSharedLines=[];_tgPairMembers=[];_tgPairBtn(false,false);
   }
-  async function _tgPreparePair(hits){
+  async function _tgPreparePair(hits,referenceId){
     try{
       var unique=[],seen=new Set([String(_tgEditId)]);
-      (hits||[]).forEach(function(hit){var id=_tgTerritoryId(hit);if(id&&!seen.has(id)){seen.add(id);unique.push({id:id,name:_tgTerritoryName(hit)});}});
+      (hits||[]).concat(_tgAOverlapCandidates).forEach(function(hit){var id=_tgTerritoryId(hit);if(id&&!seen.has(id)){seen.add(id);unique.push({id:id,name:_tgTerritoryName(hit)});}});
       if(!unique.length)throw new Error('겹친 다른 영토를 찾지 못했습니다.');
       var loaded=await Promise.all(unique.map(async function(item){var full=await _tgFetch(item.id);return {id:_tgDisplayId(full._id||item.id),name:item.name,full:full};}));
+      loaded.sort(function(a,b){return a.id===referenceId?-1:b.id===referenceId?1:0;});
       _tgPairMembers=[];_tgPairSharedLines=[];
-      loaded.forEach(function(item){
+      loaded.forEach(function(item,index){
         var geom=item.full.geometry||(item.full.geojson&&item.full.geojson.geometry);if(!geom)return;
         var member={id:item.id,name:item.name,original:JSON.parse(JSON.stringify(geom)),geometry:JSON.parse(JSON.stringify(geom))};
-        var shared=_tgAttachToSharedLines(member.geometry,_tgPairSharedLines);
-        if(!shared)shared=_tgMakeSharedBoundary(_tgEditedGeometry,member.geometry);
+        var shared=index===0?_tgFitFirstToSecond(_tgEditedGeometry,member.geometry):_tgAttachToSharedLines(member.geometry,_tgPairSharedLines);
         if(shared){_tgPairMembers.push(member);if(!_tgPairSharedLines.includes(shared))_tgPairSharedLines.push(shared);}
       });
       if(!_tgPairMembers.length)throw new Error('서로 가까운 연속 경계를 찾지 못했습니다. 더 가까운 경계 지점을 선택하세요.');
@@ -53391,18 +53406,20 @@ window.toggleResourceBar = function(btn, forceState) {
       m.addSource('territory-3d-shared-line',{type:'geojson',data:{type:'MultiLineString',coordinates:_tgPairSharedLines}});
       m.addLayer({id:'territory-3d-shared-line',type:'line',source:'territory-3d-shared-line',paint:{'line-color':'#ff56d8','line-width':5,'line-opacity':.95}});
       _tg3dRefreshMarkers();_tgPairBtn(true,false);m.getCanvas().style.cursor='';
-      _tgSetMsg('↔ 겹친 영토 '+_tgPairMembers.length+'개와 공유 중간선을 만들었습니다. 분홍 선을 미세 조절한 뒤 그룹 저장하세요.','dirty');
+      _tgSetMsg('↔ B의 기존 경계에 A와 양쪽 중첩 영토를 맞췄습니다. 함께 저장할 영토 '+(_tgPairMembers.length+1)+'개 · 분홍 선을 확인하세요.','dirty');
     }catch(error){_tgClearPair();_tgPairBtn(true,false);_tgSetMsg('❌ 공유 경계 맞춤 실패: '+error.message,'err');}
   }
   function _tgStartPairSelect(){
     var m=window.mlMap3d;if(!m||!_tgEditId||!_tgEditedGeometry)return;
     if(_tgPairClickHandler){_tgClearPair();_tgPairBtn(true,false);_tgSetMsg('공유 경계 선택을 취소했습니다.');return;}
-    _tgPairBtn(true,true);m.getCanvas().style.cursor='crosshair';_tgSetMsg('↔ 맞물릴 경계 지점을 클릭하세요. 그 위치의 겹친 영토를 모두 불러옵니다.','dirty');
+    if(_tgPairMembers.length)_tgClearPair();
+    _tgPairBtn(true,true);m.getCanvas().style.cursor='crosshair';_tgSetMsg('A를 맞출 기준 영토 B의 경계 지점을 클릭하세요. 겹친 후보가 여러 개면 B를 선택합니다.','dirty');
     _tgPairClickHandler=function(e){
       var ids=['territory-fill-city','territory-fill-province','territory-fill-country'].filter(function(x){return !!m.getLayer(x);});
       var hits=(ids.length?m.queryRenderedFeatures(e.point,{layers:ids}):[]).filter(function(f){return _tgTerritoryId(f)&&_tgTerritoryId(f)!==String(_tgEditId);});
       if(!hits.length){_tgSetMsg('⚠️ 이 위치에 선택 가능한 다른 영토가 없습니다.','err');return;}
-      m.off('click',_tgPairClickHandler);_tgPairClickHandler=null;_tgHideLayerPicker();_tgPreparePair(hits);
+      m.off('click',_tgPairClickHandler);_tgPairClickHandler=null;
+      _tgChooseTerritory(hits,function(reference){_tgPreparePair(hits,_tgTerritoryId(reference));});
     };m.on('click',_tgPairClickHandler);
   }
   function _tgCrossingVertices(){
@@ -53468,6 +53485,7 @@ window.toggleResourceBar = function(btn, forceState) {
       m.getCanvas().style.cursor='';m.dragPan.enable();
     }
     _tg3dSelecting=false;_tg3dEraseDown=false;_tg3dErasePoints=[];_tg3dAddMode=false;
+    _tgAOverlapCandidates=[];
     var addBtn=document.getElementById('territory-geom-add-vertex-btn');
     if(addBtn){addBtn.classList.remove('active');addBtn.textContent='➕ 꼭짓점 추가';}
     _tgAddVertexBtn(false);
@@ -53476,7 +53494,7 @@ window.toggleResourceBar = function(btn, forceState) {
     _tgPairBtn(false,false);
     _tgHideBtn(false,false);
   }
-  async function _tgOpen3dEdit(id,name) {
+  async function _tgOpen3dEdit(id,name,overlapHits) {
     try{
       var m=window.mlMap3d;
       var displayId=_tgDisplayId(id);
@@ -53485,6 +53503,7 @@ window.toggleResourceBar = function(btn, forceState) {
       var full=await _tgFetch(id);var geom=full.geometry||(full.geojson&&full.geojson.geometry);
       if(!geom)throw new Error('편집할 geometry가 없습니다.');
       displayId=_tgDisplayId(full._id||full.id||displayId);_tgEditId=displayId;
+      _tgAOverlapCandidates=(overlapHits||[]).filter(function(hit){return _tgTerritoryId(hit)!==String(displayId);});
       _tgCurrentHidden=full.hidden===true;
       _tgSetTitle('🧭 '+(name||full.name||displayId)+' 3D 경계 편집 · Object ID: '+displayId);
       _tgOriginalGeom=JSON.parse(JSON.stringify(geom));_tgEditedGeometry=JSON.parse(JSON.stringify(geom));
@@ -53505,7 +53524,7 @@ window.toggleResourceBar = function(btn, forceState) {
         .filter(function(f){return !!_tgTerritoryId(f);});
       if(!hits.length){_tgSetMsg('⚠️ 이 위치에서 편집 가능한 영토를 찾지 못했습니다.','err');return;}
       _tgChooseTerritory(hits,function(hit){
-        _tgOpen3dEdit(_tgTerritoryId(hit),_tgTerritoryName(hit));
+        _tgOpen3dEdit(_tgTerritoryId(hit),_tgTerritoryName(hit),hits);
       });
     };
     m.on('click',_tg3dClickHandler);
