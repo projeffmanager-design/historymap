@@ -9861,8 +9861,6 @@ body.force-mobile .marker-type-selector button {
           <button type="button" id="territory-geom-add-vertex-btn" style="display:none">➕ 꼭짓점 추가</button>
           <button type="button" id="territory-geom-snap-btn" style="display:none">🧲 경계 스냅 ON</button>
           <button type="button" id="territory-geom-pair-btn" style="display:none">A → B 경계 맞춤</button>
-          <button type="button" id="territory-geom-boundary-select-btn" style="display:none">🖌 공유구간 선택</button>
-          <button type="button" id="territory-geom-boundary-apply-btn" style="display:none">✓ 선택구간 확정</button>
           <button type="button" class="danger" id="territory-geom-eraser-btn" style="display:none">🧽 지우개</button>
           <button type="button" class="danger" id="territory-geom-hide-btn" style="display:none">🙈 영토 숨김</button>
           <button type="button" class="primary" id="territory-geom-save-btn">경계 저장</button>
@@ -53467,16 +53465,19 @@ window.toggleResourceBar = function(btn, forceState) {
       var loaded=await Promise.all(unique.map(async function(item){var full=await _tgFetch(item.id);return {id:_tgDisplayId(full._id||item.id),name:item.name,full:full};}));
       loaded.sort(function(a,b){return a.id===referenceId?-1:b.id===referenceId?1:0;});
       _tgPairMembers=[];_tgPairSharedLines=[];_tgReferenceBId=referenceId;_tgBoundarySelected=new Map();
-      loaded.forEach(function(item){
+      loaded.forEach(function(item,index){
         var geom=item.full.geometry||(item.full.geojson&&item.full.geojson.geometry);if(!geom)return;
         var member={id:item.id,name:item.name,original:JSON.parse(JSON.stringify(geom)),geometry:JSON.parse(JSON.stringify(geom))};
-        _tgPairMembers.push(member);
+        var shared=index===0?_tgFitFirstToSecond(_tgEditedGeometry,member.geometry):_tgAttachToSharedLines(member.geometry,_tgPairSharedLines);
+        if(shared){_tgPairMembers.push(member);if(!_tgPairSharedLines.includes(shared))_tgPairSharedLines.push(shared);}
       });
       if(!_tgPairMembers.length)throw new Error('서로 가까운 연속 경계를 찾지 못했습니다. 더 가까운 경계 지점을 선택하세요.');
       _tgPairId=_tgPairMembers[0].id;_tgPairGeometry=_tgPairMembers[0].geometry;_tgPairOriginal=_tgPairMembers[0].original;
       var m=window.mlMap3d;_tg3dSetGeometry(_tgEditedGeometry);
-      _tgBindBoundaryBrush();_tg3dRefreshMarkers();_tgPairBtn(true,false);_tgBoundaryBtns(true,false);m.getCanvas().style.cursor='';
-      _tgSetMsg('🖌 공유구간 선택을 누르고 A/B 경계를 드래그해 꼭지점을 선택하세요. 여러 번 드래그할 수 있습니다.','dirty');
+      m.addSource('territory-3d-shared-line',{type:'geojson',data:{type:'MultiLineString',coordinates:_tgPairSharedLines}});
+      m.addLayer({id:'territory-3d-shared-line',type:'line',source:'territory-3d-shared-line',paint:{'line-color':'#ff56d8','line-width':5,'line-opacity':.95}});
+      _tg3dRefreshMarkers();_tgPairBtn(true,false);m.getCanvas().style.cursor='';
+      _tgSetMsg('✅ B 기준 경계로 A와 선택한 동반 영토를 맞췄습니다. 분홍 공유선만 편집됩니다.','dirty');
     }catch(error){_tgClearPair();_tgPairBtn(true,false);_tgSetMsg('❌ 공유 경계 맞춤 실패: '+error.message,'err');}
   }
   function _tgStartPairSelect(){
