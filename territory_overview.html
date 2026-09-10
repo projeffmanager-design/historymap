@@ -523,6 +523,14 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   attribution: '© OpenStreetMap © CARTO', maxZoom: 19
 }).addTo(map);
 
+// bbox가 이동 후 다시 렌더되어도 선택 폴리곤을 덮지 않도록 pane 순서를 고정한다.
+map.createPane('territoryOverviewBboxPane');
+map.getPane('territoryOverviewBboxPane').style.zIndex = 410;
+map.createPane('territoryOverviewSelectedPane');
+map.getPane('territoryOverviewSelectedPane').style.zIndex = 460;
+map.createPane('territoryOverviewLabelPane');
+map.getPane('territoryOverviewLabelPane').style.zIndex = 470;
+
 let allTerritories = [];   // lightweight 메타데이터 (geometry 없음)
 let tileIndex      = [];   // public/tiles/index.json
 let tileCache      = {};   // filename → parsed JSON (로드된 타일 캐시)
@@ -1046,7 +1054,7 @@ function renderBboxLayer() {
 
     const rect = L.rectangle(
       [[b.minLat, b.minLng],[b.maxLat, b.maxLng]],
-      { color, weight: 1, fillOpacity: isSelected ? 0.25 : 0.08,
+      { pane: 'territoryOverviewBboxPane', color, weight: 1, fillOpacity: isSelected ? 0.18 : 0.08,
         fillColor: color, dashArray: isSelected ? null : '3,3' }
     );
     rect.on('click', () => selectTerritory(t._id));
@@ -1057,6 +1065,7 @@ function renderBboxLayer() {
       const centerLat = (b.minLat + b.maxLat) / 2;
       const centerLng = (b.minLng + b.maxLng) / 2;
       const lbl = L.marker([centerLat, centerLng], {
+        pane: 'territoryOverviewLabelPane',
         icon: L.divIcon({
           html: `<div style="color:${color};font-size:10px;font-weight:600;white-space:nowrap;text-shadow:0 0 3px #000,0 0 3px #000;pointer-events:none">${getLabel(t)}</div>`,
           className: '', iconAnchor: [0, 0]
@@ -1076,15 +1085,29 @@ function renderBboxLayer() {
 async function renderGeometry(t) {
   geomLayerGroup.clearLayers();
   if (!t) return;
-  if (t.hidden) return; // 숨긴 영토는 폴리곤 표시 안 함  if (_geometryEditMode && _geomEditId === t._id && editableGeomLayer) return;
+  if (_geometryEditMode && _geomEditId === t._id && editableGeomLayer) return;
 
   const color = getColor(t);
-  const geoFC = await loadGeometryForTerritory(t);
+  const requestedId = t._id;
+  let geoFC = null;
+  // 목록에서 고른 정확한 DB 객체를 우선 표시한다. 숨김 영토나 타일 재빌드 전
+  // 객체도 선택할 수 있고, 동일 위치의 앞 레이어와 무관하게 식별된다.
+  try {
+    const full = await fetchFullTerritory(requestedId);
+    const geometry = full?.geometry || full?.geojson?.geometry || null;
+    if (geometry) geoFC = { type: 'Feature', properties: { _id: requestedId }, geometry };
+  } catch (error) {
+    console.warn('[선택 영토 원본 geometry 로드 실패, 타일 fallback]', requestedId, error);
+  }
+  if (!geoFC) geoFC = await loadGeometryForTerritory(t);
+  if (selectedId !== requestedId) return;
   if (geoFC) {
     const layer = L.geoJSON(geoFC, {
-      style: { color, weight: 2, fillOpacity: 0.35, fillColor: color }
+      pane: 'territoryOverviewSelectedPane',
+      style: { pane: 'territoryOverviewSelectedPane', color: '#ffffff', weight: 4, opacity: 1, fillOpacity: 0.42, fillColor: color }
     });
     layer.addTo(geomLayerGroup);
+    layer.eachLayer(child => { if (typeof child.bringToFront === 'function') child.bringToFront(); });
   }
 }
 
@@ -1160,10 +1183,16 @@ function renderList() {
     const color = getColor(t);
     div.innerHTML = `
       <div class="t-dot" style="background:${color}"></div>
-      <div class="t-name">${getLabel(t)}</div>
+      <div class="t-name" role="button" tabindex="0" title="이 영토를 선택하여 지도 위에 표시">${getLabel(t)}</div>
       <div class="t-type">${t.type || '?'}</div>
       ${!hasBbox(t) ? '<div class="t-warn">⚠️</div>' : ''}
     `;
+    const nameEl = div.querySelector('.t-name');
+    nameEl.addEventListener('click', event => { event.stopPropagation(); selectTerritory(t._id); });
+    nameEl.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();event.stopPropagation();selectTerritory(t._id);
+    });
     div.addEventListener('click', () => selectTerritory(t._id));
     fragment.appendChild(div);
   });
