@@ -2086,7 +2086,16 @@ async function setupRoutesAndCollections() {
                     ? { $and: [territoriesToQuery, { hidden: { $ne: true } }] }
                     : { hidden: { $ne: true } };
                 const territoryTotal = await collections.territories.countDocuments(territoryQuery);
-                const cursor = collections.territories.find(territoryQuery);
+                // 원격 MongoDB에서 큰 geometry 약 100건을 기본 배치로 받으면 다음 getMore가
+                // socket timeout에 걸릴 수 있다. 필요한 필드만 10건씩 받아 진행을 유지한다.
+                const cursor = collections.territories.find(territoryQuery, {
+                    projection: {
+                        _id: 1, geometry: 1, coordinates: 1, bbox: 1,
+                        name: 1, name_ko: 1, type: 1, level: 1, country: 1,
+                        start: 1, start_year: 1, end: 1, end_year: 1,
+                        boundary_preserve: 1
+                    }
+                }).batchSize(10);
                 const tileMap = new Map(); // key → { tile_lat, tile_lng, bounds, features[] }
                 let territoryDone = 0;
                 updateProgress('query', 'DB 영토를 타일에 배치', 30, 0, territoryTotal,
@@ -2114,7 +2123,8 @@ async function setupRoutesAndCollections() {
                     if (territoryDone % 25 === 0 || territoryDone === territoryTotal) {
                         updateProgress('query', 'DB 영토를 타일에 배치',
                             30 + 40 * (territoryDone / Math.max(1, territoryTotal)),
-                            territoryDone, territoryTotal);
+                            territoryDone, territoryTotal,
+                            `DB 영토 처리 ${territoryDone}/${territoryTotal}`);
                     }
                 }
                 updateProgress('write', '타일 파일 저장 준비', 72, 0,
@@ -2186,10 +2196,29 @@ async function setupRoutesAndCollections() {
 
             } catch (e) {
                 console.error('❌ [타일 재빌드 실패]', e.message);
+                const isDbNetworkError = e?.name === 'MongoNetworkTimeoutError'
+                    || e?.name === 'MongoNetworkError'
+                    || /connection .*timed out|server selection|socket|ECONNRESET/i.test(String(e?.message || ''));
+                let reconnectMessage = null;
+                if (isDbNetworkError) {
+                    try {
+                        console.warn('⚠️ [타일 재빌드] DB 연결 오류 — 다음 재시도 전에 연결 풀 재설정 중...');
+                        await reconnectDatabase();
+                        reconnectMessage = 'DB 연결 풀 재설정 완료 · 다음 재시도 대기';
+                        console.log(`✅ [타일 재빌드] ${reconnectMessage}`);
+                    } catch (reconnectError) {
+                        reconnectMessage = `DB 재연결 실패: ${reconnectError.message}`;
+                        console.error(`❌ [타일 재빌드] ${reconnectMessage}`);
+                    }
+                }
                 _lastTerritoryTileBuild = {
                     ..._lastTerritoryTileBuild, status: 'failed', phase: 'failed', phaseLabel: '재빌드 실패',
                     completedAt: Date.now(), error: e.message,
-                    logs: [...(_lastTerritoryTileBuild?.logs || []), { at: Date.now(), message: `실패: ${e.message}` }].slice(-40)
+                    logs: [
+                        ...(_lastTerritoryTileBuild?.logs || []),
+                        { at: Date.now(), message: `실패: ${e.message}` },
+                        ...(reconnectMessage ? [{ at: Date.now(), message: reconnectMessage }] : [])
+                    ].slice(-40)
                 };
                 _territoryDirty = true;
                 processedIds.forEach(id => _dirtyTerritoryIds.add(String(id)));
@@ -6502,6 +6531,37 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     console.error('❌ [즉시 타일 재빌드 실패]', e.message));
             } catch (error) {
                 console.error("Territory 추가 중 오류:", error);
+                if (error?.code === 11000) {
+                    const duplicateOsmId = error?.keyValue?.osm_id
+                        || (Array.isArray(req.body) ? req.body : [req.body]).find(item => item?.osm_id)?.osm_id;
+                    let existing = null;
+                    if (duplicateOsmId) {
+                        try {
+                            existing = await collections.territories.findOne(
+                                { osm_id: duplicateOsmId },
+                                { projection: { _id: 1, name: 1, name_ko: 1, name_en: 1, osm_id: 1, type: 1, admin_level: 1 } }
+                            );
+                        } catch (lookupError) {
+                            console.warn('중복 Territory 기존 문서 조회 실패:', lookupError.message);
+                        }
+                    }
+                    return res.status(409).json({
+                        message: duplicateOsmId
+                            ? `OSM ${duplicateOsmId}은(는) 이미 등록된 영토입니다.`
+                            : '동일한 고유값을 가진 영토가 이미 등록되어 있습니다.',
+                        code: 'DUPLICATE_TERRITORY',
+                        field: error?.keyPattern ? Object.keys(error.keyPattern)[0] : null,
+                        existing: existing ? {
+                            _id: existing._id.toString(),
+                            name: existing.name,
+                            name_ko: existing.name_ko,
+                            name_en: existing.name_en,
+                            osm_id: existing.osm_id,
+                            type: existing.type,
+                            admin_level: existing.admin_level
+                        } : null
+                    });
+                }
                 res.status(500).json({ message: "Territory 추가 실패", error: error.message });
             }
         });
@@ -6592,6 +6652,41 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             } catch (error) {
                 console.error("영토 단건 조회 중 오류:", error);
                 res.status(500).json({ message: "영토 조회 실패", error: error.message });
+            }
+        });
+
+        // POST: 기존 영토 폴리곤 복제 (OSM/code 고유 식별자는 복사하지 않음)
+        app.post('/api/territories/:id/clone', verifyAdmin, async (req, res) => {
+            try {
+                const _id = toObjectId(req.params.id);
+                if (!_id) return res.status(400).json({ message: '잘못된 ID 형식입니다.' });
+                const source = await collections.territories.findOne({ _id });
+                if (!source) return res.status(404).json({ message: '복사할 영토를 찾을 수 없습니다.' });
+
+                const clone = { ...source };
+                delete clone._id;
+                delete clone.osm_id;
+                delete clone.code;
+                delete clone.createdAt;
+                delete clone.updatedAt;
+                const suffix = ' (복사본)';
+                clone.name = `${source.name || source.name_en || source.name_ko || 'Territory'}${suffix}`;
+                if (source.name_en) clone.name_en = `${source.name_en}${suffix}`;
+                if (source.name_ko) clone.name_ko = `${source.name_ko}${suffix}`;
+                clone.cloned_from = source._id.toString();
+                clone.created_at = new Date();
+
+                const result = await collections.territories.insertOne(clone);
+                const created = { ...clone, _id: result.insertedId.toString() };
+                territoriesCache = null;
+                territoriesCacheTime = null;
+                _dirtyTerritoryIds.add(created._id);
+                _territoryDirty = true;
+                console.log(`📄 Territory 복사 완료: ${source._id} → ${created._id}`);
+                res.status(201).json({ message: '영토 폴리곤 복사 완료', territory: created });
+            } catch (error) {
+                console.error('Territory 복사 중 오류:', error);
+                res.status(500).json({ message: '영토 폴리곤 복사 실패', error: error.message });
             }
         });
 

@@ -810,8 +810,23 @@
                 } else {
                     const errorText = await response.text();
                     let msg = `HTTP ${response.status}`;
-                    try { msg = JSON.parse(errorText).message || msg; } catch(e) { if (errorText) msg += ` — ${errorText}`; }
-                    log(`저장 실패: ${msg}`, 'error'); setProgress(0);
+                    let errorData = null;
+                    try {
+                        errorData = JSON.parse(errorText);
+                        msg = errorData.message || msg;
+                    } catch(e) {
+                        if (errorText) msg += ` — ${errorText}`;
+                    }
+                    log(`저장 실패: ${msg}`, 'error');
+                    if (response.status === 409 && errorData?.existing) {
+                        const existing = errorData.existing;
+                        const existingName = existing.name_ko || existing.name_en || existing.name || '(이름 없음)';
+                        log(`↪ 기존 영토: ${existingName} · Object ID: ${existing._id} · OSM: ${existing.osm_id || '-'}`, 'info');
+                        log('기존 경계를 덮어쓰지 않았습니다. 전체 현황에서 위 Object ID를 검색해 확인하세요.', 'info');
+                    } else if (errorData?.error && errorData.error !== msg) {
+                        log(`상세 오류: ${errorData.error}`, 'error');
+                    }
+                    setProgress(0);
                 }
             } catch (error) {
                 log(`저장 실패: ${error.message}`, 'error'); setProgress(0);

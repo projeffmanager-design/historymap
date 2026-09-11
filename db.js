@@ -17,12 +17,12 @@ const clientOptions = {
     minPoolSize: 0,                    // 서버리스 콜드 스타트 때 연결 2개를 미리 만들지 않는다.
     maxIdleTimeMS: 60000
 };
-const client = new MongoClient(mongoUri, clientOptions);
+let client = new MongoClient(mongoUri, clientOptions);
 let db;
 let connectingPromise = null;
 const collections = {};
 
-async function connectToDatabase() {
+async function connectToDatabase(exitOnFailure = true) {
     if (db) {
         return { db, collections };
     }
@@ -83,8 +83,12 @@ async function connectToDatabase() {
                 await new Promise(res => setTimeout(res, delay));
                 continue;
             }
-            console.error("MongoDB 연결에 여러 번 실패했습니다. 프로세스를 종료합니다.");
-            process.exit(1);
+            if (exitOnFailure) {
+                console.error("MongoDB 연결에 여러 번 실패했습니다. 프로세스를 종료합니다.");
+                process.exit(1);
+            }
+            console.error("MongoDB 재연결에 여러 번 실패했습니다. 호출자에게 오류를 반환합니다.");
+            throw err;
         }
     }
     })();
@@ -103,7 +107,8 @@ async function reconnectDatabase() {
         connectingPromise = null;
         await client.close(true).catch(() => {}); // 기존 소켓 강제 종료
     } catch (e) { /* 무시 */ }
-    return connectToDatabase();
+    client = new MongoClient(mongoUri, clientOptions); // 타임아웃 상태가 남지 않도록 새 연결 풀 생성
+    return connectToDatabase(false);
 }
 
 module.exports = { connectToDatabase, reconnectDatabase, collections };

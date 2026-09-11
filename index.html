@@ -14262,8 +14262,17 @@ body.force-mobile .marker-type-selector button {
         }).on('tileerror', function(e) {
             console.warn('🗺️ [지도 타일 오류] 위성모드 타일 로딩 실패:', e);
         }),
-        // Leaflet은 편집/계산 호환 계층으로만 유지한다. OSM 타일 요청은 제거했다.
-        '일반모드': L.layerGroup(),
+        // Territory Manager와 동일한 키 없는 OpenStreetMap 배경지도.
+        // 2D 편집 화면에 진입할 때만 추가되어 초기 Globe 로딩과 경쟁하지 않는다.
+        '일반모드': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            keepBuffer: 4,
+            updateWhenIdle: true,
+            unloadInvisibleTiles: true,
+            attribution: '&copy; OpenStreetMap contributors'
+        }).on('tileerror', function(e) {
+            console.warn('🗺️ [지도 타일 오류] 2D OpenStreetMap 타일 로딩 실패:', e);
+        }),
         // 지명/도로를 제거한 평면 음영 지도. Globe 벡터 모드와 별도로 유지한다.
         '지형모드': historyVectorLayer,
         // 순수 MapLibre Globe가 실제 화면을 담당하며 이 그룹은 전환 키를 유지한다.
@@ -40844,6 +40853,8 @@ kingSelect.addEventListener('change', () => {
                     if (typeof window._exitHistory3d === 'function') window._exitHistory3d();
                     else console.warn('[2D 지도] 3D 종료 함수가 아직 준비되지 않았습니다.');
                 }
+                // 2D 편집 화면은 Territory Manager와 동일한 OSM 배경지도를 사용한다.
+                switchTileLayer('일반모드', null);
                 toggleHamburgerMenu();
             });
         }
@@ -53517,15 +53528,25 @@ window.toggleResourceBar = function(btn, forceState) {
   function _tgMakeSharedBoundary(first,second,focus){
     var bboxA=_tgBBox(first),bboxB=_tgBBox(second);if(!bboxA||!bboxB)return null;
     var span=Math.max(bboxA.maxLng-bboxA.minLng,bboxA.maxLat-bboxA.minLat,bboxB.maxLng-bboxB.minLng,bboxB.maxLat-bboxB.minLat);
-    var tolerance=Math.max(.006,Math.min(.18,span*.025)),best=null;
-    _tgOuterRingRefs(first).forEach(function(a){_tgOuterRingRefs(second).forEach(function(b){
-      var ra=_tgFocusedNearRun(a.ring,b.ring,tolerance,focus),rb=_tgFocusedNearRun(b.ring,a.ring,tolerance,focus);
-      if(!ra||!rb)return;
-      var pa=_tgRunPoints(a.ring,ra),pb=_tgRunPoints(b.ring,rb);
-      var focusDistance=focus?Math.min.apply(null,pa.concat(pb).map(function(point){return Math.hypot(point[0]-focus[0],point[1]-focus[1]);})):0;
-      var score=Math.min(ra.length,rb.length);
-      if(!best||focusDistance<best.focusDistance-1e-9||(Math.abs(focusDistance-best.focusDistance)<1e-9&&score>best.score))best={a:a,b:b,ra:ra,rb:rb,score:score,focusDistance:focusDistance};
-    });});
+    // 경계가 완전히 맞닿지 않은 기존 데이터도 다룰 수 있도록 좁은 범위부터
+    // 단계적으로 확장한다. 첫 성공 단계에서 멈춰 먼 엉뚱한 경계를 잡지 않는다.
+    var baseTolerance=Math.max(.006,Math.min(.18,span*.025));
+    var maxTolerance=Math.max(.08,Math.min(.60,span*.10));
+    var tolerances=[],candidateTolerance=baseTolerance;
+    while(candidateTolerance<maxTolerance){tolerances.push(candidateTolerance);candidateTolerance*=1.8;}
+    tolerances.push(maxTolerance);
+    var best=null,tolerance=baseTolerance;
+    for(var pass=0;pass<tolerances.length&&!best;pass++){
+      tolerance=tolerances[pass];
+      _tgOuterRingRefs(first).forEach(function(a){_tgOuterRingRefs(second).forEach(function(b){
+        var ra=_tgFocusedNearRun(a.ring,b.ring,tolerance,focus),rb=_tgFocusedNearRun(b.ring,a.ring,tolerance,focus);
+        if(!ra||!rb)return;
+        var pa=_tgRunPoints(a.ring,ra),pb=_tgRunPoints(b.ring,rb);
+        var focusDistance=focus?Math.min.apply(null,pa.concat(pb).map(function(point){return Math.hypot(point[0]-focus[0],point[1]-focus[1]);})):0;
+        var score=Math.min(ra.length,rb.length);
+        if(!best||focusDistance<best.focusDistance-1e-9||(Math.abs(focusDistance-best.focusDistance)<1e-9&&score>best.score))best={a:a,b:b,ra:ra,rb:rb,score:score,focusDistance:focusDistance,tolerance:tolerance};
+      });});
+    }
     if(!best)return null;
     var pa=_tgRunPoints(best.a.ring,best.ra),pb=_tgRunPoints(best.b.ring,best.rb);
     var reversed=_tgLineEndpointCost(pa,pb,true)<_tgLineEndpointCost(pa,pb,false);
@@ -53537,6 +53558,7 @@ window.toggleResourceBar = function(btn, forceState) {
     if(_tgGeometryHasSelfIntersection(second)){
       best.b.container[best.b.index]=originalB;best.b.ring=originalB;return null;
     }
+    reference._matchTolerance=best.tolerance;
     return reference;
   }
   function _tgMakeLocalMidBoundary(first,second,clickCoord,pointCount){
@@ -53729,7 +53751,8 @@ window.toggleResourceBar = function(btn, forceState) {
       m.addSource('territory-3d-shared-line',{type:'geojson',data:{type:'MultiLineString',coordinates:_tgPairSharedLines}});
       m.addLayer({id:'territory-3d-shared-line',type:'line',source:'territory-3d-shared-line',paint:{'line-color':'#ff56d8','line-width':7,'line-opacity':1}});
       _tg3dRefreshMarkers();_tgPairBtn(true,false);m.getCanvas().style.cursor='';
-      _tgSetMsg('↔ A 기준선은 유지하고 선택한 B 영토 '+_tgPairMembers.length+'개의 경계를 같은 좌표열로 맞췄습니다.','dirty');
+      var gapText=Number(first.shared._matchTolerance)>0?' · 인식 허용 간격 약 '+Math.round(first.shared._matchTolerance*111)+'km':'';
+      _tgSetMsg('↔ A 기준선은 유지하고 선택한 B 영토 '+_tgPairMembers.length+'개의 경계를 같은 좌표열로 맞췄습니다.'+gapText,'dirty');
     }catch(error){_tgClearPair();_tgPairBtn(true,false);_tgSetMsg('❌ 공유 경계 맞춤 실패: '+error.message,'err');}
   }
   function _tgStartPairSelect(){

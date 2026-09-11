@@ -221,13 +221,16 @@
   #edit-msg.err { color: #f2994a; }
 
   /* 편집/삭제 버튼 in detail-panel */
-  #btn-edit-territory {
+  #btn-edit-territory, #btn-clone-territory {
     display: block; width: 100%; margin-top: 10px;
     padding: 6px; background: #e94560; color: #fff;
     border: none; border-radius: 5px; font-size: 12px;
     font-weight: 600; cursor: pointer; text-align: center;
   }
   #btn-edit-territory:hover { background: #c73652; }
+  #btn-clone-territory { margin-top: 5px; background:#155e75; color:#cffafe; }
+  #btn-clone-territory:hover { background:#0e7490; color:#fff; }
+  #btn-clone-territory:disabled { opacity:.55; cursor:wait; }
   #btn-geom-edit {
     display: block; width: 100%; margin-top: 8px;
     padding: 6px; background: #0f3460; color: #7dd3fc;
@@ -519,8 +522,8 @@ const TILE_SIZE = 10; // server.js 와 동일
 
 // ── 지도 초기화 ──
 const map = L.map('map', { center: [40, 100], zoom: 3 });
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: '© OpenStreetMap © CARTO', maxZoom: 19
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap contributors', maxZoom: 19
 }).addTo(map);
 
 // bbox가 이동 후 다시 렌더되어도 선택 폴리곤을 덮지 않도록 pane 순서를 고정한다.
@@ -1067,10 +1070,18 @@ function renderBboxLayer() {
       const lbl = L.marker([centerLat, centerLng], {
         pane: 'territoryOverviewLabelPane',
         icon: L.divIcon({
-          html: `<div style="color:${color};font-size:10px;font-weight:600;white-space:nowrap;text-shadow:0 0 3px #000,0 0 3px #000;pointer-events:none">${getLabel(t)}</div>`,
+          html: `<div style="color:${color};font-size:10px;font-weight:600;white-space:nowrap;text-shadow:0 0 3px #000,0 0 3px #000;pointer-events:auto;cursor:pointer" title="${getLabel(t)} 선택">${getLabel(t)}</div>`,
           className: '', iconAnchor: [0, 0]
         }),
-        interactive: false
+        interactive: true,
+        keyboard: true,
+        title: `${getLabel(t)} 선택`
+      });
+      // 이름 클릭은 지도 좌표 hit-test를 사용하지 않고 이 라벨의 영토 ID를 직접 선택한다.
+      // 따라서 같은 위치에 더 큰 bbox/상위 행정구역이 겹쳐 있어도 선택 대상이 바뀌지 않는다.
+      lbl.on('click', event => {
+        if (event?.originalEvent) L.DomEvent.stop(event.originalEvent);
+        selectTerritory(t._id);
       });
       fragment_lbl.push(lbl);
     }
@@ -1277,9 +1288,42 @@ function showDetail(t, loading = false) {
     </div>
     <button id="btn-geom-edit" onclick="openGeometryEdit('${t._id}')">🧭 경계 편집</button>
     <button id="btn-edit-territory" onclick="openEditModal('${t._id}')">✏️ 편집</button>
+    <button id="btn-clone-territory" onclick="cloneTerritory('${t._id}')">📄 영토 폴리곤 복사</button>
     <button id="btn-hide-territory" class="${t.hidden ? 'hidden-state' : ''}" onclick="toggleHide('${t._id}')">${t.hidden ? '👁️ 숨김 해제' : '🙈 index 지도에서 숨기기'}</button>
     <button id="btn-delete-territory" onclick="openConfirmModal('${t._id}')">🗑️ 삭제</button>
   `;
+}
+
+async function cloneTerritory(id) {
+  const source = allTerritories.find(t => String(t._id) === String(id));
+  if (!source) return;
+  if (!confirm(`「${getLabel(source)}」 영토 폴리곤을 복사할까요?\n복사본은 새 Object ID로 생성되며 OSM ID와 code는 제거됩니다.`)) return;
+  const token = getToken();
+  if (!token || token === 'null' || token === 'undefined') {
+    openLoginModal(() => cloneTerritory(id));
+    return;
+  }
+  const btn = document.getElementById('btn-clone-territory');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 복사 중...'; }
+  try {
+    const res = await fetch(`${API_BASE}/territories/${encodeURIComponent(id)}/clone`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || `HTTP ${res.status}`);
+    const clone = json.territory;
+    if (!clone?._id) throw new Error('복사된 영토 ID가 없습니다.');
+    allTerritories.unshift(clone);
+    _fullTerritoryCache[clone._id] = clone;
+    markTerritoryDirtyForRebuild(clone._id, 'add');
+    updateStats(); renderList(); renderBboxLayer();
+    await selectTerritory(clone._id);
+    openEditModal(clone._id);
+  } catch (error) {
+    alert(`영토 복사 실패: ${error.message}`);
+    if (btn) { btn.disabled = false; btn.textContent = '📄 영토 폴리곤 복사'; }
+  }
 }
 
 // ── debounce 유틸 ──
@@ -1636,8 +1680,15 @@ async function loadDeployStatus() {
     }
     if (build && (b.inProgress || b.dirty || build.status === 'failed')) {
       detail.style.display = 'block';
-      const amount = Number(build.total) > 0 ? ` · ${Number(build.current)||0}/${build.total}` : '';
-      detailHead.textContent = `${build.mode || ''} 재빌드 · ${build.phaseLabel || build.phase || build.status}${amount} · ${Number(build.progress)||0}%`;
+      const hasAmount = Number(build.total) > 0;
+      const amount = hasAmount ? ` · ${Number(build.current)||0}/${build.total}` : '';
+      const phaseProgress = hasAmount
+        ? Math.max(0, Math.min(100, Math.round((Number(build.current)||0) / Number(build.total) * 100)))
+        : null;
+      const progressText = phaseProgress == null
+        ? `전체 ${Number(build.progress)||0}%`
+        : `현재 단계 ${phaseProgress}% · 전체 ${Number(build.progress)||0}%`;
+      detailHead.textContent = `${build.mode || ''} 재빌드 · ${build.phaseLabel || build.phase || build.status}${amount} · ${progressText}`;
       const lines = (build.logs || []).map(entry => {
         const time = entry.at ? new Date(entry.at).toLocaleTimeString('ko-KR', { hour12:false }) : '--:--:--';
         return `[${time}] ${entry.message}`;
