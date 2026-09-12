@@ -463,7 +463,7 @@
 (function() {
     const CONFIG = {
         APP_VERSION: '3.9.0',           // [v3.9.0] 벡터 지구본 지도·사관청 기능 개편
-        DATA_SCHEMA_VERSION: '2.1.2'    // city territory absorption fix — 캐시 강제 갱신
+        DATA_SCHEMA_VERSION: '2.1.3'    // 3D viewport-only territory cache
     };
     // 세션 캐시에서 schema version 을 참조할 수 있도록 전역 노출
     window._APP_SCHEMA_VERSION = CONFIG.DATA_SCHEMA_VERSION;
@@ -18927,8 +18927,11 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 for (const entry of finalByCountry.values()) renderBucket(entry);
             };
 
-            // 레벨 구분 없이 전체 렌더링
-            renderFeatureMap(allTerritoryFeatures);
+            // MapLibre Globe에서는 아래의 _3dTerritoryData만 생성하고,
+            // 화면 뒤에 숨은 Leaflet GeoJSON 레이어는 만들지 않는다.
+            if (!window._historyVectorMode && !window._is3dMode) {
+                renderFeatureMap(allTerritoryFeatures);
+            }
 
             // ── 3D 지도용 영토 데이터 노출 (level별 분리 저장) ──
             // =========================================================================
@@ -23383,8 +23386,8 @@ const loadingMessages = [
       // ═══════════════════════════════════════════════════════════════════════
       const _tileDeviceMode = /Mobi|Android|iPhone/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       const _tileStrategyConfig = _tileDeviceMode === 'mobile' ? {
-          bufferDeg:              10,   // buffer ring 1개 = 10°
-          prefetchNextZoomDeg:    true,
+          bufferDeg:              5,    // 3D Globe 메모리 절약: 현재 뷰포트 인접 5°
+          prefetchNextZoomDeg:    false,
           prefetchPrevZoomDeg:    false,
           maxConcurrent:          4,
           moveThrottleMs:         140,
@@ -23399,9 +23402,9 @@ const loadingMessages = [
           // ── 방향성 prefetch ────────────────────────────────────────
           directionalBias:        1.5,  // 이동 방향 타일 우선 가중치 (1.0 = bias 없음)
       } : {
-          bufferDeg:              20,   // buffer ring 2개 = 20°
-          prefetchNextZoomDeg:    true,
-          prefetchPrevZoomDeg:    true,
+          bufferDeg:              10,   // 3D Globe 메모리 절약: 현재 뷰포트 인접 10°
+          prefetchNextZoomDeg:    false,
+          prefetchPrevZoomDeg:    false,
           maxConcurrent:          8,
           moveThrottleMs:         80,
           swapCoverageThreshold:  0.85, // 85% 이상 준비돼야 렌더링
@@ -23769,10 +23772,15 @@ const loadingMessages = [
 
               if (newViewportTiles.length > 0) {
                   console.log(`📍 뷰포트 타일: ${newViewportTiles.length}개 로드 (전체 ${tileIndex.length}개 중)`);
-                  const vpFeatures = (await Promise.all(
-                      newViewportTiles.map(t => _fetchTile(t, origin, basePath, tileVersion))
-                  )).flat();
-                  const added = _mergeFeatures(vpFeatures);
+                  let added = 0;
+                  // 타일 전체를 한 번에 fetch/parse하지 않고 기기별 동시성 제한을 지킨다.
+                  for (let i = 0; i < newViewportTiles.length; i += TILE_MAX_CONCURRENT) {
+                      const batch = newViewportTiles.slice(i, i + TILE_MAX_CONCURRENT);
+                      const vpFeatures = (await Promise.all(
+                          batch.map(t => _fetchTile(t, origin, basePath, tileVersion))
+                      )).flat();
+                      added += _mergeFeatures(vpFeatures);
+                  }
                   const elapsed1 = ((Date.now() - startTime) / 1000).toFixed(2);
                   console.log(`✅ 뷰포트 로드 완료: +${added}개 (누계 ${territories.length}개, ${elapsed1}초)`);
                   _updateTerritoryBtn();
@@ -23787,7 +23795,10 @@ const loadingMessages = [
 
               // ── 2단계: 나머지 타일 백그라운드 로드 ──────────────────
               const remainTiles = tileIndex.filter(t => !_loadedTileFiles.has(t.filename));
-              if (remainTiles.length > 0 && !_tileLoadBg) {
+              // 3D 전용 운영: 전체 타일을 백그라운드에서 파싱하지 않는다.
+              // 현재 뷰포트의 타일은 Leaflet/MapLibre moveend에서 증분 로드된다.
+              const ENABLE_FULL_TERRITORY_BACKGROUND_LOAD = false;
+              if (ENABLE_FULL_TERRITORY_BACKGROUND_LOAD && remainTiles.length > 0 && !_tileLoadBg) {
                   _tileLoadBg = true;
                   console.log(`⏳ 백그라운드 로딩 시작: 잔여 ${remainTiles.length}개 타일...`);
                   // 마이크로태스크로 분리 — UI 블로킹 방지
@@ -23838,15 +23849,17 @@ const loadingMessages = [
 
       // moveend 시 아직 안 로드된 새 뷰포트 타일 lazy-load
       // 🔄 [Coverage-based Swap] required 타일이 threshold 이상 준비될 때만 렌더링 호출
-      async function _loadNewViewportTiles() {
-          if (allTerritoriesLoaded || _tileLoadBg) return;
+      async function _loadNewViewportTiles(boundsOverride = null) {
+          if (allTerritoriesLoaded || _tileLoadBg) return 0;
           // 🔒 동시 실행 방지 — 진행 중이면 재실행 플래그만 세우고 리턴
           if (window._tileViewportLoading) {
               window._tileViewportPending = true;
-              return;
+              window._tileViewportPendingBounds = boundsOverride;
+              return 0;
           }
           window._tileViewportLoading = true;
           window._tileViewportPending = false;
+          let addedTotal = 0;
           try {
           if (!_tileIndexCache) {
               try {
@@ -23858,7 +23871,7 @@ const loadingMessages = [
           }
           const origin  = window.location.origin;
           const version = new Date().toDateString();
-          const vb = map.getBounds();
+          const vb = boundsOverride || map.getBounds();
           const vBounds = { south: vb.getSouth(), north: vb.getNorth(), west: vb.getWest(), east: vb.getEast() };
           // 중심 좌표 계산 (중앙 타일 우선 정렬용)
           const vCenterLng = (vBounds.west + vBounds.east) / 2;
@@ -23929,7 +23942,7 @@ const loadingMessages = [
                   const features = (await Promise.all(
                       batch.map(t => _fetchTile(t, origin, _tilesBasePathCache, version))
                   )).flat();
-                  _mergeFeatures(features);
+                  addedTotal += _mergeFeatures(features);
 
                   // 배치 완료마다 coverage 재계산 → threshold 넘으면 즉시 렌더링
                   const nowReady   = requiredTiles.filter(t => _loadedTileFiles.has(t.filename)).length;
@@ -23989,10 +24002,22 @@ const loadingMessages = [
               // 로딩 중 새 뷰포트 이동이 있었으면 즉시 재실행
               if (window._tileViewportPending) {
                   window._tileViewportPending = false;
-                  setTimeout(_loadNewViewportTiles, 0);
+                  const pendingBounds = window._tileViewportPendingBounds || null;
+                  window._tileViewportPendingBounds = null;
+                  setTimeout(() => _loadNewViewportTiles(pendingBounds), 0);
               }
           }
+          if (addedTotal > 0 && window._historyVectorMode && typeof updateMap === 'function') {
+              const current = typeof getCurrentYearMonth === 'function'
+                  ? getCurrentYearMonth()
+                  : { year: parseInt(yearInput?.value || 400, 10), month: 1 };
+              updateMap(current.year, current.month, false, true);
+          }
+          return addedTotal;
       }
+
+      // MapLibre Globe의 bounds로도 동일한 증분 타일 로더를 사용한다.
+      window._loadTerritoryTilesForBounds = _loadNewViewportTiles;
 
       // 🔄 [MongoDB 폴백] 정적 파일이 없을 때 MongoDB에서 로드
       
@@ -39160,6 +39185,10 @@ kingSelect.addEventListener('change', () => {
         // → 줌아웃 시 빈 타일 없이 즉시 렌더링 가능
         // → desktop은 더 넓은 범위, mobile은 제한적으로 수행
         (function _scheduleWarmCache() {
+            // 3D 전용 운영에서는 전체 169개 영토 타일을 idle 시점에
+            // 미리 파싱하지 않는다. 현재 화면 범위는 moveend에서 로드한다.
+            const ENABLE_FULL_TERRITORY_WARM_CACHE = false;
+            if (!ENABLE_FULL_TERRITORY_WARM_CACHE) return;
             async function _warmLowZoomTiles() {
                 if (!_tileIndexCache || allTerritoriesLoaded) return;
                 // 타일 인덱스 전체를 bounds 기준으로 가져오되, 이미 로드된 것은 스킵
@@ -41580,6 +41609,7 @@ kingSelect.addEventListener('change', () => {
             let _styleReloadGeneration = 0;
             let _markerRenderGeneration = 0;
             let _mobileSymbolEventsSetup = false;
+            let _waitingForStyleLoad = false;
 
             function refreshLayers() {
                 if (!mlMap) return;
@@ -41598,6 +41628,16 @@ kingSelect.addEventListener('change', () => {
 
             function _refreshLayersThrottled() {
                 if (!mlMap) return;
+                if (!mlMap.isStyleLoaded()) {
+                    if (!_waitingForStyleLoad) {
+                        _waitingForStyleLoad = true;
+                        mlMap.once('style.load', () => {
+                            _waitingForStyleLoad = false;
+                            refreshLayers();
+                        });
+                    }
+                    return;
+                }
                 const { year, month } = (typeof getCurrentYearMonth === 'function') ? getCurrentYearMonth() : { year: 0, month: 1 };
                 const _td = window._3dTerritoryData;
                 const _lodMode = getLodMode(mlMap);
@@ -44169,6 +44209,9 @@ kingSelect.addEventListener('change', () => {
                             const _lodHandler = () => {
                                 clearTimeout(window._3dZoomendTimer);
                                 window._3dZoomendTimer = setTimeout(() => {
+                                    if (window._is3dMode && typeof window._loadTerritoryTilesForBounds === 'function') {
+                                        void window._loadTerritoryTilesForBounds(mlMap.getBounds());
+                                    }
                                     if (window._is3dMode && typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
                                 }, 150);
                             };
@@ -44252,6 +44295,9 @@ kingSelect.addEventListener('change', () => {
                             clearTimeout(window._3dZoomendTimer);
                             // LOD 모드가 바뀐 경우만 마커 재생성 (캐시 키가 이미 pitch 포함)
                             window._3dZoomendTimer = setTimeout(() => {
+                                if (window._is3dMode && typeof window._loadTerritoryTilesForBounds === 'function') {
+                                    void window._loadTerritoryTilesForBounds(mlMap.getBounds());
+                                }
                                 if (window._is3dMode && typeof window._3dRefreshLayers === 'function') {
                                     window._3dRefreshLayers();
                                 }
