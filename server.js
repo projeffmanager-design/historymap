@@ -1542,7 +1542,9 @@ app.use((req, res, next) => {
 app.use(async (req, res, next) => {
     const trackedPath = resolveTrackedPagePath(req);
     if (trackedPath) {
-        incrementPageView(trackedPath).finally(() => next());
+        // 분석 기록이 느리거나 DB가 cold start 중이어도 HTML 응답을 막지 않는다.
+        void incrementPageView(trackedPath);
+        next();
         return;
     }
     next();
@@ -1564,9 +1566,13 @@ app.use(express.static(__dirname, {
     index: false,
     setHeaders(res, filePath) {
         if (filePath.endsWith('.html')) {
-            res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+            // ETag 재검증을 허용해 변경이 없으면 304로 응답한다.
+            res.set('Cache-Control', 'no-cache, must-revalidate');
             res.set('Pragma', 'no-cache');
             res.set('Expires', '0');
+        } else if (filePath.includes(`${path.sep}public${path.sep}assets${path.sep}generated${path.sep}`)) {
+            // 파일명에 콘텐츠 해시가 있어 장기 캐시해도 안전하다.
+            res.set('Cache-Control', 'public, max-age=31536000, immutable');
         } else if (filePath.endsWith('coastline-low.json') || filePath.endsWith('history-outline-worker.js')) {
             res.set('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
         }
@@ -1578,7 +1584,7 @@ app.use('/public', express.static(path.join(__dirname, 'public')));
 
 // �🚩 [수정] 루트(/) 요청 시 index.html(지도) 서빙 — 게스트 자동 입장
 app.get('/', (req, res) => {
-    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Cache-Control', 'no-cache, must-revalidate');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
     res.sendFile(path.join(__dirname, 'index.html'));
