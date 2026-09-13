@@ -1574,6 +1574,9 @@ app.use(express.static(__dirname, {
         } else if (filePath.includes(`${path.sep}public${path.sep}assets${path.sep}generated${path.sep}`)) {
             // 파일명에 콘텐츠 해시가 있어 장기 캐시해도 안전하다.
             res.set('Cache-Control', 'public, max-age=31536000, immutable');
+        } else if (filePath.endsWith('.pbf')) {
+            res.type('application/vnd.mapbox-vector-tile');
+            res.set('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
         } else if (filePath.endsWith('coastline-low.json') || filePath.endsWith('history-outline-worker.js')) {
             res.set('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
         }

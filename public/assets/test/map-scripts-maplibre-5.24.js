@@ -29418,6 +29418,79 @@ kingSelect.addEventListener('change', () => {
             //   all:     99 (전부, ez≥7)
             const LOD_MAX_PRIORITY = { country: 0, capital: 2, major: 3, all: 99 };
 
+            let _mvtTerritoryFeatureIds = new Set();
+
+            function _refreshMvtTerritories(_m, td, showTerritory, territoryBasemapOpacity) {
+                const sourceId = 'territories-mvt';
+                const sourceLayer = 'territories';
+                if (!_m.getSource(sourceId)) {
+                    _m.addSource(sourceId, {
+                        type: 'vector',
+                        tiles: ['/public/mvt/territories/{z}/{x}/{y}.pbf'],
+                        minzoom: 0,
+                        maxzoom: 7,
+                        promoteId: '_id'
+                    });
+                    ['country', 'province', 'city'].forEach(level => {
+                        _m.addLayer({
+                            id: `territory-fill-${level}`,
+                            type: 'fill',
+                            source: sourceId,
+                            'source-layer': sourceLayer,
+                            filter: ['==', ['get', 'level'], level],
+                            paint: {
+                                'fill-color': ['coalesce', ['feature-state', 'fillColor'], '#888888'],
+                                'fill-opacity': ['case', ['boolean', ['feature-state', 'visible'], false], territoryBasemapOpacity, 0]
+                            }
+                        });
+                        _m.addLayer({
+                            id: `territory-outline-${level}`,
+                            type: 'line',
+                            source: sourceId,
+                            'source-layer': sourceLayer,
+                            filter: ['==', ['get', 'level'], level],
+                            paint: {
+                                'line-color': ['coalesce', ['feature-state', 'lineColor'], '#888888'],
+                                'line-width': ['coalesce', ['feature-state', 'weight'], 0.5],
+                                'line-opacity': ['case', ['boolean', ['feature-state', 'visible'], false],
+                                    ['coalesce', ['feature-state', 'lineOpacity'], 0.4], 0]
+                            }
+                        });
+                    });
+                }
+
+                const nextIds = new Set();
+                for (const level of ['country', 'province', 'city']) {
+                    for (const feature of td[level] || []) {
+                        const p = feature.properties || {};
+                        const id = String(p.territory_id || '');
+                        if (!id) continue;
+                        nextIds.add(id);
+                        _m.setFeatureState({ source: sourceId, sourceLayer, id }, {
+                            visible: showTerritory,
+                            fillColor: p.fillColor || '#888888',
+                            lineColor: p.lineColor || '#888888',
+                            lineOpacity: Number(p.lineOpacity ?? 0.4),
+                            weight: Number(p.weight ?? 0.5)
+                        });
+                    }
+                }
+                for (const id of _mvtTerritoryFeatureIds) {
+                    if (!nextIds.has(id)) {
+                        _m.setFeatureState({ source: sourceId, sourceLayer, id }, { visible: false });
+                    }
+                }
+                _mvtTerritoryFeatureIds = nextIds;
+                ['country', 'province', 'city'].forEach(level => {
+                    const visibility = showTerritory ? 'visible' : 'none';
+                    _m.setLayoutProperty(`territory-fill-${level}`, 'visibility', visibility);
+                    _m.setLayoutProperty(`territory-outline-${level}`, 'visibility', visibility);
+                    _m.setPaintProperty(`territory-fill-${level}`, 'fill-opacity',
+                        ['case', ['boolean', ['feature-state', 'visible'], false], territoryBasemapOpacity, 0]);
+                });
+                console.log(`[MVT TEST] active=${nextIds.size}, source=${sourceId}, z0-7`);
+            }
+
             function _refreshLayersInner(rebuildTerritory = true, rebuildMarkers = true) {
                 const _m = window.mlMap3d;
                 if (!_m) { console.error('[3D] _m is null!'); return; }
@@ -29442,7 +29515,9 @@ kingSelect.addEventListener('change', () => {
                 const territoryBasemapOpacity = get3dTerritoryBasemapOpacity();
                 // 2D와 동일한 level별 opacity — feature properties에 이미 저장됨, fallback만 여기서 정의
                 const LEVEL_FILL_OPACITY = { country: 0.14, province: 0.18, city: 0.22 };
-                ['country', 'province', 'city'].forEach(key => {
+                if (window.ENABLE_TERRITORY_MVT_TEST === true) {
+                    _refreshMvtTerritories(_m, td, _showTerritory, territoryBasemapOpacity);
+                } else ['country', 'province', 'city'].forEach(key => {
                     const fillId    = `territory-fill-${key}`;
                     const outlineId = `territory-outline-${key}`;
                     const srcId     = `territories-${key}`;
