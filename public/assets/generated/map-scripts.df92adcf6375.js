@@ -180,6 +180,25 @@
         _mergeCastlesIntoSession(initial);
     }
 
+    function _territorySessionId(territory) {
+        return String(territory?._id?.$oid || territory?._id || territory?.id || '');
+    }
+
+    // IndexedDB 영토와 세션 Map을 함께 초기화한다. 이후 같은 정적 타일이
+    // 로드되어도 territories[]에 동일 영토가 다시 들어오지 않는다.
+    function _initTerritoriesSession(initial) {
+        const cache = window._sessionMapCache;
+        cache.territoriesById.clear();
+        territories.length = 0;
+        for (const territory of initial || []) {
+            const id = _territorySessionId(territory);
+            if (!id || cache.territoriesById.has(id)) continue;
+            cache.territoriesById.set(id, territory);
+            territories.push(territory);
+        }
+        window.territories = territories;
+    }
+
     /**
      * soft eviction: castlesById 에서 가장 오래된(Map 삽입 순) 항목 절반 제거
      */
@@ -5497,6 +5516,28 @@ function getTerritoryHasActiveCastle(territory, geometry, year, month) {
 let updateMapTimer = null;
 let lastUpdateMapCall = { year: null, month: null, cacheOnly: null, dataFingerprint: null };
 let pendingUpdateMapRAF = null; // 🚀 [v2.0.9] requestAnimationFrame ID
+let _uniqueTerritoriesSource = null;
+let _uniqueTerritoriesLength = -1;
+let _uniqueTerritoriesCache = [];
+
+// 타일 경계나 캐시 병합 과정에서 같은 _id가 반복되어도 이후의 국가 판정·도형
+// 간소화 단계에는 한 번만 전달한다. 기존 렌더러와 동일하게 첫 항목을 유지한다.
+function getUniqueTerritoriesForRender(source) {
+    if (_uniqueTerritoriesSource === source && _uniqueTerritoriesLength === source.length) {
+        return _uniqueTerritoriesCache;
+    }
+    const seen = new Set();
+    _uniqueTerritoriesCache = source.filter(territory => {
+        const key = String(territory?._id?.$oid || territory?._id
+            || `${territory?.name || ''}_${territory?.type || ''}`);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+    _uniqueTerritoriesSource = source;
+    _uniqueTerritoriesLength = source.length;
+    return _uniqueTerritoriesCache;
+}
 
 // 🚀 [v3.6 최적화] 디바운싱된 updateMap 호출 — 초기화 중 연쇄 호출(4~5회)을 1회로 축소
 // 모바일은 300ms 디바운스 (CPU/메모리 부하 추가 절감)
@@ -5505,6 +5546,9 @@ function requestUpdateMap(force = false) {
     clearTimeout(_requestUpdateMapTimer);
     const delay = isMobileOnLoad ? 600 : 800; // idle 콜백 4개를 한 번에 흡수
     _requestUpdateMapTimer = setTimeout(() => {
+        // 기본 진입은 Globe다. 캐시로 3D 영토 데이터까지 준비된 뒤 Globe 생성만
+        // 기다리는 구간에서는 숨겨질 Leaflet 지도를 다시 만들지 않는다.
+        if (window._prefer2dEditing !== true && !window._is3dMode && window._3dTerritoryData) return;
         const { year, month } = getCurrentYearMonth();
         updateMap(year, month, false, force);
     }, delay);
@@ -5520,7 +5564,7 @@ function requestOverlayUpdate() {
             window._3dRefreshLayers();
         }
         // 2D 모드: 강·자연지물·마커만 다시 그리기 (updateMap보다 훨씬 가벼움)
-        if (!window._is3dMode) {
+        if (!window._is3dMode && window._prefer2dEditing === true) {
             const { year, month } = getCurrentYearMonth();
             // 영토 fingerprint가 바뀌지 않았으면 castles/markers만 갱신
             updateMap(year, month, false, false);
@@ -5636,6 +5680,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         if (layerVisibility.territoryPolygon) {
             const startTime = performance.now();
             let renderedCount = 0;
+            const uniqueTerritories = getUniqueTerritoriesForRender(territories);
 
             // 🌐 [3D 모드] viewBox를 전 세계 범위로 설정 → outOfView skip 완전 차단
             let viewBox;
@@ -5683,7 +5728,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const directTerritoryOwners = new Map();
             const resolvedTerritoryRecords = [];
             const territoryIdentity = territory => String(territory?._id?.$oid || territory?._id || territory?.id || `${territory?.name || ''}:${territory?.level || ''}`);
-            territories.forEach(territory => {
+            uniqueTerritories.forEach(territory => {
                 if (territory?.hidden === true) return;
                 const tStart = territory.start != null ? Number(territory.start) : -Infinity;
                 const tEnd = territory.end != null ? Number(territory.end) : Infinity;
@@ -5711,9 +5756,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             _renderedCountryLargestPatch.clear();
             
             // 🚩 [추가] 이미 렌더링된 영토 추적 (중복 방지)
-            const renderedTerritories = new Set();
-            
-            let skipReasons = { duplicate: 0, outOfView: 0, timeRange: 0, noCountry: 0, countryNotFound: 0 };
+            let skipReasons = { duplicate: territories.length - uniqueTerritories.length, outOfView: 0, timeRange: 0, noCountry: 0, countryNotFound: 0 };
             
             // 🚩 [v3.2 핵심] 2-pass 렌더링: 국가별 Feature 수집 → 국가별 단일 레이어로 병합
             // 모든 레벨을 단일 Map으로 수집 후 필터 없이 전부 렌더링
@@ -5721,16 +5764,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             const countryFeatures = new Map();   // (미사용, 호환성 유지)
             const allTerritoryFeatures = new Map(); // 레벨 무관 전체 수집
 
-            territories.forEach(territory => {
-                // _id 기준 중복 체크 — 같은 이름이 여러 시대 버전으로 존재할 때 모두 처리
-                const localKey = String(territory._id || `${territory.name}_${territory.type}`);
-                
-                if (renderedTerritories.has(localKey)) {
-                    skipReasons.duplicate++;
-                    return;
-                }
-                renderedTerritories.add(localKey);
-
+            uniqueTerritories.forEach(territory => {
                 // 시간 범위 체크: start/end 필드가 있으면 현재 연도에 해당하는 것만 렌더
                 if (territory.start != null || territory.end != null) {
                     const tStart = territory.start != null ? Number(territory.start) : -Infinity;
@@ -9926,6 +9960,7 @@ const loadingMessages = [
       
       if (!cachedTerritories || cachedTerritories.length === 0) {
           territories = [];
+          window._sessionMapCache.territoriesById.clear();
           console.log('📦 territories 초기화 (캐시 없음)');
       } else {
           console.log('💾 territories 캐시 보존 (초기화 생략)');
@@ -9983,8 +10018,7 @@ const loadingMessages = [
           
           // Territories 캐시 적용
           if (cachedTerritories && cachedTerritories.length > 0) {
-              territories = cachedTerritories;
-              window.territories = cachedTerritories; // 🎯 [핵심] 전역 변수 명시적 할당
+              _initTerritoriesSession(cachedTerritories);
               console.log(`💾 [즉시 캐시] territories ${territories.length}개 IndexedDB에서 로드 완료`);
               hasCachedData = true;
           }
@@ -10904,7 +10938,8 @@ const loadingMessages = [
           // territoriesById Map 을 source of truth 로 사용 (O(1) lookup)
           let added = 0;
           newFeatures.forEach(feature => {
-              const id = feature.properties?._id || feature.properties?.id || feature.id;
+              const id = String(feature.properties?._id?.$oid || feature.properties?._id
+                  || feature.properties?.id || feature.id || '');
               if (!id) return;
               // 세션 캐시에 이미 있으면 재삽입하지 않음 (세션 snapshot 보호)
               if (sessionCache.territoriesById.has(id)) return;
@@ -11037,7 +11072,7 @@ const loadingMessages = [
                   _updateTerritoryBtn();
 
                   // 뷰포트 타일 로드 직후 즉시 렌더링
-                  if (territories.length > 0 && typeof updateVisibleTerritories === 'function') {
+                  if (added > 0 && typeof updateVisibleTerritories === 'function') {
                       updateVisibleTerritories();
                   }
               } else {
@@ -26150,6 +26185,14 @@ kingSelect.addEventListener('change', () => {
             }
             
             try {
+                // 사용자 상세와 랭킹은 서로 독립적이므로 네트워크 왕복을 겹친다.
+                // 게스트는 기존처럼 랭킹을 요청하지 않는다.
+                const rankingsPromise = currentUser.isGuest
+                    ? Promise.resolve([])
+                    : fetch('/api/rankings').then(response => {
+                        if (!response.ok) throw new Error(`rankings HTTP ${response.status}`);
+                        return response.json();
+                    });
                 // 🚩 [추가] 서버에서 최신 사용자 정보 가져오기 (백그라운드)
                 console.log('📡 /api/user/me 호출 중... (백그라운드)');
                 const userResponse = await fetch('/api/user/me', {
@@ -26177,10 +26220,8 @@ kingSelect.addEventListener('change', () => {
                     return;
                 }
 
-                console.log('📡 /api/rankings 호출 중... (백그라운드)');
-                // 사용자의 랭킹 데이터 조회
-                const response = await fetch('/api/rankings');
-                const rankings = await response.json();
+                console.log('📡 /api/rankings 병렬 호출 결과 대기 중...');
+                const rankings = await rankingsPromise;
                 console.log(`📊 랭킹 데이터: ${Array.isArray(rankings) ? rankings.length : 0}명`);
 
                 // 현재 사용자의 랭킹 데이터 찾기
@@ -28866,6 +28907,7 @@ kingSelect.addEventListener('change', () => {
             let _styleReloadGeneration = 0;
             let _markerRenderGeneration = 0;
             let _mobileSymbolEventsSetup = false;
+            let _mobileSymbolDataKey = null;
             let _waitingForStyleLoad = false;
 
             function refreshLayers() {
@@ -28910,7 +28952,14 @@ kingSelect.addEventListener('change', () => {
                     + `${_lv.countryLabel?1:0}${_lv.adminLabel?1:0}${_lv.placeLabel?1:0}${_lv.ethnicLabel?1:0}`;
                 const newMarkerKey = `${year}_${month}_${(window._3dCastleData||[]).length}_${mlMap.getZoom().toFixed(1)}_${mlMap.getPitch().toFixed(0)}_${_lodMode}_${_lvKey}`;
 
-                const territoryChanged = newTerritoryKey !== _refreshTerritoryDataKey;
+                // 캐시 키가 같아도 style 초기화 경합으로 실제 source가 아직 없으면
+                // 반드시 다시 주입한다. 키만 먼저 기록되고 source 추가가 지연되는
+                // 초기 Globe 프레임을 복구한다.
+                const territorySourcesReady = !_showTerritory || ['country', 'province', 'city'].every(key => {
+                    const featureCount = _td?.[key]?.length || 0;
+                    return featureCount === 0 || !!mlMap.getSource(`territories-${key}`);
+                });
+                const territoryChanged = newTerritoryKey !== _refreshTerritoryDataKey || !territorySourcesReady;
                 const markerChanged    = newMarkerKey    !== _refreshMarkerKey;
 
                 if (!territoryChanged && !markerChanged) {
@@ -29716,10 +29765,19 @@ kingSelect.addEventListener('change', () => {
                 const _mobileSymbolCircleId = 'mobile-simple-marker-dots';
                 const _mobileSymbolTextId = 'mobile-simple-marker-labels';
                 const _mobileSymbolData = { type: 'FeatureCollection', features: _mobileSymbolFeatures };
+                const _nextMobileSymbolDataKey = _mobileSymbolFeatures.map(feature => {
+                    const coordinates = feature.geometry?.coordinates || [];
+                    return `${feature.properties?.castle_id || ''}:${coordinates[0] || ''}:${coordinates[1] || ''}`;
+                }).join('|');
                 if (_m.getSource(_mobileSymbolSourceId)) {
-                    _m.getSource(_mobileSymbolSourceId).setData(_mobileSymbolData);
+                    // 동일 GeoJSON을 다시 올리면 MapLibre가 GPU 버퍼를 불필요하게 재작성한다.
+                    if (_nextMobileSymbolDataKey !== _mobileSymbolDataKey) {
+                        _m.getSource(_mobileSymbolSourceId).setData(_mobileSymbolData);
+                        _mobileSymbolDataKey = _nextMobileSymbolDataKey;
+                    }
                 } else if (_useMobileSymbols) {
                     _m.addSource(_mobileSymbolSourceId, { type: 'geojson', data: _mobileSymbolData });
+                    _mobileSymbolDataKey = _nextMobileSymbolDataKey;
                     _m.addLayer({
                         id: _mobileSymbolCircleId,
                         type: 'circle',
@@ -30448,7 +30506,14 @@ kingSelect.addEventListener('change', () => {
                 };
                 _updateMarkerZoomScale(); // 초기 적용
                 if (_3dZoomScaleListener) _m.off('zoom', _3dZoomScaleListener);
-                _3dZoomScaleListener = _updateMarkerZoomScale;
+                let _markerZoomScaleRAF = 0;
+                _3dZoomScaleListener = () => {
+                    if (_markerZoomScaleRAF) return;
+                    _markerZoomScaleRAF = requestAnimationFrame(() => {
+                        _markerZoomScaleRAF = 0;
+                        if (window._is3dMode) _updateMarkerZoomScale();
+                    });
+                };
                 _m.on('zoom', _3dZoomScaleListener);
                 // 레이어 토글 시 즉시 마커 표시/숨김 반영
                 window._3dUpdateMarkerZoomScale = _updateMarkerZoomScale;
@@ -31536,12 +31601,31 @@ kingSelect.addEventListener('change', () => {
                             mlMap.on('zoomend',  _lodHandler);
                             mlMap.on('moveend',  _lodHandler);
                             mlMap.on('pitchend', _lodHandler);
-                            refreshLayers();
+                            // 첫 화면은 moveend가 발생하지 않을 수 있다. MapLibre가 계산한
+                            // 현재 Globe bounds를 즉시 타일 로더에 전달해 이동 전에도 영토를 채운다.
+                            if (typeof window._loadTerritoryTilesForBounds === 'function') {
+                                void window._loadTerritoryTilesForBounds(mlMap.getBounds()).then(added => {
+                                    if (!window._is3dMode) return;
+                                    if (typeof window._force3dTerritoryRefresh === 'function') {
+                                        window._force3dTerritoryRefresh();
+                                    }
+                                }).catch(error => console.warn('[3D] 초기 영토 타일 로드 실패:', error));
+                            }
+                            // load 콜백 안에서 style/DEM 갱신이 끝난 다음 프레임에 source를
+                            // 붙인다. 일반 debounce를 기다리지 않아 첫 화면 공백을 막는다.
+                            requestAnimationFrame(() => window._force3dTerritoryRefresh?.());
                             _schedule3dHeroPins(true);
                             if (window._refresh3dPopulation) window._refresh3dPopulation();
                             // MapLibre load는 스타일 정의만 준비된 시점이다. 현재 화면의
-                            // 위성 타일까지 그린 첫 idle 프레임에서 초기 로딩 화면을 해제한다.
-                            mlMap.once('idle', () => window._markInitialGlobeReady?.());
+                            // 위성 타일까지 그린 첫 idle에서 영토 source를 재확인하고,
+                            // repaint 프레임 뒤 초기 로딩 화면을 해제한다.
+                            mlMap.once('idle', () => {
+                                window._force3dTerritoryRefresh?.();
+                                requestAnimationFrame(() => {
+                                    mlMap.triggerRepaint();
+                                    requestAnimationFrame(() => window._markInitialGlobeReady?.());
+                                });
+                            });
                         });
                     } else {
                         const c = map.getCenter();
