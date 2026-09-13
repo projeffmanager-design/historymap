@@ -1382,9 +1382,9 @@
     async function ensureHistoryVectorLayer() {
         if (historyVectorLayerPromise) return historyVectorLayerPromise;
         historyVectorLayerPromise = (async () => {
-            await loadHistoryVectorAsset('style', 'https://unpkg.com/maplibre-gl@5.12.0/dist/maplibre-gl.css');
+            await loadHistoryVectorAsset('style', 'https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css');
             if (!window.maplibregl) {
-                await loadHistoryVectorAsset('script', 'https://unpkg.com/maplibre-gl@5.12.0/dist/maplibre-gl.js');
+                await loadHistoryVectorAsset('script', 'https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js');
             }
             if (!L.maplibreGL) {
                 await loadHistoryVectorAsset('script', 'https://unpkg.com/@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl.js');
@@ -20832,6 +20832,14 @@ const loadingMessages = [
             });
         }
 
+        // 타임슬라이더는 이 클로저의 _currentCInfo에 직접 접근할 수 없으므로
+        // 안전한 공개 함수를 통해 현재 활성 계보 탭만 갱신한다.
+        window._refreshCountryLineageForTime = () => {
+            if (_currentCInfo && panel.querySelector('[data-tab="lineage"]')?.classList.contains('active')) {
+                _renderLineage(_currentCInfo);
+            }
+        };
+
         // ── 공개 함수: 패널 열기 ──
         function showCountryInfoModal(cInfo, initialTab = 'overview') {
             if (!cInfo) return;
@@ -26425,9 +26433,7 @@ kingSelect.addEventListener('change', () => {
                     updateMap(_sliderLastMapYear, _sliderLastMapMonth);
                     if (typeof refreshWaterLevelOverlay === 'function') refreshWaterLevelOverlay(_sliderLastMapYear);
                     refreshHeroPinsForTime(_sliderLastMapYear, _sliderLastMapMonth, false);
-                    if (_currentCInfo && document.getElementById('cdp-tab-lineage')?.classList.contains('active')) {
-                        _renderLineage(_currentCInfo);
-                    }
+                    window._refreshCountryLineageForTime?.();
                 });
             }
         });
@@ -28772,11 +28778,11 @@ kingSelect.addEventListener('change', () => {
                 const link = document.createElement('link');
                 link.rel = 'stylesheet';
                 link.crossOrigin = 'anonymous';
-                link.href = 'https://unpkg.com/maplibre-gl@5.12.0/dist/maplibre-gl.css';
+                link.href = 'https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css';
                 document.head.appendChild(link);
                 const s = document.createElement('script');
                 s.crossOrigin = 'anonymous';
-                s.src = 'https://unpkg.com/maplibre-gl@5.12.0/dist/maplibre-gl.js';
+                s.src = 'https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js';
                 s.onload = () => { window._maplibreLoading = false; (window._maplibreOnloadQ || []).forEach(fn => fn()); window._maplibreOnloadQ = []; };
                 document.head.appendChild(s);
             }

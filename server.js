@@ -1534,7 +1534,8 @@ app.use(express.text({ type: 'text/plain' })); // sendBeacon beacon-logout 용
 app.use(compression()); // 응답 압축으로 대용량 전송 최적화
 const NOINDEX_PAGE_PATTERN = /^\/(?:login|register|reset-password|account|admin|territory_manager|territory_overview|test[^/]*)?(?:\.html)?$/i;
 app.use((req, res, next) => {
-    if (req.path !== '/' && NOINDEX_PAGE_PATTERN.test(req.path)) {
+    if (req.path === '/indexmaplibre.html' || req.path === '/indexmaplibre'
+        || (req.path !== '/' && NOINDEX_PAGE_PATTERN.test(req.path))) {
         res.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
     }
     next();
