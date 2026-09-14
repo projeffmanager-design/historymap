@@ -527,8 +527,23 @@
         if (!country) return '';
         const formatName = item => {
             const effective = getEffectiveCountryInfo(item, year, month) || item;
-            const name = effective.name || item.name || '';
-            const hanja = effective.name_zh || effective.name_chi || '';
+            const rawCountry = (typeof countries !== 'undefined' ? countries : []).find(candidate =>
+                String(candidate?._id || '') === String(effective?._id || item?._id || '')
+            ) || item;
+            const ethnicityNames = (Array.isArray(effective.ethnicity)
+                ? effective.ethnicity
+                : String(effective.ethnicity || '').split(/[,/·]/))
+                .map(value => String(value || '').trim())
+                .filter(Boolean);
+            const effectiveName = String(effective.name || '').trim();
+            // 국가 이력의 name 필드에 민족명이 잘못 들어간 경우 국가 라벨까지
+            // '한족'처럼 바뀌지 않도록 영구 국가명을 우선 사용한다.
+            const name = ethnicityNames.includes(effectiveName)
+                ? (rawCountry.name || effective.base_name || item.name || effectiveName)
+                : (effectiveName || item.name || '');
+            const hanja = ethnicityNames.includes(effectiveName)
+                ? (rawCountry.name_zh || rawCountry.name_chi || '')
+                : (effective.name_zh || effective.name_chi || '');
             return `${name}${hanja ? `(${hanja})` : ''}`;
         };
         const ownName = formatName(country);
@@ -4496,6 +4511,15 @@ function updateKingLabel(year, month) {
         // 모든 성/도시 마커를 순회
         const castleList = (window._activeCastlesForTerritory) || castles;
         const usePrecomputed = !!(window._activeCastlesForTerritory);
+        const territoryId = String(territory?._id?.$oid || territory?._id || territory?.id || territory?.name || '');
+        let castleMembership = null;
+        if (usePrecomputed && territoryId) {
+            castleMembership = _territoryCastleMembershipCache.get(territoryId);
+            if (!castleMembership) {
+                castleMembership = new Map();
+                _territoryCastleMembershipCache.set(territoryId, castleMembership);
+            }
+        }
         
         (usePrecomputed ? castleList : castles).forEach(item => {
             let cLat, cLng, countryId, isCapital;
@@ -4517,16 +4541,20 @@ function updateKingLabel(year, month) {
                 isCapital = !!(activeInfo?.record?.is_capital || castle.is_capital);
             }
             
-            let isInside = false;
-            for (const polygon of polygonData) {
-                if (cLat < polygon.bounds.minLat || cLat > polygon.bounds.maxLat ||
-                    cLng < polygon.bounds.minLng || cLng > polygon.bounds.maxLng) {
-                    continue;
+            let isInside = castleMembership?.get(item.castleId);
+            if (isInside == null) {
+                isInside = false;
+                for (const polygon of polygonData) {
+                    if (cLat < polygon.bounds.minLat || cLat > polygon.bounds.maxLat ||
+                        cLng < polygon.bounds.minLng || cLng > polygon.bounds.maxLng) {
+                        continue;
+                    }
+                    if (isPointInPolygon([cLat, cLng], polygon.coords)) {
+                        isInside = true;
+                        break;
+                    }
                 }
-                if (isPointInPolygon([cLat, cLng], polygon.coords)) {
-                    isInside = true;
-                    break;
-                }
+                if (castleMembership) castleMembership.set(item.castleId, isInside);
             }
             
             if (!isInside) return;
@@ -5443,6 +5471,8 @@ function getSimplifiedGeometry(territory, tolerance) {
 // 🚀 [v3.6] calculateDominantCountry 결과 캐시 (연도+월이 같으면 재계산 불필요)
 let _dominantCountryCache = new Map(); // key: `${territory._id}_${year}_${month}` → result
 let _dominantCountryCacheKey = ''; // castles fingerprint for invalidation
+let _territoryCastleMembershipCache = new Map(); // territoryId → Map(castleId, inside), 시대와 무관
+let _territoryCastleMembershipFingerprint = '';
 
 function getCachedDominantCountry(territory, year, month) {
     // castles 데이터가 변경되면 캐시 무효화
@@ -5459,9 +5489,11 @@ function getCachedDominantCountry(territory, year, month) {
     _dominantCountryCache.set(cacheKey, result);
     
     // 캐시 크기 제한
-    if (_dominantCountryCache.size > 2000) {
+    // 월 이동·왕복 탐색 시 최근 약 40개 시점의 판정 결과를 재사용한다.
+    // 결과 객체만 저장하므로 geometry 복제보다 메모리 비용이 작다.
+    if (_dominantCountryCache.size > 24000) {
         const iter = _dominantCountryCache.keys();
-        for (let i = 0; i < 500; i++) _dominantCountryCache.delete(iter.next().value);
+        for (let i = 0; i < 6000; i++) _dominantCountryCache.delete(iter.next().value);
     }
     
     return result;
@@ -5573,6 +5605,7 @@ function requestOverlayUpdate() {
 }
 
 function updateMap(year, month, cacheOnly = false, force = false) {
+        const _updateMapStartedAt = performance.now();
         // � 줌 애니메이션 중에는 territory 재렌더 차단 (zoomend에서 1회 렌더)
         if (window._isZooming) return;
 
@@ -5700,6 +5733,14 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             // 🎯 [핵심] 현재 연도에 활성화된 성 목록을 미리 계산 (territory 색상 결정용)
             // 마커가 지도에 표시되는 기준과 동일한 로직으로 활성 성 추출
             const currentTotalMonthsForTerritory = yearMonthToTotalMonths(year, month);
+            const membershipFingerprint = castles.map(castle =>
+                `${castle._id?.$oid || castle._id || castle.id || ''}:${castle.lat ?? ''}:${castle.lng ?? ''}`
+            ).join('|');
+            if (membershipFingerprint !== _territoryCastleMembershipFingerprint) {
+                _territoryCastleMembershipFingerprint = membershipFingerprint;
+                _territoryCastleMembershipCache.clear();
+                _dominantCountryCache.clear();
+            }
             window._activeCastlesForTerritory = castles.filter(castle => {
                 if (typeof castle.lat !== 'number' || typeof castle.lng !== 'number') return false;
                 if (castle.is_natural_feature || castle.is_label || castle.is_military_flag) return false;
@@ -5718,10 +5759,13 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const politicalPhase = getEffectiveCountryInfo(politicalCountry, year, month);
                 if (politicalPhase?.territory_enabled === false) return null;
                 const isCapital = !!(info?.record?.is_capital || castle.is_capital);
-                return { lat: castle.lat, lng: castle.lng, countryId: String(countryId), isCapital };
+                return {
+                    castleId: String(castle._id?.$oid || castle._id || castle.id || `${castle.lat}:${castle.lng}`),
+                    lat: castle.lat, lng: castle.lng, countryId: String(countryId), isCapital
+                };
             }).filter(c => c && c.countryId);
-            // 캐시 무효화 — 이 updateMap 호출에 맞게 새로 계산했으므로 캐시 클리어
-            _dominantCountryCache.clear();
+            // 연도·월은 cache key에 포함된다. 매 호출마다 비우면 슬라이더 왕복과
+            // 초기 중복 갱신에서 동일 폴리곤 판정을 계속 반복하므로 유지한다.
 
             // 무색 영토의 둘러싸임 보정을 위해 직접 판정 가능한 영토를 먼저 확정한다.
             // 이 결과만 이웃 판정의 근거로 사용하여 연쇄적으로 잘못 번지는 것을 막는다.
@@ -6299,8 +6343,15 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             }
 
             window._3dTerritoryData = _3dTerr;
-            mergeGlobeTerritoriesByCountry(_3dTerr, year, month);
+            // MVT 모드에서는 PMTiles를 직접 표시한다. Worker GeoJSON 합성까지 함께
+            // 실행하면 두 렌더 경로를 모두 부담해 기존 JSON보다 느려진다.
+            if (window.ENABLE_TERRITORY_MVT_TEST !== true) {
+                mergeGlobeTerritoriesByCountry(_3dTerr, year, month);
+            }
             console.log(`[3D] 렌더 완료: country=${_3dTerr.country.length} province=${_3dTerr.province.length} city=${_3dTerr.city.length} 주변 동일국가 보정=${surroundedTerritoryFillCount}`);
+            if (window.ENABLE_TERRITORY_MVT_TEST === true) {
+                console.log(`[MVT PERF] ownership+style=${(performance.now() - _updateMapStartedAt).toFixed(1)}ms membershipCache=${_territoryCastleMembershipCache.size} timeCache=${_dominantCountryCache.size}`);
+            }
 
             // 🔧 [elegant fix] Leaflet 1.7.1 L.canvas는 pane 옵션을 무시하고 항상 overlayPane에 추가함
             // → Canvas element를 territoryPane으로 직접 이동하여 mix-blend-mode: multiply 적용
@@ -28469,19 +28520,24 @@ kingSelect.addEventListener('change', () => {
             let orbitTimer = null;
 
             function get3dTerritoryBasemapOpacity() {
-                const mode = String(window._historyGlobeBasemap || window._ml3dBaseMode || 'terrain');
-                if (mode === 'satellite' || mode === 'globe-satellite') return 0.48;
-                if (mode === 'vector') return 0.48; // 지명 벡터 지도도 위성과 동일
-                return 0.72; // 지형 지도
+                // 아래 베이스맵과 하위 영토 경계를 함께 읽을 수 있도록 모든 지도에서 40%로 통일한다.
+                return 0.4;
             }
 
             function apply3dTerritoryBasemapOpacity() {
                 if (!mlMap) return;
                 const opacity = get3dTerritoryBasemapOpacity();
-                ['country', 'province', 'city'].forEach(key => {
-                    const fillId = `territory-fill-${key}`;
-                    if (mlMap.getLayer(fillId)) mlMap.setPaintProperty(fillId, 'fill-opacity', opacity);
-                });
+                // MVT 레이어의 fill-opacity는 현재 시대 활성 ID를 판별하는 expression이다.
+                // 숫자 opacity로 덮어쓰면 아카이브의 모든 시대 피처가 동시에 나타난다.
+                if (window.ENABLE_TERRITORY_MVT_TEST !== true) {
+                    ['country', 'province', 'city'].forEach(key => {
+                        const fillId = `territory-fill-${key}`;
+                        if (mlMap.getLayer(fillId)) mlMap.setPaintProperty(fillId, 'fill-opacity', opacity);
+                    });
+                }
+                if (mlMap.getLayer('territory-fill-resolved-current')) {
+                    mlMap.setPaintProperty('territory-fill-resolved-current', 'fill-opacity', opacity);
+                }
             }
 
             window._3dClearHeroCache = () => {
@@ -28910,6 +28966,7 @@ kingSelect.addEventListener('change', () => {
             let _refreshTerritoryDataKey = null; // 영토 전용 캐시 키 (데이터 의존)
             let _refreshMarkerKey = null;        // 마커 전용 캐시 키 (zoom/LOD 의존)
             let _refreshLayersTimer = null;
+            let _refreshLayersRaf = null;
             let _styleReloadGeneration = 0;
             let _markerRenderGeneration = 0;
             let _mobileSymbolEventsSetup = false;
@@ -28921,14 +28978,22 @@ kingSelect.addEventListener('change', () => {
                 // ── 재생 중이거나 슬라이더 드래그 중에는 debounce 생략, 즉시 렌더 ──
                 if (window.isPlaying || document.body.classList.contains('slider-dragging')) {
                     clearTimeout(_refreshLayersTimer);
-                    _refreshLayersThrottled();
+                    _scheduleRefreshLayersFrame();
                     return;
                 }
                 // ── debounce: 400ms 안에 연속 호출은 마지막 1회만 실행 ──
                 clearTimeout(_refreshLayersTimer);
                 _refreshLayersTimer = setTimeout(() => {
-                    _refreshLayersThrottled();
+                    _scheduleRefreshLayersFrame();
                 }, 400);
+            }
+
+            function _scheduleRefreshLayersFrame() {
+                if (_refreshLayersRaf != null) return;
+                _refreshLayersRaf = requestAnimationFrame(() => {
+                    _refreshLayersRaf = null;
+                    _refreshLayersThrottled();
+                });
             }
 
             function _refreshLayersThrottled() {
@@ -28961,10 +29026,12 @@ kingSelect.addEventListener('change', () => {
                 // 캐시 키가 같아도 style 초기화 경합으로 실제 source가 아직 없으면
                 // 반드시 다시 주입한다. 키만 먼저 기록되고 source 추가가 지연되는
                 // 초기 Globe 프레임을 복구한다.
-                const territorySourcesReady = !_showTerritory || ['country', 'province', 'city'].every(key => {
-                    const featureCount = _td?.[key]?.length || 0;
-                    return featureCount === 0 || !!mlMap.getSource(`territories-${key}`);
-                });
+                const territorySourcesReady = !_showTerritory || (window.ENABLE_TERRITORY_MVT_TEST === true
+                    ? !!mlMap.getSource('territories-mvt')
+                    : ['country', 'province', 'city'].every(key => {
+                        const featureCount = _td?.[key]?.length || 0;
+                        return featureCount === 0 || !!mlMap.getSource(`territories-${key}`);
+                    }));
                 const territoryChanged = newTerritoryKey !== _refreshTerritoryDataKey || !territorySourcesReady;
                 const markerChanged    = newMarkerKey    !== _refreshMarkerKey;
 
@@ -29002,13 +29069,13 @@ kingSelect.addEventListener('change', () => {
                 _refreshLayersCacheKey = null;
                 _refreshTerritoryDataKey = null;
                 clearTimeout(_refreshLayersTimer);
-                _refreshLayersThrottled();
+                _scheduleRefreshLayersFrame();
             };
             window._force3dMarkerRefresh = function() {
                 _refreshLayersCacheKey = null;
                 _refreshMarkerKey = null;
                 clearTimeout(_refreshLayersTimer);
-                _refreshLayersThrottled();
+                _scheduleRefreshLayersFrame();
             };
 
             // setStyle()은 MapLibre에 추가한 모든 사용자 source/layer를 제거한다.
@@ -29040,7 +29107,7 @@ kingSelect.addEventListener('change', () => {
                     setTimeout(() => {
                         if (!mlMap || generation !== _styleReloadGeneration) return;
                         _refreshMarkerKey = null;
-                        _refreshLayersThrottled();
+                        _scheduleRefreshLayersFrame();
                     }, 80);
                 } else if (typeof updateMap === 'function') {
                     updateMap(year, month, false, true);
@@ -29051,8 +29118,10 @@ kingSelect.addEventListener('change', () => {
                     const td = window._3dTerritoryData;
                     const hasTerritoryData = !!td && ['country', 'province', 'city']
                         .some(key => (td[key] || []).length > 0);
-                    const hasTerritorySource = ['territories-country', 'territories-province', 'territories-city']
-                        .some(id => !!mlMap.getSource(id));
+                    const hasTerritorySource = window.ENABLE_TERRITORY_MVT_TEST === true
+                        ? !!mlMap.getSource('territories-mvt')
+                        : ['territories-country', 'territories-province', 'territories-city']
+                            .some(id => !!mlMap.getSource(id));
                     if (!hasTerritoryData) {
                         if (typeof updateMap === 'function') updateMap(year, month, false, true);
                         return;
@@ -29061,7 +29130,7 @@ kingSelect.addEventListener('change', () => {
                         _refreshLayersCacheKey = null;
                         _refreshTerritoryDataKey = null;
                         _refreshMarkerKey = null;
-                        _refreshLayersThrottled();
+                        _scheduleRefreshLayersFrame();
                     }
                 }, delay));
             }
@@ -29315,7 +29384,11 @@ kingSelect.addEventListener('change', () => {
 
                     render(gl) {
                         const pitch = map.getPitch();
-                        if (pitch < 15) { map.triggerRepaint(); return; }
+                        if (pitch < 15) {
+                            if (this._repaintTimer) clearTimeout(this._repaintTimer);
+                            this._repaintTimer = null;
+                            return;
+                        }
                         const pn = Math.min(1.0, (pitch - 15) / 45);
 
                         gl.useProgram(this._prog);
@@ -29342,10 +29415,18 @@ kingSelect.addEventListener('change', () => {
                         gl.disableVertexAttribArray(L.a_phase);
                         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-                        map.triggerRepaint();
+                        // 별 반짝임은 30fps면 충분하다. render() 안에서 즉시 repaint를
+                        // 호출하면 정지 중에도 Globe error texture가 매 프레임 갱신된다.
+                        if (!this._repaintTimer) {
+                            this._repaintTimer = setTimeout(() => {
+                                this._repaintTimer = null;
+                                if (map.getPitch() >= 15) map.triggerRepaint();
+                            }, 34);
+                        }
                     },
 
                     onRemove(map, gl) {
+                        if (this._repaintTimer) clearTimeout(this._repaintTimer);
                         if (this._prog) gl.deleteProgram(this._prog);
                         if (this._vbo)  gl.deleteBuffer(this._vbo);
                     }
@@ -29418,17 +29499,68 @@ kingSelect.addEventListener('change', () => {
             //   all:     99 (전부, ez≥7)
             const LOD_MAX_PRIORITY = { country: 0, capital: 2, major: 3, all: 99 };
 
-            let _mvtTerritoryFeatureIds = new Set();
+            let _mvtBaseStylesById = new Map();
+            let _mvtBaseStylesByName = new Map();
+            let _mvtPaintKey = '';
+            let _showingResolvedTerritories = false;
+
+            function _refreshResolvedTerritories(_m, features, showTerritory, opacity) {
+                const sourceId = 'territories-resolved-current';
+                const fillId = 'territory-fill-resolved-current';
+                const outlineId = 'territory-outline-resolved-current';
+                const data = { type: 'FeatureCollection', features };
+                if (_m.getSource(sourceId)) {
+                    _m.getSource(sourceId).setData(data);
+                } else {
+                    _m.addSource(sourceId, { type: 'geojson', data });
+                    _m.addLayer({ id: fillId, type: 'fill', source: sourceId,
+                        paint: {
+                            'fill-color': ['coalesce', ['get', 'fillColor'], '#888888'],
+                            'fill-opacity': opacity
+                        }
+                    });
+                    _m.addLayer({ id: outlineId, type: 'line', source: sourceId,
+                        paint: {
+                            'line-color': ['coalesce', ['get', 'lineColor'], '#888888'],
+                            'line-width': ['coalesce', ['to-number', ['get', 'weight'], null], 0.5],
+                            'line-opacity': ['coalesce', ['to-number', ['get', 'lineOpacity'], null], 0.4]
+                        }
+                    });
+                }
+                _m.setPaintProperty(fillId, 'fill-opacity', opacity);
+                [fillId, outlineId].forEach(id => _m.setLayoutProperty(id, 'visibility', showTerritory ? 'visible' : 'none'));
+                ['country', 'province', 'city'].forEach(level => {
+                    [`territory-fill-${level}`, `territory-outline-${level}`].forEach(id => {
+                        if (_m.getLayer(id)) _m.setLayoutProperty(id, 'visibility', 'none');
+                    });
+                });
+                _showingResolvedTerritories = true;
+                console.log(`[TERR RESOLVED] non-overlapping=${features.length}, opacity=${opacity}`);
+            }
 
             function _refreshMvtTerritories(_m, td, showTerritory, territoryBasemapOpacity) {
                 const sourceId = 'territories-mvt';
                 const sourceLayer = 'territories';
+                const isOriginalHierarchy = (td.country?.length || 0) > 0 || (td.province?.length || 0) > 0;
+                if (!isOriginalHierarchy && (td.city?.length || 0) > 0) {
+                    _refreshResolvedTerritories(_m, td.city, showTerritory, territoryBasemapOpacity);
+                    return;
+                }
+                ['territory-fill-resolved-current', 'territory-outline-resolved-current'].forEach(id => {
+                    if (_m.getLayer(id)) _m.setLayoutProperty(id, 'visibility', 'none');
+                });
+                _showingResolvedTerritories = false;
                 if (!_m.getSource(sourceId)) {
+                    _mvtPaintKey = '';
+                    if (!window.pmtiles?.Protocol) throw new Error('PMTiles runtime이 로드되지 않았습니다.');
+                    if (!window._territoryPmtilesProtocol) {
+                        window._territoryPmtilesProtocol = new window.pmtiles.Protocol();
+                        maplibregl.addProtocol('pmtiles', window._territoryPmtilesProtocol.tile);
+                    }
+                    const archiveUrl = `${window.location.origin}/public/mvt/territories.pmtiles?v=multipolygon-19`;
                     _m.addSource(sourceId, {
                         type: 'vector',
-                        tiles: ['/public/mvt/territories/{z}/{x}/{y}.pbf'],
-                        minzoom: 0,
-                        maxzoom: 7,
+                        url: `pmtiles://${archiveUrl}`,
                         promoteId: '_id'
                     });
                     ['country', 'province', 'city'].forEach(level => {
@@ -29439,8 +29571,8 @@ kingSelect.addEventListener('change', () => {
                             'source-layer': sourceLayer,
                             filter: ['==', ['get', 'level'], level],
                             paint: {
-                                'fill-color': ['coalesce', ['feature-state', 'fillColor'], '#888888'],
-                                'fill-opacity': ['case', ['boolean', ['feature-state', 'visible'], false], territoryBasemapOpacity, 0]
+                                'fill-color': '#888888',
+                                'fill-opacity': 0
                             }
                         });
                         _m.addLayer({
@@ -29450,45 +29582,114 @@ kingSelect.addEventListener('change', () => {
                             'source-layer': sourceLayer,
                             filter: ['==', ['get', 'level'], level],
                             paint: {
-                                'line-color': ['coalesce', ['feature-state', 'lineColor'], '#888888'],
-                                'line-width': ['coalesce', ['feature-state', 'weight'], 0.5],
-                                'line-opacity': ['case', ['boolean', ['feature-state', 'visible'], false],
-                                    ['coalesce', ['feature-state', 'lineOpacity'], 0.4], 0]
+                                'line-color': '#888888',
+                                'line-width': 0.5,
+                                'line-opacity': 0
                             }
                         });
                     });
                 }
 
-                const nextIds = new Set();
-                for (const level of ['country', 'province', 'city']) {
-                    for (const feature of td[level] || []) {
+                // PBF의 문자열 _id를 직접 paint expression에 매칭한다.
+                // feature-state + promoteId 조합은 일부 MapLibre worker 경로에서 문자열 ID가
+                // 연결되지 않아 모든 fill-opacity가 0으로 남는 문제가 있다.
+                const incomingStylesById = new Map();
+                const incomingStylesByName = new Map();
+                const hierarchyFeatures = ['country', 'province', 'city'].flatMap(level =>
+                    (td[level] || []).map(feature => ({
+                        ...feature,
+                        properties: {
+                            ...(feature.properties || {}),
+                            level: feature.properties?.level || level
+                        }
+                    }))
+                );
+                // 한 국가의 country 도형이 전체 소유 영역을 뜻하지 않는 데이터가 있다.
+                // province/city는 중복 계층인 동시에 country 바깥 영토의 보완 도형이므로
+                // 소유자 단위로 하위 계층을 제거하면 실제 영토까지 사라진다. MVT에서는
+                // 현재 시점에 활성화된 원본 도형을 모두 유지해 누락을 우선 방지한다.
+                const paintFeatures = hierarchyFeatures;
+                for (const feature of paintFeatures) {
                         const p = feature.properties || {};
                         const id = String(p.territory_id || '');
                         if (!id) continue;
-                        nextIds.add(id);
-                        _m.setFeatureState({ source: sourceId, sourceLayer, id }, {
-                            visible: showTerritory,
+                        const style = {
                             fillColor: p.fillColor || '#888888',
                             lineColor: p.lineColor || '#888888',
                             lineOpacity: Number(p.lineOpacity ?? 0.4),
                             weight: Number(p.weight ?? 0.5)
-                        });
-                    }
+                        };
+                        incomingStylesById.set(id, style);
+                        const name = String(p.name || '').trim();
+                        if (name) incomingStylesByName.set(name, style);
                 }
-                for (const id of _mvtTerritoryFeatureIds) {
-                    if (!nextIds.has(id)) {
-                        _m.setFeatureState({ source: sourceId, sourceLayer, id }, { visible: false });
-                    }
+                // hierarchy Worker 결과는 차집합된 새 geometry를 city 배열에만 담는다.
+                // 정적 MVT에는 그 새 geometry가 없으므로, Worker 결과의 ID만 사용하면
+                // 원본 타일 96개가 숨겨져 지도 중간에 빈 영역이 생긴다.
+                // country/province가 있는 원본 단계에서 전체 소유권 매핑을 교체하고,
+                // Worker 단계에서는 기존 매핑을 유지한 채 일치하는 스타일만 갱신한다.
+                if (isOriginalHierarchy || _mvtBaseStylesById.size === 0) {
+                    _mvtBaseStylesById = new Map(incomingStylesById);
+                    _mvtBaseStylesByName = new Map(incomingStylesByName);
+                } else {
+                    incomingStylesById.forEach((style, id) => _mvtBaseStylesById.set(id, style));
+                    incomingStylesByName.forEach((style, name) => _mvtBaseStylesByName.set(name, style));
                 }
-                _mvtTerritoryFeatureIds = nextIds;
+                const stylesById = _mvtBaseStylesById;
+                const stylesByName = _mvtBaseStylesByName;
+                const activeIds = [...stylesById.keys()];
+                const activeNames = [...stylesByName.keys()];
+                const nextPaintKey = `${showTerritory ? 1 : 0}|${territoryBasemapOpacity}|${activeIds.map(id => {
+                    const style = stylesById.get(id);
+                    return `${id}:${style.fillColor}:${style.lineColor}:${style.lineOpacity}:${style.weight}`;
+                }).join('|')}`;
+                if (nextPaintKey === _mvtPaintKey) return;
+                _mvtPaintKey = nextPaintKey;
+                const idExpression = ['to-string', ['get', '_id']];
+                const nameExpression = ['to-string', ['get', 'name']];
+                const makeMatch = (property, fallback) => {
+                    const nameMatch = ['match', nameExpression];
+                    stylesByName.forEach((style, name) => nameMatch.push(name, style[property]));
+                    nameMatch.push(fallback);
+                    const expression = ['match', idExpression];
+                    stylesById.forEach((style, id) => expression.push(id, style[property]));
+                    // 정적 MVT와 DB 갱신 시점이 달라 ID가 바뀐 영토는 이름으로 보조 매칭한다.
+                    expression.push(nameMatch);
+                    return expression;
+                };
+                const activeExpression = ['any',
+                    ['in', idExpression, ['literal', activeIds]],
+                    ['in', nameExpression, ['literal', activeNames]]
+                ];
+                const fillColorExpression = makeMatch('fillColor', '#888888');
+                const lineColorExpression = makeMatch('lineColor', '#888888');
+                const lineOpacityExpression = makeMatch('lineOpacity', 0.4);
+                const lineWidthExpression = makeMatch('weight', 0.5);
                 ['country', 'province', 'city'].forEach(level => {
                     const visibility = showTerritory ? 'visible' : 'none';
                     _m.setLayoutProperty(`territory-fill-${level}`, 'visibility', visibility);
                     _m.setLayoutProperty(`territory-outline-${level}`, 'visibility', visibility);
+                    _m.setPaintProperty(`territory-fill-${level}`, 'fill-color', fillColorExpression);
                     _m.setPaintProperty(`territory-fill-${level}`, 'fill-opacity',
-                        ['case', ['boolean', ['feature-state', 'visible'], false], territoryBasemapOpacity, 0]);
+                        ['case', activeExpression, 0.4, 0]);
+                    _m.setPaintProperty(`territory-outline-${level}`, 'line-color', lineColorExpression);
+                    _m.setPaintProperty(`territory-outline-${level}`, 'line-width', lineWidthExpression);
+                    _m.setPaintProperty(`territory-outline-${level}`, 'line-opacity',
+                        ['case', activeExpression, lineOpacityExpression, 0]);
                 });
-                console.log(`[MVT TEST] active=${nextIds.size}, source=${sourceId}, z0-7`);
+                console.log(`[PMTILES TEST] active=${activeIds.length}, incoming=${incomingStylesById.size}, selected=${paintFeatures.length}/${hierarchyFeatures.length}, names=${activeNames.length}, source=${sourceId}, display=direct-mvt, archive=territories.pmtiles`);
+
+                if (!_m._mvtTerritoryDiagnosticInstalled) {
+                    _m._mvtTerritoryDiagnosticInstalled = true;
+                    _m.once('idle', () => {
+                        const loaded = _m.querySourceFeatures(sourceId, { sourceLayer });
+                        const loadedIds = new Set(loaded.map(feature => String(feature.properties?._id || '')));
+                        const loadedNames = new Set(loaded.map(feature => String(feature.properties?.name || '').trim()));
+                        const idMatches = activeIds.filter(id => loadedIds.has(id)).length;
+                        const nameMatches = activeNames.filter(name => loadedNames.has(name)).length;
+                        console.log(`[MVT VERIFY] loaded=${loaded.length}, idMatches=${idMatches}, nameMatches=${nameMatches}`);
+                    });
+                }
             }
 
             function _refreshLayersInner(rebuildTerritory = true, rebuildMarkers = true) {
@@ -31172,6 +31373,7 @@ kingSelect.addEventListener('change', () => {
                                 : map.getZoom()),
                             pitch: globeMode ? 0 : 55,
                             bearing: 0,
+                            projection: globeMode ? { type: 'globe' } : { type: 'mercator' },
                             antialias: false,
                             maxPitch: 85,
                             renderWorldCopies: globeProjection !== 'globe',
@@ -31599,7 +31801,8 @@ kingSelect.addEventListener('change', () => {
 
                                                 _threeRenderer.resetState();
                                                 _threeRenderer.render(_threeScene, _threeCamera);
-                                                window.mlMap3d.triggerRepaint();
+                                                // 정적 궁궐 모델은 카메라/데이터 변경 때 MapLibre가
+                                                // 다시 호출한다. 여기서 repaint하면 무한 렌더 루프가 된다.
                                             } catch(re) { console.warn('[PalaceEditor] render 오류:', re.message); }
                                         }
                                     };
@@ -31617,7 +31820,6 @@ kingSelect.addEventListener('change', () => {
                             console.log('[3D] map load fired!');
                             if (window._historyGlobeMode) {
                                 try {
-                                    mlMap.setProjection({ type: 'globe' });
                                     mlMap.setRenderWorldCopies(false);
                                     captureGlobeBaseLayerVisibility();
                                     applyGlobeBasemapLayers(window._historyGlobeBasemap || 'vector');
@@ -31719,7 +31921,9 @@ kingSelect.addEventListener('change', () => {
                                 window._setHistoryGlobeBasemap(requestedMode);
                             }
                             try {
-                                mlMap.setProjection({ type: 'globe' });
+                                if (mlMap.getProjection?.()?.type !== 'globe') {
+                                    mlMap.setProjection({ type: 'globe' });
+                                }
                                 mlMap.setRenderWorldCopies(false);
                             } catch (projectionError) {
                                 console.warn('[벡터 Globe] 재진입 투영 실패:', projectionError);
@@ -32096,7 +32300,9 @@ kingSelect.addEventListener('change', () => {
                 window._historyGlobeBasemap = mode;
                 window._ml3dBaseMode = mode === 'satellite' ? 'globe-satellite' : mode;
                 try {
-                    mlMap.setProjection({ type: 'globe' });
+                    if (mlMap.getProjection?.()?.type !== 'globe') {
+                        mlMap.setProjection({ type: 'globe' });
+                    }
                     mlMap.setRenderWorldCopies(false);
                     if (!mlMap.getSource('dem')) {
                         mlMap.addSource('dem', {

@@ -1577,6 +1577,10 @@ app.use(express.static(__dirname, {
         } else if (filePath.endsWith('.pbf')) {
             res.type('application/vnd.mapbox-vector-tile');
             res.set('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+        } else if (filePath.endsWith('.pmtiles')) {
+            res.type('application/octet-stream');
+            res.set('Accept-Ranges', 'bytes');
+            res.set('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
         } else if (filePath.endsWith('coastline-low.json') || filePath.endsWith('history-outline-worker.js')) {
             res.set('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
         }
