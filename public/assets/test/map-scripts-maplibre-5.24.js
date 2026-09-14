@@ -29539,6 +29539,7 @@ kingSelect.addEventListener('change', () => {
             }
 
             function _refreshMvtTerritories(_m, td, showTerritory, territoryBasemapOpacity) {
+                const styleStartedAt = performance.now();
                 const sourceId = 'territories-mvt';
                 const sourceLayer = 'territories';
                 const isOriginalHierarchy = (td.country?.length || 0) > 0 || (td.province?.length || 0) > 0;
@@ -29677,7 +29678,7 @@ kingSelect.addEventListener('change', () => {
                     _m.setPaintProperty(`territory-outline-${level}`, 'line-opacity',
                         ['case', activeExpression, lineOpacityExpression, 0]);
                 });
-                console.log(`[PMTILES TEST] active=${activeIds.length}, incoming=${incomingStylesById.size}, selected=${paintFeatures.length}/${hierarchyFeatures.length}, names=${activeNames.length}, source=${sourceId}, display=direct-mvt, archive=territories.pmtiles`);
+                console.log(`[PMTILES TEST] active=${activeIds.length}, incoming=${incomingStylesById.size}, selected=${paintFeatures.length}/${hierarchyFeatures.length}, names=${activeNames.length}, styleMs=${(performance.now() - styleStartedAt).toFixed(1)}, source=${sourceId}, display=direct-mvt, archive=territories.pmtiles`);
 
                 if (!_m._mvtTerritoryDiagnosticInstalled) {
                     _m._mvtTerritoryDiagnosticInstalled = true;
@@ -31371,10 +31372,13 @@ kingSelect.addEventListener('change', () => {
                             zoom: initialCamera?.zoom ?? (globeMode && globeBasemap !== 'terrain'
                                 ? Math.min(map.getZoom(), 2.6)
                                 : map.getZoom()),
-                            pitch: globeMode ? 0 : 55,
-                            bearing: 0,
+                            pitch: initialCamera?.pitch ?? (globeMode ? 0 : 55),
+                            bearing: initialCamera?.bearing ?? 0,
                             projection: globeMode ? { type: 'globe' } : { type: 'mercator' },
                             antialias: false,
+                            fadeDuration: 0,
+                            maxTileCacheSize: 100,
+                            trackResize: true,
                             maxPitch: 85,
                             renderWorldCopies: globeProjection !== 'globe',
                             canvasContextAttributes: { alpha: true, antialias: false },
@@ -31820,10 +31824,15 @@ kingSelect.addEventListener('change', () => {
                             console.log('[3D] map load fired!');
                             if (window._historyGlobeMode) {
                                 try {
+                                    // URL 스타일을 사용하는 경우 생성자 projection 옵션보다
+                                    // 로드된 스타일의 Mercator 설정이 뒤늦게 적용될 수 있다.
+                                    // 스타일 준비 직후 Globe를 명시적으로 다시 지정한다.
+                                    mlMap.setProjection({ type: 'globe' });
                                     mlMap.setRenderWorldCopies(false);
                                     captureGlobeBaseLayerVisibility();
                                     applyGlobeBasemapLayers(window._historyGlobeBasemap || 'vector');
                                     syncGlobeStarBackdrop();
+                                    console.log('[Globe] projection applied:', mlMap.getStyle()?.projection?.type || 'globe');
                                 } catch (projectionError) {
                                     console.warn('[벡터 Globe] 투영 적용 실패:', projectionError);
                                 }
@@ -31904,10 +31913,9 @@ kingSelect.addEventListener('change', () => {
                             // repaint 프레임 뒤 초기 로딩 화면을 해제한다.
                             mlMap.once('idle', () => {
                                 window._force3dTerritoryRefresh?.();
-                                requestAnimationFrame(() => {
-                                    mlMap.triggerRepaint();
-                                    requestAnimationFrame(() => window._markInitialGlobeReady?.());
-                                });
+                                // source/layer 변경 자체가 repaint를 예약한다. 여기서 수동으로
+                                // 한 프레임을 더 깨우면 Globe readback 버퍼 경고가 증가한다.
+                                requestAnimationFrame(() => window._markInitialGlobeReady?.());
                             });
                         });
                     } else {
@@ -32318,7 +32326,6 @@ kingSelect.addEventListener('change', () => {
                     // 바다 DEM의 굴곡을 만들지 않고 hillshade만 지형 모드에서 사용한다.
                     mlMap.setTerrain(null);
                     syncGlobeStarBackdrop();
-                    mlMap.triggerRepaint();
                 } catch (error) {
                     console.warn('[Globe 베이스맵] 레이어 전환 실패:', error);
                     return false;
@@ -32333,7 +32340,9 @@ kingSelect.addEventListener('change', () => {
                 const mapEl = document.getElementById('map');
                 if (mapEl) mapEl.style.visibility = 'hidden';
                 map.setView([36.4, 118.5], 4.5, { animate: false });
-                window._historyInitialCamera = { lat: 36.4, lng: 118.5, zoom: 4.5 };
+                // 기준 화면: 동아시아 중심, 북쪽 정렬, 수직 시점, zoom 4.3.
+                // 투영은 스타일 load 직후 별도로 Globe로 강제한다.
+                window._historyInitialCamera = { lat: 36.4, lng: 118.5, zoom: 4.3, pitch: 0, bearing: 0 };
                 window._historyMapMode = true;
                 window._historyVectorMode = true;
                 document.body.classList.add('history-map-mode', 'history-vector-mode');
