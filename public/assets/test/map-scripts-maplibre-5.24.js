@@ -4426,7 +4426,21 @@ function updateKingLabel(year, month) {
         }).sort((a,b)=>areaOf(a.bounds)-areaOf(b.bounds));
         if (containers.length) return containers[0].countryId;
 
-        // 2) 상위 폴리곤이 없으면 경계 바로 바깥 8방향을 표본 검사한다.
+        // 2) 상위 폴리곤 자체에 마커가 없어도, 내부의 하위 영토 둘 이상이
+        // 같은 국가로 직접 판정되면 그 국가의 배경 영토로 채운다.
+        // 서로 다른 국가가 하나라도 있으면 상속하지 않아 시대별 경계는 유지한다.
+        if (targetRank < 2) {
+            const childOwners = resolvedRecords.filter(record => {
+                if ((levelRank[record.level] ?? 2) <= targetRank) return false;
+                const point = getGeometryRepresentativePoint(record.geometry);
+                if (!point || point[0] < bounds.minLat || point[0] > bounds.maxLat
+                    || point[1] < bounds.minLng || point[1] > bounds.maxLng) return false;
+                return geometryContainsAnyPoint(geometry, [point]);
+            }).map(record => record.countryId);
+            if (childOwners.length >= 2 && new Set(childOwners).size === 1) return childOwners[0];
+        }
+
+        // 3) 상위·하위 판정이 없으면 경계 바로 바깥 8방향을 표본 검사한다.
         // 네 방향 이상에서 같은 한 국가만 검출될 때만 '둘러싸임'으로 인정한다.
         const dLat=Math.max(.015,(bounds.maxLat-bounds.minLat)*.08);
         const dLng=Math.max(.015,(bounds.maxLng-bounds.minLng)*.08);
@@ -5874,7 +5888,12 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     }
                     allTerritoryFeatures.get(neutralKey).features.push({
                         type: 'Feature', geometry,
-                        properties: { name: territory.name, country_id: null, isExclusive: false, countriesInZone: [] }
+                        properties: {
+                            name: territory.name,
+                            _id: territory._id?.$oid || territory._id || territory.id || '',
+                            level: territory.level || 'city',
+                            country_id: null, isExclusive: false, countriesInZone: []
+                        }
                     });
                     return;
                 }
@@ -5898,7 +5917,12 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                             }
                             allTerritoryFeatures.get(neutralKey).features.push({
                                 type: 'Feature', geometry,
-                                properties: { name: territory.name, country_id: null, level: territory.level || 'city', isExclusive: false, countriesInZone: [] }
+                                properties: {
+                                    name: territory.name,
+                                    _id: territory._id?.$oid || territory._id || territory.id || '',
+                                    country_id: null, level: territory.level || 'city',
+                                    isExclusive: false, countriesInZone: []
+                                }
                             });
                         }
                     }
@@ -6300,6 +6324,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         type: 'Feature', geometry: geom,
                         properties: {
                             name: f.properties?.name || '',
+                            territory_id: f.properties?._id || '',
                             country_id: cidStr,
                             level: 'city',
                             fillColor: '#bbbbbb', fillOpacity: 0.18,
@@ -29026,7 +29051,8 @@ kingSelect.addEventListener('change', () => {
                 // 캐시 키가 같아도 style 초기화 경합으로 실제 source가 아직 없으면
                 // 반드시 다시 주입한다. 키만 먼저 기록되고 source 추가가 지연되는
                 // 초기 Globe 프레임을 복구한다.
-                const territorySourcesReady = !_showTerritory || (window.ENABLE_TERRITORY_MVT_TEST === true
+                const useMvtTerritories = window.ENABLE_TERRITORY_MVT_TEST === true && !window._territoryMvtFallback;
+                const territorySourcesReady = !_showTerritory || (useMvtTerritories
                     ? !!mlMap.getSource('territories-mvt')
                     : ['country', 'province', 'city'].every(key => {
                         const featureCount = _td?.[key]?.length || 0;
@@ -29118,7 +29144,7 @@ kingSelect.addEventListener('change', () => {
                     const td = window._3dTerritoryData;
                     const hasTerritoryData = !!td && ['country', 'province', 'city']
                         .some(key => (td[key] || []).length > 0);
-                    const hasTerritorySource = window.ENABLE_TERRITORY_MVT_TEST === true
+                    const hasTerritorySource = window.ENABLE_TERRITORY_MVT_TEST === true && !window._territoryMvtFallback
                         ? !!mlMap.getSource('territories-mvt')
                         : ['territories-country', 'territories-province', 'territories-city']
                             .some(id => !!mlMap.getSource(id));
@@ -29561,7 +29587,12 @@ kingSelect.addEventListener('change', () => {
                     const archiveUrl = `${window.location.origin}/public/mvt/territories.pmtiles?v=multipolygon-19`;
                     _m.addSource(sourceId, {
                         type: 'vector',
-                        url: `pmtiles://${archiveUrl}`,
+                        // TileJSON 프로토콜 요청을 거치지 않고 타일 템플릿을 직접 등록한다.
+                        // 모바일에서 스타일 초기화와 TileJSON 로드가 경합할 때 소스만
+                        // 만들어지고 실제 타일은 0개인 상태로 idle이 되는 것을 피한다.
+                        tiles: [`pmtiles://${archiveUrl}/{z}/{x}/{y}.mvt`],
+                        minzoom: 0,
+                        maxzoom: 7,
                         promoteId: '_id'
                     });
                     ['country', 'province', 'city'].forEach(level => {
@@ -29616,6 +29647,7 @@ kingSelect.addEventListener('change', () => {
                         if (!id) continue;
                         const style = {
                             fillColor: p.fillColor || '#888888',
+                            fillOpacity: p.country_id === '__unowned__' ? 0.18 : 0.4,
                             lineColor: p.lineColor || '#888888',
                             lineOpacity: Number(p.lineOpacity ?? 0.4),
                             weight: Number(p.weight ?? 0.5)
@@ -29642,7 +29674,7 @@ kingSelect.addEventListener('change', () => {
                 const activeNames = [...stylesByName.keys()];
                 const nextPaintKey = `${showTerritory ? 1 : 0}|${territoryBasemapOpacity}|${activeIds.map(id => {
                     const style = stylesById.get(id);
-                    return `${id}:${style.fillColor}:${style.lineColor}:${style.lineOpacity}:${style.weight}`;
+                    return `${id}:${style.fillColor}:${style.fillOpacity}:${style.lineColor}:${style.lineOpacity}:${style.weight}`;
                 }).join('|')}`;
                 if (nextPaintKey === _mvtPaintKey) return;
                 _mvtPaintKey = nextPaintKey;
@@ -29663,6 +29695,7 @@ kingSelect.addEventListener('change', () => {
                     ['in', nameExpression, ['literal', activeNames]]
                 ];
                 const fillColorExpression = makeMatch('fillColor', '#888888');
+                const fillOpacityExpression = makeMatch('fillOpacity', 0.4);
                 const lineColorExpression = makeMatch('lineColor', '#888888');
                 const lineOpacityExpression = makeMatch('lineOpacity', 0.4);
                 const lineWidthExpression = makeMatch('weight', 0.5);
@@ -29672,7 +29705,7 @@ kingSelect.addEventListener('change', () => {
                     _m.setLayoutProperty(`territory-outline-${level}`, 'visibility', visibility);
                     _m.setPaintProperty(`territory-fill-${level}`, 'fill-color', fillColorExpression);
                     _m.setPaintProperty(`territory-fill-${level}`, 'fill-opacity',
-                        ['case', activeExpression, 0.4, 0]);
+                        ['case', activeExpression, fillOpacityExpression, 0]);
                     _m.setPaintProperty(`territory-outline-${level}`, 'line-color', lineColorExpression);
                     _m.setPaintProperty(`territory-outline-${level}`, 'line-width', lineWidthExpression);
                     _m.setPaintProperty(`territory-outline-${level}`, 'line-opacity',
@@ -29683,12 +29716,21 @@ kingSelect.addEventListener('change', () => {
                 if (!_m._mvtTerritoryDiagnosticInstalled) {
                     _m._mvtTerritoryDiagnosticInstalled = true;
                     _m.once('idle', () => {
+                        if (!_m.getSource(sourceId)) return;
                         const loaded = _m.querySourceFeatures(sourceId, { sourceLayer });
                         const loadedIds = new Set(loaded.map(feature => String(feature.properties?._id || '')));
                         const loadedNames = new Set(loaded.map(feature => String(feature.properties?.name || '').trim()));
                         const idMatches = activeIds.filter(id => loadedIds.has(id)).length;
                         const nameMatches = activeNames.filter(name => loadedNames.has(name)).length;
                         console.log(`[MVT VERIFY] loaded=${loaded.length}, idMatches=${idMatches}, nameMatches=${nameMatches}`);
+                        if (loaded.length === 0 && activeIds.length > 0 && showTerritory && !_m._territoryMvtFallbackScheduled) {
+                            // 타일 요청이 모두 끝났는데도 영토가 없으면 표시를 우선 복구한다.
+                            // 연도 변경 시에도 현재 GeoJSON 데이터를 그대로 재사용한다.
+                            _m._territoryMvtFallbackScheduled = true;
+                            window._territoryMvtFallback = true;
+                            console.warn('[MVT] 타일 피처 0개: 기존 GeoJSON 영토 표시로 전환');
+                            window._force3dTerritoryRefresh?.();
+                        }
                     });
                 }
             }
@@ -29717,9 +29759,21 @@ kingSelect.addEventListener('change', () => {
                 const territoryBasemapOpacity = get3dTerritoryBasemapOpacity();
                 // 2D와 동일한 level별 opacity — feature properties에 이미 저장됨, fallback만 여기서 정의
                 const LEVEL_FILL_OPACITY = { country: 0.14, province: 0.18, city: 0.22 };
-                if (window.ENABLE_TERRITORY_MVT_TEST === true) {
+                if (window.ENABLE_TERRITORY_MVT_TEST === true && !window._territoryMvtFallback) {
                     _refreshMvtTerritories(_m, td, _showTerritory, territoryBasemapOpacity);
-                } else ['country', 'province', 'city'].forEach(key => {
+                } else {
+                    ['territory-fill-resolved-current', 'territory-outline-resolved-current'].forEach(id => {
+                        if (_m.getLayer(id)) _m.setLayoutProperty(id, 'visibility', 'none');
+                    });
+                    if (_m.getSource('territories-mvt')) {
+                        ['country', 'province', 'city'].forEach(level => {
+                            [`territory-fill-${level}`, `territory-outline-${level}`].forEach(id => {
+                                if (_m.getLayer(id)) _m.removeLayer(id);
+                            });
+                        });
+                        _m.removeSource('territories-mvt');
+                    }
+                    ['country', 'province', 'city'].forEach(key => {
                     const fillId    = `territory-fill-${key}`;
                     const outlineId = `territory-outline-${key}`;
                     const srcId     = `territories-${key}`;
@@ -29750,7 +29804,8 @@ kingSelect.addEventListener('change', () => {
                             }
                         });
                     }
-                });
+                    });
+                }
 
                 // terrain 복원
                 if (currentTerrain) _m.setTerrain(currentTerrain);
@@ -31437,7 +31492,11 @@ kingSelect.addEventListener('change', () => {
                         mlMap.on('zoom', syncMapLibreZoomTip);
                         mlMap.on('zoomend', syncMapLibreZoomTip);
                         syncMapLibreZoomTip();
-                        mlMap.on('error', (e) => console.error('[3D] MapLibre error:', e.error));
+                        mlMap.on('error', (e) => {
+                            const error = e.error;
+                            console.error('[3D] MapLibre error:', error?.message || String(error),
+                                'source=', e.sourceId || error?.sourceId || 'unknown');
+                        });
 
                         // MapLibre 지도 위치 메뉴: PC 우클릭, 관리자 위치 도구, 모바일 길게 누르기.
                         mlMap.on('contextmenu', event => {
