@@ -5729,10 +5729,12 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             let renderedCount = 0;
             const uniqueTerritories = getUniqueTerritoriesForRender(territories);
 
-            // 🌐 [3D 모드] viewBox를 전 세계 범위로 설정 → outOfView skip 완전 차단
+            // 🌐 MVT 지구본은 초기 updateMap 시점에 MapLibre 인스턴스가 아직 없다.
+            // 숨겨진 Leaflet 화면 범위로 영토를 자르면 정적 PMTiles 도형은 있어도
+            // 화면 밖 영토의 소유권·색상 목록이 생성되지 않아 지구본에 큰 공백이 남는다.
             let viewBox;
             const _ml = window.mlMap3d;
-            if (_ml && window._is3dMode) {
+            if (window.ENABLE_TERRITORY_MVT_TEST === true || (_ml && window._is3dMode)) {
                 // 3D 모드: 전 세계 범위 사용 (어떤 줌/위치에서도 모든 영토 로드)
                 viewBox = { minLat: -90, maxLat: 90, minLng: -180, maxLng: 180 };
             } else {
@@ -31938,12 +31940,25 @@ kingSelect.addEventListener('change', () => {
                             // 별은 전체 화면 backdrop 하나만 사용한다.
                             // 기존 pitch 연동 WebGL 레이어는 성도가 아래로 미끄러지는 원인이므로 제거한다.
                             if (mlMap.getLayer('ml-star-layer')) mlMap.removeLayer('ml-star-layer');
+                            const _globeTerritoryLoadBounds = () => {
+                                const bounds = mlMap.getBounds();
+                                if (!window._historyGlobeMode) return bounds;
+                                // Globe getBounds는 화면의 투영 직사각형을 반환하지만
+                                // 가장자리의 가시 반구 영토는 이 범위 밖으로 남을 수 있다.
+                                // 10° 원본 타일 그리드보다 넓게 선로딩한다.
+                                const padLng = mlMap.getZoom() < 3.5 ? 25 : 10;
+                                const padLat = mlMap.getZoom() < 3.5 ? 15 : 8;
+                                return new maplibregl.LngLatBounds(
+                                    [Math.max(-180, bounds.getWest() - padLng), Math.max(-85, bounds.getSouth() - padLat)],
+                                    [Math.min(180, bounds.getEast() + padLng), Math.min(85, bounds.getNorth() + padLat)]
+                                );
+                            };
                             // zoom/move/pitch → LOD 갱신 (첫 진입 시 등록)
                             const _lodHandler = () => {
                                 clearTimeout(window._3dZoomendTimer);
                                 window._3dZoomendTimer = setTimeout(() => {
                                     if (window._is3dMode && typeof window._loadTerritoryTilesForBounds === 'function') {
-                                        void window._loadTerritoryTilesForBounds(mlMap.getBounds());
+                                        void window._loadTerritoryTilesForBounds(_globeTerritoryLoadBounds());
                                     }
                                     if (window._is3dMode && typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
                                 }, 150);
@@ -31955,7 +31970,7 @@ kingSelect.addEventListener('change', () => {
                             // 첫 화면은 moveend가 발생하지 않을 수 있다. MapLibre가 계산한
                             // 현재 Globe bounds를 즉시 타일 로더에 전달해 이동 전에도 영토를 채운다.
                             if (typeof window._loadTerritoryTilesForBounds === 'function') {
-                                void window._loadTerritoryTilesForBounds(mlMap.getBounds()).then(added => {
+                                void window._loadTerritoryTilesForBounds(_globeTerritoryLoadBounds()).then(added => {
                                     if (!window._is3dMode) return;
                                     if (typeof window._force3dTerritoryRefresh === 'function') {
                                         window._force3dTerritoryRefresh();
