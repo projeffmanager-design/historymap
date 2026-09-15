@@ -1563,6 +1563,50 @@ app.all('/server.js', (req, res) => {
     res.status(404).type('application/json').send({ message: 'Not found' });
 });
 
+// PMTiles는 서로 다른 바이트 범위를 같은 URL로 반복 요청한다. 일반 정적 파일의
+// 장기 CDN 캐시가 Range를 무시한 전체 응답을 재사용하면 타일 파싱과 메모리가 망가진다.
+// 압축·공유 캐시를 피하고 매 요청에 정확한 206 범위 응답을 직접 제공한다.
+app.get('/public/mvt/territories.pmtiles', (req, res) => {
+    const archivePath = path.join(__dirname, 'public', 'mvt', 'territories.pmtiles');
+    let size;
+    try {
+        size = fs.statSync(archivePath).size;
+    } catch (error) {
+        return res.status(404).send('PMTiles archive not found');
+    }
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Accept-Ranges', 'bytes');
+    res.set('Content-Type', 'application/octet-stream');
+    res.set('Vary', 'Range');
+    const range = req.get('Range');
+    let start = 0;
+    let end = size - 1;
+    if (range) {
+        const match = /^bytes=(\d+)-(\d*)$/.exec(range);
+        if (!match) {
+            res.set('Content-Range', `bytes */${size}`);
+            return res.status(416).end();
+        }
+        start = Number(match[1]);
+        end = match[2] ? Number(match[2]) : end;
+        if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)
+            || start > end || end >= size) {
+            res.set('Content-Range', `bytes */${size}`);
+            return res.status(416).end();
+        }
+        res.status(206).set('Content-Range', `bytes ${start}-${end}/${size}`);
+    }
+    res.set('Content-Length', String(end - start + 1));
+    if (req.method === 'HEAD') return res.end();
+    const stream = fs.createReadStream(archivePath, { start, end });
+    stream.on('error', error => {
+        console.error('[PMTiles Range] stream failed:', error.message);
+        if (!res.headersSent) res.status(500).end();
+        else res.destroy(error);
+    });
+    stream.pipe(res);
+});
+
 app.use(express.static(__dirname, {
     index: false,
     setHeaders(res, filePath) {

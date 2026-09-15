@@ -29469,13 +29469,13 @@ kingSelect.addEventListener('change', () => {
                 const pitchPenalty = Math.tan(pitch * Math.PI / 180) * 0.3; // 0.5→0.3: pitch 패널티 완화
                 return zoom - pitchPenalty;
             }
-            // effective zoom → LOD 모드 (임계값 낮춰서 성이 더 일찍 표시되도록)
+            // 낮은 줌에서도 수도·큰 도시를 보여 주고, 세부 마커는 단계적으로 늘린다.
             function getLodMode(m) {
                 const ez = getEffectiveZoom(m);
-                if (m.getZoom() <= 5.0) return 'country'; // 국가 개요: 국가명만
-                if (ez < 6.5) return 'capital';  // 거시: 수도 중심
-                if (ez < 7.5) return 'major';    // 중간: 군/전장/주요도시까지
-                return 'all';                    // 미시(ez≥7): 전부
+                if (m.getZoom() < 3.4) return 'country';
+                if (ez < 5.3) return 'capital';
+                if (ez < 6.3) return 'major';
+                return 'all';
             }
             // 마커 우선순위 (낮을수록 더 중요)
             function getMarkerPriority(c, activeRec = null) {
@@ -29494,38 +29494,35 @@ kingSelect.addEventListener('change', () => {
                 if (effectivePlaceType === 'chon')             return 5; // 마을은 가장 낮은 우선순위
                 return 4; // 일반 성/현
             }
-            // 유형별 3D 최소 유효 줌. 단계형 priority만으로 표현하기 어려운
-            // 6.0/6.3/6.5 경계를 직접 판정한다.
+            // 유형별 3D 최소 유효 줌. priority 단계 안에서도 종류별로
+            // 표시 시작 지점을 달리해 저줌 화면의 밀도를 제어한다.
             function getMarkerMinEffectiveZoom(c, activeRec = null) {
                 const placeType = String(activeRec?.place_type || c.place_type || '').toLowerCase();
                 const isCapital = activeRec
                     ? (activeRec.is_capital === true || placeType === 'capital' || placeType === 'hwangseong')
                     : (c.is_capital === true || placeType === 'capital' || placeType === 'hwangseong');
-                if (isCapital) return 5.0;
+                if (isCapital) return 3.8;
                 if (c.is_label) {
                     const labelType = c.label_type || 'place';
-                    if (labelType === 'country' || labelType === 'admin') return 6.3;
-                    return 6.5;
+                    if (labelType === 'country' || labelType === 'admin') return 5.1;
+                    return 5.8;
                 }
                 if (c.is_natural_feature) {
                     const featureType = c.natural_feature_type || 'other';
-                    if (featureType === 'river') return 5.5;
-                    if (featureType === 'battle') return 6.5;
-                    // 자연·유적은 CSS로 사후 숨김 처리하지 않고 생성 단계부터 제한한다.
-                    // 비동기 마커 청크가 줌 갱신 뒤 추가되며 5.1에서 한꺼번에 보이던 문제를 막는다.
-                    return 7.0;
+                    if (featureType === 'river') return 5.0;
+                    if (featureType === 'battle') return 5.5;
+                    // 자연·유적은 CSS 대신 생성 단계에서 제한해 비동기 청크도 일관되게 처리한다.
+                    return 6.2;
                 }
-                if (placeType === 'ju' || placeType === '주' || placeType === 'seong' || placeType === '성' || placeType === 'city') return 6.0;
-                if (placeType === 'chon' || placeType === '촌' || placeType === 'village') return 6.5;
-                if (c.is_military_flag || placeType === 'battle' || Number(c.population || 0) > 100000) return 6.5;
-                return 7.5;
+                if (placeType === 'ju' || placeType === '주') return 5.0;
+                if (Number(c.population || 0) > 100000) return 4.3;
+                if (placeType === 'seong' || placeType === '성' || placeType === 'city') return 5.0;
+                if (c.is_military_flag || placeType === 'battle') return 5.2;
+                if (placeType === 'chon' || placeType === '촌' || placeType === 'village') return 6.3;
+                return 5.7;
             }
-            // LOD 모드별 최대 priority
-            //   country: 0 (국가라벨만)
-            //   capital: 2 (수도 + 자연지물 + 지명라벨)
-            //   major:   3 (군/전장/주요도시까지 — 일반 성/현 생략)
-            //   all:     99 (전부, ez≥7)
-            const LOD_MAX_PRIORITY = { country: 0, capital: 2, major: 3, all: 99 };
+            // LOD 모드별 최대 priority: 저줌은 수도·큰 도시, 중간 줌은 일반 성까지.
+            const LOD_MAX_PRIORITY = { country: 0, capital: 3, major: 4, all: 99 };
 
             let _mvtBaseStylesById = new Map();
             let _mvtBaseStylesByName = new Map();
@@ -29586,7 +29583,7 @@ kingSelect.addEventListener('change', () => {
                         window._territoryPmtilesProtocol = new window.pmtiles.Protocol();
                         maplibregl.addProtocol('pmtiles', window._territoryPmtilesProtocol.tile);
                     }
-                    const archiveUrl = `${window.location.origin}/public/mvt/territories.pmtiles?v=multipolygon-19`;
+                    const archiveUrl = `${window.location.origin}/public/mvt/territories.pmtiles?v=range-fixed-20`;
                     _m.addSource(sourceId, {
                         type: 'vector',
                         // TileJSON 프로토콜 요청을 거치지 않고 타일 템플릿을 직접 등록한다.
@@ -29996,7 +29993,8 @@ kingSelect.addEventListener('change', () => {
                     || document.body.classList.contains('force-mobile');
                 const _inViewport = (lat, lng) => {
                     // 모바일은 화면 밖 DOM 마커를 덜 유지해 메모리와 레이아웃 비용을 줄인다.
-                    const pad = _mobile3dPerformance ? 0.2 : 0.5; // 화면 밖 여유 (도 단위)
+                    const pad = window._historyGlobeMode && _m.getZoom() < 5
+                        ? 8 : (_mobile3dPerformance ? 0.2 : 0.5); // Globe 가장자리 여유 (도 단위)
                     return lat >= _3dBounds.getSouth() - pad && lat <= _3dBounds.getNorth() + pad &&
                            lng >= _3dBounds.getWest()  - pad && lng <= _3dBounds.getEast()  + pad;
                 };
@@ -30072,7 +30070,8 @@ kingSelect.addEventListener('change', () => {
                     ));
                     const _prePriority = _isCapPre ? 1 : getMarkerPriority(c, activeRec);
                     const _simpleMobilePre = _isMobileSimpleMarker(c, activeRec);
-                    if (_m.getZoom() <= 5.0 || _ez < getMarkerMinEffectiveZoom(c, activeRec)) continue;
+                    if (_prePriority > _maxPriority) continue;
+                    if (_m.getZoom() < 3.4 || _ez < getMarkerMinEffectiveZoom(c, activeRec)) continue;
                     if (!_simpleMobilePre && _prePriority > 1 && !_inViewport(c.lat, c.lng)) continue;
                     // ── layerVisibility 사전 필터 (토글 off 시 pre-scan에서도 제외) ──
                     const _lv = (typeof layerVisibility !== 'undefined') ? layerVisibility : {};
@@ -30227,7 +30226,8 @@ kingSelect.addEventListener('change', () => {
                     ));
                     // activeRec.is_capital이 있으면 priority 1로 상향
                     const _cPriority = _3dIsCapital ? 1 : getMarkerPriority(c, activeRec);
-                    if (_m.getZoom() <= 5.0 || _ez < getMarkerMinEffectiveZoom(c, activeRec)) return;
+                    if (_cPriority > _maxPriority) return;
+                    if (_m.getZoom() < 3.4 || _ez < getMarkerMinEffectiveZoom(c, activeRec)) return;
 
                     // ── viewport 필터 (priority 1 이하(수도/국가라벨)는 항상 표시) ──
                     if (_cPriority > 1 && !_inViewport(c.lat, c.lng)) return;
