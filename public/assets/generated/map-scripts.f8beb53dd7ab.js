@@ -7126,6 +7126,22 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         renderMacroCountryNames();
         if (!map.hasLayer(macroCountryLayer)) macroCountryLayer.addTo(map);
 
+        // 3D에서는 위에서 시간 유효 마커를 이미 수집했다. 숨겨진 Leaflet 마커를
+        // 다시 만드는 작업은 DOM/메모리만 늘리므로 3D 갱신으로 바로 넘긴다.
+        if (window._is3dMode) {
+            labelLayerGroup.clearLayers();
+            castleLayerGroup.clearLayers();
+            naturalFeatureLayerGroup.clearLayers();
+            allCastleMarkers.length = 0;
+            window._castleMarkersRendered = true;
+            if (!window._firstMarkersDispatched) {
+                window._firstMarkersDispatched = true;
+                window.dispatchEvent(new Event('first-markers-rendered'));
+            }
+            window._3dRefreshLayers?.();
+            return;
+        }
+
         // 거시 모드에서는 국가명을 유지하고, 기본 줌부터 주요 마커를 표시한다.
         if (currentMacroMode === 0) {
             // console.log('🔭 [LOD] 거시 모드 → 자연지물/라벨 렌더링');
@@ -28910,6 +28926,8 @@ kingSelect.addEventListener('change', () => {
             let _refreshLayersCacheKey = null;
             let _refreshTerritoryDataKey = null; // 영토 전용 캐시 키 (데이터 의존)
             let _refreshMarkerKey = null;        // 마커 전용 캐시 키 (zoom/LOD 의존)
+            let _lastMarkerDataRef = null;
+            let _markerDataVersion = 0;
             let _refreshLayersTimer = null;
             let _styleReloadGeneration = 0;
             let _markerRenderGeneration = 0;
@@ -28953,11 +28971,20 @@ kingSelect.addEventListener('change', () => {
 
                 // ── 영토 캐시 키: 연도/월/데이터 수/표시여부만 — zoom·pan 무관 ──
                 const newTerritoryKey = `${year}_${month}_${(_td?.country?.length||0)}_${(_td?.province?.length||0)}_${(_td?.city?.length||0)}_${_showTerritory}_${_showRivers}`;
-                // ── 마커 캐시 키: 연도/월/castle 수/zoom/pitch/LOD + 레이어 토글 상태 ──
+                // ── 마커 캐시 키: 시점/데이터 버전/줌/화면 범위/토글 상태 ──
                 const _lv = (typeof layerVisibility !== 'undefined') ? layerVisibility : {};
                 const _lvKey = `${_lv.natural?1:0}${_lv.city?1:0}${_lv.military?1:0}${_lv.relic?1:0}`
                     + `${_lv.countryLabel?1:0}${_lv.adminLabel?1:0}${_lv.placeLabel?1:0}${_lv.ethnicLabel?1:0}`;
-                const newMarkerKey = `${year}_${month}_${(window._3dCastleData||[]).length}_${mlMap.getZoom().toFixed(1)}_${mlMap.getPitch().toFixed(0)}_${_lodMode}_${_lvKey}`;
+                const bounds = mlMap.getBounds();
+                const center = mlMap.getCenter();
+                const viewportKey = [center.lng, center.lat, bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
+                    .map(value => value.toFixed(2)).join(',');
+                const markerDataRef = window._3dCastleData;
+                if (markerDataRef !== _lastMarkerDataRef) {
+                    _lastMarkerDataRef = markerDataRef;
+                    _markerDataVersion++;
+                }
+                const newMarkerKey = `${year}_${month}_${_markerDataVersion}_${(markerDataRef||[]).length}_${mlMap.getZoom().toFixed(2)}_${_lodMode}_${viewportKey}_${_lvKey}`;
 
                 // 캐시 키가 같아도 style 초기화 경합으로 실제 source가 아직 없으면
                 // 반드시 다시 주입한다. 키만 먼저 기록되고 source 추가가 지연되는
@@ -28987,8 +29014,8 @@ kingSelect.addEventListener('change', () => {
 
                 if (territoryChanged) _refreshTerritoryDataKey = newTerritoryKey;
                 if (markerChanged)    _refreshMarkerKey = newMarkerKey;
-                // 영토가 재빌드되면 마커도 강제 재빌드 (레이어 순서 보장)
-                const doRebuildMarkers = markerChanged || territoryChanged;
+                // 영토만 바뀐 경우 마커 DOM은 유지한다.
+                const doRebuildMarkers = markerChanged;
                 // 구버전 단일 키도 동기화 (다른 코드에서 참조 시 대비)
                 _refreshLayersCacheKey = newTerritoryKey + '|' + newMarkerKey;
 
@@ -29396,23 +29423,21 @@ kingSelect.addEventListener('change', () => {
                 if (isCapital) return 3.8;
                 if (c.is_label) {
                     const labelType = c.label_type || 'place';
-                    if (labelType === 'country' || labelType === 'admin') return 5.1;
+                    if (labelType === 'country') return 3.0;
+                    if (labelType === 'admin') return 5.0;
                     return 5.8;
                 }
                 if (c.is_natural_feature) {
-                    const featureType = c.natural_feature_type || 'other';
-                    if (featureType === 'river') return 5.0;
-                    if (featureType === 'battle') return 5.5;
-                    return 6.2;
+                    return 6.0;
                 }
                 if (placeType === 'ju' || placeType === '주') return 5.0;
-                if (Number(c.population || 0) > 100000) return 4.3;
-                if (placeType === 'seong' || placeType === '성' || placeType === 'city') return 5.0;
-                if (c.is_military_flag || placeType === 'battle') return 5.2;
-                if (placeType === 'chon' || placeType === '촌' || placeType === 'village') return 6.3;
-                return 5.7;
+                if (placeType === 'seong' || placeType === '성' || placeType === 'city') return 5.5;
+                if (c.is_military_flag || placeType === 'battle') return 6.3;
+                if (placeType === 'gun' || placeType === '군') return 6.3;
+                if (placeType === 'hyeon' || placeType === '현') return 6.6;
+                if (placeType === 'chon' || placeType === '촌' || placeType === 'village') return 7.2;
+                return 5.5; // normal/진/관문 등 일반 성 계열
             }
-            const LOD_MAX_PRIORITY = { country: 0, capital: 3, major: 4, all: 99 };
 
             function _refreshLayersInner(rebuildTerritory = true, rebuildMarkers = true) {
                 const _m = window.mlMap3d;
@@ -29648,9 +29673,8 @@ kingSelect.addEventListener('change', () => {
 
                 // ── pitch 보정 LOD (effective zoom 기반) ──
                 const _lodMode = getLodMode(_m);
-                const _maxPriority = LOD_MAX_PRIORITY[_lodMode];
                 const _ez = getEffectiveZoom(_m);
-                console.log(`[3D LOD] zoom=${_m.getZoom().toFixed(2)} pitch=${_m.getPitch().toFixed(0)}° → ez=${_ez.toFixed(2)} mode=${_lodMode} (max priority ${_maxPriority}) / total=${castleData3d.length}`);
+                console.log(`[3D LOD] zoom=${_m.getZoom().toFixed(2)} pitch=${_m.getPitch().toFixed(0)}° → ez=${_ez.toFixed(2)} mode=${_lodMode} cumulative / total=${castleData3d.length}`);
 
                 // MapLibre 화면 bounds (viewport 필터용)
                 const _3dBounds = _m.getBounds();
@@ -29720,7 +29744,6 @@ kingSelect.addEventListener('change', () => {
                 // ── diff를 위한 새 키셋 수집 (필터 통과 여부는 _makeMarker 내에서 판단) ──
                 // 마커 고유 키: 성ID + 활성이름 + 국가색 (연도/국가 변화 시 자동 재생성)
                 const _newMarkerKeys = new Set();
-                const _newMarkerEntries = new Map(); // key → entry
 
                 // pre-scan: 어떤 마커가 살아남을지 미리 결정
                 for (const entry of _sortedCastleData) {
@@ -29734,8 +29757,7 @@ kingSelect.addEventListener('change', () => {
                     ));
                     const _prePriority = _isCapPre ? 1 : getMarkerPriority(c, activeRec);
                     const _simpleMobilePre = _isMobileSimpleMarker(c, activeRec);
-                    if (_prePriority > _maxPriority) continue;
-                    if (_m.getZoom() < 3.4 || _ez < getMarkerMinEffectiveZoom(c, activeRec)) continue;
+                    if (_m.getZoom() < getMarkerMinEffectiveZoom(c, activeRec)) continue;
                     if (!_simpleMobilePre && _prePriority > 1 && !_inViewport(c.lat, c.lng)) continue;
                     // ── layerVisibility 사전 필터 (토글 off 시 pre-scan에서도 제외) ──
                     const _lv = (typeof layerVisibility !== 'undefined') ? layerVisibility : {};
@@ -29755,13 +29777,13 @@ kingSelect.addEventListener('change', () => {
                     }
                     if (!c.is_natural_feature && !c.is_military_flag && !c.is_label && _lv.city === false) continue;
                     if (_simpleMobilePre) {
-                        // MapLibre가 화면 컬링과 충돌 처리를 담당하므로 전체 활성 데이터 전달.
+                        // 화면 밖 포인트까지 GPU/worker에 보내지 않는다. moveend 시 viewportKey가 갱신한다.
+                        if (!_inViewport(c.lat, c.lng)) continue;
                         _mobileSymbolFeatures.push(_mobileSymbolFeature(c, activeRec, ci));
                         continue;
                     }
                     const _mk = `mk_${c._id||c.name+'@'+c.lat+'_'+c.lng}_${activeRec?.name||c.name||''}_${ci?.color||''}_${ci?.name||''}`;
                     _newMarkerKeys.add(_mk);
-                    _newMarkerEntries.set(_mk, entry);
                 }
 
                 const _mobileSymbolSourceId = 'mobile-simple-markers';
@@ -29770,7 +29792,8 @@ kingSelect.addEventListener('change', () => {
                 const _mobileSymbolData = { type: 'FeatureCollection', features: _mobileSymbolFeatures };
                 const _nextMobileSymbolDataKey = _mobileSymbolFeatures.map(feature => {
                     const coordinates = feature.geometry?.coordinates || [];
-                    return `${feature.properties?.castle_id || ''}:${coordinates[0] || ''}:${coordinates[1] || ''}`;
+                    const p = feature.properties || {};
+                    return `${p.castle_id || ''}:${coordinates[0] || ''}:${coordinates[1] || ''}:${p.name || ''}:${p.glyph || ''}:${p.color || ''}:${p.kind || ''}`;
                 }).join('|');
                 if (_m.getSource(_mobileSymbolSourceId)) {
                     // 동일 GeoJSON을 다시 올리면 MapLibre가 GPU 버퍼를 불필요하게 재작성한다.
@@ -29806,8 +29829,8 @@ kingSelect.addEventListener('change', () => {
                             'text-size': getMobileSymbolTextSizeExpression(),
                             'text-anchor': 'top',
                             'text-offset': [0, 0.45],
-                            'text-allow-overlap': false,
-                            'text-ignore-placement': false,
+                            'text-allow-overlap': true,
+                            'text-ignore-placement': true,
                             'symbol-sort-key': ['case', ['==', ['get', 'kind'], 'label'], 1, 2]
                         },
                         paint: {
@@ -29840,23 +29863,9 @@ kingSelect.addEventListener('change', () => {
                     if (_m.getLayer(id)) _m.setLayoutProperty(id, 'visibility', _useMobileSymbols ? 'visible' : 'none');
                 });
 
-                // 3D에서는 수도가 실제 생성되는 조건과 국가명 전환 조건을 동일하게 쓴다.
-                // Leaflet LOD(currentMacroMode)는 pitch 보정 유효 줌과 달라 5~6.5 구간에서
-                // 국가명과 수도가 함께 보였으므로, 현재 활성 수도의 실제 렌더 가능 여부로 판정한다.
-                const _capitalMarkerVisible = ((typeof layerVisibility === 'undefined') || layerVisibility.city !== false)
-                    && _m.getZoom() > 5.0
-                    && castleData3d.some(({ castle: c, activeRec }) => {
-                        const placeType = String(activeRec?.place_type || c?.place_type || '').toLowerCase();
-                        const isCapital = !!(
-                            activeRec?.is_capital === true || c?.is_capital === true ||
-                            placeType === 'capital' || placeType === 'hwangseong'
-                        );
-                        return isCapital && _ez >= getMarkerMinEffectiveZoom(c, activeRec);
-                    });
-
+                // 국가명은 왕성이 등장한 뒤에도 유지해 확대 시 표시가 누적되게 한다.
                 // 국가 라벨도 키에 포함 (대략 country ID 기반)
-                const _showCountryLabelPre = ((typeof layerVisibility === 'undefined') || layerVisibility.countryLabel !== false)
-                    && !_capitalMarkerVisible;
+                const _showCountryLabelPre = (typeof layerVisibility === 'undefined') || layerVisibility.countryLabel !== false;
                 if (_showCountryLabelPre && typeof _renderedCountryIds !== 'undefined') {
                     _renderedCountryIds.forEach(cid => {
                         _newMarkerKeys.add(`lbl_${cid}`);
@@ -29890,8 +29899,7 @@ kingSelect.addEventListener('change', () => {
                     ));
                     // activeRec.is_capital이 있으면 priority 1로 상향
                     const _cPriority = _3dIsCapital ? 1 : getMarkerPriority(c, activeRec);
-                    if (_cPriority > _maxPriority) return;
-                    if (_m.getZoom() < 3.4 || _ez < getMarkerMinEffectiveZoom(c, activeRec)) return;
+                    if (_m.getZoom() < getMarkerMinEffectiveZoom(c, activeRec)) return;
 
                     // ── viewport 필터 (priority 1 이하(수도/국가라벨)는 항상 표시) ──
                     if (_cPriority > 1 && !_inViewport(c.lat, c.lng)) return;
@@ -30212,9 +30220,6 @@ kingSelect.addEventListener('change', () => {
                 }; // end _makeMarker
 
                 // chunked rAF: 새 마커만(diff) 60개씩 나눠서 메인 스레드 블록 최소화
-                const _newEntries = [..._newMarkerEntries.entries()]
-                    .filter(([key]) => !_3dMarkersMap.has(key) || /* already added above */ false)
-                    .map(([, entry]) => entry);
                 // _3dMarkersMap에 아직 없는 것만 생성
                 const _toCreate = _sortedCastleData.filter(entry => {
                     const { castle: c, activeRec, countryInfo: ci } = entry;
@@ -30236,8 +30241,7 @@ kingSelect.addEventListener('change', () => {
                 if (_toCreate.length > 0) requestAnimationFrame(_renderNextChunk);
 
                 // ── 3D 국가명 라벨 렌더링 (2D renderMacroCountryNames와 동일 로직) ──
-                const _showCountryLabel = ((typeof layerVisibility === 'undefined') || layerVisibility.countryLabel !== false)
-                    && !_capitalMarkerVisible;
+                const _showCountryLabel = (typeof layerVisibility === 'undefined') || layerVisibility.countryLabel !== false;
                 if (_showCountryLabel && typeof _renderedCountryIds !== 'undefined' && _renderedCountryIds.size > 0) {
                     const { year: _lYear, month: _lMonth } = (typeof getCurrentYearMonth === 'function') ? getCurrentYearMonth() : { year: 400, month: 1 };
                     const _lTotalMonths = yearMonthToTotalMonths(_lYear, _lMonth);
@@ -31096,6 +31100,8 @@ kingSelect.addEventListener('change', () => {
                             pitch: globeMode ? 0 : 55,
                             bearing: 0,
                             antialias: false,
+                            fadeDuration: 0,
+                            maxTileCacheSize: window.innerWidth <= 967 ? 24 : 48,
                             maxPitch: 85,
                             renderWorldCopies: globeProjection !== 'globe',
                             canvasContextAttributes: { alpha: true, antialias: false },
