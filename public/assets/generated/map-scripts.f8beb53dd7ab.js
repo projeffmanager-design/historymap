@@ -698,7 +698,7 @@
 
             // 🔑 province/city 모두 동일한 fillOpacity — 실제 level별 opacity는 renderBucket에서 덮어씀
             //    (country:0.55 / province:0.70 / city:0.82 — 독립 영토일수록 진하게)
-            const baseOpacity = 0.5;
+            const baseOpacity = 0.35;
             // 🔑 [개선] countryInfo가 null (국가 로딩 중)이면 회색 fallback 표시
             const baseColor = countryInfo && countryInfo.color ? countryInfo.color : '#888888';
 
@@ -754,7 +754,7 @@
         } catch (e) {
             console.error('getTerritoryStyle error:', e);
             const base = countryInfo && countryInfo.color ? countryInfo.color : '#888888';
-            return { color: base, weight: 1, opacity: 0.8, fillColor: base, fillOpacity: 0.5 };
+            return { color: base, weight: 1, opacity: 0.8, fillColor: base, fillOpacity: 0.35 };
         }
     }
 
@@ -777,9 +777,9 @@
 
         return Object.assign({}, baseStyle, {
             fillColor,
-            // Leaflet 기반 2D 지도에서는 하단 지형이 보이도록 영토를 50%로 고정한다.
+            // Leaflet 기반 2D 지도에서도 바탕 지형이 읽히도록 35%로 고정한다.
             // 3D/지구본은 feature properties의 별도 fillOpacity를 사용하므로 영향받지 않는다.
-            fillOpacity: 0.5,
+            fillOpacity: 0.35,
             color: selected ? '#f3d79b' : '#aaa99e',
             // 채우기 조각에는 선을 긋지 않는다. 국가별 합성 외곽선은 별도 레이어가 담당한다.
             opacity: 0,
@@ -1241,7 +1241,7 @@
         if (source) {
             source.setData(data);
             if (historyVectorMap.getLayer(fillId)) {
-                historyVectorMap.setPaintProperty(fillId, 'fill-opacity', 0.5);
+                historyVectorMap.setPaintProperty(fillId, 'fill-opacity', 0.35);
             }
             if (features.length > 0) confirmHistoryVectorTerritoriesRendered(fillId);
             return;
@@ -1253,8 +1253,8 @@
             source: sourceId,
             paint: {
                 'fill-color': ['coalesce', ['get', 'fillColor'], '#77736b'],
-                // 2D 벡터 지도에서도 하단 지형이 보이도록 항상 50%로 고정한다.
-                'fill-opacity': 0.5
+                // 2D 벡터 지도에서도 하단 지형이 보이도록 35%로 고정한다.
+                'fill-opacity': 0.35
             }
         });
         historyVectorMap.addLayer({
@@ -28486,10 +28486,7 @@ kingSelect.addEventListener('change', () => {
             let orbitTimer = null;
 
             function get3dTerritoryBasemapOpacity() {
-                const mode = String(window._historyGlobeBasemap || window._ml3dBaseMode || 'terrain');
-                if (mode === 'satellite' || mode === 'globe-satellite') return 0.48;
-                if (mode === 'vector') return 0.48; // 지명 벡터 지도도 위성과 동일
-                return 0.72; // 지형 지도
+                return 0.35;
             }
 
             function apply3dTerritoryBasemapOpacity() {
@@ -31880,9 +31877,9 @@ kingSelect.addEventListener('change', () => {
                         source: sourceId,
                         layout: { visibility: 'none' },
                         paint: {
-                            'raster-saturation': -0.12,
-                            'raster-contrast': 0.08,
-                            'raster-brightness-max': 0.92,
+                            'raster-saturation': 0.04,
+                            'raster-contrast': 0.16,
+                            'raster-brightness-max': 0.88,
                             'raster-fade-duration': 120
                         }
                     }, firstHistoryLayer?.id);
@@ -31965,7 +31962,7 @@ kingSelect.addEventListener('change', () => {
                     source: 'dem',
                     paint: {
                         // OldMaps처럼 큰 산세만 은은히 읽히도록 미세 골짜기 대비를 억제한다.
-                        'hillshade-exaggeration': 0.28,
+                        'hillshade-exaggeration': 0.42,
                         'hillshade-illumination-direction': 315,
                         'hillshade-shadow-color': '#382f24',
                         'hillshade-highlight-color': '#756a55',
