@@ -1716,24 +1716,18 @@
 
       /* ④ territories 메모리의 실제 벡터 좌표까지 갱신 */
       if (window.territories) {
-        var fi=window.territories.findIndex(function(t){
-          var tid=t._id&&t._id.$oid?t._id.$oid:String(t._id);
-          return tid===String(_tgEditId);
-        });
-        if (fi!==-1) window.territories[fi]=Object.assign({},window.territories[fi],{
-          bbox:bbox,
-          type:geometry.type,
-          coordinates:geometry.coordinates,
-          geometry:geometry,
-          geojson:{type:'Feature',properties:window.territories[fi].geojson?.properties||{},geometry:geometry}
-        });
-        pairUpdates.forEach(function(update){
-          var pi=window.territories.findIndex(function(t){return _tgDisplayId(t._id||t.id)===String(update.id);});
-          if(pi!==-1)window.territories[pi]=Object.assign({},window.territories[pi],{
-            bbox:update.bbox,type:update.geometry.type,coordinates:update.geometry.coordinates,geometry:update.geometry,
-            geojson:{type:'Feature',properties:window.territories[pi].geojson?.properties||{},geometry:update.geometry}
+        function patchTerritory(id, newGeometry, newBbox) {
+          window.territories.forEach(function(t, index) {
+            if (_tgDisplayId(t._id||t.id)!==String(id)) return;
+            window.territories[index]=Object.assign({},t,{
+              bbox:newBbox,type:newGeometry.type,coordinates:newGeometry.coordinates,geometry:newGeometry,
+              geojson:{type:'Feature',properties:t.geojson?.properties||{},geometry:newGeometry}
+            });
           });
-        });
+        }
+        patchTerritory(_tgEditId,geometry,bbox);
+        pairUpdates.forEach(function(update){patchTerritory(update.id,update.geometry,update.bbox);});
+        window._invalidateUniqueTerritoriesRenderCache?.();
       }
 
       /* 경계가 같아 보이는 이전 union 결과와 소유권 판정 캐시를 즉시 폐기 */
@@ -1751,6 +1745,7 @@
         var current=typeof getCurrentYearMonth==='function'?getCurrentYearMonth():null;
         if (current&&typeof updateMap==='function') updateMap(current.year,current.month,false,true);
         else if (typeof updateVisibleTerritories==='function') updateVisibleTerritories();
+        if (window._is3dMode) window._force3dTerritoryRefresh?.();
       },1400);
 
     } catch(e){

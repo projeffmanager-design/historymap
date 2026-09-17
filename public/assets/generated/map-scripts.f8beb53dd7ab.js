@@ -5516,6 +5516,11 @@ let pendingUpdateMapRAF = null; // 🚀 [v2.0.9] requestAnimationFrame ID
 let _uniqueTerritoriesSource = null;
 let _uniqueTerritoriesLength = -1;
 let _uniqueTerritoriesCache = [];
+window._invalidateUniqueTerritoriesRenderCache = function() {
+    _uniqueTerritoriesSource = null;
+    _uniqueTerritoriesLength = -1;
+    _uniqueTerritoriesCache = [];
+};
 
 // 타일 경계나 캐시 병합 과정에서 같은 _id가 반복되어도 이후의 국가 판정·도형
 // 간소화 단계에는 한 번만 전달한다. 기존 렌더러와 동일하게 첫 항목을 유지한다.
@@ -30155,9 +30160,10 @@ kingSelect.addEventListener('change', () => {
                         // 이미 이 마커의 팝업이 열려 있으면 유지
                         if (window._sharedPopup3d && window._sharedPopup3d._castleKey === c._id) return;
                         const markerDescription3d = getMarkerDescriptionAtTime(c, activeRec);
+                        const popupLift = Math.min(72, Math.max(30, Math.round(el.getBoundingClientRect().height) + 6));
                         const pop = window._openSharedPopup(_m, [c.lng, c.lat],
                             `<div style="font-size:13px;color:#e8d9b8;padding:4px 2px;cursor:pointer;max-width:280px;"><b>${castleName3d}</b>${ci ? `<br><span style="color:#7eb8e8;font-size:11px;">${ci.name}</span>` : ''}${markerDescription3d ? `<div style="margin-top:6px;padding-top:5px;border-top:1px solid rgba(180,140,80,.28);color:#b8c8d4;font-size:12px;white-space:pre-wrap;line-height:1.5;">${renderEntityTokensInRichHtml(stripImgTags(markerDescription3d))}</div>` : ''}</div>`,
-                            { offset: { 'bottom': [0, -80], 'bottom-left': [0, -80], 'bottom-right': [0, -80], 'top': [0, 10], 'left': [10, 0], 'right': [-10, 0] } }
+                            { offset: { 'bottom': [0, -popupLift], 'bottom-left': [0, -popupLift], 'bottom-right': [0, -popupLift], 'top': [0, 10], 'left': [10, 0], 'right': [-10, 0] } }
                         );
                         pop._castleKey = c._id;
                         // 팝업 클릭 시 상세 패널 열기
