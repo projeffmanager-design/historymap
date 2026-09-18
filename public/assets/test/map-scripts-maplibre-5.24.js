@@ -1518,27 +1518,8 @@
 
     // 🚩 [제거] 연대표 토글 이벤트 리스너 (overlayMaps에서 제거됨)
     
-    // 🚩 [수정] 창 크기 변경 시 timeline-control 위치 조정 (timeline-sidebar는 항상 표시)
-    window.addEventListener('resize', function() {
-        // timeline-sidebar는 CSS 미디어 쿼리로 자동 조정됨
-        // timeline-control 위치는 CSS로 고정됨
-
-        // 🚩 [수정] PC → 모바일 크기로 창이 줄어들 때 열려 있는 편집 폼 강제 닫기
-        // (모바일 CSS 미디어 쿼리가 active 폼을 전체화면으로 표시하는 문제 방지)
-        if (window.innerWidth <= 967) {
-            const EDIT_FORM_IDS = ['castleForm','eventForm',
-                'historyForm','countryForm','kingForm','editCitySelectionForm','drawingForm','contributionForm'];
-            EDIT_FORM_IDS.forEach(function(id) {
-                const el = document.getElementById(id);
-                if (el && el.classList.contains('active')) {
-                    el.classList.remove('active');
-                }
-            });
-            // 편집 패널 오버레이도 닫기
-            const overlay = document.getElementById('editPanelOverlay');
-            if (overlay) overlay.style.display = 'none';
-        }
-    });
+    // 모바일 키보드가 열릴 때도 resize가 발생한다. 편집 폼은 사용자가 직접 닫거나
+    // 저장할 때까지 유지하고, 레이아웃 변경은 CSS 미디어 쿼리에 맡긴다.
     
     // 첫 화면은 MapLibre 지형 Globe다. Leaflet 객체는 영토 계산용으로 유지하되,
     // 2D 버튼을 누르기 전에는 OSM 타일을 요청하지 않아 초기 네트워크 경쟁을 막는다.
@@ -18271,10 +18252,7 @@ const loadingMessages = [
     
     if (currentResult.type === 'castle') {
         const castle = currentResult.data;
-        const year = castle.built_year || castle.built;
-        const month = castle.built_month || 1;
-        if (year) updateTime(year, month);
-        map.flyTo([castle.lat, castle.lng], 10);
+        if (window._tbGoToCastle) window._tbGoToCastle(castle);
     } else if (currentResult.type === 'history') {
         const historyItem = currentResult.data;
         const year = historyItem.year;
@@ -18372,10 +18350,7 @@ const loadingMessages = [
                 // 항목 클릭 시 동작 (기존 searchBtn 로직과 동일)
                 if (result.type === 'castle') {
                     const castle = result.data;
-                    const year = castle.built_year || castle.built;
-                    const month = castle.built_month || 1;
-                    if (year) updateTime(year, month);
-                    map.flyTo([castle.lat, castle.lng], 10);
+                    if (window._tbGoToCastle) window._tbGoToCastle(castle);
                 } else if (result.type === 'history') {
                     const historyItem = result.data;
                     if (historyItem.year) updateTime(historyItem.year, historyItem.month || 1);
@@ -18468,8 +18443,15 @@ const loadingMessages = [
                 
                 div.onclick = () => {
                     mapSearchInput.value = item.name || item.event_name;
-                    searchInput.value = mapSearchInput.value;
-                    searchBtn.click();
+                    if (item.event_name) {
+                        searchInput.value = mapSearchInput.value;
+                        searchBtn.click();
+                    } else if (window._tbGoToCastle && castles.includes(item)) {
+                        window._tbGoToCastle(item);
+                    } else {
+                        searchInput.value = mapSearchInput.value;
+                        searchBtn.click();
+                    }
                     mapSearchResults.style.display = 'none';
                 };
                 
@@ -27359,19 +27341,23 @@ kingSelect.addEventListener('change', () => {
                 if (alreadyActive) {
                     // 현재 연도 그대로 유지
                 } else if (Array.isArray(castle.history) && castle.history.length > 0) {
-                    // history 중 가장 이른 start_year 찾기
+                    // 실제 표시 판정과 동일하게 start_year / start 모두 사용한다.
                     let earliest = null;
                     for (const rec of castle.history) {
-                        const sy = rec.start_year != null ? parseInt(rec.start_year) : null;
-                        const sm = rec.start_month != null ? parseInt(rec.start_month) || 1 : 1;
-                        if (sy != null && (earliest === null || yearMonthToTotalMonths(sy, sm) < yearMonthToTotalMonths(earliest.y, earliest.m))) {
+                        const sy = parseInt(rec.start_year ?? rec.start, 10);
+                        const sm = Math.min(12, Math.max(1, parseInt(rec.start_month, 10) || 1));
+                        if (Number.isFinite(sy) && (earliest === null || yearMonthToTotalMonths(sy, sm) < yearMonthToTotalMonths(earliest.y, earliest.m))) {
                             earliest = { y: sy, m: sm };
                         }
                     }
                     if (earliest) { targetYear = earliest.y; targetMonth = earliest.m; }
-                } else if (castle.is_military_flag && castle.built_year != null) {
-                    targetYear = parseInt(castle.built_year);
-                    targetMonth = castle.built_month || 1;
+                }
+                if (targetYear === null && !alreadyActive) {
+                    const builtYear = parseInt(castle.built_year ?? castle.built ?? castle.start_year ?? castle.start, 10);
+                    if (Number.isFinite(builtYear)) {
+                        targetYear = builtYear;
+                        targetMonth = Math.min(12, Math.max(1, parseInt(castle.built_month ?? castle.start_month, 10) || 1));
+                    }
                 }
 
                 const doFly = () => {
@@ -27406,6 +27392,7 @@ kingSelect.addEventListener('change', () => {
                     doFly();
                 }
             };
+            window._tbGoToCastle = _tbGoToCastle;
 
             // 섹션 제목 HTML
             const _tbSectionTitle = (label, color) =>
