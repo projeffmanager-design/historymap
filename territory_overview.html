@@ -709,6 +709,11 @@ async function triggerManualTileRebuild() {
 async function syncTerritoryTilesToServer() {
   const btn = document.getElementById('btn-sync-tiles');
   const lbl = document.getElementById('lbl-pending-rebuild');
+  const token = getToken();
+  if (!token || token === 'null' || token === 'undefined') {
+    openLoginModal(syncTerritoryTilesToServer);
+    return;
+  }
   if (!confirm('로컬에서 재빌드된 영토 타일 변경분을 서버에 싱크할까요?\n타일 커밋·push 후 Vercel 배포가 시작됩니다.')) return;
   btn.disabled = true;
   const previous = lbl.textContent;
@@ -716,7 +721,7 @@ async function syncTerritoryTilesToServer() {
   try {
     const res = await fetch(`${LOCAL_API}/admin/sync-territory-tiles`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${getToken()}` }
+      headers: { 'Authorization': `Bearer ${token}` }
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || data.message || `HTTP ${res.status}`);
@@ -1477,13 +1482,15 @@ async function doLogin() {
     if (!res.ok) { msgEl.textContent = `❌ ${data.message || '로그인 실패'}`; msgEl.className = 'err'; return; }
 
     const token = data.token;
+    if (!token) { msgEl.textContent = '❌ 로그인 응답에 인증 토큰이 없습니다'; msgEl.className = 'err'; return; }
     localStorage.setItem('token', token);
     sessionStorage.setItem('token', token);
     msgEl.textContent = '✅ 로그인 성공!'; msgEl.className = 'ok';
 
     setTimeout(() => {
+      const afterLogin = _afterLoginCallback;
       closeLoginModal();
-      if (_afterLoginCallback) { _afterLoginCallback(); _afterLoginCallback = null; }
+      if (afterLogin) afterLogin();
     }, 600);
   } catch(e) { msgEl.textContent = `❌ 네트워크 오류: ${e.message}`; msgEl.className = 'err'; }
 }
