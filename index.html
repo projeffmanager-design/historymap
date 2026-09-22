@@ -34,7 +34,7 @@
 // 🚀 [스마트 캐시 관리] 데이터 구조 변경 시에만 IndexedDB 삭제
 (function() {
     const CONFIG = {
-        APP_VERSION: '3.9.0',           // [v3.9.0] 벡터 지구본 지도·사관청 기능 개편
+        APP_VERSION: '4.0.0',           // [v4.0.0] 국력 통합 화면·3D 지도 로모 효과 강화
         DATA_SCHEMA_VERSION: '2.1.3'    // 3D viewport-only territory cache
     };
     // 세션 캐시에서 schema version 을 참조할 수 있도록 전역 노출
@@ -670,7 +670,7 @@
       color: rgba(212, 175, 55, 0.45);
       font-family: monospace;
       letter-spacing: 0.05em;
-    ">v<span id="loading-screen-version-text">3.8.0</span></div>
+    ">v<span id="loading-screen-version-text">4.0.0</span></div>
   </div>
 
   
@@ -764,6 +764,7 @@
           <!-- 모바일에서는 톱니 버튼 제거 -->
           <button id="pcTopPanelToggleBtn" class="topbar-btn" title="컨트롤 패널 숨기기/보이기" style="display:none;">⚙️</button>
           <button id="newsletterLink" class="topbar-btn">📜 사관청 소식</button>
+          <button id="populationSpreadsheetBtn" class="topbar-btn" title="전체 영토 인구 CSV 관리" onclick="location.href='/population-spreadsheet.html'">인구표</button>
           <button id="rankingBtn" class="topbar-btn">랭킹</button>
           <!-- 게스트일 때: 로그인 버튼 / 로그인 상태일 때: 로그아웃 버튼 -->
           <button id="topbar-login-btn" class="topbar-btn topbar-btn-login" style="display:none;" title="로그인" aria-label="로그인" onclick="window.location.href='/login'">
@@ -912,7 +913,7 @@
           <label><input type="checkbox" id="menu-layer-ranking" checked> 사관 랭킹</label>
           <label><input type="checkbox" id="menu-layer-activity-feed" checked> 활동 소식</label>
           <label><input type="checkbox" id="menu-layer-caption"> 🎬 역사 자막</label>
-          <label><input type="checkbox" id="menu-layer-pop-heat"> 👥 호구수</label>
+          <label><input type="checkbox" id="menu-layer-pop-heat"> 👥 영토 인구</label>
           <label><input type="checkbox" id="menu-layer-resource" onchange="toggleResourceBar(this.checked)"> ⛏ 자원</label>
           <label><input type="checkbox" id="menu-layer-heroes"
               onchange="if(window.heroSystem) heroSystem.toggleLayer(this)"> 🦸 영웅</label>
@@ -1249,7 +1250,7 @@
                 <button type="button" class="layer-toggle-btn" data-layer="waterLevel" disabled title="수위 레이어는 아직 미공개입니다." style="padding: 2px 4px; font-size: 10px; opacity:0.45; cursor:not-allowed;">수위</button>
                 <button type="button" class="layer-toggle-btn" data-layer="timeline" style="padding: 2px 4px; font-size: 10px;">연대표</button>
                 <button type="button" class="layer-toggle-btn" data-layer="eventSidebar" style="padding: 2px 4px; font-size: 10px;">사건목록</button>
-                <button id="btn-pop-heat" type="button" class="layer-toggle-btn" onclick="togglePopHeat(this)" style="padding: 2px 4px; font-size: 10px;">👥 호구수</button>
+                <button id="btn-pop-heat" type="button" class="layer-toggle-btn" onclick="togglePopHeat(this)" style="padding: 2px 4px; font-size: 10px;">👥 영토 인구</button>
                 <button id="btn-resource-bar" type="button" class="layer-toggle-btn" onclick="toggleResourceBar(this)" style="padding:2px 8px;font-size:10px;">⛏ 자원</button>
                 <button id="heroLayerToggleBtn" type="button" class="layer-toggle-btn" style="padding: 2px 6px; font-size: 10px;" onclick="heroSystem.toggleLayer(this)">🦸 영웅</button>
             </div>
@@ -2635,6 +2636,7 @@
         <!-- 탭 바 -->
         <div class="cdp-tab-bar">
             <button class="cdp-tab active" data-tab="overview">📋 개요</button>
+            <button class="cdp-tab" data-tab="power">🛡️ 국력</button>
             <button class="cdp-tab" data-tab="kings">👑 왕계보</button>
             <button class="cdp-tab" data-tab="military">⚔️ 군사</button>
             <button class="cdp-tab" data-tab="admin">🏛️ 행정</button>
@@ -2760,6 +2762,11 @@
                 </div>
                 <!-- (하위 호환용 빈 요소) -->
                 <div id="cdp-edit-overview" style="display:none;"></div>
+            </div>
+
+            <!-- 국력 탭: 지도 국력 모델과 동일한 데이터를 사용 -->
+            <div class="cdp-tab-content" id="cdp-tab-power">
+                <div id="cdp-power-content" aria-live="polite"></div>
             </div>
 
             <!-- ② 왕계보 탭 -->
@@ -3756,7 +3763,7 @@
   
   <!-- 🚩 [이동됨] 그리기 폼을 지도 내부로 이동 -->
 
-<script src="/public/assets/generated/map-scripts.f8beb53dd7ab.js?v=search-marker-era-1"></script>
+<script src="/public/assets/generated/map-scripts.f8beb53dd7ab.js?v=country-power-tab-3"></script>
 
   <!-- 🚩 [추가] 사관 모집 팝업 모달 -->
   <style>
@@ -5311,7 +5318,7 @@ body.guest-mode #activity-feed-panel { display: none !important; }
 })();
 </script>
 
-<script src="/public/assets/generated/map-scripts.eb32f757b6b4.js"></script>
+<script src="/public/assets/generated/map-scripts.eb32f757b6b4.js?v=map-population-event-2"></script>
 
 <!--  고려만리 로고 (BGM 바 바로 위 좌측 하단 고정) -->
 <div id="koreamanri-logo" style="
@@ -6364,6 +6371,15 @@ window.toggleResourceBar = function(btn, forceState) {
 })();
 </script>
 
+  <link rel="stylesheet" href="/public/assets/national-power.css?v=14">
+  <link rel="stylesheet" href="/public/assets/power-integrated.css?v=1">
+  <link rel="stylesheet" href="/public/assets/power-reference-ui.css?v=3">
+  <link rel="stylesheet" href="/public/assets/map-vignette.css?v=4">
+  <script src="/public/assets/power-model.js?v=13"></script>
+  <script src="/public/assets/modern-military.js?v=1"></script>
+  <script src="/public/assets/power-reference-data.js?v=5"></script>
+  <script src="/public/assets/national-power.js?v=39"></script>
+  <script src="/public/assets/layer-default-extras.js?v=1"></script>
   <script type="module" src="./src/core/bootstrap.js?v=20260811-hero-title-label"></script>
   <script type="module" src="./src/core/entity-mentions.js?v=20260821-historian-mentions-3"></script>
   <!-- Kakao AdFit 비활성화: 필요 시 type을 text/javascript로 복원 -->

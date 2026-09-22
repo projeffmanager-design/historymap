@@ -140,6 +140,15 @@
   var _on = false, _busy = false;
   var _data = [];
   var _currentYear = 1000;
+  var _population3dMap = null;
+  var _population3dRenderHandler = null;
+  var _populationCullAt = 0;
+  var POPULATION_SOURCE_ID = 'territory-population-source';
+  var POPULATION_CIRCLE_LAYER_ID = 'territory-population-circles';
+  var POPULATION_LABEL_LAYER_ID = 'territory-population-labels';
+  var _populationGeoJSON = null;
+  var _populationStyleMap = null;
+  var _populationStyleHandler = null;
   window._3dPopulationMarkers = window._3dPopulationMarkers || [];
 
   function getToken() {
@@ -154,58 +163,150 @@
 
   // 연도에 맞는 인구값 추출
   function getPopForYear(doc, year) {
-    var eraStart = doc.era_start != null ? doc.era_start : -9999;
-    var eraEnd   = doc.era_end   != null ? doc.era_end   :  9999;
-    if (year < eraStart - 50) return 0;
-    if (year > eraEnd   + 50) return 0;
-    if (!doc.pop_by_year || Object.keys(doc.pop_by_year).length === 0) {
-      return doc.est_population || 0;
+    return window.NationalPowerModel ? window.NationalPowerModel.populationAt(doc, year) : null;
+  }
+  var _populationGeneration=0;
+  async function refreshRegionPopulation(year) {
+    var generation=++_populationGeneration;
+    try {
+      if(!window.NationalPower)throw new Error('국력 집계 모듈을 불러오지 못했습니다.');
+      var data=await window.NationalPower.populationLayer(Number(year));
+      if(generation!==_populationGeneration)return;
+      _data=data;_currentYear=Number(year);buildLayer(_currentYear);
+    } catch(error) {
+      if(generation!==_populationGeneration)return;
+      _data=[];buildLayer(Number(year));
+      console.warn('영토 인구 집계 실패:',error.message);
+      throw error;
     }
-    var years = Object.keys(doc.pop_by_year).map(Number).sort(function(a, b) { return a - b; });
-    var best = null;
-    for (var i = 0; i < years.length; i++) {
-      if (years[i] <= year) best = years[i];
-      else break;
-    }
-    return best !== null ? (doc.pop_by_year[best] || 0) : 0;
+  }
+  window.addEventListener('national-power-profile-updated',function(){
+    if(_on)refreshRegionPopulation(_currentYear).catch(function(error){console.warn('사건 인구 보정 후 지도 갱신 실패:',error.message);});
+  });
+
+  // 국가와 무관하게 영토 폴리곤에 귀속된 인구를 표시한다.
+  function formatTerritoryPopulation(pop) {
+    if (pop >= 100000000) return (pop / 100000000).toFixed(pop >= 1000000000 ? 0 : 1).replace(/\.0$/, '') + '억명';
+    if (pop >= 10000) return (pop / 10000).toFixed(pop >= 100000 ? 0 : 1).replace(/\.0$/, '') + '만명';
+    if (pop >= 1000) return (pop / 1000).toFixed(1).replace(/\.0$/, '') + '천명';
+    return Math.round(pop).toLocaleString() + '명';
   }
 
-  // 호구수 포맷 (인구 ÷ 5 = 호구 추정)
-  function popToHousehold(pop) {
-    var h = Math.round(pop / 5);
-    if (h >= 10000000) return (h / 10000000).toFixed(1) + '천만호';
-    if (h >= 1000000)  return (h / 1000000).toFixed(1)  + '백만호';
-    if (h >= 10000)    return (h / 10000).toFixed(0)     + '만호';
-    if (h >= 1000)     return (h / 1000).toFixed(1)      + '천호';
-    return h.toLocaleString() + '호';
-  }
-
-  function clear3dPopulation() {
+  function clear3dPopulation(preserveData) {
     (window._3dPopulationMarkers || []).forEach(function(marker) {
       try { marker.remove(); } catch (e) {}
     });
     window._3dPopulationMarkers = [];
+    if(!preserveData)_populationGeoJSON=null;
+    var mlMap=window.mlMap3d;
+    if(mlMap&&mlMap.getStyle&&mlMap.getStyle()){
+      try{if(mlMap.getLayer(POPULATION_LABEL_LAYER_ID))mlMap.removeLayer(POPULATION_LABEL_LAYER_ID);}catch(e){}
+      try{if(mlMap.getLayer(POPULATION_CIRCLE_LAYER_ID))mlMap.removeLayer(POPULATION_CIRCLE_LAYER_ID);}catch(e){}
+      try{if(mlMap.getSource(POPULATION_SOURCE_ID))mlMap.removeSource(POPULATION_SOURCE_ID);}catch(e){}
+    }
   }
 
-  // Leaflet 호구수 레이어와 같은 값·색상·크기로 MapLibre HTML 마커를 만든다.
-  function build3dPopulation(year) {
+  function ensure3dPopulationLayers(mlMap) {
+    if(!_on||!_populationGeoJSON||!mlMap||!mlMap.isStyleLoaded||!mlMap.isStyleLoaded())return;
+    try{
+      var source=mlMap.getSource(POPULATION_SOURCE_ID);
+      if(source&&source.setData)source.setData(_populationGeoJSON);
+      else mlMap.addSource(POPULATION_SOURCE_ID,{type:'geojson',data:_populationGeoJSON});
+      if(!mlMap.getLayer(POPULATION_CIRCLE_LAYER_ID))mlMap.addLayer({id:POPULATION_CIRCLE_LAYER_ID,type:'circle',source:POPULATION_SOURCE_ID,paint:{'circle-radius':['get','radius'],'circle-color':['get','color'],'circle-opacity':.24,'circle-stroke-color':['get','color'],'circle-stroke-opacity':.55,'circle-stroke-width':1}});
+      if(!mlMap.getLayer(POPULATION_LABEL_LAYER_ID))mlMap.addLayer({id:POPULATION_LABEL_LAYER_ID,type:'symbol',source:POPULATION_SOURCE_ID,layout:{'text-field':['get','label'],'text-size':['get','fontSize'],'text-allow-overlap':true,'text-ignore-placement':true,'text-anchor':'center'},paint:{'text-color':['get','color'],'text-halo-color':'rgba(0,0,0,.95)','text-halo-width':1.5,'text-halo-blur':.5}});
+      // Territory/LOD layers are often appended after this overlay. Keep both
+      // population layers at the top of the actual MapLibre style stack.
+      mlMap.moveLayer(POPULATION_CIRCLE_LAYER_ID);
+      mlMap.moveLayer(POPULATION_LABEL_LAYER_ID);
+    }catch(error){console.warn('[영토 인구] 지도 레이어 복원 대기:',error.message);}
+  }
+
+  function bind3dPopulationStyle(mlMap){
+    if(_populationStyleMap===mlMap)return;
+    if(_populationStyleMap&&_populationStyleHandler){
+      try{_populationStyleMap.off('styledata',_populationStyleHandler);}catch(e){}
+      try{_populationStyleMap.off('idle',_populationStyleHandler);}catch(e){}
+    }
+    _populationStyleMap=mlMap;
+    _populationStyleHandler=function(){if(_on&&_populationGeoJSON)requestAnimationFrame(function(){ensure3dPopulationLayers(mlMap);});};
+    mlMap.on('styledata',_populationStyleHandler);
+    mlMap.on('idle',_populationStyleHandler);
+  }
+
+  function removeLeafletPopulation() {
+    var m=getMap();
+    if(_layer&&m&&m.hasLayer&&m.hasLayer(_layer))try{m.removeLayer(_layer);}catch(e){}
+  }
+
+  window._enter3dPopulationMode=function(){
+    removeLeafletPopulation();
+    if(_on&&window._is3dMode)refreshRegionPopulation(_currentYear).catch(function(){});
+  };
+  window._exit3dPopulationMode=function(){
     clear3dPopulation();
+    if(_on)refreshRegionPopulation(_currentYear).catch(function(){});
+  };
+
+  function sync3dPopulationVisibility() {
+    var mlMap=window.mlMap3d;
+    if(!mlMap||!window._is3dMode)return;
+    var now=performance.now();
+    if(now-_populationCullAt<50)return;
+    _populationCullAt=now;
+    var zoom=mlMap.getZoom(),globe=!!window._historyGlobeMode;
+    var hideForScale=globe&&zoom<3.2;
+    var center=mlMap.getCenter(),lat0=center.lat*Math.PI/180,lng0=center.lng*Math.PI/180;
+    var sin0=Math.sin(lat0),cos0=Math.cos(lat0),canvas=mlMap.getCanvas();
+    var pitch=mlMap.getPitch();
+    var visibleAngle=Math.max(30,Math.min(82,82-pitch*.65-Math.max(0,zoom-2.5)*8));
+    var horizonDot=Math.cos(visibleAngle*Math.PI/180);
+    var width=canvas.clientWidth,height=canvas.clientHeight;
+    (window._3dPopulationMarkers||[]).forEach(function(marker){
+      var ll=marker.getLngLat(),behind=false;
+      if(globe&&zoom<=5.5){
+        var lat=ll.lat*Math.PI/180,lng=ll.lng*Math.PI/180;
+        behind=sin0*Math.sin(lat)+cos0*Math.cos(lat)*Math.cos(lng-lng0)<horizonDot;
+      }
+      var pt=mlMap.project(ll);
+      var outside=pt.x<0||pt.x>width||pt.y<0||pt.y>height;
+      var el=marker.getElement();
+      el.style.visibility=hideForScale||behind||outside?'hidden':'';
+    });
+  }
+
+  function bind3dPopulationVisibility(mlMap) {
+    if(_population3dMap===mlMap)return;
+    if(_population3dMap&&_population3dRenderHandler)try{_population3dMap.off('render',_population3dRenderHandler);}catch(e){}
+    _population3dMap=mlMap;
+    _population3dRenderHandler=sync3dPopulationVisibility;
+    mlMap.on('render',_population3dRenderHandler);
+  }
+
+  // Leaflet 영토 인구 레이어와 같은 값·색상·크기로 MapLibre HTML 마커를 만든다.
+  function build3dPopulation(year) {
+    clear3dPopulation(false);
     if (!_on || !window._is3dMode || !window.mlMap3d || !window.maplibregl) return;
 
     var mlMap = window.mlMap3d;
+    bind3dPopulationStyle(mlMap);
+    if(!mlMap.isStyleLoaded || !mlMap.isStyleLoaded()){
+      mlMap.once('load',function(){if(_on)build3dPopulation(year);});
+      return;
+    }
     var active = _data.filter(function(d) { return getPopForYear(d, year) > 0; });
     if (!active.length) return;
+
     var allValues = [];
     _data.forEach(function(d) {
       Object.values(d.pop_by_year || {}).forEach(function(value) {
-        var numeric = Number(value);
-        if (Number.isFinite(numeric)) allValues.push(numeric);
+        var numeric = Number(value); if (Number.isFinite(numeric)) allValues.push(numeric);
       });
       var estimate = Number(d.est_population || 0);
       if (Number.isFinite(estimate)) allValues.push(estimate);
     });
     var fixedMax = Math.max.apply(null, allValues.concat([1]));
 
+    var features=[];
     active.forEach(function(d) {
       var coords = d.location && d.location.coordinates;
       var lat = coords ? Number(coords[1]) : Number(d.lat);
@@ -215,48 +316,53 @@
       var pop = getPopForYear(d, year);
       var ratio = Math.max(0, pop / fixedMax);
       var radius = Math.max(4, ratio * 55);
-      var diameter = Math.max(12, radius * 2);
       var color = ratio > 0.15 ? '#ef4444'
                 : ratio > 0.08 ? '#f97316'
                 : ratio > 0.04 ? '#eab308' : '#3b82f6';
       var fontSize = Math.max(8, Math.min(13, Math.round(ratio * 60 + 7)));
-      var el = document.createElement('div');
-      el.dataset.ml3dPriority = '2';
-      el.style.cssText = 'position:relative;width:' + diameter + 'px;height:' + diameter
-        + 'px;border-radius:50%;background:' + color + '40;border:1px solid ' + color
-        + '80;box-sizing:border-box;pointer-events:none;overflow:visible;';
-      el.innerHTML = '<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);'
-        + 'color:' + color + ';font-size:' + fontSize + 'px;font-weight:700;white-space:nowrap;'
-        + 'text-shadow:0 1px 3px rgba(0,0,0,.95);line-height:1;">'
-        + popToHousehold(pop) + '</div>';
-      var marker = new maplibregl.Marker({ element: el, anchor: 'center', occludedOpacity: 0 })
-        .setLngLat([lng, lat]).addTo(mlMap);
-      window._3dPopulationMarkers.push(marker);
+      features.push({type:'Feature',geometry:{type:'Point',coordinates:[lng,lat]},properties:{label:formatTerritoryPopulation(pop),color:color,radius:radius,fontSize:fontSize,population:pop,regionId:String(d.region_id||d._id||'')}});
     });
+    if(!features.length)return;
+    _populationGeoJSON={type:'FeatureCollection',features:features};
+    ensure3dPopulationLayers(mlMap);
+    console.info('[영토 인구] 지도 좌표 고정 최상단 레이어 '+features.length+'개 렌더');
   }
 
   window._refresh3dPopulation = function() {
     var ym = typeof getCurrentYearMonth === 'function' ? getCurrentYearMonth() : null;
-    build3dPopulation(ym ? ym.year : _currentYear);
+    _currentYear=ym ? ym.year : _currentYear;
+    if(_on)refreshRegionPopulation(_currentYear).catch(function(){});
+    else build3dPopulation(_currentYear);
   };
   window._refreshPopulationForTime = function(year) {
     _currentYear = Number(year);
-    if (_on && _data.length) buildLayer(_currentYear);
+    if (_on) refreshRegionPopulation(_currentYear).catch(function(){});
   };
+  window.addEventListener('national-power-data',function(){
+    if(_on)refreshRegionPopulation(_currentYear).catch(function(){});
+  });
 
-  // 호구수 버블 + 숫자 레이어 생성
+  // 영토별 인구 버블 + 숫자 레이어 생성
   function buildLayer(year) {
     var m = getMap();
     if (!m) return;
     if (_layer) { try { m.removeLayer(_layer); } catch(e){} _layer = null; }
+    clear3dPopulation();
 
     var active = _data.filter(function(d) { return getPopForYear(d, year) > 0; });
     if (!active.length) return;
 
-    var FIXED_MAX = Math.max.apply(null,
+    // MapLibre 3D and Leaflet 2D use different camera projections. Never leave
+    // Leaflet circles above the 3D canvas; render exactly once in MapLibre.
+    if(window._is3dMode){
+      build3dPopulation(year);
+      return;
+    }
+
+    var FIXED_MAX = Math.max.apply(null, [1].concat(
       _data.map(function(d) {
         return Math.max.apply(null, Object.values(d.pop_by_year || {'0': 0}).map(Number));
-      })
+      }))
     );
 
     _layer = L.layerGroup();
@@ -287,8 +393,8 @@
         opacity:     0.5,
       }).addTo(_layer);
 
-      // 중앙 호구수 텍스트 아이콘
-      var txt   = popToHousehold(pop);
+      // 중앙 인구 텍스트 아이콘
+      var txt   = formatTerritoryPopulation(pop);
       var fsize = Math.max(8, Math.min(13, Math.round(ratio * 60 + 7)));
       var icon  = L.divIcon({
         html: '<div style="color:' + color + ';font-size:' + fsize + 'px;font-weight:700;'
@@ -311,49 +417,49 @@
     var slider = document.getElementById('combinedSlider');
     if (!slider) { setTimeout(hookSlider, 500); return; }
     slider.addEventListener('input', function() {
-      if (!_on || !_data.length) return;
+      if (!_on) return;
       var ym = typeof getCurrentYearMonth === 'function' ? getCurrentYearMonth() : null;
       var year = ym ? ym.year : null;
       if (year !== null && year !== _currentYear) {
         _currentYear = year;
-        buildLayer(_currentYear);
+        refreshRegionPopulation(_currentYear).catch(function(){});
       }
     });
   }
   hookSlider();
 
-  window.togglePopHeat = async function(btn) {
+  window.togglePopHeat = async function(btn, forceState) {
     var m = getMap();
     if (!m) { return; }
+    var desired = typeof forceState === 'boolean' ? forceState : !_on;
 
-    if (!_data.length) {
+    if (desired) {
       if (_busy) return;
       _busy = true;
+      _on = true;
       if (btn) btn.textContent = '⏳';
       try {
-        var res = await fetch('/api/resources?type=population', {
-          headers: { 'Authorization': 'Bearer ' + getToken() }
-        });
-        _data = await res.json();
         var ym = typeof getCurrentYearMonth === 'function' ? getCurrentYearMonth() : null;
         _currentYear = ym ? ym.year : 1000;
-        buildLayer(_currentYear);
+        await refreshRegionPopulation(_currentYear);
       } catch(e) {
-        if (btn) btn.textContent = '호구수';
+        _on = false;
+        if (btn) { btn.textContent = '인구 오류'; btn.title=e.message; }
+        var failedCheckbox = document.getElementById('menu-layer-pop-heat');
+        if (failedCheckbox) failedCheckbox.checked = false;
         _busy = false; return;
       }
       _busy = false;
-    }
-
-    _on = !_on;
-    if (_on) {
-      _layer && _layer.addTo(m);
-      build3dPopulation(_currentYear);
-      if (btn) { btn.classList.add('active'); btn.textContent = '호구수 ●'; }
+      buildLayer(_currentYear);
+      if (btn) { btn.classList.add('active'); btn.textContent = '👥 영토 인구 ●'; }
+      var enabledCheckbox = document.getElementById('menu-layer-pop-heat');
+      if (enabledCheckbox) enabledCheckbox.checked = true;
     } else {
-      _layer && m.removeLayer(_layer);
-      clear3dPopulation();
-      if (btn) { btn.classList.remove('active'); btn.textContent = '호구수'; }
+      _on = false;
+      _layer && m.removeLayer(_layer);clear3dPopulation();
+      if (btn) { btn.classList.remove('active'); btn.textContent = '👥 영토 인구'; }
+      var disabledCheckbox = document.getElementById('menu-layer-pop-heat');
+      if (disabledCheckbox) disabledCheckbox.checked = false;
     }
   };
 
@@ -949,5 +1055,3 @@
     if (window._refresh3dResources) window._refresh3dResources();
   };
 })();
-
-

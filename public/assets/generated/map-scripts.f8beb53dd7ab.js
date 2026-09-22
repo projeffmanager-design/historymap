@@ -886,7 +886,15 @@
             const resolved = result?.features || [];
             if (!resolved.length) {
                 // Worker 실패 시 소유권별 가장 큰 계층만 남겨 공백과 중첩을 최소화한다.
-                window._3dTerritoryData = { country: [], province: [], city: selectHierarchyFallback(features) };
+                const fallbackFeatures = selectHierarchyFallback(features);
+                window._3dPopulationVisibleMasks = fallbackFeatures.map(feature => ({
+                    country_id: String(feature?.properties?.country_id || ''),
+                    name: feature?.properties?.name || '',
+                    level: feature?.properties?.level || 'city',
+                    geometry: feature.geometry
+                }));
+                window._3dTerritoryData = { country: [], province: [], city: fallbackFeatures };
+                if (window._refresh3dPopulation) setTimeout(window._refresh3dPopulation, 0);
                 if (window._historyVectorMode && typeof window._refreshHistoryVectorTerritories === 'function') {
                     window._refreshHistoryVectorTerritories(true);
                 }
@@ -901,7 +909,14 @@
                     lineOpacity: feature.properties?.lineOpacity ?? 0.4
                 };
             });
+            window._3dPopulationVisibleMasks = resolved.map(feature => ({
+                country_id: String(feature?.properties?.country_id || ''),
+                name: feature?.properties?.name || '',
+                level: feature?.properties?.level || 'city',
+                geometry: feature.geometry
+            }));
             window._3dTerritoryData = { country: [], province: [], city: resolved };
+            if (window._refresh3dPopulation) setTimeout(window._refresh3dPopulation, 0);
             // 계층 차집합 결과를 MapLibre 기반 역사 벡터 지도에도 즉시 반영한다.
             // 이전에는 3D 본 지도만 새로 그려져, 벡터 지도에는 계산 전의
             // country/province/city 원본이 겹친 채 남아 색이 덧칠되어 보였다.
@@ -2004,11 +2019,16 @@
 
         // 수도 인덱스 — 현재 시점의 왕성(is_capital=true 또는 place_type=capital) 기준
         const capitalByCountry = new Map();
+        const activeMarkerCountByCountry = new Map();
         castles.forEach(c => {
             if (!c.lat || !c.lng) return;
             const info = getActiveHistoryInfo(c.history, currentTotalMonths);
             if (!info) return;
             const rec = info.record;
+            const activeCountryId = rec.country_id
+                ? (typeof rec.country_id === 'object' ? (rec.country_id.$oid || String(rec.country_id)) : String(rec.country_id))
+                : null;
+            if (activeCountryId) activeMarkerCountByCountry.set(activeCountryId, (activeMarkerCountByCountry.get(activeCountryId) || 0) + 1);
             // 현재 history record에서 수도 여부 확인 (is_capital 또는 place_type=capital/hwangseong)
             const isCapRec = !!(rec.is_capital || rec.place_type === 'capital' || rec.place_type === 'hwangseong');
             if (!isCapRec) return;
@@ -2067,6 +2087,20 @@
             labelCandidates.push({ countryId, country, displayName, labelLat, labelLng, capital });
         });
 
+        // 서로 다른 국가 객체가 같은 시점에 같은 국호를 표시하는 경우 한 번만 렌더링한다.
+        // 가장 큰 영토 조각을 가진 객체를 대표로 삼아, 폐기되지 않은 중복 객체가 만드는
+        // 이중 국명/국력 배지를 방지한다.
+        const bestLabelByName = new Map();
+        labelCandidates.forEach(cand => {
+            const key = String(cand.displayName || '').trim();
+            const patchArea = Number(_renderedCountryLargestPatch.get(cand.countryId)?.area || 0);
+            const territoryCount = Number(_renderedCountryCentroids.get(cand.countryId)?.count || 0);
+            const priority = Number(activeMarkerCountByCountry.get(cand.countryId) || 0) * 1e15 + patchArea * 1000 + territoryCount;
+            const previous = bestLabelByName.get(key);
+            if (!previous || priority > previous.priority) bestLabelByName.set(key, { cand, priority });
+        });
+        const uniqueLabelCandidates = [...bestLabelByName.values()].map(entry => entry.cand);
+
         // 영토가 없는 부족·도적·유민은 실제로 등록된 장소 마커에서만 표시한다.
         // 성·도시 좌표를 이용한 별도의 자동 대표 라벨은 중복과 위치 오인을 일으켜 생성하지 않는다.
 
@@ -2075,7 +2109,7 @@
         const placed = []; // { px, py, w, h }
         const visible = new Set();
 
-        for (const cand of labelCandidates) {
+        for (const cand of uniqueLabelCandidates) {
             const pt = map.latLngToContainerPoint([cand.labelLat, cand.labelLng]);
             const nameLen = (cand.displayName || cand.country.name || '').length;
             const w = Math.max(60, nameLen * countryFontSize * 0.68 + 24); // 국기 여유 포함
@@ -2104,7 +2138,7 @@
             if (!Number.isFinite(n)) return '';
             return n < 0 ? `${Math.abs(n)} BC` : String(n);
         };
-        for (const cand of labelCandidates) {
+        for (const cand of uniqueLabelCandidates) {
             if (!visible.has(cand.countryId)) continue;
 
             const { country, displayName, labelLat, labelLng, capital, isNonTerritorial, politicalForm, markerSymbol } = cand;
@@ -2133,7 +2167,7 @@
             // position:absolute + bottom/left 으로 좌표 기준 고정 오프셋 설정
             const icon = L.divIcon({
                 className: 'macro-country-label-icon',
-                html: `<div style="transform:translate(-50%,calc(-100% - 18px));display:inline-flex;flex-direction:row;align-items:flex-end;gap:0px;pointer-events:none;white-space:nowrap;${isNonTerritorial ? 'opacity:.92;' : ''}">${flagHtmlMacro}<div class="macro-country-copy" style="display:flex;flex-direction:column;align-items:center;position:relative;z-index:1;margin-left:${isNonTerritorial ? '-3px' : '-50px'};padding-bottom:4px;"><div class="macro-country-name" style="font-size:${countryFontSize}px;${isNonTerritorial ? 'color:#425b35;' : ''}">${displayName}</div>${periodHtml}${ethnicHtml}</div></div>`,
+                html: `<div style="transform:translate(-50%,calc(-100% - 18px));display:inline-flex;flex-direction:row;align-items:flex-end;gap:0px;pointer-events:none;white-space:nowrap;${isNonTerritorial ? 'opacity:.92;' : ''}">${flagHtmlMacro}<div class="macro-country-copy" style="display:flex;flex-direction:column;align-items:center;position:relative;z-index:1;margin-left:${isNonTerritorial ? '-3px' : '-50px'};padding-bottom:4px;"><div class="macro-country-name" data-country-id="${countryId}" style="font-size:${countryFontSize}px;${isNonTerritorial ? 'color:#425b35;' : ''}">${displayName}</div>${periodHtml}${ethnicHtml}</div></div>`,
                 iconSize: [0, 0],
                 iconAnchor: [0, 0]
             });
@@ -6230,6 +6264,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             };
 
             // Step 3: absorption 체크 후 _3dTerr에 수집
+            const _3dPopulationAnchors = [];
             for (const item of _3d_allItems) {
                 const { f, cidStr, isNeutral, fillColor, lineColor, lineOpacity, weight, level } = item;
                 const geom = f.geometry;
@@ -6263,11 +6298,18 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 // 2D와 동일한 level별 opacity
                 const bucketKey = level === 'country' ? 'country' : level === 'province' ? 'province' : 'city';
                 const fillOpacity = LEVEL_OPACITY_3D[level] ?? 1;
+                const stableTerritoryId = f.properties?._id?.$oid || f.properties?._id || f.properties?.id || '';
+                if (stableTerritoryId) _3dPopulationAnchors.push({
+                    territory_id: String(stableTerritoryId),
+                    country_id: cidStr,
+                    geometry: geom,
+                    level
+                });
                 _3dTerr[bucketKey].push({
                     type: 'Feature', geometry: geom,
                     properties: {
                         name:        f.properties?.name || '',
-                        territory_id:f.properties?._id || f.properties?.id || f.properties?.name || '',
+                        territory_id:f.properties?._id?.$oid || f.properties?._id || f.properties?.id || f.properties?.name || '',
                         country_id:  cidStr,
                         level:       level,
                         fillColor:   fillColor,
@@ -6281,7 +6323,14 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 });
             }
 
+            // Keep exact coloured, pre-union geometries for population labels.
+            // The hierarchy worker may split/merge features and discard their IDs.
+            window._3dPopulationAnchors = _3dPopulationAnchors;
+            // Wait for the hierarchy worker to confirm the pieces that actually
+            // survive on screen; pre-union polygons may later be clipped away.
+            window._3dPopulationVisibleMasks = [];
             window._3dTerritoryData = _3dTerr;
+            if (window._refresh3dPopulation) setTimeout(window._refresh3dPopulation, 0);
             mergeGlobeTerritoriesByCountry(_3dTerr, year, month);
             console.log(`[3D] 렌더 완료: country=${_3dTerr.country.length} province=${_3dTerr.province.length} city=${_3dTerr.city.length} 주변 동일국가 보정=${surroundedTerritoryFillCount}`);
 
@@ -8165,7 +8214,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const politicalMarkerHtml = `<div class="cm-wrap nonterritorial-place-marker ${_politicalForm}" style="display:flex;flex-direction:column;align-items:center;gap:0;">
                     <div class="cm-icon" style="font-size:${_politicalForm === 'refugee' ? '29px' : '23px'};line-height:1;font-family:'Noto Sans Egyptian Hieroglyphs','Apple Symbols','Segoe UI Symbol',sans-serif;text-shadow:0 1px 3px rgba(255,255,255,.9),0 1px 4px rgba(0,0,0,.65);">${_politicalSymbol}</div>
                     ${markerPoliticalFlag ? `<img class="cm-flag" src="${markerPoliticalFlag}" style="width:14px;height:auto;display:block;margin:1px auto;">` : (typeof createCountryFlagSvg === 'function' ? `<div style="display:block;line-height:0;margin-bottom:1px;">${createCountryFlagSvg(_sealColor, _sealChar, 14)}</div>` : '')}
-                    <div class="cm-country-name" style="color:#ffe39a;font-family:'Noto Serif KR','Nanum Myeongjo',serif;font-weight:800;font-size:12px;white-space:nowrap;padding-top:2px;text-shadow:0 0 2px #000,0 0 5px #000,1px 1px 1px #000;">${_politicalCountryName}</div>
+                    <div class="cm-country-name" data-country-id="${countryId}" style="color:#ffe39a;font-family:'Noto Serif KR','Nanum Myeongjo',serif;font-weight:800;font-size:12px;white-space:nowrap;padding-top:2px;text-shadow:0 0 2px #000,0 0 5px #000,1px 1px 1px #000;">${_politicalCountryName}</div>
                     <div class="cm-name city-marker-text" style="color:#c8c1b4;font-family:'Nanum Myeongjo',serif;font-weight:500;font-size:9px;white-space:nowrap;line-height:1.15;text-shadow:0 0 2px #000,0 0 4px #000;">${castleName}</div>
                 </div>`;
                 const politicalIcon = L.divIcon({
@@ -8875,9 +8924,8 @@ function invalidateCountryLookupCache() {
         try { localStorage.setItem(BROWSER_PANEL_CONFIG_KEY, JSON.stringify(saved)); } catch (_) {}
     }
     function withBrowserPanelConfiguration(settings) {
-        // 사관 랭킹은 저장된 브라우저 설정이나 서버 설정과 관계없이
-        // 매 페이지 최초 진입 시 닫힌 상태로 시작한다. 이후 메뉴에서 다시 켤 수 있다.
-        return { ...(settings || {}), ...readBrowserPanelConfiguration(), rankingPanel:false };
+        // 개인 브라우저 선택은 서버의 기본값보다 우선한다.
+        return { ...(settings || {}), ...readBrowserPanelConfiguration() };
     }
 
     // 🚩 [최적화] 레이어 설정 먼저 로드 (데이터 로딩 전)
@@ -8957,7 +9005,8 @@ function invalidateCountryLookupCache() {
                 'menu-layer-contributions': 'userContributions',
                 'menu-layer-ranking': 'rankingPanel',
                 'menu-layer-activity-feed': 'activityFeed',
-                'menu-layer-caption': 'captionPanel'
+                'menu-layer-caption': 'captionPanel',
+                'menu-layer-pop-heat': 'heatmap'
             };
             Object.entries(layerCheckboxMap).forEach(([cbId, layerKey]) => {
                 const cb = document.getElementById(cbId);
@@ -19605,6 +19654,7 @@ const loadingMessages = [
         // ── 닫기 ──
         document.getElementById('cdp-close-btn').addEventListener('click', closeCountryPanel);
         function closeCountryPanel() {
+            window.NationalPower?.closeCountryAnalysis?.();
             panel.classList.remove('active');
             panel.classList.remove('cdp-fullscreen');
             panel.style.removeProperty('top');
@@ -19618,6 +19668,10 @@ const loadingMessages = [
         window.closeCountryPanel = closeCountryPanel;
 
         document.getElementById('cdp-fullscreen-btn')?.addEventListener('click', () => {
+            if (panel.classList.contains('cdp-power-expanded')) {
+                window.NationalPower?.closeCountryAnalysis?.();
+                return;
+            }
             if (window.innerWidth < 968 || document.body.classList.contains('force-mobile')) return;
             const nextFullscreen = !panel.classList.contains('cdp-fullscreen');
             panel.classList.toggle('cdp-fullscreen', nextFullscreen);
@@ -19650,11 +19704,15 @@ const loadingMessages = [
         // ── 탭 전환 ──
         panel.querySelectorAll('.cdp-tab').forEach(btn => {
             btn.addEventListener('click', () => {
+                if (panel.classList.contains('cdp-power-expanded')) window.NationalPower?.closeCountryAnalysis?.();
                 panel.querySelectorAll('.cdp-tab').forEach(b => b.classList.remove('active'));
                 panel.querySelectorAll('.cdp-tab-content').forEach(c => c.classList.remove('active'));
                 btn.classList.add('active');
                 const tabId = 'cdp-tab-' + btn.dataset.tab;
                 document.getElementById(tabId).classList.add('active');
+                if (btn.dataset.tab === 'power' && _currentCInfo) {
+                    window.NationalPower?.renderCountryTab?.(_currentCInfo._id?.$oid || _currentCInfo._id || _currentCInfo.id, document.getElementById('cdp-power-content'));
+                }
                 if (btn.dataset.tab === 'figures' && _currentCInfo) {
                     _renderFigures(_currentCInfo);
                     setTimeout(() => _bindTabEditBtns(_currentCInfo), 0);
@@ -20887,6 +20945,9 @@ const loadingMessages = [
             const requestedTab = panel.querySelector(`[data-tab="${initialTab}"]`) ? initialTab : 'overview';
             panel.querySelector(`[data-tab="${requestedTab}"]`).classList.add('active');
             document.getElementById(`cdp-tab-${requestedTab}`).classList.add('active');
+            const powerRender = requestedTab === 'power'
+                ? window.NationalPower?.renderCountryTab?.(cInfo._id?.$oid || cInfo._id || cInfo.id, document.getElementById('cdp-power-content'))
+                : null;
 
             // 각 탭 렌더링
             _renderOverview(cInfo);
@@ -20905,6 +20966,7 @@ const loadingMessages = [
                 if (typeof closeDetailPanel === 'function') closeDetailPanel();
             }
             panel.classList.add('active');
+            return powerRender;
         }
 
         window.showCountryInfoModal = showCountryInfoModal;
@@ -26586,14 +26648,14 @@ kingSelect.addEventListener('change', () => {
         // 🚩 [추가] 🌡️ 인구 밀도 체크박스 토글 연결
         (function() {
             var cbPopHeat = document.getElementById('menu-layer-pop-heat');
-            if (!cbPopHeat) return;
-            cbPopHeat.addEventListener('change', function() {
+            if (cbPopHeat) cbPopHeat.addEventListener('change', function() {
                 var btn = document.getElementById('btn-pop-heat');
                 var isCurrentlyOn = btn && btn.classList.contains('active');
                 var wantOn = cbPopHeat.checked;
                 if (wantOn !== isCurrentlyOn) {
                     if (typeof window.togglePopHeat === 'function') {
-                        window.togglePopHeat(btn);
+                        layerVisibility.heatmap = wantOn;
+                        window.togglePopHeat(btn, wantOn);
                     }
                 }
             });
@@ -27940,6 +28002,7 @@ kingSelect.addEventListener('change', () => {
             'menu-layer-timeline': 'timeline',
             'menu-layer-king': 'kingPanel',
             'menu-layer-history': 'historyPanel',
+            'menu-layer-contributions': 'userContributions',
             'menu-layer-ranking': 'rankingPanel',
             'menu-layer-activity-feed': 'activityFeed',
             'menu-layer-caption': 'captionPanel'
@@ -29855,8 +29918,29 @@ kingSelect.addEventListener('change', () => {
                 // 국가명은 왕성이 등장한 뒤에도 유지해 확대 시 표시가 누적되게 한다.
                 // 국가 라벨도 키에 포함 (대략 country ID 기반)
                 const _showCountryLabelPre = (typeof layerVisibility === 'undefined') || layerVisibility.countryLabel !== false;
+                const _visibleCountryLabelIds = [];
                 if (_showCountryLabelPre && typeof _renderedCountryIds !== 'undefined') {
+                    const _bestCountryLabelByName = new Map();
+                    const _activeMarkerCountByCountry = new Map();
+                    if (typeof castles !== 'undefined') castles.forEach(c => {
+                        const active = (typeof getActiveHistoryInfo === 'function') ? getActiveHistoryInfo(c.history, yearMonthToTotalMonths(year, month)) : null;
+                        const raw = active?.record?.country_id || c.country_id;
+                        if (!active || !raw) return;
+                        const cid = typeof raw === 'object' ? (raw.$oid || String(raw)) : String(raw);
+                        _activeMarkerCountByCountry.set(cid, (_activeMarkerCountByCountry.get(cid) || 0) + 1);
+                    });
                     _renderedCountryIds.forEach(cid => {
+                        const info = (typeof getCountryInfoById === 'function') ? getCountryInfoById(cid, year, month) : null;
+                        if (!info) return;
+                        const name = (typeof getMapCountryDisplayName === 'function') ? getMapCountryDisplayName(info, year, month) : info.name;
+                        const patchArea = Number(_renderedCountryLargestPatch?.get(cid)?.area || 0);
+                        const territoryCount = Number(_renderedCountryCentroids?.get(cid)?.count || 0);
+                        const priority = Number(_activeMarkerCountByCountry.get(cid) || 0) * 1e15 + patchArea * 1000 + territoryCount;
+                        const previous = _bestCountryLabelByName.get(name);
+                        if (!previous || priority > previous.priority) _bestCountryLabelByName.set(name, { cid, priority });
+                    });
+                    _bestCountryLabelByName.forEach(({cid}) => {
+                        _visibleCountryLabelIds.push(cid);
                         _newMarkerKeys.add(`lbl_${cid}`);
                     });
                 }
@@ -30250,7 +30334,7 @@ kingSelect.addEventListener('change', () => {
                         });
                     }
 
-                    _renderedCountryIds.forEach(countryId => {
+                    _visibleCountryLabelIds.forEach(countryId => {
                         const country = (typeof getCountryInfoById === 'function')
                             ? getCountryInfoById(countryId, _lYear, _lMonth)
                             : null;
@@ -30290,15 +30374,17 @@ kingSelect.addEventListener('change', () => {
                             ? `<div class="macro-country-ethnic ml3d-ethnic-label">${country.ethnicity}</div>`
                             : '';
                         // 2D와 동일한 macro-country-* 타이포그래피를 사용한다.
-                        const labelHtml = `<div style="display:inline-flex;flex-direction:row;align-items:center;gap:0px;pointer-events:none;transform:scale(var(--macro-flag-scale,1));transform-origin:bottom center;">
+                        const labelHtml = `<div style="display:inline-flex;flex-direction:row;align-items:center;gap:0px;pointer-events:auto;transform:scale(var(--macro-flag-scale,1));transform-origin:bottom center;">
                             ${flagHtml}
                             <div class="macro-country-copy" style="display:flex;flex-direction:column;align-items:center;position:relative;z-index:1;margin-left:-50px;margin-bottom:-75px;">
-                                <div class="macro-country-name" style="font-size:14px;">${displayName}</div>
+                                <div class="macro-country-name" data-country-id="${countryId}" style="font-size:14px;">${displayName}</div>
                                 ${periodHtml}${ethnicHtml}
                             </div>
                         </div>`;
                         const labelEl = document.createElement('div');
-                        labelEl.style.cssText = 'pointer-events:none;';
+                        // 국가명 클릭을 상세 패널로 전달한다. 부모가 none이면 3D 마커의
+                        // 자식만 auto여도 브라우저/지도 이벤트 경로에서 누락될 수 있다.
+                        labelEl.style.cssText = 'pointer-events:auto;cursor:pointer;';
                         labelEl.dataset.ml3dPriority = '3'; // 국가명 최우선
                         if (country.ethnicity) labelEl.dataset.ml3dEthnicLabel = '1';
                         labelEl.innerHTML = `<div class="ml3d-txt" style="display:flex;flex-direction:column;align-items:center;">${labelHtml}</div>`;
@@ -30310,6 +30396,8 @@ kingSelect.addEventListener('change', () => {
                             const existingEl = existingLabel.getElement?.();
                             if (existingEl) {
                                 existingEl.innerHTML = labelEl.innerHTML;
+                                existingEl.style.pointerEvents = 'auto';
+                                existingEl.style.cursor = 'pointer';
                                 existingEl.dataset.ml3dPriority = '3';
                                 if (country.ethnicity) existingEl.dataset.ml3dEthnicLabel = '1';
                                 else delete existingEl.dataset.ml3dEthnicLabel;
@@ -30361,6 +30449,11 @@ kingSelect.addEventListener('change', () => {
                     const _centerLngRad = _globeCenter ? _globeCenter.lng * Math.PI / 180 : 0;
                     const _centerSinLat = Math.sin(_centerLatRad);
                     const _centerCosLat = Math.cos(_centerLatRad);
+                    // A pitched globe exposes a smaller ground cap than a full
+                    // hemisphere. Tighten the horizon as pitch and zoom increase.
+                    const _visibleAngle = Math.max(30, Math.min(82,
+                        82 - _pitch * 0.65 - Math.max(0, _z - 2.5) * 8));
+                    const _horizonDot = Math.cos(_visibleAngle * Math.PI / 180);
                     // 기준점: 화면 하단 중앙을 지도 좌표로 변환
                     const _bottomCenter = _mobile3dPerformance ? null : _m.unproject([cw / 2, ch]);
                     // 모바일에서는 마커마다 거리 계산하는 원근 페이드를 생략한다.
@@ -30388,7 +30481,7 @@ kingSelect.addEventListener('change', () => {
                             const hemisphereDot = _centerSinLat * Math.sin(markerLatRad)
                                 + _centerCosLat * Math.cos(markerLatRad) * Math.cos(markerLngRad - _centerLngRad);
                             // 엣지에서 큰 깃발 그림이 먼저 삐져나오지 않도록 약간 안쪽에서 자른다.
-                            behindGlobe = hemisphereDot < 0.035;
+                            behindGlobe = hemisphereDot < _horizonDot;
                         }
                         const hidden = behindGlobe || pt.y < effectiveTopCut
                             || pt.x < -sidePad || pt.x > cw + sidePad
@@ -30809,6 +30902,7 @@ kingSelect.addEventListener('change', () => {
 
             function enter3d() {
                 is3d = true;
+                if (window._enter3dPopulationMode) window._enter3dPopulationMode();
                 btn3d.classList.add('active');
                 document.querySelectorAll('.map-tile-btn[data-tile]').forEach(b => b.classList.remove('active'));
                 _elevateUiFor3d();
@@ -31141,6 +31235,7 @@ kingSelect.addEventListener('change', () => {
                             ? (globeBasemap === 'satellite' ? 'globe-satellite' : globeBasemap)
                             : 'satellite';
                         window._is3dMode = true;
+                        if (window._enter3dPopulationMode) window._enter3dPopulationMode();
                         ensureGlobeZoomControl();
                         const syncMapLibreZoomTip = () => {
                             if (typeof window._setMapZoomLevel === 'function') {
@@ -31657,6 +31752,7 @@ kingSelect.addEventListener('change', () => {
                         mlMap.resize();
                         // 🚩 재진입 시 _is3dMode 복원 (exit3d에서 false로 설정됨)
                         window._is3dMode = true;
+                        if (window._enter3dPopulationMode) window._enter3dPopulationMode();
                         if (!document.getElementById('ml-nav-ctrl')) {
                             const _navEl2 = document.createElement('div');
                             _navEl2.id = 'ml-nav-ctrl';
@@ -31741,6 +31837,7 @@ kingSelect.addEventListener('change', () => {
                 is3d = false;
                 window._is3dMode = false;
                 window._historyGlobeMode = false;
+                if (window._exit3dPopulationMode) window._exit3dPopulationMode();
                 const starBackdrop = document.getElementById('globe-star-backdrop');
                 if (starBackdrop) starBackdrop.style.display = 'none';
                 const globeZoomControl = document.getElementById('ml-globe-zoom-control');

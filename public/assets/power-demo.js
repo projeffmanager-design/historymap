@@ -1,0 +1,11 @@
+// UI-only examples; these are not historical population observations.
+const demoCountries=[{id:'song',name:'북송',color:'#81b8a1'},{id:'liao',name:'요',color:'#b2bb85'},{id:'goryeo',name:'고려',color:'#8bafd4'},{id:'xia',name:'서하',color:'#d3b179'}];
+const demoRegions=[['kaifeng','개봉·하남','song',114,34,2800000,5],['jiangnan','강남','song',119,30,4300000,8],['sichuan','사천','song',104,30,1700000,4],['shangjing','상경','liao',119,43,1100000,6],['liaodong','요동','liao',123,41,900000,4],['gaegyeong','개경·경기','goryeo',126,38,750000,3],['seogyeong','서경','goryeo',125,39,440000,2],['gyeongju','경주','goryeo',129,35,520000,3],['xingqing','흥경','xia',106,38,610000,4],['hexi','하서','xia',101,38,370000,3]];
+window.nationalPowerPreview=()=>({countries:demoCountries,regions:demoRegions.map(([id,name,countryId,lng,lat])=>({id,name,countryId,geometry:{type:'Polygon',coordinates:[[[lng-.3,lat-.3],[lng+.3,lat-.3],[lng+.3,lat+.3],[lng-.3,lat+.3],[lng-.3,lat-.3]]]}})),resources:demoRegions.flatMap(([id,name,country,lng,lat,pop,sites],i)=>[{_id:id+'-pop',name:name+' 인구 예시',resource_type:'population',lng,lat,region_id:id,source:'UI 시연용 가상 입력 · 사료 출처 아님',pop_by_year:{1000:Math.round(pop*.72),1050:Math.round(pop*.88),1100:pop,1120:Math.round(pop*1.06)}},...Array.from({length:sites},(_,j)=>({_id:id+'-'+j,name:name+' 자원 예시 '+(j+1),resource_type:['iron','horse','salt','silk','gold'][(i+j)%5],lng,lat,region_id:id,source:'UI 시연용 입지 · 역사적 생산량 아님',...(j%2?{start_year:1000,end_year:1120}:{})}))])});
+const basePowerPreview=window.nationalPowerPreview;
+// Synthetic settlement histories for validating counts, not historical observations.
+const demoMarkers=demoRegions.flatMap(([id,name,countryId,lng,lat])=>[
+  {_id:id+'-castle',name:name+' 성 예시',lng,lat,history:[{start_year:1000,end_year:1120,place_type:'seong'}]},
+  {_id:id+'-city',name:name+' 도시 예시',lng,lat,history:[{start_year:1050,end_year:1120,place_type:'city'}]}
+]);
+window.nationalPowerPreview=(year)=>{const data=basePowerPreview(year);data.markers=demoMarkers;data.regions.push({id:"missing-demo",name:"탐라 · 인구 누락 예시",countryId:"goryeo",geometry:{type:"Polygon",coordinates:[[[126,33],[127,33],[127,34],[126,34],[126,33]]]}},{id:"unowned-demo",name:"국가 귀속 미확인 예시",countryId:"",geometry:{type:"Polygon",coordinates:[[[115,46],[116,46],[116,47],[115,47],[115,46]]]}});return data;};

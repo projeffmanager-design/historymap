@@ -1534,8 +1534,7 @@ app.use(express.text({ type: 'text/plain' })); // sendBeacon beacon-logout 용
 app.use(compression()); // 응답 압축으로 대용량 전송 최적화
 const NOINDEX_PAGE_PATTERN = /^\/(?:login|register|reset-password|account|admin|territory_manager|territory_overview|test[^/]*)?(?:\.html)?$/i;
 app.use((req, res, next) => {
-    if (req.path === '/indexmaplibre.html' || req.path === '/indexmaplibre'
-        || (req.path !== '/' && NOINDEX_PAGE_PATTERN.test(req.path))) {
+    if (req.path !== '/' && NOINDEX_PAGE_PATTERN.test(req.path)) {
         res.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
     }
     next();
@@ -1563,50 +1562,6 @@ app.all('/server.js', (req, res) => {
     res.status(404).type('application/json').send({ message: 'Not found' });
 });
 
-// PMTiles는 서로 다른 바이트 범위를 같은 URL로 반복 요청한다. 일반 정적 파일의
-// 장기 CDN 캐시가 Range를 무시한 전체 응답을 재사용하면 타일 파싱과 메모리가 망가진다.
-// 압축·공유 캐시를 피하고 매 요청에 정확한 206 범위 응답을 직접 제공한다.
-app.get('/public/mvt/territories.pmtiles', (req, res) => {
-    const archivePath = path.join(__dirname, 'public', 'mvt', 'territories.pmtiles');
-    let size;
-    try {
-        size = fs.statSync(archivePath).size;
-    } catch (error) {
-        return res.status(404).send('PMTiles archive not found');
-    }
-    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-    res.set('Accept-Ranges', 'bytes');
-    res.set('Content-Type', 'application/octet-stream');
-    res.set('Vary', 'Range');
-    const range = req.get('Range');
-    let start = 0;
-    let end = size - 1;
-    if (range) {
-        const match = /^bytes=(\d+)-(\d*)$/.exec(range);
-        if (!match) {
-            res.set('Content-Range', `bytes */${size}`);
-            return res.status(416).end();
-        }
-        start = Number(match[1]);
-        end = match[2] ? Number(match[2]) : end;
-        if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)
-            || start > end || end >= size) {
-            res.set('Content-Range', `bytes */${size}`);
-            return res.status(416).end();
-        }
-        res.status(206).set('Content-Range', `bytes ${start}-${end}/${size}`);
-    }
-    res.set('Content-Length', String(end - start + 1));
-    if (req.method === 'HEAD') return res.end();
-    const stream = fs.createReadStream(archivePath, { start, end });
-    stream.on('error', error => {
-        console.error('[PMTiles Range] stream failed:', error.message);
-        if (!res.headersSent) res.status(500).end();
-        else res.destroy(error);
-    });
-    stream.pipe(res);
-});
-
 app.use(express.static(__dirname, {
     index: false,
     setHeaders(res, filePath) {
@@ -1620,10 +1575,6 @@ app.use(express.static(__dirname, {
             res.set('Cache-Control', 'public, max-age=31536000, immutable');
         } else if (filePath.endsWith('.pbf')) {
             res.type('application/vnd.mapbox-vector-tile');
-            res.set('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
-        } else if (filePath.endsWith('.pmtiles')) {
-            res.type('application/octet-stream');
-            res.set('Accept-Ranges', 'bytes');
             res.set('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
         } else if (filePath.endsWith('coastline-low.json') || filePath.endsWith('history-outline-worker.js')) {
             res.set('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
@@ -4376,7 +4327,7 @@ app.get('/api/castle', async (req, res) => {  // ← async 이미 있음
 
 // GET: 앱 버전 반환 (login.html 등 외부 페이지용)
 app.get('/api/app-version', (req, res) => {
-    res.json({ version: '3.9.0' });
+    res.json({ version: '4.0.0' });
 });
 
 // GET: 모든 장수 정보 반환
@@ -4481,6 +4432,19 @@ app.put('/api/palace-placements', verifyAdmin, async (req, res) => {
 });
 
 // ═══ /api/resources — 산지·서식지 데이터 CRUD ═══
+app.get('/api/power-markers', async (req,res) => {
+    try {
+        const data=await collections.castle.find({hidden:{$ne:true}}).project({
+            _id:1,name:1,lat:1,lng:1,location:1,country_id:1,place_type:1,built:1,destroyed:1,
+            is_natural_feature:1,is_label:1,is_military_flag:1,is_battle:1,is_capital:1,
+            'history.name':1,'history.country_id':1,'history.start_year':1,'history.start':1,
+            'history.end_year':1,'history.end':1,'history.start_month':1,'history.end_month':1,
+            'history.place_type':1,'history.is_capital':1,'history.is_battle':1
+        }).toArray();
+        res.json(data);
+    }catch(error){console.error('국력 마커 조회 실패:',error);res.status(500).json({message:'성·도시 자료 조회 실패'});}
+});
+
 app.get('/api/resources', async (req, res) => {
   try {
     const { type } = req.query;
@@ -6328,10 +6292,33 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // 🚀 [최적화] 서버 메모리 캐시 - MongoDB Atlas 네트워크 지연 해결
         let territoriesCache = null;
         let territoriesCacheTime = null;
+        let powerRegionGeometryCache = null;
         const CACHE_TTL = 30 * 60 * 1000; // 30분 캐시
 
         // GET: 영토 폴리곤 조회 (뷰포트 bounds 필터링 지원)
         // 🗺️ [공개 API] Territories 조회 - 인증 불필요 (공개 데이터)
+        // National-power analysis needs every region, but not editing precision. Geometry is
+        // built from the map tile export; Mongo only supplies small, current statistic fields.
+        app.get('/api/power-regions', async (req,res) => {
+            try {
+                if(!powerRegionGeometryCache)powerRegionGeometryCache=JSON.parse(fs.readFileSync(path.join(__dirname,'public','power-regions.json'),'utf8'));
+                const projection={_id:1,name:1,name_ko:1,country:1,'properties.country_id':1,bbox:1,level:1,
+                    population_series:1,population_source:1,population_method:1,population_confidence:1,modern_population:1,population_scale:1,population_overrides:1,population_revision:1,production_series:1,
+                    productivity_coefficient:1,training_coefficient:1,logistics_coefficient:1,defense_coefficient:1};
+                const metadata=await collections.territories.find({hidden:{$ne:true}}).project(projection).toArray();
+                const byId=new Map(metadata.map(t=>[String(t._id),t]));
+                const output=powerRegionGeometryCache.flatMap(boundary=>{
+                    const t=byId.get(String(boundary._id));if(!t)return [];
+                    return [{...boundary,name:t.name||boundary.name,name_ko:t.name_ko||boundary.name_ko,country:t.country??boundary.country,
+                        properties:{country_id:t.properties?.country_id||null},bbox:t.bbox||boundary.bbox,level:t.level||boundary.level,
+                        population_series:t.population_series,population_source:t.population_source,population_method:t.population_method,population_confidence:t.population_confidence,modern_population:t.modern_population,population_scale:t.population_scale,
+                        population_overrides:t.population_overrides,population_revision:t.population_revision||0,production_series:t.production_series,
+                        productivity_coefficient:t.productivity_coefficient,training_coefficient:t.training_coefficient,logistics_coefficient:t.logistics_coefficient,defense_coefficient:t.defense_coefficient}];
+                });
+                res.set('Cache-Control','private, max-age=300').json(output);
+            }catch(error){console.error('국력 영토 조회 실패:',error);res.status(500).json({message:'국력 계산용 영토 조회 실패'});}
+        });
+
         app.get('/api/territories', async (req, res) => {
             try {
                 const { minLat, maxLat, minLng, maxLng, lightweight, nocache, include_hidden } = req.query;
@@ -6439,7 +6426,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
 
                 // 🚀 Streaming cursor — toArray() 대신 cursor로 순회해 메모리 절감
                 const result = [];
-                const cursor = collections.territories.find(query);
+                const cursor = collections.territories.find(query).batchSize(10);
                 for await (const t of cursor) {
                     // geometry 좌표 단순화 + 정밀도 축소
                     const geomCoords = t.geometry?.coordinates || t.coordinates;
@@ -6468,6 +6455,17 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         level: t.level,
                         country,
                         properties: props,
+                        population_series: t.population_series,
+                        population_source: t.population_source,
+                        modern_population: t.modern_population,
+                        population_scale: t.population_scale,
+                        population_overrides: t.population_overrides,
+                        population_revision: t.population_revision || 0,
+                        production_series: t.production_series,
+                        productivity_coefficient: t.productivity_coefficient,
+                        training_coefficient: t.training_coefficient,
+                        logistics_coefficient: t.logistics_coefficient,
+                        defense_coefficient: t.defense_coefficient,
                         osm_id: t.osm_id,
                         start: t.start || t.start_year,
                         end: t.end || t.end_year
@@ -6780,6 +6778,42 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         });
 
         // PUT: 영토 폴리곤 업데이트
+        app.patch('/api/territories/:id/population', verifyAdmin,
+            require('./lib/territoryPopulation').createAdjustmentHandler({
+                collection:collections.territories,toObjectId,
+                invalidate:()=>{territoriesCache=null;territoriesCacheTime=null;}
+            }));
+
+        // Spreadsheet round-trip: validate first, then apply the same payload.
+        app.post('/api/admin/territory-populations/import', verifyAdmin, async (req,res)=>{
+            try{
+                const {validatePopulationImport}=require('./lib/territoryPopulationImport');
+                const input=validatePopulationImport(req.body);
+                const objectIds=input.rows.map(row=>toObjectId(row.id));
+                const documents=await collections.territories.find({_id:{$in:objectIds}}).project({name:1,name_ko:1,population_series:1,population_source:1,population_method:1,population_confidence:1,population_revision:1}).toArray();
+                const byId=new Map(documents.map(doc=>[String(doc._id),doc]));
+                const conflicts=[],plans=[];
+                for(const row of input.rows){
+                    const doc=byId.get(row.id),revision=Number(doc?.population_revision||0);
+                    if(!doc)conflicts.push({id:row.id,reason:'영토 없음'});
+                    else if(revision!==row.revision)conflicts.push({id:row.id,name:doc.name_ko||doc.name,reason:`자료 버전 불일치 (${row.revision} → ${revision})`});
+                    else{
+                        const series={...(doc.population_series||{}),...row.values};
+                        row.clear.forEach(year=>delete series[String(year)]);
+                        plans.push({row,doc,series});
+                    }
+                }
+                if(conflicts.length)return res.status(409).json({ok:false,conflicts});
+                const summary={ok:true,dry_run:input.dryRun,rows:plans.length,values:plans.reduce((sum,p)=>sum+Object.keys(p.row.values).length,0),cleared:plans.reduce((sum,p)=>sum+p.row.clear.length,0)};
+                if(input.dryRun)return res.json(summary);
+                await collections.territories.s.db.collection('population_import_batches').insertOne({created_at:new Date(),actor_id:String(req.user.userId||''),rows:plans.map(p=>({territory_id:p.row.id,before:{population_series:p.doc.population_series,population_source:p.doc.population_source,population_method:p.doc.population_method,population_confidence:p.doc.population_confidence,population_revision:p.doc.population_revision}}))});
+                const operations=plans.map(p=>({updateOne:{filter:{_id:p.doc._id,...((p.doc.population_revision||0)===0?{$or:[{population_revision:0},{population_revision:{$exists:false}}]}:{population_revision:p.doc.population_revision})},update:{$set:{population_series:p.series,...(p.row.source?{population_source:p.row.source}:{}),...(p.row.confidence!==null?{population_confidence:p.row.confidence}:{}),population_method:'spreadsheet_import',population_updated_at:new Date()},$inc:{population_revision:1}}}}));
+                const result=await collections.territories.bulkWrite(operations,{ordered:true});
+                territoriesCache=null;territoriesCacheTime=null;
+                res.json({...summary,dry_run:false,matched:result.matchedCount,modified:result.modifiedCount});
+            }catch(error){res.status(400).json({ok:false,message:error.message});}
+        });
+
         app.put('/api/territories/:id', verifyAdmin, async (req, res) => {
             try {
                 const { id } = req.params;
@@ -10157,21 +10191,92 @@ app.post('/api/admin/site-settings', verifyAdmin, async (req, res) => {
 });
 
 // 🚩 [추가] 레이어 기본 설정 관리
+// 국가 상세의 무기·생산품·참고 사건은 국력 점수와 분리된 설명 자료다.
+app.get('/api/power-region-options', async (req,res) => {
+    try {
+        const rows=await collections.territories.find({hidden:{$ne:true}}).project({_id:1,name:1,name_ko:1}).toArray();
+        res.set('Cache-Control','private, max-age=300').json(rows.map(row=>({id:String(row._id),name:row.name_ko||row.name||String(row._id)})));
+    } catch(error) { res.status(500).json({message:'영토 선택 목록 조회 실패'}); }
+});
+app.get('/api/power-profile-overrides', async (req,res) => {
+    try {
+        const rows=await collections.countries.s.db.collection('power_profile_overrides')
+            .find({}, {projection:{_id:0,key:1,from:1,to:1,weapons:1,products:1,events:1}}).toArray();
+        res.set('Cache-Control','no-store').json(rows);
+    } catch(error) { res.status(500).json({message:'국가 상세 자료 조회 실패'}); }
+});
+app.put('/api/power-profile-overrides/:key', verifyAdmin, async (req,res) => {
+    try {
+        const key=String(req.params.key||'').trim();
+        if(!key||key.length>80||/[<>]/.test(key))return res.status(400).json({message:'국가명을 확인하세요.'});
+        const year=value=>value===null||value===undefined||value===''?null:Number.isInteger(Number(value))&&Number(value)>=-5000&&Number(value)<=2100?Number(value):NaN;
+        const clean=(items,type)=>{
+            if(!Array.isArray(items)||items.length>50)throw Error(`${type} 목록은 50건 이하 배열이어야 합니다.`);
+            return items.map(item=>{
+                if(!item||typeof item!=='object'||Array.isArray(item))throw Error('항목 형식을 확인하세요.');
+                const name=String(item.name||'').trim(),icon=String(item.icon||'').trim(),status=String(item.status||'').trim(),branch=String(item.branch||'').trim(),source=String(item.source||'').trim();
+                if(!name||name.length>100||icon.length>12||status.length>180||branch.length>50||source.length>500||source&&!/^https:\/\//i.test(source))throw Error('항목의 이름·아이콘·출처를 확인하세요.');
+                const from=year(item.from),to=year(item.to);
+                if(Number.isNaN(from)||Number.isNaN(to)||from!==null&&to!==null&&from>to||type==='events'&&(from===null||to===null))throw Error('항목의 시작·종료 연도를 확인하세요.');
+                const cleanItem={name,...(icon?{icon}:{}),...(status?{status}:{}),...(branch?{branch}:{}),...(source?{source}:{}),...(from!==null?{from}:{}),...(to!==null?{to}:{})};
+                if(type==='events'&&item.percent!==undefined&&item.percent!==null&&item.percent!==''){
+                    const percent=Number(item.percent),effectFrom=year(item.effect_from??from),effectTo=year(item.effect_to??to);
+                    const ids=item.territory_ids,basis=String(item.effect_basis||'').trim();
+                    if(!Number.isFinite(percent)||percent<-100||percent>100||!Number.isInteger(percent*10)||!Array.isArray(ids)||ids.length>500||ids.some(id=>typeof id!=='string'||!toObjectId(id))||new Set(ids).size!==ids.length)throw Error('사건 인구 보정률 또는 대상 영토를 확인하세요.');
+                    if(effectFrom===null||effectTo===null||Number.isNaN(effectFrom)||Number.isNaN(effectTo)||effectFrom>effectTo||!source||basis.length<5||basis.length>500)throw Error('인구 보정 기간·출처 URL·비율 산정 근거를 입력하세요.');
+                    Object.assign(cleanItem,{percent,effect_from:effectFrom,effect_to:effectTo,effect_basis:basis,scope:ids.length?'territories':'country',territory_ids:ids});
+                }
+                return cleanItem;
+            });
+        };
+        const profile={key,weapons:clean(req.body?.weapons,'weapons'),products:clean(req.body?.products,'products'),events:clean(req.body?.events,'events')};
+        const proposedEffects=profile.events.filter(event=>Number.isFinite(event.percent));
+        const overlapYears=(a,b)=>Math.max(a.effect_from??a.from,b.effect_from??b.from)<=Math.min(a.effect_to??a.to,b.effect_to??b.to);
+        if(proposedEffects.some((event,index)=>proposedEffects.slice(index+1).some(other=>overlapYears(event,other)&&(!event.territory_ids.length||!other.territory_ids.length||event.territory_ids.some(id=>other.territory_ids.includes(id))))))return res.status(400).json({message:'같은 국가·기간에 사건 인구 효과가 겹칩니다. 기간이나 대상을 분리하세요.'});
+        const effectIds=[...new Set(profile.events.flatMap(event=>event.territory_ids||[]))];
+        if(effectIds.length){
+            const found=await collections.territories.find({_id:{$in:effectIds.map(toObjectId)},hidden:{$ne:true}}).project({_id:1}).toArray();
+            if(found.length!==effectIds.length)return res.status(400).json({message:'인구 보정 대상에 존재하지 않거나 숨겨진 영토가 있습니다.'});
+            const existing=await collections.countries.s.db.collection('power_profile_overrides').find({key:{$ne:key},'events.territory_ids':{$in:effectIds}},{projection:{key:1,events:1}}).toArray();
+            const proposed=profile.events.filter(event=>event.territory_ids?.length);
+            const others=existing.flatMap(row=>(row.events||[]).filter(event=>event.territory_ids?.length));
+            const overlaps=(a,b)=>Math.max(a.effect_from??a.from,b.effect_from??b.from)<=Math.min(a.effect_to??a.to,b.effect_to??b.to)&&a.territory_ids.some(id=>b.territory_ids.includes(id));
+            if(proposed.some((event,index)=>proposed.slice(index+1).some(other=>overlaps(event,other))||others.some(other=>overlaps(event,other))))return res.status(400).json({message:'같은 영토·기간에 다른 사건 인구 효과가 이미 등록되어 있습니다. 기간이나 대상을 분리하세요.'});
+        }
+        const from=year(req.body?.from),to=year(req.body?.to);
+        if(Number.isNaN(from)||Number.isNaN(to)||from!==null&&to!==null&&from>to)return res.status(400).json({message:'국가 적용 기간을 확인하세요.'});
+        if(from!==null)profile.from=from;if(to!==null)profile.to=to;
+        await collections.countries.s.db.collection('power_profile_overrides').updateOne({key},{$set:{...profile,updatedAt:new Date(),updatedBy:String(req.user?.userId||'')}},{upsert:true});
+        res.json({profile});
+    } catch(error) { res.status(400).json({message:error.message}); }
+});
+
 // 기본 레이어 설정
 const defaultLayerSettings = {
     city: true,
     placeLabel: false,
     countryLabel: true,
+    adminLabel: true,
     ethnicLabel: false,
     military: false,
     natural: true,
+    relic: true,
     event: false,
     territoryPolygon: true,
     rivers: false,
+    waterLevel: false,
     timeline: true,
     kingPanel: false,
     historyPanel: false,
     rankingPanel: false,
+    activityFeed: true,
+    captionPanel: false,
+    eventSidebar: false,
+    drawingPanel: false,
+    heatmap: false,
+    resourceBar: false,
+    heroLayer: false,
+    nationalPower: false,
     userContributions: true
 };
 
@@ -10183,7 +10288,7 @@ app.get('/api/layer-settings', async (req, res) => {
             // 설정이 없으면 기본값 반환
             return res.json({ settings: defaultLayerSettings });
         }
-        res.json({ settings: settings.settings });
+        res.json({ settings: { ...defaultLayerSettings, ...settings.settings } });
     } catch (error) {
         res.status(500).json({ message: "레이어 설정 불러오기 실패", error: error.message });
     }
