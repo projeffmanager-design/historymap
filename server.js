@@ -10,6 +10,7 @@ const cors = require('cors');
 const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
+const { withResidentPopulation } = require('./lib/koreaResidentPopulation');
 const crypto = require('crypto');
 const { connectToDatabase, reconnectDatabase, collections } = require('./db'); // 🚩 [추가] DB 연결 모듈
 const { put: blobPut, del: blobDel } = require('@vercel/blob'); // 🎙️ [추가] Vercel Blob SDK
@@ -6309,11 +6310,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const byId=new Map(metadata.map(t=>[String(t._id),t]));
                 const output=powerRegionGeometryCache.flatMap(boundary=>{
                     const t=byId.get(String(boundary._id));if(!t)return [];
-                    return [{...boundary,name:t.name||boundary.name,name_ko:t.name_ko||boundary.name_ko,country:t.country??boundary.country,
+                    return [withResidentPopulation({...boundary,name:t.name||boundary.name,name_ko:t.name_ko||boundary.name_ko,country:t.country??boundary.country,
                         properties:{country_id:t.properties?.country_id||null},bbox:t.bbox||boundary.bbox,level:t.level||boundary.level,
                         population_series:t.population_series,population_source:t.population_source,population_method:t.population_method,population_confidence:t.population_confidence,modern_population:t.modern_population,population_scale:t.population_scale,
                         population_overrides:t.population_overrides,population_revision:t.population_revision||0,production_series:t.production_series,
-                        productivity_coefficient:t.productivity_coefficient,training_coefficient:t.training_coefficient,logistics_coefficient:t.logistics_coefficient,defense_coefficient:t.defense_coefficient}];
+                        productivity_coefficient:t.productivity_coefficient,training_coefficient:t.training_coefficient,logistics_coefficient:t.logistics_coefficient,defense_coefficient:t.defense_coefficient})];
                 });
                 res.set('Cache-Control','private, max-age=300').json(output);
             }catch(error){console.error('국력 영토 조회 실패:',error);res.status(500).json({message:'국력 계산용 영토 조회 실패'});}

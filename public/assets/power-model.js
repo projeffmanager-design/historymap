@@ -123,7 +123,7 @@
     const issues = [];
     const rows = regions.map(r => {
       const direct = populationAt({pop_by_year:r.population_series,modern_pop:r.modern_population,era_scale:r.population_scale}, year);
-      return { ...r, id: id(r.id), countryId: id(r.countryId), bbox: bounds(r.geometry), population: direct, populationOrigin: direct===null?'spatial_join':r.population_series?'polygon_series':'modern_distribution', populationRecords: direct===null?0:1, missingRecords: 0, conflicts: 0, sites: 0, iron: 0, horse: 0, salt: 0, silk: 0, gold: 0, castleCount:0,cityCount:0,settlementCount:0,unclassifiedCount:0, productionQuantities:{}, evidence: direct===null?[]:[{name:r.name,type:'population',value:direct,source:r.population_source||'폴리곤 인구 추정 · 출전 미등록',undated:false}] };
+      return { ...r, id: id(r.id), countryId: id(r.countryId), bbox: bounds(r.geometry), population: direct, populationOrigin: direct===null?'spatial_join':r.population_series?'polygon_series':'modern_distribution', populationRecords: direct===null?0:1, missingRecords: 0, conflicts: 0, sites: 0, iron: 0, horse: 0, salt: 0, silk: 0, gold: 0, castleCount:0,cityCount:0,settlementCount:0,unclassifiedCount:0, productionQuantities:{}, evidence: direct===null?[]:[{name:r.name,type:'population',value:direct,source:r.population_sources?.[year]||r.population_source||'폴리곤 인구 추정 · 출전 미등록',undated:false}] };
     });
     // Assignment depends only on geometry and stable IDs, never ownership or map color.
     rows.sort((a, b) => (a.bbox[2] - a.bbox[0]) * (a.bbox[3] - a.bbox[1]) - (b.bbox[2] - b.bbox[0]) * (b.bbox[3] - b.bbox[1]) || a.id.localeCompare(b.id));

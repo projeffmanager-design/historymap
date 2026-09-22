@@ -3,6 +3,7 @@
   const $ = s => document.querySelector(s);
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
   const fmt = v => v == null ? '자료 없음' : new Intl.NumberFormat('ko-KR',{maximumFractionDigits:0}).format(v);
+  const people = v => v == null ? '자료 없음' : `${new Intl.NumberFormat('ko-KR',{notation:'compact',maximumFractionDigits:1}).format(v)}명`;
   const countKeys=['castleCount','cityCount','settlementCount'];
   const val = (v,k) => v == null ? '—' : ['population','manpower',...countKeys].includes(k) ? fmt(v) : v.toFixed(1);
   const yr = y => y < 0 ? `기원전 ${-y}년` : `${y}년`;
@@ -16,6 +17,27 @@
   $('#country-summary').insertAdjacentHTML('afterend','<div id="power-reference-summary" class="pc-help"></div>');
   $('#power-reference-summary').insertAdjacentHTML('afterend',`<details id="profile-editor" class="pc-profile-editor"><summary>국가 상세 자료 편집</summary><p>사건·무기·생산품의 항목을 직접 수정하세요. 인구·국력 숫자는 영토 데이터로 계산되므로 <a href="/population-spreadsheet.html" target="_blank" rel="noopener noreferrer">영토 인구표</a>에서 원자료를 수정합니다.</p><form id="profile-editor-form"><div class="pc-editor-years"><label>국가 적용 시작 연도 <input name="from" type="number" min="-5000" max="2100"></label><label>국가 적용 종료 연도 <input name="to" type="number" min="-5000" max="2100"></label></div><section class="pc-editor-section"><div class="pc-editor-heading"><h3>역사 사건</h3><button type="button" data-add="events">+ 사건 추가</button></div><div class="pc-editor-list" data-list="events"></div></section><section class="pc-editor-section"><div class="pc-editor-heading"><h3>주력 무기·전력</h3><button type="button" data-add="weapons">+ 무기 추가</button></div><div class="pc-editor-list" data-list="weapons"></div></section><section class="pc-editor-section"><div class="pc-editor-heading"><h3>주요 생산품</h3><button type="button" data-add="products">+ 생산품 추가</button></div><div class="pc-editor-list" data-list="products"></div></section><div class="pc-editor-actions"><button type="submit">변경사항 저장</button><button type="button" id="profile-edit-cancel">취소</button><output id="profile-editor-status" role="status"></output></div></form></details>`);
   $('#profile-editor-form').prepend($('#profile-editor-form .pc-editor-actions'));
+  let isAdmin=false;
+  const showAdminControls=allowed=>{
+    isAdmin=allowed;
+    $('#export').style.display=allowed?'':'none';
+    $('#export').disabled=!allowed||!data||$('#calculate').disabled;
+    $('#profile-edit-open').style.display=allowed?'':'none';
+    $('#profile-editor').style.display=allowed?'':'none';
+    if(!allowed)$('#profile-editor').open=false;
+  };
+  async function refreshAdminControls(){
+    showAdminControls(false);
+    const token=localStorage.getItem('token')||sessionStorage.getItem('token');
+    if(!token)return;
+    try{
+      const response=await fetch('/api/user/me',{headers:{Authorization:`Bearer ${token}`}});
+      if(!response.ok)return;
+      const user=await response.json();
+      showAdminControls(user.role==='admin'||user.role==='superuser');
+    }catch(_error){}
+  }
+  window.addEventListener('focus',refreshAdminControls);
   const colors = ['#e0bc73','#82bfb0','#8eb6e3','#d08f95','#b39cdb','#aec07b'];
   const query = new URLSearchParams(location.search), demo = query.get('demo')==='1';
   if(query.get('embedded')==='1'){
@@ -40,6 +62,7 @@
     location.href='/index.html?power=1';
   });
   $('#profile-edit-open').addEventListener('click',()=>{
+    if(!isAdmin)return;
     const editor=$('#profile-editor');editor.open=true;editor.scrollIntoView({behavior:'smooth',block:'start'});
     const token=localStorage.getItem('token')||sessionStorage.getItem('token');
     $('#profile-editor-status').textContent=token?'무기·생산품·사건 목록을 수정한 뒤 저장하세요.':'저장하려면 관리자 계정으로 먼저 로그인하세요.';
@@ -48,6 +71,7 @@
   const periodStart=query.has('start')?Number(query.get('start')):NaN;
   const periodEnd=query.has('end')?Number(query.get('end')):NaN;
   let data, selected=query.get('country')||'', picked=new Set(), requestId=0, timeout, sort='power', descending=true;
+  refreshAdminControls();
   let regionOptions=[],regionOptionsPromise=null;
   function ensureRegionOptions(){
     if(regionOptions.length)return Promise.resolve();
@@ -116,7 +140,7 @@
       return item;
     });
   }
-  const busy = value => {$('#calculate').disabled=value;$('#export').disabled=value||!data;};
+  const busy = value => {$('#calculate').disabled=value;$('#export').disabled=value||!data||!isAdmin;};
   const point = () => data.points[Number($('#year-range').value)||0];
   function countries(){const list=new Map();data.points.forEach(p=>p.nations.forEach(c=>list.set(c.id,c)));return [...list.values()];}
   function accept(payload){
@@ -190,7 +214,7 @@
     const effectEvents=periodEvents.filter(event=>Number.isFinite(event.percent));
     if(effectEvents.length)$('#power-reference-summary').insertAdjacentHTML('beforeend',`<p>인구 보정 등록: ${effectEvents.map(event=>`${esc(event.name)} ${event.percent>0?'+':''}${event.percent}% · ${event.territory_ids?.length?event.territory_ids.length+'개 영토':'국가 전체'} · ${yr(event.effect_from)}–${yr(event.effect_to)}`).join(' / ')}. 수동 보정이 있는 영토는 수동값이 우선합니다.</p>`);
     $('#settlement-summary').textContent=`${yr(point().year)} 등록 마커: 성 ${fmt(current?.castleCount)} · 도시·수도 ${fmt(current?.cityCount)} · 전체 거점 ${fmt(current?.settlementCount)}. 전체는 중복을 제거한 수이며, 사서 기록 수가 아닙니다.`;
-    $('#country-summary').innerHTML=['power','military','production','population'].map(k=>{const a=list[0]?.[k]??null,b=list.at(-1)?.[k]??null,delta=a===null||b===null?'양 끝 연도 자료 없음':`${b-a>=0?'+':''}${k==='population'?fmt(b-a)+'명':(b-a).toFixed(1)+'점'}`;return `<div><small>${names[k]} · ${yr(point().year)}</small><strong>${val(current?.[k]??null,k)}</strong><p>기간 처음 → 끝 ${delta}</p></div>`;}).join('');
+    $('#country-summary').innerHTML=['power','military','production','population'].map(k=>{const a=list[0]?.[k]??null,b=list.at(-1)?.[k]??null,delta=a===null||b===null?'양 끝 연도 자료 없음':`${b-a>=0?'+':''}${k==='population'?fmt(b-a)+'명':(b-a).toFixed(1)+'점'}`;return `<div><small>${names[k]} · ${yr(point().year)}</small><strong>${val(current?.[k]??null,k)}</strong>${k==='military'?`<p>추정 가용 인원 ${people(current?.manpower)} · 실제 병력 아님</p>`:''}<p>기간 처음 → 끝 ${delta}</p></div>`;}).join('');
     $('#detail-chart').innerHTML=chart(['power','military','production'].map((k,i)=>({name:names[k],color:[colors[0],colors[3],colors[1]][i],values:list.map(c=>c?.[k]??null)})),'power','선택 국가의 국력 군사력 생산력 변화',[],periodEvents);
     const drops=window.PopulationChange.analyze(data.points,selected,(from,to)=>window.PowerReferenceData?.eventsFor(countryName,from,to)||[]);
     const dropItems=[...drops].sort((a,b)=>b.fraction-a.fraction).slice(0,8);
@@ -215,7 +239,7 @@
   });
   $('#profile-edit-cancel').addEventListener('click',()=>{fillProfileEditor($('#profile-editor').dataset.country);$('#profile-editor').open=false;});
   $('#profile-editor-form').addEventListener('submit',async event=>{
-    event.preventDefault();const form=event.currentTarget,output=$('#profile-editor-status'),name=$('#profile-editor').dataset.country;
+    event.preventDefault();if(!isAdmin)return;const form=event.currentTarget,output=$('#profile-editor-status'),name=$('#profile-editor').dataset.country;
     const token=localStorage.getItem('token')||sessionStorage.getItem('token')||'';
     if(!token){output.textContent='관리자 로그인이 필요합니다.';return;}
     try{
@@ -226,7 +250,7 @@
   $('#period-form').addEventListener('submit',e=>{e.preventDefault();request();});$('#year-range').addEventListener('input',()=>{renderYear();renderDetail();});$('#point-year').addEventListener('change',e=>{$('#year-range').value=e.target.value;renderYear();renderDetail();});$('#metric').addEventListener('change',()=>{renderYear();renderCompare();});$('#detail-country').addEventListener('change',e=>{selected=e.target.value;renderDetail();});
   $('#country-picks').addEventListener('change',e=>{if(e.target.type!=='checkbox')return;if(e.target.checked){if(picked.size>=6){e.target.checked=false;status('비교 곡선은 최대 6개국까지 선택할 수 있습니다.');return;}picked.add(e.target.value);}else picked.delete(e.target.value);renderCompare();});
   document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.sort){descending=sort===b.dataset.sort?!descending:true;sort=b.dataset.sort;renderYear();}if(b.dataset.country){selected=b.dataset.country;$('#detail-country').value=selected;renderDetail();$('#country-summary').scrollIntoView({behavior:'smooth',block:'center'});}});
-  $('#export').addEventListener('click',()=>{const rows=[['연도','국가','총 국력(기간 공통)','군사력','생산력','인구','동원 잠재 인원','성','도시·수도','전체 거점','인구 연결 지역','데이터 구분']];data.points.forEach(p=>p.nations.forEach(c=>rows.push([p.year,c.name,c.power,c.military,c.production,c.population,c.manpower,c.castleCount,c.cityCount,c.settlementCount,c.coverage,data.demo?'가상 시연':'지도 자료 추정'])));const quote=v=>'"'+String(v??'').replace(/^[=+@\-]/,"'$&").replace(/"/g,'""')+'"';const blob=new Blob(['\ufeff'+rows.map(r=>r.map(quote).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='national-power-comparison.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
+  $('#export').addEventListener('click',()=>{if(!isAdmin||!data)return;const rows=[['연도','국가','총 국력(기간 공통)','군사력','생산력','인구','동원 잠재 인원','성','도시·수도','전체 거점','인구 연결 지역','데이터 구분']];data.points.forEach(p=>p.nations.forEach(c=>rows.push([p.year,c.name,c.power,c.military,c.production,c.population,c.manpower,c.castleCount,c.cityCount,c.settlementCount,c.coverage,data.demo?'가상 시연':'지도 자료 추정'])));const quote=v=>'"'+String(v??'').replace(/^[=+@\-]/,"'$&").replace(/"/g,'""')+'"';const blob=new Blob(['\ufeff'+rows.map(r=>r.map(quote).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='national-power-comparison.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
   await window.PowerReferenceData?.load().catch(()=>{});
   await request();
 })();

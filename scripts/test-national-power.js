@@ -166,4 +166,24 @@ const valid={mode:'value',value:100,start_year:100,end_year:200,revision:0,reaso
 assert.equal(validateAdjustment(valid).adjustment.value,100);
 for(const invalid of [{value:-1},{value:1.5},{value:null},{value:'100'},{start_year:300},{revision:-1},{reason:''},{mode:'delete'}])assert.throws(()=>validateAdjustment({...valid,...invalid}));
 assert.equal(validateAdjustment({...valid,mode:'reset'}).adjustment.mode,'reset');
-console.log('National power: population, ownership, marker counts, production and adjustment validation passed');
+
+const {reference:residentReference,withResidentPopulation}=require('../lib/koreaResidentPopulation');
+const mapRegions=require('../public/power-regions.json');
+for(const year of [2025,2026]){
+  const total=Object.values(residentReference.regions).reduce((sum,region)=>sum+region[year],0);
+  assert.equal(total,residentReference.snapshots[year].national,`${year} regional resident population total`);
+}
+for(const [regionId,observed] of Object.entries(residentReference.regions)){
+  const region=mapRegions.find(row=>row._id===regionId);
+  assert.ok(region,`${observed.name} map region exists`);
+  const updated=withResidentPopulation({...region,population_series:{1100:1234}});
+  assert.equal(populationAt({pop_by_year:updated.population_series},2025),observed[2025]);
+  assert.equal(populationAt({pop_by_year:updated.population_series},2026),observed[2026]);
+  assert.equal(updated.population_series[1100],1234,'historical population preserved');
+}
+const seoulRegionId='69cd1f9e37132c8534c9499d';
+const seoulRegion=withResidentPopulation({...mapRegions.find(row=>row._id===seoulRegionId),id:seoulRegionId,countryId:'south'});
+const currentSeoul=build({countries:[{id:'south',name:'대한민국'}],regions:[seoulRegion],year:2026});
+assert.equal(currentSeoul.regions[0].population,residentReference.regions[seoulRegionId][2026]);
+assert.match(currentSeoul.regions[0].evidence[0].source,/2026-08/);
+console.log('National power: population, ownership, marker counts, production, resident reference and adjustment validation passed');
