@@ -6299,7 +6299,8 @@
                 const detailContent = document.getElementById('contributionDetailContent');
                 
                 const markerName = selectedContribution.name || selectedContribution.markerName || selectedContribution.title || '제목 없음';
-                const statusText = selectedContribution.status === 'pending' ? '검토 대기' : 
+                const statusText = selectedContribution.status === 'pending' ? '검토 대기' :
+                                  selectedContribution.status === 'reviewed' ? '1차 검토완료' :
                                   selectedContribution.status === 'approved' ? '승인됨' : '거부됨';
                 const submitter = selectedContribution.submittedBy?.username || selectedContribution.username || '알 수 없음';
                 const lat = selectedContribution.lat || selectedContribution.coordinates?.lat || selectedContribution.latitude;
@@ -6381,7 +6382,7 @@
                 const positionMatches = (pos, list) => list.some(p => pos && pos.includes(p));
                 const canApprove = (isAdminRole || positionMatches(userPosition, approverPositions))
                     && (selectedContribution.status === 'reviewed' || selectedContribution.status === 'pending')
-                    && !isOwnContribution;
+                    && (!isOwnContribution || isAdminRole);
                 const canRejectFinal = canApprove;
                 
                 console.log('  - canVote:', canVote);
@@ -6533,7 +6534,7 @@
                                     <button onclick="reviewContribution('${contributionId}', 'approved')" style="flex: 1; min-width: 130px; background: rgba(60,160,120,0.75); color: #e0f0e8; border: 1px solid rgba(60,160,120,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(70,175,130,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(60,160,120,0.75)';">✅ 검토 승인</button>
                                     <button onclick="reviewContribution('${contributionId}', 'rejected')" style="flex: 1; min-width: 130px; background: rgba(200,70,60,0.75); color: #f0e0dc; border: 1px solid rgba(200,70,60,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(220,80,70,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(200,70,60,0.75)';">❌ 검토 거부</button>
                                 ` : ''}
-                                ${canApprove ? `<button onclick="approveContribution('${contributionId}')" style="flex: 1; min-width: 130px; background: rgba(180,140,80,0.75); color: #180e00; border: 1px solid rgba(180,140,80,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(200,160,90,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(180,140,80,0.75)';">⭐ 최종 승인</button>` : ''}
+                ${canApprove ? `<button onclick="approveContribution('${contributionId}')" style="flex: 1; min-width: 130px; background: rgba(180,140,80,0.75); color: #180e00; border: 1px solid rgba(180,140,80,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(200,160,90,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(180,140,80,0.75)';">${selectedContribution.category === 'historical_record' ? '⭐ 최종 승인·역사 패널 등록' : '⭐ 최종 승인'}</button>` : ''}
                                 ${canRejectFinal ? `<button onclick="rejectFinalContribution('${contributionId}')" style="flex: 1; min-width: 130px; background: rgba(200,70,60,0.75); color: #f0e0dc; border: 1px solid rgba(200,70,60,0.5); padding: 11px 18px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.background='rgba(220,80,70,0.9)';" onmouseout="this.style.transform='translateY(0)'; this.style.background='rgba(200,70,60,0.75)';">🚫 최종 반려</button>` : ''}
                             </div>
                         </div>
@@ -6766,12 +6767,13 @@
         }
 
         // 🚩 index.html(지도)에 사료 상태 변경 알림 — 사관 사료 마커 즉시 갱신
-        function notifyOpenerContributionChanged(contributionId, newStatus) {
+        function notifyOpenerContributionChanged(contributionId, newStatus, history = null) {
             if (window.opener && !window.opener.closed) {
                 window.opener.postMessage({
                     type: 'contributionReviewed',
                     contributionId,
-                    newStatus
+                    newStatus,
+                    history
                 }, '*');
                 console.log(`✅ [ranking.html → index.html] 사료 상태 변경 알림: ${contributionId} → ${newStatus}`);
             }
@@ -6835,7 +6837,11 @@
                     return;
                 }
                 
-                if (!confirm('이 사료를 최종 승인하시겠습니까?')) {
+                const selected = window.loadedContributions?.find(item => item._id === contributionId);
+                const isHistoricalRecord = selected?.category === 'historical_record';
+                if (!confirm(isHistoricalRecord
+                    ? '이 사료를 최종 승인하고 해당 연도의 역사 패널에 등록하시겠습니까?'
+                    : '이 사료를 최종 승인하시겠습니까?')) {
                     return;
                 }
                 
@@ -6850,9 +6856,9 @@
                 const result = await response.json();
                 
                 if (response.ok) {
-                    alert('최종 승인되었습니다!');
+                    alert(result.message || '최종 승인되었습니다!');
                     
-                    notifyOpenerContributionChanged(contributionId, 'approved');
+                    notifyOpenerContributionChanged(contributionId, 'approved', result.history || null);
                     
                     // 🚩 [수정] 모달을 닫고 목록 새로고침 (상태가 변경되므로)
                     document.getElementById('contributionDetailModal').style.display = 'none';
@@ -6945,23 +6951,24 @@
             updateRankingAuthBar();
             const urlParams = new URLSearchParams(window.location.search);
             const contributionId = urlParams.get('contributionId');
+            const requestedTab = urlParams.get('tab');
             // 전체 랭킹은 백그라운드에서 받고, 첫 카드 후보는 가벼운 별도 요청으로 먼저 연다.
             await ensureRankingGuestSession();
             let quickCandidate = null;
-            if (!contributionId) {
+            if (!contributionId && requestedTab !== 'contributions') {
                 quickCandidate = await loadQuickHeroVoteCandidate();
                 if (quickCandidate) openHeroVoteGameWithCandidate(quickCandidate);
             }
             updateRankingAuthBar();
 
             // 빠른 후보를 구하지 못했거나 이름 기반 구형 딥링크일 때만 전체 목록을 먼저 받는다.
-            if (!contributionId && !quickCandidate) {
+            if (!contributionId && requestedTab !== 'contributions' && !quickCandidate) {
                 await scheduleHeroRankingsBackgroundLoad();
                 openHeroVoteGameOnce();
             }
 
             // 🚩 [수정] URL 파라미터로 contributionId가 전달된 경우 자동으로 모달 열기
-            if (contributionId) {
+            if (contributionId || requestedTab === 'contributions') {
                 console.log('🔍 URL에서 contributionId 감지:', contributionId);
                 
                 // 사료 탭으로 전환 (data-tab="contributions" 버튼 클릭)
@@ -6972,14 +6979,14 @@
                     console.error('❌ 사료 탭 버튼을 찾을 수 없습니다');
                 }
                 
-                // 사료 데이터 로딩 완료 대기
-                await loadContributions();
-                
-                // 모달 열기
-                setTimeout(() => {
-                    console.log('🔍 사료 상세 모달 열기 시도:', contributionId);
-                    showContributionDetail(contributionId);
-                }, 100);
+                // 탭 클릭에서 목록을 불러오며, 딥링크가 있으면 완료 후 상세를 연다.
+                if (contributionId) {
+                    await loadContributions();
+                    setTimeout(() => {
+                        console.log('🔍 사료 상세 모달 열기 시도:', contributionId);
+                        showContributionDetail(contributionId);
+                    }, 100);
+                }
                 observeRankingAds();
             }
             endRankingPerf(initialFlowTimer, {

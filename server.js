@@ -1586,6 +1586,77 @@ app.use(express.static(__dirname, {
 // 🚩 [추가] public 폴더를 정적 파일로 제공 (타일 파일 접근용)
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
+// 연도/월별 일식 관측 경로. 원본 GeoJSON은 정적 파일로도 배포하고,
+// 지도에서는 필요한 시점의 feature만 받도록 가볍게 필터링한다.
+app.get('/api/eclipse', (req, res) => {
+    try {
+        const year = Number.parseInt(req.query.year, 10);
+        const month = Number.parseInt(req.query.month, 10);
+        const recordsPath = path.join(__dirname, 'public', 'data', 'goryeo-eclipse-records.json');
+        const recordsData = fs.existsSync(recordsPath)
+            ? JSON.parse(fs.readFileSync(recordsPath, 'utf8')) : { records:[], matches:[] };
+        const matches = Array.isArray(recordsData.matches) ? recordsData.matches : [];
+        const matchByEvent = new Map(matches.map(match => [String(match.event_id), match]));
+        const timelineMatches = matches.filter(match => Number(match.timeline_year) === year);
+        // NASA의 BCE 파일명은 천문학적 연도(0=기원전 1년)다. 타임슬라이더는
+        // 역사 표기(-1=기원전 1년)를 사용하므로 BCE에서는 1을 되돌린다.
+        const baseAstronomicalYear = year > 0 ? year : year + 1;
+        const sourceYears = new Set([baseAstronomicalYear]);
+        timelineMatches.forEach(match => sourceYears.add(Number(match.julian_year)));
+        const collections = [...sourceYears].flatMap(sourceYear => {
+            const filePath = path.join(__dirname, 'public', 'data', 'eclipses', `${sourceYear}.geojson`);
+            if (!fs.existsSync(filePath)) return [];
+            try { return [JSON.parse(fs.readFileSync(filePath, 'utf8'))]; }
+            catch (_) { return []; }
+        });
+        const decorate = item => {
+            const id = String(item?.id || item?.properties?.id || '');
+            const match = matchByEvent.get(id);
+            const values = match ? {
+                timeline_year:Number(match.timeline_year), timeline_month:Number(match.timeline_month) || null,
+                julian_year:Number(match.julian_year), julian_month:Number(match.julian_month), julian_day:Number(match.julian_day),
+                calendar_alignment:match.confidence || 'sexagenary_day_exact', sexagenary_day:match.sexagenary_day
+            } : {
+                timeline_year:Number(item?.year ?? item?.properties?.year) > 0
+                    ? Number(item?.year ?? item?.properties?.year) : Number(item?.year ?? item?.properties?.year) - 1,
+                timeline_month:null,
+                julian_year:Number(item?.year ?? item?.properties?.year),
+                julian_month:Number(item?.month ?? item?.properties?.month),
+                julian_day:Number(item?.day ?? item?.properties?.day),
+                calendar_alignment:'julian_year_fallback'
+            };
+            return item?.type === 'Feature'
+                ? { ...item, properties:{ ...(item.properties || {}), ...values } }
+                : { ...item, ...values };
+        };
+        const belongsToTimelineYear = item => {
+            const id = String(item?.id || item?.properties?.id || '');
+            const match = matchByEvent.get(id);
+            if (match) return Number(match.timeline_year) === year;
+            const astronomicalYear = Number(item?.year ?? item?.properties?.year);
+            return (astronomicalYear > 0 ? astronomicalYear : astronomicalYear - 1) === year;
+        };
+        const events = collections.flatMap(collection => collection.events || [])
+            .filter(belongsToTimelineYear).map(decorate);
+        const features = collections.flatMap(collection => collection.features || [])
+            .filter(belongsToTimelineYear).map(decorate);
+        // 연도별 데이터셋을 증분 배포하므로 이전의 빈 응답을 브라우저/CDN이 붙잡지 않게 재검증한다.
+        res.set('Cache-Control', 'no-cache, max-age=0, must-revalidate');
+        let historicalRecords = [];
+        if (Number.isFinite(year)) {
+            historicalRecords = (recordsData.records || []).filter(record => Number(record.year) === year);
+        }
+        res.json({
+            type:'FeatureCollection', year, timeline_calendar:'historical_lunisolar',
+            features, events, historical_records:historicalRecords,
+            attribution:"Eclipse Predictions by Fred Espenak and Jean Meeus (NASA's GSFC)"
+        });
+    } catch (error) {
+        console.error('일식 GeoJSON 로드 실패:', error);
+        res.status(500).json({ type: 'FeatureCollection', features: [], error: 'eclipse_data_unavailable' });
+    }
+});
+
 // �🚩 [수정] 루트(/) 요청 시 index.html(지도) 서빙 — 게스트 자동 입장
 app.get('/', (req, res) => {
     res.set('Cache-Control', 'no-cache, must-revalidate');
@@ -5760,6 +5831,10 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (!q || q.trim().length < 1) return res.json([]);
                 const keyword = q.trim();
                 const maxResults = Math.min(parseInt(limitParam) || 30, 100);
+                // 연도 내림차순으로 maxResults만 바로 자르면 고려사처럼 후대 기록이
+                // 많은 사료가 결과를 독점해 삼국사기 등 앞 시대 사료가 사라진다.
+                // 먼저 넉넉한 후보를 가져온 뒤 사서 계열별로 균형 있게 추린다.
+                const candidateLimit = Math.min(Math.max(maxResults * 5, 150), 500);
                 const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 // MongoDB text 검색은 한국어 조사·한자·부분 문자열에 약하다. 관리자 편집 검색은
                 // 전체 1천 건 미만 규모이므로 모든 실제 입력 필드를 정규식으로 확실하게 찾는다.
@@ -5785,11 +5860,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                             'records.chinese.source': 1,
                             'records.foreign.source': 1
                         }
-                    }).sort({ year: -1, month: -1 }).limit(maxResults).toArray(),
+                    }).sort({ year: -1, month: -1 }).limit(candidateLimit).toArray(),
 
                     collections.sourceRecords.find(sourceQuery, {
                         projection: { title: 1, source: 1, year: 1, month: 1 }
-                    }).sort({ year: -1, month: -1 }).limit(maxResults).toArray(),
+                    }).sort({ year: -1, month: -1 }).limit(candidateLimit).toArray(),
                 ]);
 
                 // 결과 병합
@@ -5812,7 +5887,34 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         type: 'source'
                     }))
                 ];
-                const payload = (type === 'history' ? merged.filter(item => item.type === 'history') : merged).slice(0, maxResults);
+                const eligible = type === 'history' ? merged.filter(item => item.type === 'history') : merged;
+                const sourceFamily = item => {
+                    const source = String(item.source || '').replace(/[《》『』\s]/g, '');
+                    if (/삼국사기|三國史記/.test(source)) return '삼국사기';
+                    if (/삼국유사|三國遺事/.test(source)) return '삼국유사';
+                    if (/고려사절요|高麗史節要/.test(source)) return '고려사절요';
+                    if (/고려사|高麗史/.test(source)) return '고려사';
+                    return source.replace(/[（(].*$/, '') || (item.type === 'history' ? '연구 기록' : '기타 사료');
+                };
+                const groups = new Map();
+                eligible.forEach(item => {
+                    const family = sourceFamily(item);
+                    if (!groups.has(family)) groups.set(family, []);
+                    groups.get(family).push(item);
+                });
+                const payload = [];
+                if (groups.size) {
+                    const quota = Math.max(1, Math.floor(maxResults / groups.size));
+                    groups.forEach(items => payload.push(...items.splice(0, quota)));
+                    // 소규모 사료의 몫을 먼저 보장한 뒤 남은 자리는 각 사료에서
+                    // 한 건씩 순환하며 채워 특정 시대가 다시 독점하지 않게 한다.
+                    const remainingGroups = [...groups.values()];
+                    while (payload.length < maxResults && remainingGroups.some(items => items.length)) {
+                        remainingGroups.forEach(items => {
+                            if (payload.length < maxResults && items.length) payload.push(items.shift());
+                        });
+                    }
+                }
                 res.set('Cache-Control', 'private, max-age=30');
                 const elapsed = Date.now() - searchStartedAt;
                 if (elapsed > 500) console.warn(`[history/search] 느린 검색 ${elapsed}ms q="${keyword}" results=${payload.length}`);
@@ -8608,7 +8710,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     return res.status(403).json({ message: '송나라 사신은 사관 기록을 제출할 수 없습니다.' });
                 }
 
-                const { name, lat, lng, description, category, evidence, year, source, content, heroResearch,
+                const { name, lat, lng, description, category, evidence, year, month, source, content, heroResearch,
                         placeType, is_natural_feature, natural_feature_type, country_id, start_year, end_year, is_capital, new_country_name,
                         _forceUsername, _forceUserId } = req.body;
                 const recordCategories = new Set(['historical_record', 'hero_research']);
@@ -8654,7 +8756,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     newContribution = {
                         userId: toObjectId(effectiveUserId),
                         username: effectiveUsername,
-                        name, year, source, content, category, evidence,
+                        name, year,
+                        month: Math.min(12, Math.max(1, parseInt(month, 10) || 1)),
+                        source, content, category, evidence,
                         heroResearch: sanitizedHeroResearch,
                         status: 'pending',
                         votes: 0,
@@ -10468,6 +10572,7 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
         const user = await collections.users.findOne({ _id: toObjectId(userId) });
         
         // 🚩 [추가] 실시간 직급 계산 (RANK_CONFIG 기반)
+        if (!user) return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
         const userScore = (user.totalCount || 0) * RANK_CONFIG.scoreWeights.submitCount
                         + (user.approvedCount || 0) * RANK_CONFIG.scoreWeights.approvedCount
                         + (user.totalVotes || 0)
@@ -10491,7 +10596,10 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
         console.log('🔍 [Approve] 사용자:', user.username, 'DB직급:', user.position, '실시간직급:', realtimePosition, '점수:', userScore);
         
         // 🚩 [수정] DB에 저장된 직급 또는 실시간 계산된 직급 중 하나라도 승인 권한이 있으면 허용
-        const hasApproverPosition = approverPositions.includes(user.position) || approverPositions.includes(realtimePosition);
+        const isAdminRole = user.role === 'admin' || user.role === 'superuser';
+        const hasApproverPosition = isAdminRole
+            || approverPositions.includes(user.position)
+            || approverPositions.includes(realtimePosition);
         
         if (!user || !hasApproverPosition) {
             return res.status(403).json({ 
@@ -10499,12 +10607,72 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
             });
         }
 
+        let insertedHistory = null;
+        if (contribution.category === 'historical_record') {
+            const historyYear = Number.parseInt(contribution.year, 10);
+            const eventName = String(contribution.name || '').trim();
+            const content = String(contribution.content || '').trim();
+            const legacyMonthMatch = `${eventName}\n${content}`.match(/(?:윤\s*)?(\d{1,2})\s*월/);
+            const submittedMonth = Number.parseInt(contribution.month, 10);
+            const inferredMonth = legacyMonthMatch ? Number.parseInt(legacyMonthMatch[1], 10) : 1;
+            const historyMonth = Math.min(12, Math.max(1, submittedMonth || inferredMonth));
+            if (!Number.isFinite(historyYear) || !eventName || !content) {
+                return res.status(400).json({ message: '역사 패널 등록에 필요한 연도·제목·내용이 누락되었습니다.' });
+            }
+
+            const originContributionId = contribution._id.toString();
+            insertedHistory = await collections.history.findOne({
+                $or: [
+                    { originContributionId },
+                    { contribution_id: originContributionId },
+                    { 'records.korean.contribution_id': originContributionId }
+                ]
+            });
+            if (!insertedHistory) {
+                const historyRecord = {
+                    year: historyYear,
+                    month: historyMonth,
+                    event_name: eventName,
+                    create_event: false,
+                    comment: `사관 ${contribution.username || '알 수 없음'} 제출 · 최종 승인`,
+                    records: {
+                        korean: {
+                            source: String(contribution.source || '사관 제출 기록').trim(),
+                            content,
+                            contributor: contribution.username || '',
+                            contribution_id: originContributionId,
+                            evidence: String(contribution.evidence || '').trim()
+                        },
+                        chinese: { source: '', content: '' },
+                        foreign: { source: '', content: '' },
+                        true_history: { content: '' }
+                    },
+                    originContributionId,
+                    contribution_id: originContributionId,
+                    contributor: contribution.username || '',
+                    contributorId: contribution.userId || null,
+                    approvedBy: user.username,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                };
+                const historyResult = await collections.history.insertOne(historyRecord);
+                insertedHistory = { ...historyRecord, _id: historyResult.insertedId };
+                console.log(`✅ [History 생성] 승인된 사관 기록 "${eventName}"을 역사 패널에 등록 (ID: ${historyResult.insertedId})`);
+            }
+        }
+
         const updateData = {
             status: 'approved',
             approverId: toObjectId(userId),
             approverUsername: user.username,
             approvedAt: new Date(),
-            approveComment: comment || null
+            approveComment: comment || null,
+            ...(insertedHistory ? { generatedHistory: {
+                _id: insertedHistory._id,
+                year: insertedHistory.year,
+                month: insertedHistory.month,
+                event_name: insertedHistory.event_name
+            } } : {})
         };
 
         await collections.contributions.updateOne({ _id: toObjectId(id) }, { $set: updateData });
@@ -10656,6 +10824,13 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
             }
         }
 
+        if (insertedHistory && contribution.userId) {
+            await collections.users.updateOne(
+                { _id: contribution.userId },
+                { $inc: { approvedCount: 1 } }
+            );
+        }
+
         // 🚩 [추가] 동일 이름의 다른 pending/reviewed 중복 기여 자동 거부
         if (contribution.name) {
             const dupResult = await collections.contributions.updateMany(
@@ -10681,15 +10856,18 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
         await logActivity('approve', user.username, user.position || '', contribution.name || '사관 기록', {
             category: contribution.category || null, isNew: true,
             castle_id: insertedCastle ? insertedCastle._id.toString() : undefined,
-            hero_id: insertedHero?.hero_id
+            hero_id: insertedHero?.hero_id,
+            history_id: insertedHistory?._id?.toString?.()
         }, userId);
 
-        const approvalMessage = insertedHero && !insertedHero.skipped
+        const approvalMessage = insertedHistory
+            ? "기여가 최종 승인되었고 역사 패널에 등록되었습니다."
+            : insertedHero && !insertedHero.skipped
             ? "기여가 최종 승인되었고 신규 영웅이 생성되었습니다."
             : insertedHero?.skipped
                 ? "기여가 최종 승인되었습니다. 같은 이름의 영웅이 있어 신규 생성은 건너뛰었습니다."
                 : "기여가 최종 승인되었습니다.";
-        res.json({ message: approvalMessage, castle: insertedCastle, hero: insertedHero });
+        res.json({ message: approvalMessage, castle: insertedCastle, hero: insertedHero, history: insertedHistory });
     } catch (error) {
         res.status(500).json({ message: "승인 실패", error: error.message });
     }
