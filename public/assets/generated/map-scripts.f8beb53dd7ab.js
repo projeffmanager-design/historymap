@@ -25231,7 +25231,9 @@ kingSelect.addEventListener('change', () => {
 
     // 역사 패널의 원전 사료 항목에서 바로 여는 간결 편집기
     window.openSourceRecordEditor = function(record, heroFigures = []) {
-        if (!editMode || !(currentUser?.role === 'superuser' || currentUser?.role === 'admin') || !record?._id) return;
+        // 역사 검색 상세의 수정 버튼은 지도 도형 편집 모드와 무관하다.
+        // 관리자 권한만 확인해야 검색 결과에서도 원전 사료 편집기가 열린다.
+        if (!(currentUser?.role === 'superuser' || currentUser?.role === 'admin') || !record?._id) return;
         window.prepareMobilePanelTransition?.('editor');
         document.getElementById('source-record-direct-editor')?.remove();
         const overlay = document.createElement('div');
