@@ -28758,7 +28758,7 @@ kingSelect.addEventListener('change', () => {
             let orbitTimer = null;
 
             function get3dTerritoryBasemapOpacity() {
-                return 0.35;
+                return window._historyGlobeBasemap === 'terrain' ? 0.22 : 0.35;
             }
 
             function apply3dTerritoryBasemapOpacity() {
@@ -31392,13 +31392,13 @@ kingSelect.addEventListener('change', () => {
                         mlMap = new maplibregl.Map({
                             container: mlOverlay,
                             // 모든 Globe 모드는 이 벡터 스타일 하나를 공유한다.
-                            // 위성·지형은 load 후 별도 raster/hillshade layer로만 전환한다.
+                            // 위성은 raster, 지형은 DEM 메시와 hillshade로 전환한다.
                             style: 'https://tiles.openfreemap.org/styles/fiord',
                             center: [c.lng, c.lat],
                             zoom: initialCamera?.zoom ?? (globeMode && globeBasemap !== 'terrain'
                                 ? Math.min(map.getZoom(), 2.6)
                                 : map.getZoom()),
-                            pitch: globeMode ? 0 : 55,
+                            pitch: globeMode ? (globeBasemap === 'terrain' ? 62 : 0) : 55,
                             bearing: 0,
                             antialias: false,
                             fadeDuration: 0,
@@ -31870,9 +31870,9 @@ kingSelect.addEventListener('change', () => {
                             });
                             ensureTerrainHillshade();
                             applyGlobeBasemapLayers(window._historyGlobeBasemap || 'vector');
-                            // 공개 DEM에는 해저고도도 포함되므로 3D mesh는 사용하지 않는다.
-                            // 산악 표현은 지형 모드의 hillshade raster layer가 전담한다.
-                            mlMap.setTerrain(null);
+                            // 실제 고도 메시를 지형 모드에서만 켠다.
+                            mlMap.setTerrain(window._historyGlobeBasemap === 'terrain'
+                                ? { source: 'dem', exaggeration: 1.8 } : null);
                             // 밤하늘 Sky 레이어
                             try {
                                 mlMap.setSky({
@@ -31965,7 +31965,8 @@ kingSelect.addEventListener('change', () => {
                             zoom: window._historyGlobeMode && window._historyGlobeBasemap !== 'terrain'
                                 ? Math.min(map.getZoom(), 2.6)
                                 : map.getZoom(),
-                            pitch: window._historyGlobeMode ? 0 : 55
+                            pitch: window._historyGlobeMode
+                                ? (window._historyGlobeBasemap === 'terrain' ? 62 : 0) : 55
                         });
                         mlMap.resize();
                         // 🚩 재진입 시 _is3dMode 복원 (exit3d에서 false로 설정됨)
@@ -32246,14 +32247,16 @@ kingSelect.addEventListener('change', () => {
                 // 선택한 모드에 필요한 레이어만 다시 조정한다.
                 restoreGlobeBaseLayerVisibility();
                 if (mlMap.getLayer('history-globe-satellite')) {
-                    mlMap.setLayoutProperty('history-globe-satellite', 'visibility', mode === 'satellite' ? 'visible' : 'none');
+                    mlMap.setLayoutProperty('history-globe-satellite', 'visibility',
+                        mode === 'satellite' || mode === 'terrain' ? 'visible' : 'none');
                 }
                 if (mlMap.getLayer('history-globe-hillshade')) {
-                    mlMap.setLayoutProperty('history-globe-hillshade', 'visibility', mode === 'terrain' ? 'visible' : 'none');
+                    // 위성 영상 자체의 명암을 살리고, 단색 hillshade가 영상을 덮지 않게 한다.
+                    mlMap.setLayoutProperty('history-globe-hillshade', 'visibility', 'none');
                 }
-                // 위성 영상에서는 OpenFreeMap의 국가·도시 symbol을 완전히 숨긴다.
+                // 영상 위에서는 OpenFreeMap의 국가·도시 symbol을 완전히 숨긴다.
                 // 역사 국가명과 마커는 capture 대상에서 제외되어 영향을 받지 않는다.
-                if (mode === 'satellite') setGlobeBaseSymbolVisibility(false);
+                if (mode === 'satellite' || mode === 'terrain') setGlobeBaseSymbolVisibility(false);
                 if (mode === 'terrain') applyMinimalTerrainStyle();
                 apply3dTerritoryBasemapOpacity();
             }
@@ -32343,8 +32346,9 @@ kingSelect.addEventListener('change', () => {
                     }
                     ensureTerrainHillshade();
                     applyGlobeBasemapLayers(mode);
-                    // 바다 DEM의 굴곡을 만들지 않고 hillshade만 지형 모드에서 사용한다.
-                    mlMap.setTerrain(null);
+                    mlMap.setTerrain(mode === 'terrain'
+                        ? { source: 'dem', exaggeration: 1.8 } : null);
+                    mlMap.easeTo({ pitch: mode === 'terrain' ? 62 : 0, duration: 500 });
                     syncGlobeStarBackdrop();
                     mlMap.triggerRepaint();
                 } catch (error) {
