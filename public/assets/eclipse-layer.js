@@ -67,7 +67,7 @@
         }).join('');
         const statusLabel = { recorded: '관측 기록', total_recorded: '개기 기록', obscured: '기상으로 미관측', predicted_not_observed: '예측·불발' };
         const recordRows = records.map((record, index) => `<button type="button" class="ec-row ec-record" data-eclipse-record-index="${index}" title="역사 패널에서 이 사료 보기"><b>${escapeHtml(record.month || '?')}월 · ${escapeHtml(record.title)}</b><div class="ec-meta">${escapeHtml(record.source)} · ${escapeHtml(statusLabel[record.status] || record.status)}</div><div class="ec-original">${escapeHtml(record.original_content)}</div></button>`).join('');
-        panel.innerHTML = `<div class="ec-head"><span class="ec-orbit"></span><span class="ec-head-title">${year <= 0 ? `B.C. ${escapeHtml(Math.abs(year))}` : `A.D. ${escapeHtml(year)}`} 사서연도 일식 대조</span><span class="ec-nav"><button type="button" data-eclipse-prev title="이전 일식 사료" aria-label="이전 일식 사료">‹</button><button type="button" data-eclipse-next title="다음 일식 사료" aria-label="다음 일식 사료">›</button></span></div><div class="ec-section"><div class="ec-title">NASA 계산 · 사서연도 정렬 · ${events.length}건</div>${eventRows || '<div class="ec-meta">계산 일식 없음</div>'}</div><div class="ec-section"><div class="ec-title">한국 사료(삼국사기·고려사) · ${records.length}건</div>${recordRows || '<div class="ec-meta">해당 연도 기록 없음</div>'}</div><div class="ec-note">타임슬라이더 연·월은 사서의 음력 기준입니다. 간지일이 일치한 계산 일식만 음력 월을 확정하고, 나머지는 율리우스 원 날짜를 보존해 표시합니다.</div>`;
+        panel.innerHTML = `<div class="ec-head"><span class="ec-orbit"></span><span class="ec-head-title">${year <= 0 ? `B.C. ${escapeHtml(Math.abs(year))}` : `A.D. ${escapeHtml(year)}`} 사서연도 일식 대조</span><span class="ec-nav"><button type="button" data-eclipse-prev title="이전 일식 사료" aria-label="이전 일식 사료">‹</button><button type="button" data-eclipse-next title="다음 일식 사료" aria-label="다음 일식 사료">›</button></span></div><div class="ec-section"><div class="ec-title">NASA 계산 · 사서연도 정렬 · ${events.length}건</div>${eventRows || '<div class="ec-meta">계산 일식 없음</div>'}</div><div class="ec-section"><div class="ec-title">한국 사료(삼국사기·고려사) · ${records.length}건</div>${recordRows || '<div class="ec-meta">해당 연도 기록 없음</div>'}</div><div class="ec-note">지도: 밝은 점선은 중앙선, 양옆의 선은 개기·금환 관측대 경계입니다. 부분일식 전체 가시 범위는 포함되지 않습니다.<br>타임슬라이더 연·월은 사서의 음력 기준입니다. 간지일이 일치한 계산 일식만 음력 월을 확정하고, 나머지는 율리우스 원 날짜를 보존해 표시합니다.</div>`;
         document.body.appendChild(panel);
         bindComparisonLinks(panel, events, records);
         bindRecordNavigation(panel, year);
@@ -188,9 +188,10 @@
             id: LINE_ID, type: 'line', source: SOURCE_ID,
             filter: ['in', ['get', 'boundary'], ['literal', ['north', 'south']]],
             paint: {
-                'line-color': ['match', ['get', 'type'], '개기일식', '#8bdcff', '혼성일식', '#c4b5fd', '#f7cf70'],
-                'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.2, 6, 2.5],
-                'line-opacity': 0.8
+                'line-color': ['match', ['get', 'type'], '개기일식', '#75dfff', '혼성일식', '#d1b6ff', '#ffd166'],
+                'line-width': ['interpolate', ['linear'], ['zoom'], 1, 2.5, 6, 4],
+                'line-opacity': 1,
+                'line-dasharray': [3, 1.5]
             }
         });
         globe.addLayer({
