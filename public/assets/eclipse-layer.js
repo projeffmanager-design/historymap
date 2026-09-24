@@ -21,6 +21,7 @@
     let pendingRenderTimer = null;
     let recordMomentsPromise = null;
     let eclipseFocusPopup = null;
+    let dismissedPanelYear = null;
 
     function removeMapLibreLayer() {
         const globe = window.mlMap3d;
@@ -45,6 +46,7 @@
             #${PANEL_ID}{position:fixed;right:14px;top:82px;z-index:2720;width:min(330px,calc(100vw - 28px));max-height:46vh;overflow:auto;padding:12px 13px;border:1px solid rgba(242,196,91,.42);border-radius:12px;background:linear-gradient(150deg,rgba(10,13,20,.94),rgba(28,22,12,.9));box-shadow:0 12px 34px rgba(0,0,0,.48),inset 0 1px rgba(255,236,174,.08);backdrop-filter:blur(12px);color:#efe5cc;font:12px/1.48 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
             #${PANEL_ID} .ec-head{display:flex;align-items:center;gap:8px;margin-bottom:9px;color:#ffe29a;font-weight:800;letter-spacing:.02em}#${PANEL_ID} .ec-head-title{flex:1;min-width:0}#${PANEL_ID} .ec-nav{display:flex;gap:4px}#${PANEL_ID} .ec-nav button{display:grid;place-items:center;width:26px;height:24px;padding:0;border:1px solid rgba(242,196,91,.38);border-radius:6px;background:rgba(0,0,0,.25);color:#f0cf7c;font:700 17px/1 Arial,sans-serif;cursor:pointer}#${PANEL_ID} .ec-nav button:hover,#${PANEL_ID} .ec-nav button:focus-visible{border-color:#f2c45b;background:rgba(180,126,36,.22);color:#fff0bd;outline:none}#${PANEL_ID} .ec-nav button:disabled{opacity:.25;cursor:default}#${PANEL_ID} .ec-orbit{width:18px;height:18px;border:1px solid #f4c85b;border-radius:50%;box-shadow:0 0 12px rgba(244,200,91,.5);position:relative}#${PANEL_ID} .ec-orbit:after{content:"";position:absolute;width:7px;height:7px;border-radius:50%;background:#05070b;box-shadow:0 0 0 2px #ffe29a;left:5px;top:5px}
             #${PANEL_ID} .ec-section{margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,226,154,.14)}#${PANEL_ID} .ec-title{font-size:10px;color:#c8a957;text-transform:uppercase;letter-spacing:.12em;margin-bottom:5px}#${PANEL_ID} .ec-row{display:block;width:100%;box-sizing:border-box;padding:6px 7px;margin:4px 0;border:0;border-left:2px solid #f2c45b;border-radius:7px;background:rgba(255,255,255,.045);color:inherit;font:inherit;text-align:left;cursor:pointer;transition:background .16s,border-color .16s,transform .16s}#${PANEL_ID} .ec-row:hover,#${PANEL_ID} .ec-row:focus-visible{background:rgba(242,196,91,.13);border-left-color:#ffe29a;transform:translateX(2px);outline:none}#${PANEL_ID} .ec-record{border-left-color:#79bfff}#${PANEL_ID} .ec-record:hover,#${PANEL_ID} .ec-record:focus-visible{background:rgba(80,164,235,.13);border-left-color:#a9d8ff}#${PANEL_ID} .ec-meta{color:#aeb8c8;font-size:10px;margin-top:2px}#${PANEL_ID} .ec-original{color:#d7dce5;margin-top:3px;font-family:"Noto Serif KR",serif}#${PANEL_ID} .ec-note{margin-top:8px;color:#8f98a8;font-size:9px;line-height:1.4}
+            #${PANEL_ID} .ec-nav .ec-close{margin-left:3px;color:#f4e8cc;border-color:rgba(244,232,204,.5)}
             @media(max-width:700px){#${PANEL_ID}{top:56px;right:8px;width:260px;max-height:34vh;padding:9px}}
         `;
         document.head.appendChild(style);
@@ -54,7 +56,7 @@
         document.getElementById(PANEL_ID)?.remove();
         const events = data.events || [];
         const records = data.historical_records || [];
-        if (!enabled || (!events.length && !records.length)) return;
+        if (!enabled || dismissedPanelYear === year || (!events.length && !records.length)) return;
         ensureComparisonStyles();
         const panel = document.createElement('aside');
         panel.id = PANEL_ID;
@@ -69,6 +71,17 @@
         const recordRows = records.map((record, index) => `<button type="button" class="ec-row ec-record" data-eclipse-record-index="${index}" title="역사 패널에서 이 사료 보기"><b>${escapeHtml(record.month || '?')}월 · ${escapeHtml(record.title)}</b><div class="ec-meta">${escapeHtml(record.source)} · ${escapeHtml(statusLabel[record.status] || record.status)}</div><div class="ec-original">${escapeHtml(record.original_content)}</div></button>`).join('');
         panel.innerHTML = `<div class="ec-head"><span class="ec-orbit"></span><span class="ec-head-title">${year <= 0 ? `B.C. ${escapeHtml(Math.abs(year))}` : `A.D. ${escapeHtml(year)}`} 사서연도 일식 대조</span><span class="ec-nav"><button type="button" data-eclipse-prev title="이전 일식 사료" aria-label="이전 일식 사료">‹</button><button type="button" data-eclipse-next title="다음 일식 사료" aria-label="다음 일식 사료">›</button></span></div><div class="ec-section"><div class="ec-title">NASA 계산 · 사서연도 정렬 · ${events.length}건</div>${eventRows || '<div class="ec-meta">계산 일식 없음</div>'}</div><div class="ec-section"><div class="ec-title">한국 사료(삼국사기·고려사) · ${records.length}건</div>${recordRows || '<div class="ec-meta">해당 연도 기록 없음</div>'}</div><div class="ec-note">지도: 밝은 점선은 중앙선, 양옆의 선은 개기·금환 관측대 경계입니다. 부분일식 전체 가시 범위는 포함되지 않습니다.<br>타임슬라이더 연·월은 사서의 음력 기준입니다. 간지일이 일치한 계산 일식만 음력 월을 확정하고, 나머지는 율리우스 원 날짜를 보존해 표시합니다.</div>`;
         document.body.appendChild(panel);
+        const closeButton = document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.className = 'ec-close';
+        closeButton.textContent = '×';
+        closeButton.title = '일식 대조 창 닫기';
+        closeButton.setAttribute('aria-label', '일식 대조 창 닫기');
+        closeButton.addEventListener('click', () => {
+            dismissedPanelYear = year;
+            panel.remove();
+        });
+        panel.querySelector('.ec-nav').appendChild(closeButton);
         bindComparisonLinks(panel, events, records);
         bindRecordNavigation(panel, year);
     }
@@ -313,6 +326,7 @@
 
     function setEnabled(value) {
         enabled = Boolean(value);
+        if (enabled) dismissedPanelYear = null;
         lastKey = '';
         document.getElementById('menu-layer-eclipse')?.toggleAttribute('checked', enabled);
         const desktop = document.getElementById('menu-layer-eclipse');
