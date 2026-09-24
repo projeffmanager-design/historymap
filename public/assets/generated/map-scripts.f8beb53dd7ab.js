@@ -300,6 +300,7 @@
         if (prog) prog.style.width = '0%';
         if (timeEl) timeEl.textContent = '0:00';
     }
+    window._odpStopVoice = _stopVoice;
 
     window._odpToggleVoice = function() {
         if (!_voiceAudio) return;
@@ -379,6 +380,10 @@
                 if (sec) sec.style.display = '';
                 const btn = document.getElementById('odp-voice-btn');
                 if (btn) { btn.textContent = '⏸'; btn.title = '사관의 보고 일시정지'; }
+                if (window._markerVideoFullscreenActive) {
+                    if (btn) { btn.textContent = '▶'; btn.title = '사관의 보고 재생'; }
+                    return;
+                }
                 audio.play().then(() => {
                     _duckBgm(); // ✅ 재생 성공 → BGM 볼륨 20%로 덕킹
                 }).catch(() => {
@@ -2767,6 +2772,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     function closeDetailPanel() {
         const panel = document.getElementById('object-detail-panel');
         if (panel) panel.classList.remove('active');
+        window.markerVideo?.clear();
         _stopVoice(); // 🎙️ 패널 닫을 때 음성 정지
         if (typeof clearRadarLayers === 'function') clearRadarLayers();
         if (typeof clearDistanceLine === 'function') clearDistanceLine();
@@ -3001,6 +3007,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         // ── 히어로 이미지 ──
         const heroImg = document.getElementById('odp-hero-img');
         const heroPlaceholder = document.getElementById('odp-hero-placeholder');
+        const heroWrap = document.getElementById('odp-hero-wrap');
         // 군대는 general_photo를 히어로로, 아니면 castle.photo
         const photo = castle.is_military_flag
             ? (castle.general_photo || castle.photo || activeHistoryRecord?.photo)
@@ -3009,7 +3016,11 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         heroImg.style.display = 'block';
         heroPlaceholder.style.display = 'none';
         heroPlaceholder.textContent = '';
-        if (photo) {
+        const hasVideo = window.markerVideo?.render(heroWrap, castle.video_url || activeHistoryRecord?.video_url || photo) || false;
+        heroWrap.dataset.videoActive = hasVideo ? '1' : '0';
+        if (hasVideo) {
+            heroImg.style.display = 'none';
+        } else if (photo) {
             heroImg.src = toRawImageUrl(photo);
         } else {
             heroImg.src = DEFAULT_HERO_IMG;
@@ -16610,6 +16621,8 @@ const loadingMessages = [
       // 🚩 [추가] 이미지 URL 필드 초기화
       const _photoInput = document.getElementById('castlePhoto');
       if (_photoInput) _photoInput.value = '';
+      const _videoInput = document.getElementById('castleVideoUrl');
+      if (_videoInput) _videoInput.value = '';
 
       // 🚩 [추가] 장수 관련 필드 초기화
       const _generalName = document.getElementById('generalName');
@@ -17005,6 +17018,7 @@ const loadingMessages = [
         document.getElementById('castleDesc').value = castle.desc ?? '';
         loadDescToEditor(castle.desc ?? '');
         document.getElementById('castlePhoto').value = castle.photo ?? '';
+        document.getElementById('castleVideoUrl').value = castle.video_url ?? '';
         // 🖼️ 기존 사진 있으면 썸네일 표시, 없으면 숨김
         if (castle.photo) {
             const _t = document.getElementById('castlePhotoThumb');
@@ -17965,11 +17979,18 @@ const loadingMessages = [
 // 🚩 [필수 수정]: country 필드를 삭제하고 country_id를 추가합니다.
       // 🚩 [수정] 역사 기록 데이터를 수집합니다.
 
+      const videoUrl = document.getElementById('castleVideoUrl').value.trim();
+      if (videoUrl && !window.markerVideo?.parse(videoUrl)) {
+          alert('지원하는 동영상 주소를 입력해 주세요: YouTube, Vimeo 또는 MP4/WebM/Ogg 파일 URL');
+          return;
+      }
+
       const data = {
         name: document.getElementById('castleName').value,
         lat: parseFloat(document.getElementById('castleLat').value),
         lng: parseFloat(document.getElementById('castleLng').value),
         photo: document.getElementById('castlePhoto').value || null,
+        video_url: videoUrl || null,
         desc: (document.getElementById('castleDescEditor')?.innerHTML || document.getElementById('castleDesc').value) || '',
         is_capital: false, // 🚩 [수정] 최상위 is_capital은 더 이상 사용하지 않음
         is_battle: selectedType === 'battle',
@@ -18246,7 +18267,11 @@ const loadingMessages = [
                           ? (savedCastle.general_photo || savedCastle.photo)
                           : savedCastle.photo;
                       const DEFAULT_HERO_IMG = 'https://i.pinimg.com/736x/1e/16/48/1e1648e22df86513371bdd6f6190c461.jpg';
-                      heroImg.src = toRawImageUrl(newPhoto || DEFAULT_HERO_IMG);
+                      const heroWrap = document.getElementById('odp-hero-wrap');
+                      const hasVideo = window.markerVideo?.render(heroWrap, savedCastle.video_url || newPhoto) || false;
+                      heroWrap.dataset.videoActive = hasVideo ? '1' : '0';
+                      heroImg.style.display = hasVideo ? 'none' : 'block';
+                      if (!hasVideo) heroImg.src = toRawImageUrl(newPhoto || DEFAULT_HERO_IMG);
                   }
               }
               // 🚩 [수정] 군대 마커 업데이트 시 서버에서 다시 확인하여 destroyed_year 등 유실 방지
