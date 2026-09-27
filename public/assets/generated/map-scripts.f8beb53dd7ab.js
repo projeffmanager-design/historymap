@@ -7484,6 +7484,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             : null;
         const markerPoliticalForm = normalizeCountryPoliticalForm(markerPoliticalPhase?.political_form || 'state');
         const markerPoliticalSymbol = COUNTRY_POLITICAL_FORM_ICONS[markerPoliticalForm] || '';
+        const markerPoliticalName = markerPoliticalPhase?.name || countryInfo?.name || countryName;
+        const markerPoliticalEthnicity = markerPoliticalPhase?.ethnicity || countryInfo?.ethnicity || '';
         const markerPoliticalFlag = markerPoliticalPhase?.flag || countryInfo?.flag || '';
         const markerPoliticalBadgeHtml = markerPoliticalSymbol
             ? `<div class="cm-political-type" title="${COUNTRY_POLITICAL_FORM_LABELS[markerPoliticalForm] || markerPoliticalForm}" style="font-size:${markerPoliticalForm === 'refugee' ? '20px' : '17px'};line-height:1;margin-bottom:1px;text-shadow:0 1px 3px rgba(255,255,255,.9),0 1px 4px rgba(0,0,0,.65);">${markerPoliticalSymbol}</div>`
@@ -8197,7 +8199,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         const editorInfoHtml = castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">사관: ${castle.createdBy}</small>` : '';
         
         const _capitalImgHtml = '';
-        const castleCountryMeta = `<div style="display:flex;justify-content:space-between;gap:14px;"><span>국가:</span><span>${flagHtml}<span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8; cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px;">${countryName}</span></span></div>${countryEthnicity}`;
+        const castleCountryMeta = `<div style="display:flex;justify-content:space-between;gap:14px;"><span>${markerPoliticalForm === 'tribe' ? '부족:' : '국가:'}</span><span>${flagHtml}<span class="country-name-link" data-country-id="${countryId}" style="color:#7eb8e8; cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px;">${_escapeHistoryInline(markerPoliticalName)}</span></span></div>${markerPoliticalEthnicity ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>민족:</span><span style="color:#d8cfc4;text-align:right;">${_escapeHistoryInline(markerPoliticalEthnicity)}</span></div>` : ''}`;
         const castleExtraMeta = `${king ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>왕:</span><span style="color:#d8cfc4;text-align:right;">${king.name} (${king.start}년 ${king.start_month||1}월 ~ ${king.end === null ? '현재' : `${king.end}년 ${king.end_month||1}월`})</span></div>` : ''}${editorInfoHtml ? `<div style="display:flex;justify-content:space-between;gap:14px;"><span>사관:</span><span style="color:#d8cfc4;text-align:right;">${castle.createdBy}</span></div>` : ''}`;
         popupHtml = buildCastleIndexPopup({
             titleHtml: castleName,
@@ -8238,6 +8240,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     popupAnchor:[0, -48]
                 });
                 marker = L.marker([castle.lat, castle.lng], { icon:politicalIcon });
+                marker.bindTooltip(`${_escapeHistoryInline(_politicalCountryName)}${markerPoliticalEthnicity ? ` · ${_escapeHistoryInline(markerPoliticalEthnicity)}` : ''}`, { direction:'top', offset:[0, -42], opacity:0.95 });
             // 🚩 [추가] 커스텀 아이콘이 있으면 역삼각형(▼) 자리에 이미지를 표시하고 아래에 텍스트(이름) 유지
             } else if (castle.custom_icon) {
                 const iconWidth = castle.icon_width || 20;
@@ -15323,7 +15326,7 @@ const loadingMessages = [
         const editAction = canAdminEditHistoryRecords()
           ? `<button type="button" class="history-edit-action history-search-detail-edit" title="선택한 기록 수정">✏ 수정</button>`
           : '';
-        detail.innerHTML = `<div class="history-panel-search-detail-heading"><span>선택 기록</span><time>${year <= 0 ? '기원전 ' : '서기 '}${Math.abs(year)}년 ${month}월</time></div><article class="history-record-card"><div class="history-record-head"><div class="history-record-title">${_escapeHistoryInline(itemTitle)}</div>${editAction}</div>${blocks || '<div class="history-record-block">본문이 없습니다.</div>'}</article>`;
+        detail.innerHTML = `<div class="history-panel-search-detail-heading"><span>선택 기록</span><time>${year <= 0 ? '기원전 ' : '서기 '}${Math.abs(year)}년 ${month}월</time></div><article class="history-record-card"><div class="history-record-head"><div class="history-record-title">${_escapeHistoryInline(itemTitle)}</div>${editAction}</div>${blocks || '<div class="history-record-block">본문이 없습니다.</div>'}${_historyVideoMarkup(item.video_url)}</article>`;
         detail.querySelector('.history-search-detail-edit')?.addEventListener('click', event => {
           event.stopPropagation();
           if (type === 'source') openSourceRecordEditor(item, []);
@@ -15400,6 +15403,12 @@ const loadingMessages = [
       return String(value ?? '')
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function _historyVideoMarkup(raw) {
+      const url = String(raw || '').trim();
+      if (!window.markerVideo?.parse(url)) return '';
+      return `<div class="history-inline-video" data-history-video-url="${_escapeHistoryInline(url)}"><button type="button" class="history-inline-video-play">▶ 관련 동영상 재생</button></div>`;
     }
 
     // 공용 @링크 모듈이 지연 로드되기 전에도 댓글·활동 소식의 첫 렌더에서
@@ -15851,7 +15860,7 @@ const loadingMessages = [
             if (r.records?.true_history?.content) {
               body += `<div class="history-record-block is-research">${_historyRichContent(r.records.true_history.content, year, recordMonth(r), heroFigures)}</div>`;
             }
-            html += `<article class="history-record-card" data-history-record-id="${_escapeHistoryInline(r._id)}">${name}${body}${commentWidget('history', r._id)}</article>`;
+            html += `<article class="history-record-card" data-history-record-id="${_escapeHistoryInline(r._id)}">${name}${body}${_historyVideoMarkup(r.video_url)}${commentWidget('history', r._id)}</article>`;
           });
           html += `</section>`;
         }
@@ -15933,7 +15942,7 @@ const loadingMessages = [
               const content = r.content
                 ? `<div class="history-source-content${isChinese ? ' is-original' : ''}">${_historyRichContent(r.content, year, recordMonth(r), heroFigures, { excludedLinks:r.link_exclusions })}</div>`
                 : '';
-              html += `<div class="history-source-item" data-source-record-id="${_escapeHistoryInline(r._id)}"><div class="history-source-item-head">${titleRow}${sourceEditButton}</div>${content}${commentWidget('source', r._id)}</div>`;
+              html += `<div class="history-source-item" data-source-record-id="${_escapeHistoryInline(r._id)}"><div class="history-source-item-head">${titleRow}${sourceEditButton}</div>${content}${_historyVideoMarkup(r.video_url)}${commentWidget('source', r._id)}</div>`;
             });
             html += `</div></details>`;
           }
@@ -25278,6 +25287,7 @@ kingSelect.addEventListener('change', () => {
             <div class="history-editor-section">
               <div class="form-row"><label>기록 유형</label><select name="content_type"><option value="translation" ${record.content_type !== 'chinese_original' ? 'selected' : ''}>번역·해설</option><option value="chinese_original" ${record.content_type === 'chinese_original' ? 'selected' : ''}>한문 원문</option></select></div>
               <div class="form-row" style="display:block;position:relative;"><label style="display:block;margin-bottom:6px;">본문 <small style="color:#78abc5;font-weight:400;">@를 입력해 지명·인물·국가 연결</small></label><textarea name="content" rows="10" required style="box-sizing:border-box;width:100%;">${_escapeHistoryInline(record.content || '')}</textarea><div data-mention-results style="display:none;position:absolute;left:0;right:0;top:100%;z-index:30;max-height:230px;overflow:auto;margin-top:3px;padding:4px;border:1px solid rgba(93,166,199,.5);border-radius:7px;background:#101a22;box-shadow:0 10px 28px rgba(0,0,0,.65);"></div></div>
+              <div class="form-row"><label>동영상 URL</label><input name="video_url" type="url" value="${_escapeHistoryInline(record.video_url || '')}" placeholder="YouTube·Vimeo 또는 MP4 주소 (선택 사항)"></div>
             </div>
             <div class="source-record-direct-actions" style="display:flex;gap:8px;justify-content:flex-end;">
               <button type="button" data-action="delete" class="danger" style="margin-right:auto;">삭제</button>
@@ -25620,9 +25630,11 @@ kingSelect.addEventListener('change', () => {
                 title: String(fields.get('title') || '').trim(),
                 content_type: String(fields.get('content_type') || 'translation'),
                 content: serializeSourceMentions(String(fields.get('content') || '').trim()),
+                video_url: String(fields.get('video_url') || '').trim() || null,
                 link_exclusions: [...sourceLinkExclusions]
             };
             if (!Number.isFinite(data.year) || !data.source || !data.title || !data.content) return alert('시점, 출전, 제목, 본문을 입력해주세요.');
+            if (data.video_url && !window.markerVideo?.parse(data.video_url)) return alert('YouTube, Vimeo 또는 MP4·WebM·Ogg 동영상 주소를 입력해주세요.');
             const saveButton = form.querySelector('[type="submit"]');
             saveButton.disabled = true;
             saveButton.textContent = '저장 중…';
@@ -25698,6 +25710,7 @@ kingSelect.addEventListener('change', () => {
             event_name: document.getElementById('historyEvent').value,
             create_event: document.getElementById('createEvent').checked, // 🚩 [수정] create_event 플래그를 history 데이터에 포함
             photo: document.getElementById('historyPhoto').value || null, // 🚩 [추가] 사진 데이터 수집
+            video_url: document.getElementById('historyVideoUrl').value.trim() || null,
             comment: document.getElementById('historyComment').value || null, // 시대별 코멘트
             records: {
                 korean: {
@@ -25721,6 +25734,9 @@ kingSelect.addEventListener('change', () => {
 
         if (isNaN(data.year) || !data.event_name) {
             return alert("연도와 이벤트명은 필수 입력 사항입니다.");
+        }
+        if (data.video_url && !window.markerVideo?.parse(data.video_url)) {
+            return alert('YouTube, Vimeo 또는 MP4·WebM·Ogg 동영상 주소를 입력해주세요.');
         }
         
         try {
@@ -25821,6 +25837,7 @@ kingSelect.addEventListener('change', () => {
         document.getElementById('historyYear').value = record.year;
         document.getElementById('historyEvent').value = record.event_name;
         document.getElementById('historyPhoto').value = record.photo ?? '';
+        document.getElementById('historyVideoUrl').value = record.video_url ?? '';
         document.getElementById('historyComment').value = record.comment ?? '';
 
         document.getElementById('createEvent').checked = record.create_event || false;
@@ -28783,7 +28800,8 @@ kingSelect.addEventListener('change', () => {
             let orbitTimer = null;
 
             function get3dTerritoryBasemapOpacity() {
-                return window._historyGlobeBasemap === 'terrain' ? 0.22 : 0.35;
+                // 위성 질감이 영토색 아래에서 탁해지지 않도록 채색은 얇게 유지한다.
+                return window._historyGlobeBasemap === 'terrain' ? 0.18 : 0.26;
             }
 
             function apply3dTerritoryBasemapOpacity() {
@@ -29992,8 +30010,8 @@ kingSelect.addEventListener('change', () => {
                     battle:  { size: 20, hanja: '戰' },
                     chon:    { size: 15, hanja: '村' },
                 };
-                const nameStyle3d = `color:#d8cdb8;font-family:'Nanum Myeongjo',serif;font-weight:300;font-size:10px;white-space:nowrap;text-shadow:0 0 2px rgba(0,0,0,0.9),0 0 4px rgba(0,0,0,0.8);`;
-                const hanjaStyle3d = `font-weight:300;font-size:10px;line-height:1;white-space:nowrap;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;`;
+                const nameStyle3d = `color:#f3ead7;font-family:'Nanum Myeongjo',serif;font-weight:700;font-size:11px;white-space:nowrap;text-shadow:0 1px 1px #000,0 0 2px #000;`;
+                const hanjaStyle3d = `font-weight:700;font-size:11px;line-height:1;white-space:nowrap;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;`;
 
                 // ── 뷰포트 안 우선, 밖 나중으로 정렬해서 chunked rAF 렌더 ──
                 const _inVP  = castleData3d.filter(({ castle: c }) => c.lat != null && c.lng != null && _inViewport(c.lat, c.lng));
@@ -30252,6 +30270,8 @@ kingSelect.addEventListener('change', () => {
                     const effectiveCi3d = ci ? (getEffectiveCountryInfo(ci, _markerTime3d.year, _markerTime3d.month) || ci) : null;
                     const politicalForm3d = normalizeCountryPoliticalForm(effectiveCi3d?.political_form || 'state');
                     const politicalSymbol3d = COUNTRY_POLITICAL_FORM_ICONS[politicalForm3d] || '';
+                    const politicalName3d = effectiveCi3d?.name || ci?.name || '';
+                    const politicalEthnicity3d = effectiveCi3d?.ethnicity || ci?.ethnicity || '';
 
                     // ── 우선순위 결정 (충돌 감지용) ──
                     // 2=수도, 1=자연지물/지명, 0=일반
@@ -30463,6 +30483,10 @@ kingSelect.addEventListener('change', () => {
                     if (_isBattle3d) el.classList.add('ml3d-battle-wrap');
                     el.classList.add('ml3d-scale-marker');
                     el.dataset.ml3dPriority = String(_priority);
+                    if (politicalSymbol3d) {
+                        el.title = `${politicalName3d}${politicalEthnicity3d ? ` · ${politicalEthnicity3d}` : ''}`;
+                        el.setAttribute('aria-label', el.title);
+                    }
                     if (c.is_natural_feature && !_isBattle3d) el.dataset.ml3dNatural = '1';
                     el.innerHTML = markerHtml;
 
@@ -30475,7 +30499,7 @@ kingSelect.addEventListener('change', () => {
                         const markerDescription3d = getMarkerDescriptionAtTime(c, activeRec);
                         const popupLift = Math.min(72, Math.max(30, Math.round(el.getBoundingClientRect().height) + 6));
                         const pop = window._openSharedPopup(_m, [c.lng, c.lat],
-                            `<div style="font-size:13px;color:#e8d9b8;padding:4px 2px;cursor:pointer;max-width:280px;"><b>${castleName3d}</b>${ci ? `<br><span style="color:#7eb8e8;font-size:11px;">${ci.name}</span>` : ''}${markerDescription3d ? `<div style="margin-top:6px;padding-top:5px;border-top:1px solid rgba(180,140,80,.28);color:#b8c8d4;font-size:12px;white-space:pre-wrap;line-height:1.5;">${renderEntityTokensInRichHtml(stripImgTags(markerDescription3d))}</div>` : ''}</div>`,
+                            `<div style="font-size:13px;color:#e8d9b8;padding:4px 2px;cursor:pointer;max-width:280px;">${politicalSymbol3d ? `<b style="color:#ffe39a;">${_escapeHistoryInline(politicalName3d)}</b>${politicalEthnicity3d ? `<br><span style="color:#a9d8c2;font-size:11px;">민족 · ${_escapeHistoryInline(politicalEthnicity3d)}</span>` : ''}<br><span style="color:#b8c8d4;font-size:11px;">거점 · ${_escapeHistoryInline(castleName3d)}</span>` : `<b>${_escapeHistoryInline(castleName3d)}</b>${ci ? `<br><span style="color:#7eb8e8;font-size:11px;">${_escapeHistoryInline(ci.name)}</span>` : ''}`}${markerDescription3d ? `<div style="margin-top:6px;padding-top:5px;border-top:1px solid rgba(180,140,80,.28);color:#b8c8d4;font-size:12px;white-space:pre-wrap;line-height:1.5;">${renderEntityTokensInRichHtml(stripImgTags(markerDescription3d))}</div>` : ''}</div>`,
                             { offset: { 'bottom': [0, -popupLift], 'bottom-left': [0, -popupLift], 'bottom-right': [0, -popupLift], 'top': [0, 10], 'left': [10, 0], 'right': [-10, 0] } }
                         );
                         pop._castleKey = c._id;
@@ -30610,16 +30634,16 @@ kingSelect.addEventListener('change', () => {
                             : '';
                         const _3dLblSealChar = country.sealText || (()=>{ const n=country.name||''; const hj=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hj.length) return hj.slice(-1)[0]; const hg=(n.match(/[가-힣]/g)||[]); return hg.length ? hg.slice(-1)[0] : '?'; })();
                         const flagHtml = country.flag
-                            ? `<img src="${(typeof toRawImageUrl === 'function') ? toRawImageUrl(country.flag) : country.flag}" style="width:77px;height:auto;object-fit:contain;display:block;flex-shrink:0;opacity:1;" onerror="this.style.display='none'">`
-                            : `<div style="display:inline-block;flex-shrink:0;line-height:0;">${(typeof createCountryFlagSvg === 'function') ? createCountryFlagSvg(countryColor, _3dLblSealChar, 37) : ''}</div>`;
+                            ? `<img src="${(typeof toRawImageUrl === 'function') ? toRawImageUrl(country.flag) : country.flag}" style="width:calc(77px * var(--macro-flag-scale,1));height:auto;object-fit:contain;display:block;flex-shrink:0;opacity:1;" onerror="this.style.display='none'">`
+                            : `<div style="display:inline-block;flex-shrink:0;line-height:0;width:calc(37px * var(--macro-flag-scale,1));height:calc(81px * var(--macro-flag-scale,1));">${(typeof createCountryFlagSvg === 'function') ? createCountryFlagSvg(countryColor, _3dLblSealChar, 37).replace(/width="37" height="81"/, 'width="100%" height="100%"') : ''}</div>`;
                         const ethnicHtml = (typeof layerVisibility !== 'undefined' && layerVisibility.ethnicLabel && country.ethnicity)
                             ? `<div class="macro-country-ethnic ml3d-ethnic-label">${country.ethnicity}</div>`
                             : '';
                         // 2D와 동일한 macro-country-* 타이포그래피를 사용한다.
-                        const labelHtml = `<div style="display:inline-flex;flex-direction:row;align-items:center;gap:0px;pointer-events:auto;transform:scale(var(--macro-flag-scale,1));transform-origin:bottom center;">
+                        const labelHtml = `<div style="display:inline-flex;flex-direction:row;align-items:center;gap:0px;pointer-events:auto;">
                             ${flagHtml}
-                            <div class="macro-country-copy" style="display:flex;flex-direction:column;align-items:center;position:relative;z-index:1;margin-left:-50px;margin-bottom:-75px;">
-                                <div class="macro-country-name" data-country-id="${countryId}" style="font-size:14px;">${displayName}</div>
+                            <div class="macro-country-copy" style="display:flex;flex-direction:column;align-items:center;position:relative;z-index:1;margin-left:calc(-50px * var(--macro-flag-scale,1));margin-bottom:calc(-75px * var(--macro-flag-scale,1));">
+                                <div class="macro-country-name" data-country-id="${countryId}" style="font-size:max(11px,calc(14px * var(--macro-flag-scale,1)));">${displayName}</div>
                                 ${periodHtml}${ethnicHtml}
                             </div>
                         </div>`;
@@ -32211,10 +32235,10 @@ kingSelect.addEventListener('change', () => {
                         source: sourceId,
                         layout: { visibility: 'none' },
                         paint: {
-                            'raster-saturation': 0.04,
-                            'raster-contrast': 0.16,
-                            'raster-brightness-max': 0.88,
-                            'raster-fade-duration': 120
+                            'raster-saturation': 0.1,
+                            'raster-contrast': 0.22,
+                            'raster-brightness-max': 0.98,
+                            'raster-fade-duration': 60
                         }
                     }, firstHistoryLayer?.id);
                 }
@@ -32247,8 +32271,8 @@ kingSelect.addEventListener('change', () => {
                     id: 'history-globe-coastline-shadow',
                     paint: {
                         'line-color': 'rgba(7, 10, 11, 0.72)',
-                        'line-width': ['interpolate', ['linear'], ['zoom'], 2, 3.2, 6, 5.2, 10, 7],
-                        'line-blur': ['interpolate', ['linear'], ['zoom'], 2, 2.2, 8, 4.2],
+                        'line-width': ['interpolate', ['linear'], ['zoom'], 2, 2.4, 6, 3.8, 10, 5],
+                        'line-blur': ['interpolate', ['linear'], ['zoom'], 2, 1.2, 8, 2.4],
                         'line-translate': [1.2, 1.8],
                         'line-opacity': 0.78
                     }

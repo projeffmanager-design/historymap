@@ -84,6 +84,10 @@
             .odp-video-host{position:absolute;inset:0;z-index:1;background:#080d13}
             .odp-video-host iframe,.odp-video-host video{width:100%;height:100%;display:block;border:0;object-fit:contain;background:#080d13}
             .odp-hero:has(.odp-video-host) .odp-hero-gradient{pointer-events:none}
+            .history-inline-video{margin:12px 0 4px;max-width:720px}
+            .history-inline-video-play{display:block;width:100%;padding:11px 14px;border:1px solid rgba(217,174,82,.55);border-radius:7px;background:rgba(217,174,82,.11);color:#efd18d;text-align:left;font:inherit;font-weight:600;cursor:pointer}
+            .history-inline-video-play:hover{background:rgba(217,174,82,.21)}
+            .history-inline-video iframe,.history-inline-video video{display:block;width:100%;aspect-ratio:16/9;border:0;border-radius:7px;background:#080d13}
         `;
         document.head.appendChild(style);
     }
@@ -157,6 +161,29 @@
         }
         return true;
     }
+
+    document.addEventListener('click', event => {
+        const button = event.target.closest?.('.history-inline-video-play');
+        if (!button) return;
+        const host = button.closest('.history-inline-video');
+        const video = parse(host?.dataset.historyVideoUrl);
+        if (!host || !video) return;
+        event.stopPropagation();
+        ensureStyle();
+        window._odpStopVoice?.();
+        window.bgmPlayer?.pause?.();
+        const media = makeMedia(video);
+        if (video.kind === 'file') media.muted = false;
+        else {
+            const url = new URL(media.src);
+            if (video.kind === 'youtube') url.searchParams.set('mute', '0');
+            if (video.kind === 'vimeo') url.searchParams.set('muted', '0');
+            media.src = url.href;
+        }
+        media.title = '역사 기록 관련 동영상';
+        host.replaceChildren(media);
+        if (video.kind === 'file') media.play().catch(() => {});
+    });
 
     window.markerVideo = { parse, render, clear };
 })();
