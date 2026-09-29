@@ -2883,13 +2883,15 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         const yearText = value => Number.isFinite(value) ? (value < 0 ? `BC ${Math.abs(value)}` : `${value}년`) : '';
         return [yearText(start), yearText(end)].filter(Boolean).join(' ~ ');
     };
-    window._odpGoToSameNameDb = function(castleId, targetYear = null, targetMonth = 1) {
-        const target = (castles || []).find(item => String(item?._id || item?.id) === String(castleId));
-        if (!target || !Number.isFinite(Number(target.lat)) || !Number.isFinite(Number(target.lng))) return;
+    window._odpGoToSameNameDb = function(castleId, targetYear = null, targetMonth = 1, sharedRecord = null) {
+        const target = (castles || []).find(item => String(item?._id || item?.id) === String(castleId)) || sharedRecord;
+        const targetLat = Number(target?.lat ?? target?.geo_location?.coordinates?.[1]);
+        const targetLng = Number(target?.lng ?? target?.geo_location?.coordinates?.[0]);
+        if (!target || !Number.isFinite(targetLat) || !Number.isFinite(targetLng)) return false;
         const parsedYear = targetYear === null || targetYear === '' ? null : Number(targetYear);
         const parsedMonth = Math.min(12,Math.max(1,Number(targetMonth)||1));
         const openAtTime = () => {
-            const lat = Number(target.lat), lng = Number(target.lng);
+            const lat = targetLat, lng = targetLng;
             if (window._is3dMode && window.mlMap3d) window.mlMap3d.flyTo({ center:[lng,lat], zoom:Math.max(window.mlMap3d.getZoom(),10), duration:1000, essential:true });
             map.flyTo([lat,lng],Math.max(map.getZoom(),10),{animate:true,duration:.9});
             const current = getCurrentYearMonth();
@@ -2910,6 +2912,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
             if(typeof updateSliderTooltip==='function')updateSliderTooltip(point.year,point.month);
             setTimeout(openAtTime,120);
         } else openAtTime();
+        return true;
     };
     window._odpGoToSameNameMap = function(lat, lng, label, sub) {
         if (typeof window._tbGoToMapResult === 'function') return window._tbGoToMapResult(Number(lat),Number(lng),label,sub);
@@ -2998,6 +3001,31 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         const graphLinkedRecords = [];
         // 현재 열린 패널의 castle id 추적 (저장 후 갱신에 사용)
         window._currentDetailCastleId = castle._id || castle.name;
+        const shareButton = document.getElementById('odp-share-marker');
+        if (shareButton) {
+            const markerId = String(castle?._id || castle?.id || '');
+            shareButton.style.display = markerId ? 'grid' : 'none';
+            shareButton.onclick = async () => {
+                const { year, month } = getCurrentYearMonth();
+                const shareUrl = new URL(window.location.pathname, window.location.origin);
+                shareUrl.searchParams.set('marker', markerId);
+                shareUrl.searchParams.set('year', String(year));
+                shareUrl.searchParams.set('month', String(month));
+                const markerLat = Number(castle.lat ?? castle.geo_location?.coordinates?.[1]);
+                const markerLng = Number(castle.lng ?? castle.geo_location?.coordinates?.[0]);
+                if (Number.isFinite(markerLat) && Number.isFinite(markerLng)) {
+                    shareUrl.searchParams.set('lat', markerLat.toFixed(5));
+                    shareUrl.searchParams.set('lng', markerLng.toFixed(5));
+                }
+                try {
+                    await navigator.clipboard.writeText(shareUrl.href);
+                    shareButton.title = '링크가 복사되었습니다';
+                    if (typeof showToast === 'function') showToast('🔗 마커 공유 링크를 복사했습니다.', 'success');
+                } catch (_) {
+                    window.prompt('마커 공유 링크를 복사하세요.', shareUrl.href);
+                }
+            };
+        }
         // 국가 상세 패널이 열려있으면 닫기
         const cdp = document.getElementById('country-detail-panel');
         if (cdp && cdp.classList.contains('active')) {
@@ -26629,6 +26657,45 @@ kingSelect.addEventListener('change', () => {
             console.error('[init] initialize() threw — continuing anyway:', e);
         }
 
+        // 공유 URL은 데이터와 3D 지도가 모두 준비된 뒤 한 번만 적용한다.
+        (async function openMarkerShareLink() {
+            const params = new URLSearchParams(window.location.search);
+            const markerId = params.get('marker');
+            if (!markerId || !/^[a-f\d]{24}$/i.test(markerId)) return;
+            const yearParam = params.get('year');
+            const parsedYear = yearParam !== null && /^-?\d{1,5}$/.test(yearParam) ? Number(yearParam) : null;
+            const monthParam = Number(params.get('month'));
+            const targetMonth = Number.isInteger(monthParam) && monthParam >= 1 && monthParam <= 12 ? monthParam : 1;
+            let sharedRecord = window._sessionMapCache?.castlesById?.get(markerId) || null;
+            if (!sharedRecord) {
+                try {
+                    const response = await fetch(`/api/castle/${encodeURIComponent(markerId)}`, { cache:'no-store' });
+                    if (response.ok) sharedRecord = await response.json();
+                } catch (error) {
+                    console.warn('[마커 공유] 기록 조회 실패:', error);
+                }
+            }
+            if (!sharedRecord) {
+                if (typeof showToast === 'function') showToast('공유된 마커를 찾을 수 없습니다.', 'error');
+                return;
+            }
+            const started = Date.now();
+            const openWhenReady = () => {
+                if (!window._is3dMode || !window.mlMap3d || typeof window._odpGoToSameNameDb !== 'function') {
+                    if (Date.now() - started > 30000) {
+                        clearInterval(waitForMap);
+                        if (typeof showToast === 'function') showToast('지도 준비가 지연되어 공유 마커를 열지 못했습니다.', 'error');
+                    }
+                    return;
+                }
+                clearInterval(waitForMap);
+                if (!window._odpGoToSameNameDb(markerId, parsedYear, targetMonth, sharedRecord)
+                    && typeof showToast === 'function') showToast('공유된 마커의 좌표를 확인할 수 없습니다.', 'error');
+            };
+            const waitForMap = setInterval(openWhenReady, 250);
+            openWhenReady();
+        })();
+
         // ── 📦 [SessionCache] _loadedTileFiles 참조 동기화 ──────────────────
         // _loadedTileFiles 는 territory tile IIFE 스코프에 있으므로
         // initialize() 완료 후 window 경유로 노출된 참조를 연결합니다.
@@ -32413,8 +32480,17 @@ kingSelect.addEventListener('change', () => {
                 // 2D 타일이 먼저 페인트되지 않도록 전환 중에는 지도를 숨긴다.
                 const mapEl = document.getElementById('map');
                 if (mapEl) mapEl.style.visibility = 'hidden';
-                map.setView([36.4, 118.5], 4.5, { animate: false });
-                window._historyInitialCamera = { lat: 36.4, lng: 118.5, zoom: 4.5 };
+                const shareParams = new URLSearchParams(window.location.search);
+                const shareLat = Number(shareParams.get('lat'));
+                const shareLng = Number(shareParams.get('lng'));
+                const hasShareCamera = !!shareParams.get('marker') && shareParams.has('lat') && shareParams.has('lng')
+                    && Number.isFinite(shareLat) && Number.isFinite(shareLng)
+                    && Math.abs(shareLat) <= 90 && Math.abs(shareLng) <= 180;
+                const initialCamera = hasShareCamera
+                    ? { lat: shareLat, lng: shareLng, zoom: 8 }
+                    : { lat: 36.4, lng: 118.5, zoom: 4.5 };
+                map.setView([initialCamera.lat, initialCamera.lng], initialCamera.zoom, { animate: false });
+                window._historyInitialCamera = initialCamera;
                 window._historyMapMode = true;
                 window._historyVectorMode = true;
                 document.body.classList.add('history-map-mode', 'history-vector-mode');
