@@ -42,9 +42,9 @@
     <div class="content">
       <section class="panel active" id="panel-overview"><div class="section-head"><h2>연구 성과 개요</h2><p>사관이 축적한 연구의 갈래와 진행 상태</p></div><div class="grid2"><div class="card"><h3>연구 분야</h3><div class="breakdown" id="categoryBars"></div></div><div class="card"><h3>심사 현황</h3><div class="breakdown" id="statusBars"></div></div></div><div class="section-head" style="margin-top:28px"><h2>최근 연구 기록</h2></div><div class="record-list" id="recentRecords"></div></section>
       <section class="panel" id="panel-records"><div class="section-head"><h2>역사 연구 기록</h2><p>제출한 내역·분야·심사 결과</p></div><div class="record-list" id="allRecords"></div></section>
-      <section class="panel" id="panel-map"><div class="section-head"><h2>나의 연구 지도</h2><p>이 사관이 제출한 위치 사료만 표시합니다</p></div><div class="map-layout"><div id="research-map"></div><div class="map-list" id="mapList"></div></div></section>
+      <section class="panel" id="panel-map"><div class="section-head"><h2>나의 연구 지도</h2><p>제출한 위치 사료와 직접 생성한 지도 마커</p></div><div class="map-layout"><div id="research-map"></div><div class="map-list" id="mapList"></div></div></section>
       <section class="panel" id="panel-heroes"><div class="section-head"><h2>나의 역사 인물</h2><p>인물 연구로 제출한 기록</p></div><div class="hero-grid" id="heroGrid"></div></section>
-      <section class="panel" id="panel-mail"><div class="section-head"><h2>전서구</h2><p>로그인한 사관끼리 주고받는 개인 서신</p></div><div id="mailGuest" class="empty">전서구는 로그인한 사관만 이용할 수 있습니다.</div><div id="mailApp" class="mail-layout" hidden><form class="card compose" id="mailForm"><h3>새 전서구</h3><label for="recipientSearch">받는 사관 검색</label><div class="recipient-search-wrap"><input class="input" id="recipientSearch" autocomplete="off" placeholder="사관 이름 또는 아이디 입력"><input type="hidden" id="recipient" required><div class="recipient-results" id="recipientResults"></div></div><label for="mailBody">서신 내용</label><textarea id="mailBody" maxlength="1000" required placeholder="예를 갖추어 연구 의견을 나누어 보세요."></textarea><button class="btn primary" type="submit">전서구 날리기</button><div class="notice" id="mailNotice"></div></form><div><div class="mail-tabs"><button class="btn primary" data-box="inbox">받은 전서구</button><button class="btn" data-box="outbox">보낸 전서구</button></div><div class="mail-list" id="mailList"></div></div></div></section>
+      <section class="panel" id="panel-mail"><div class="section-head"><h2>전서구</h2><p>로그인한 사관끼리 주고받는 개인 서신</p></div><div id="mailGuest" class="empty">전서구는 로그인한 사관만 이용할 수 있습니다.</div><div id="mailApp" class="mail-layout" hidden><form class="card compose" id="mailForm"><h3>새 전서구</h3><label for="recipientSearch">받는 사관 검색</label><div class="recipient-search-wrap"><input class="input" id="recipientSearch" autocomplete="off" placeholder="사관 이름 또는 아이디 입력"><input type="hidden" id="recipient" required><div class="recipient-results" id="recipientResults"></div></div><label for="mailBody">서신 내용</label><textarea id="mailBody" maxlength="1000" required placeholder="예를 갖추어 연구 의견을 나누어 보세요."></textarea><button class="btn primary" type="submit">전서구 날리기</button><button class="btn" type="button" id="broadcastMailBtn" hidden>📣 전체 사관에게 보내기</button><div class="notice" id="mailNotice"></div></form><div><div class="mail-tabs"><button class="btn primary" data-box="inbox">받은 전서구</button><button class="btn" data-box="outbox">보낸 전서구</button></div><div class="mail-list" id="mailList"></div></div></div></section>
       <section class="panel" id="panel-mentions"><div class="section-head"><h2>호명(呼名)</h2><p>사관 활동과 의견에서 나를 태그한 기록</p></div><div id="mentionGuest" class="empty">호명 기록은 로그인한 사관만 확인할 수 있습니다.</div><div class="mail-list" id="mentionList"></div></section>
       <section class="panel" id="panel-honors"><div class="section-head"><h2>명예 호칭과 연구 배지</h2><p>향후 연구 성과 체계와 연동 예정</p></div><div class="card honor-placeholder"><div class="seal">功績</div><h3>명예 체계를 준비하고 있습니다</h3><p>특정 시대·지역·사서 연구 성과와 승인 기록을 바탕으로 명예 호칭과 배지를 부여할 수 있도록 공간을 마련했습니다.</p></div></section>
     </div>
@@ -81,7 +81,8 @@
   const auth = token ? { Authorization: `Bearer ${token}` } : {};
   const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
   const categoryNames = { historical_record:'역사 기록',hero_research:'인물 연구',castle:'성·도시',city:'도시',natural:'자연·유적',place:'지명',other:'기타' };
-  const statusNames = { pending:'검토 대기',reviewed:'검토 완료',approved:'승인',rejected:'반려' };
+  const statusNames = { pending:'검토 대기',reviewed:'검토 완료',approved:'승인',rejected:'반려',published:'지도 마커' };
+  const mapSourceNames = { contribution:'위치 사료',castle:'성·도시 마커',natural:'자연 마커',resource:'자원 마커' };
   let me = null, profile = null, map = null, markerById = new Map(), directory = [];
   let leafletPromise = null, directoryPromise = null;
   const sameUser = (account, pageUser) => {
@@ -141,6 +142,7 @@
     const isOwner=sameUser(me,u);$('editBtn').hidden=!isOwner;$('passwordBtn').hidden=!isOwner;$('deactivateBtn').hidden=!isOwner;$('mailToBtn').hidden=!me||me.isGuest||isOwner;$('mailToBtn').disabled=!token;$('myPageBtn').hidden=!me||me.isGuest||isOwner;
     if(!$('myPageBtn').hidden)$('myPageBtn').onclick=()=>{location.href=`/mypage.html?id=${encodeURIComponent(me._id||me.userId||me.id||me.username)}`};
     document.querySelector('[data-tab="mail"]').hidden=!isOwner;
+    $('broadcastMailBtn').hidden=!isOwner||!['admin','superuser'].includes(me?.role);
     document.querySelector('[data-tab="mentions"]').hidden=!isOwner;
     $('loading').hidden=true;$('app').hidden=false;
   }
@@ -157,7 +159,31 @@
     });
     return leafletPromise;
   }
-  async function initMap(){try{await ensureLeaflet();if(map){map.invalidateSize();return}map=L.map('research-map',{minZoom:2}).setView([37.5,127],5);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenStreetMap'}).addTo(map);const bounds=[];$('mapList').innerHTML='';profile.mapPoints.forEach(point=>{const color={approved:'#496d57',rejected:'#8a4a45',reviewed:'#355e77',pending:'#a47b28'}[point.status]||'#7d261d';const marker=L.circleMarker([point.lat,point.lng],{radius:8,color:'#fff',weight:2,fillColor:color,fillOpacity:.9}).addTo(map).bindPopup(`<strong>${esc(point.name)}</strong><br>${esc(statusNames[point.status]||point.status)}`);markerById.set(point._id,marker);bounds.push([point.lat,point.lng]);$('mapList').insertAdjacentHTML('beforeend',`<button class="map-item" data-point="${esc(point._id)}"><strong>${esc(point.name)}</strong><small>${esc(statusNames[point.status]||point.status)} · ${point.lat.toFixed(3)}, ${point.lng.toFixed(3)}</small></button>`)});if(bounds.length)map.fitBounds(bounds,{padding:[30,30],maxZoom:8});else $('mapList').innerHTML=empty('위치가 포함된 연구 기록이 없습니다.');document.querySelectorAll('[data-point]').forEach(btn=>btn.addEventListener('click',()=>{const marker=markerById.get(btn.dataset.point);if(marker){map.setView(marker.getLatLng(),10);marker.openPopup()}}));}catch(err){$('mapList').innerHTML=empty(err.message)}}
+  async function initMap(){
+    try {
+      await ensureLeaflet();
+      if(map){map.invalidateSize();return}
+      map=L.map('research-map',{minZoom:2}).setView([37.5,127],5);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenStreetMap'}).addTo(map);
+      const bounds=[];
+      $('mapList').innerHTML='';
+      profile.mapPoints.forEach(point=>{
+        const color={approved:'#496d57',rejected:'#8a4a45',reviewed:'#355e77',pending:'#a47b28',published:'#7d261d'}[point.status]||'#7d261d';
+        const source=mapSourceNames[point.sourceType]||'지도 마커';
+        const marker=L.circleMarker([point.lat,point.lng],{radius:8,color:'#fff',weight:2,fillColor:color,fillOpacity:.9}).addTo(map)
+          .bindPopup(`<strong>${esc(point.name)}</strong><br>${esc(source)} · ${esc(statusNames[point.status]||point.status)}`);
+        markerById.set(point._id,marker);
+        bounds.push([point.lat,point.lng]);
+        $('mapList').insertAdjacentHTML('beforeend',`<button class="map-item" data-point="${esc(point._id)}"><strong>${esc(point.name)}</strong><small>${esc(source)} · ${esc(statusNames[point.status]||point.status)} · ${point.lat.toFixed(3)}, ${point.lng.toFixed(3)}</small></button>`);
+      });
+      if(bounds.length)map.fitBounds(bounds,{padding:[30,30],maxZoom:8});
+      else $('mapList').innerHTML=empty('위치가 포함된 연구 기록이나 직접 생성한 마커가 없습니다.');
+      document.querySelectorAll('[data-point]').forEach(btn=>btn.addEventListener('click',()=>{
+        const marker=markerById.get(btn.dataset.point);
+        if(marker){map.setView(marker.getLatLng(),10);marker.openPopup()}
+      }));
+    } catch(err){$('mapList').innerHTML=empty(err.message)}
+  }
 
   const dialog=$('profileDialog');$('editBtn').addEventListener('click',()=>{const u=profile.user;$('editAvatar').src=u.avatarUrl||'/public/assets/ui/hero-default.png';$('editDisplayName').value=u.displayName;$('editWebsite').value=u.website||'';$('editBio').value=u.bio||'';$('editSpecialties').value=(u.specialties||[]).join(', ');$('editRegions').value=(u.focusRegions||[]).join(', ');dialog.showModal()});document.querySelector('[data-close]').addEventListener('click',()=>dialog.close());
   $('profileForm').addEventListener('submit',async e=>{e.preventDefault();try{await jsonFetch('/api/historians/me/profile',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({displayName:$('editDisplayName').value,website:$('editWebsite').value,bio:$('editBio').value,specialties:$('editSpecialties').value,focusRegions:$('editRegions').value})});showNotice('profileNotice','프로필을 저장했습니다.');setTimeout(()=>location.reload(),500)}catch(err){showNotice('profileNotice',err.message,true)}});
@@ -187,6 +213,17 @@
   document.querySelector('[data-close-mail]').addEventListener('click',()=>quickMailDialog.close());
   $('quickMailForm').addEventListener('submit',async event=>{event.preventDefault();try{const body=window.serializeEntityMentionsForField?window.serializeEntityMentionsForField($('quickMailBody')):$('quickMailBody').value;await jsonFetch('/api/historian-messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recipientId:profile.user._id,body})});showNotice('quickMailNotice','전서구를 보냈습니다.');setTimeout(()=>quickMailDialog.close(),650)}catch(err){showNotice('quickMailNotice',err.message,true)}});
   $('mailForm').addEventListener('submit',async e=>{e.preventDefault();if(!$('recipient').value)return showNotice('mailNotice','검색 결과에서 받을 사관을 선택해주세요.',true);try{const body=window.serializeEntityMentionsForField?window.serializeEntityMentionsForField($('mailBody')):$('mailBody').value;await jsonFetch('/api/historian-messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recipientId:$('recipient').value,body})});$('mailBody').value='';$('recipient').value='';$('recipientSearch').value='';showNotice('mailNotice','전서구를 보냈습니다.');loadMessages('outbox')}catch(err){showNotice('mailNotice',err.message,true)}});
+  $('broadcastMailBtn').addEventListener('click',async()=>{
+    if(!['admin','superuser'].includes(me?.role))return;
+    const body=window.serializeEntityMentionsForField?window.serializeEntityMentionsForField($('mailBody')):$('mailBody').value;
+    if(!body.trim()||body.length>1000)return showNotice('mailNotice','전서구 내용을 1~1000자로 입력해주세요.',true);
+    if(!confirm('활성 사관 전체에게 전서구를 보냅니다. 발송 후 취소할 수 없습니다. 계속할까요?'))return;
+    const button=$('broadcastMailBtn');button.disabled=true;
+    try{
+      const result=await jsonFetch('/api/historian-messages/broadcast',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({body})});
+      $('mailBody').value='';showNotice('mailNotice',`${result.sent}명의 사관에게 전서구를 보냈습니다.`);loadMessages('outbox');
+    }catch(err){showNotice('mailNotice',err.message,true)}finally{button.disabled=false}
+  });
   document.querySelectorAll('[data-box]').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('[data-box]').forEach(x=>x.classList.toggle('primary',x===btn));loadMessages(btn.dataset.box)}));
   async function loadMessages(box){if(!token)return;const target=box==='mentions'?$('mentionList'):$('mailList');try{const messages=await jsonFetch(`/api/historian-messages?box=${box}`);target.innerHTML=messages.map(m=>{const incoming=box!=='outbox';const source=m.sourceName?`<div class="meta">${esc(m.sourceName)}</div>`:'';const reply=box==='inbox'?`<div class="mail-actions"><button type="button" class="mail-reply" data-reply-to="${esc(m.senderId)}" data-reply-name="${esc(m.senderName)}">↩ 답신</button></div>`:'';return `<article class="mail ${incoming&&!m.readAt?'unread':''}" data-mail="${esc(m._id)}"><div class="mail-head"><strong>${incoming?'보낸 이: '+historianLink(m.senderId,m.senderName):'받는 이: '+historianLink(m.recipientId,m.recipientName)}</strong><time>${esc(dateText(m.createdAt))}</time></div>${source}<div class="mail-body">${linkedText(m.body)}</div>${reply}</article>`}).join('')||empty(box==='mentions'?'아직 나를 호명한 기록이 없습니다.':box==='inbox'?'받은 전서구가 없습니다.':'보낸 전서구가 없습니다.');if(incomingBox(box))target.querySelectorAll('[data-mail].unread').forEach(el=>el.addEventListener('click',async()=>{await jsonFetch(`/api/historian-messages/${el.dataset.mail}/read`,{method:'PUT'});el.classList.remove('unread');refreshUnreadBadges()}));target.querySelectorAll('.mail-reply').forEach(button=>button.addEventListener('click',async event=>{event.preventDefault();event.stopPropagation();const user=directory.find(item=>String(item._id)===button.dataset.replyTo);if(user)selectRecipient(user);else{$('recipient').value=button.dataset.replyTo;$('recipientSearch').value=button.dataset.replyName||'보낸 사관'}const article=button.closest('[data-mail]');if(article?.classList.contains('unread')){await jsonFetch(`/api/historian-messages/${article.dataset.mail}/read`,{method:'PUT'});article.classList.remove('unread');refreshUnreadBadges()}document.querySelector('.compose')?.scrollIntoView({behavior:'smooth',block:'start'});$('mailBody').focus()}));}catch(err){target.innerHTML=empty(err.message)}}
   function incomingBox(box){return box==='inbox'||box==='mentions'}
@@ -195,5 +232,6 @@
 })();
 </script>
 <script type="module" src="./src/core/entity-mentions.js?v=20260821-historian-mentions-2"></script>
+<script src="/public/assets/login-mail-notice.js?v=1"></script>
 </body>
 </html>

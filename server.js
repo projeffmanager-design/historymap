@@ -2541,6 +2541,8 @@ async function setupRoutesAndCollections() {
                 }
 
                 // timestamp for incremental/changed-only detection
+                newCastle.createdByUserId = String(req.user.userId);
+                newCastle.createdBy = req.user.username;
                 newCastle.updatedAt = new Date();
                 const result = await collections.castle.insertOne(newCastle);
 
@@ -4536,6 +4538,9 @@ app.post('/api/resources', verifyAdmin, async (req, res) => {
     const db = collections.countries.s.db;
     const doc = req.body;
     if (!doc.resource_type) return res.status(400).json({ error: 'resource_type 필수' });
+    delete doc._id;
+    doc.createdByUserId = String(req.user.userId);
+    doc.createdBy = req.user.username;
     if (doc.lat != null && doc.lng != null) {
       doc.location = { type: 'Point', coordinates: [parseFloat(doc.lng), parseFloat(doc.lat)] };
     }
@@ -7241,7 +7246,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (!newFeature.name || !newFeature.coordinates) {
                     return res.status(400).json({ message: "자연 지형지물 이름과 좌표가 필요합니다." });
                 }
-                
+                newFeature.createdByUserId = String(req.user.userId);
+                newFeature.createdBy = req.user.username;
                 const result = await collections.naturalFeatures.insertOne(newFeature);
                 naturalFeaturesCache = null; // 캐시 무효화
                 naturalFeaturesCacheTime = null;
@@ -11224,12 +11230,49 @@ app.get('/api/historians/:identifier', async (req, res) => {
             + Number(user.attendancePoints || 0);
 
         const mapPoints = contributions
-            .filter(item => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng)))
+            .filter(item => item.lat != null && item.lng != null && Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng)))
             .map(item => ({
                 _id: String(item._id), name: item.name || '이름 없는 기록',
                 lat: Number(item.lat), lng: Number(item.lng), category: item.category || 'other',
-                status: item.status || 'pending', year: item.year ?? item.start_year ?? null
+                status: item.status || 'pending', year: item.year ?? item.start_year ?? null,
+                sourceType: 'contribution'
             }));
+        // 사료 제출과 별도로 생성한 지도 마커도 작성자의 연구 지도에 포함한다.
+        const markerOwnerClauses = [
+            { createdByUserId: String(user._id) },
+            { createdByUserId: user._id },
+            { createdBy: user.username }
+        ];
+        // 이전 관리자 마커는 계정 ID 없이 표시 이름만 저장한 경우가 있다.
+        const legacyDisplayName = user.historianProfile?.displayName?.trim();
+        if ((user.role === 'admin' || user.role === 'superuser') && legacyDisplayName && legacyDisplayName !== user.username) {
+            markerOwnerClauses.push({ createdBy: legacyDisplayName });
+        }
+        const markerOwner = { $or: markerOwnerClauses };
+        const [castles, naturalFeatures, resources] = await Promise.all([
+            collections.castle.find(markerOwner, { projection: { name: 1, lat: 1, lng: 1, built_year: 1, built: 1, originContributionId: 1 } }).limit(2000).toArray(),
+            collections.naturalFeatures.find(markerOwner, { projection: { name: 1, lat: 1, lng: 1, coordinates: 1, start_year: 1 } }).limit(1000).toArray(),
+            collections.countries.s.db.collection('resources').find(markerOwner, { projection: { name: 1, resource_type: 1, lat: 1, lng: 1, start_year: 1 } }).limit(1000).toArray()
+        ]);
+        const addMarkerPoints = (items, sourceType, category) => {
+            for (const item of items) {
+                // 승인된 사료에서 생성된 마커는 같은 위치의 연구 기록과 중복 표시하지 않는다.
+                if (item.originContributionId && mapPoints.some(point => point._id === String(item.originContributionId))) continue;
+                const coordinates = Array.isArray(item.coordinates) ? item.coordinates : item.coordinates?.coordinates;
+                const lat = item.lat ?? coordinates?.[1];
+                const lng = item.lng ?? coordinates?.[0];
+                if (lat == null || lng == null || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) continue;
+                if (Math.abs(Number(lat)) > 90 || Math.abs(Number(lng)) > 180) continue;
+                mapPoints.push({
+                    _id: `${sourceType}:${item._id}`, name: item.name || item.resource_type || '이름 없는 마커',
+                    lat: Number(lat), lng: Number(lng), category, status: 'published',
+                    year: item.built_year ?? item.built ?? item.start_year ?? null, sourceType
+                });
+            }
+        };
+        addMarkerPoints(castles, 'castle', 'castle');
+        addMarkerPoints(naturalFeatures, 'natural', 'natural');
+        addMarkerPoints(resources, 'resource', 'resource');
         const heroes = contributions
             .filter(item => item.category === 'hero_research')
             .map(item => ({
@@ -11326,7 +11369,9 @@ app.get('/api/historian-messages', verifyToken, async (req, res) => {
             : box === 'mentions'
                 ? { recipientId: myId, type: 'mention' }
                 : { recipientId: myId, type: { $ne: 'mention' } };
-        const messages = await collections.historianMessages.find(query).sort({ createdAt: -1 }).limit(80).toArray();
+        if (req.query.unread === '1' && box === 'inbox') query.readAt = null;
+        const limit = Math.min(80, Math.max(1, Number.parseInt(req.query.limit, 10) || 80));
+        const messages = await collections.historianMessages.find(query).sort({ createdAt: -1 }).limit(limit).toArray();
         res.json(messages.map(message => ({ ...message, _id: String(message._id) })));
     } catch (error) {
         res.status(500).json({ message: '전서구 조회 실패', error: error.message });
@@ -11343,6 +11388,30 @@ app.get('/api/historian-notifications/unread-count', verifyToken, async (req, re
         res.json({ unread: mail + mentions, mail, mentions });
     } catch (error) {
         res.status(500).json({ message: '알림 조회 실패', error: error.message });
+    }
+});
+
+app.post('/api/historian-messages/broadcast', verifyAdmin, async (req, res) => {
+    try {
+        await setupRoutesAndCollections();
+        const body = String(req.body.body || '').trim();
+        if (!body || body.length > 1000) return res.status(400).json({ message: '전서구 내용을 1~1000자로 입력해주세요.' });
+        const senderId = String(req.user.userId);
+        const recipients = await collections.users.find(
+            { _id: { $ne: toObjectId(senderId) }, isGuest: { $ne: true }, isActive: { $ne: false } },
+            { projection: { _id: 1, username: 1 } }
+        ).toArray();
+        if (!recipients.length) return res.json({ ok: true, sent: 0 });
+        const createdAt = new Date();
+        const broadcastId = new ObjectId().toString();
+        await collections.historianMessages.insertMany(recipients.map(recipient => ({
+            senderId, senderName: req.user.username,
+            recipientId: String(recipient._id), recipientName: recipient.username,
+            body, broadcastId, createdAt, readAt: null
+        })), { ordered: false });
+        res.status(201).json({ ok: true, sent: recipients.length, broadcastId });
+    } catch (error) {
+        res.status(500).json({ message: '전체 전서구 발송 실패', error: error.message });
     }
 });
 
