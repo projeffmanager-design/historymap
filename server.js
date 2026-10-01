@@ -12,7 +12,7 @@ const path = require('path');
 const fs = require('fs');
 const { withResidentPopulation } = require('./lib/koreaResidentPopulation');
 const crypto = require('crypto');
-const { connectToDatabase, reconnectDatabase, collections } = require('./db'); // 🚩 [추가] DB 연결 모듈
+const { connectToDatabase, reconnectDatabase, collections, getMongoClient } = require('./db'); // 🚩 [추가] DB 연결 모듈
 const { put: blobPut, del: blobDel } = require('@vercel/blob'); // 🎙️ [추가] Vercel Blob SDK
 const multer = require('multer'); // 🦸 [추가] Hero 이미지 업로드용 Multer
 
@@ -6804,6 +6804,38 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // 고정 경로를 /:id보다 먼저 등록해야 shared-boundaries가 ID로 해석되지 않는다.
+        app.get('/api/territories/shared-boundaries', verifyAdmin, async (req, res) => {
+            try {
+                const territoryId = toObjectId(req.query.territoryId);
+                if (!territoryId) return res.status(400).json({ message: '영토 ID가 올바르지 않습니다.' });
+                const boundaryCollection = collections.territories.s.db.collection('territory_shared_boundaries');
+                // 한 영토에 직접 연결된 그룹뿐 아니라, 그 이웃이 참여한 그룹까지
+                // 모두 불러와야 다음 저장 때 연결된 경계의 버전/좌표가 누락되지 않는다.
+                const memberIds = new Set([String(territoryId)]);
+                const groupsById = new Map();
+                let frontier = [String(territoryId)];
+                while (frontier.length) {
+                    const groups = await boundaryCollection.find({ memberIds: { $in: frontier } })
+                        .project({ memberIds: 1, lines: 1, version: 1, updatedAt: 1 }).limit(26).toArray();
+                    const next = [];
+                    for (const group of groups) {
+                        groupsById.set(String(group._id), group);
+                        for (const id of group.memberIds || []) {
+                            if (!memberIds.has(id)) { memberIds.add(id); next.push(id); }
+                        }
+                    }
+                    if (memberIds.size > 25 || groupsById.size > 25 || groups.length > 25) {
+                        return res.status(409).json({ message: '연결된 공유 경계 그룹이 한 번에 편집할 수 있는 25개 영토/그룹을 초과합니다.' });
+                    }
+                    frontier = next;
+                }
+                res.json([...groupsById.values()].map(group => ({ ...group, _id: String(group._id) })));
+            } catch (error) {
+                res.status(500).json({ message: '공유 경계 조회 실패', error: error.message });
+            }
+        });
+
         // GET: 영토 단건 조회 (full geometry 포함)
         app.get('/api/territories/:id', async (req, res) => {
             try {
@@ -6854,6 +6886,18 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        app.delete('/api/territories/shared-boundaries', verifyAdmin, async (req, res) => {
+            try {
+                const territoryId = toObjectId(req.query.territoryId);
+                if (!territoryId) return res.status(400).json({ message: '영토 ID가 올바르지 않습니다.' });
+                const result = await collections.territories.s.db.collection('territory_shared_boundaries')
+                    .deleteMany({ memberIds: String(territoryId) });
+                res.json({ message: `공유 경계 연결 ${result.deletedCount}개를 해제했습니다. 영토 도형은 변경하지 않았습니다.`, deletedCount: result.deletedCount });
+            } catch (error) {
+                res.status(500).json({ message: '공유 경계 연결 해제 실패', error: error.message });
+            }
+        });
+
         // PUT: 영토 폴리곤 업데이트
         app.put('/api/territories/shared-boundary', verifyAdmin, async (req, res) => {
             try {
@@ -6871,17 +6915,25 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const objectIds = operations.map(operation => operation.updateOne.filter._id);
                 const existingCount = await collections.territories.countDocuments({ _id: { $in: objectIds } });
                 if (existingCount !== updates.length) return res.status(404).json({ message: '공유 경계 대상 영토 일부를 찾지 못했습니다.' });
-                const result = await collections.territories.bulkWrite(operations, { ordered: true });
-                if (result.matchedCount !== updates.length) return res.status(404).json({ message: '공유 경계 대상 영토 일부를 찾지 못했습니다.' });
+                const session = getMongoClient().startSession();
+                try {
+                    await session.withTransaction(async () => {
+                        const result = await collections.territories.bulkWrite(operations, { ordered: true, session });
+                        if (result.matchedCount !== updates.length) throw new Error('공유 경계 대상 영토 일부를 찾지 못했습니다.');
+                    });
+                } finally { await session.endSession(); }
                 territoriesCache = null; territoriesCacheTime = null;
                 ids.forEach(id => _dirtyTerritoryIds.add(id));
                 _territoryDirty = true;
                 rebuildTerritoryTilesIncremental('공유 경계 수정', ids).catch(error =>
                     console.error('❌ [공유 경계 타일 재빌드 실패]', error.message));
-                res.json({ message: `공유 경계 영토 ${updates.length}개 저장 완료`, ids: [...ids] });
+                res.json({ message: `영토 ${updates.length}개 경계 좌표 저장 완료`, ids: [...ids] });
             } catch (error) {
                 console.error('공유 경계 저장 실패:', error);
-                res.status(500).json({ message: '공유 경계 저장 실패', error: error.message });
+                const conflict = Boolean(error.status || error.code === 11000);
+                res.status(error.status || (error.code === 11000 ? 409 : 500)).json({
+                    message: conflict ? error.message : '공유 경계 저장 실패', error: error.message
+                });
             }
         });
 

@@ -29810,7 +29810,8 @@ kingSelect.addEventListener('change', () => {
                     return 6.0;
                 }
                 if (placeType === 'ju' || placeType === '주') return 5.0;
-                if (placeType === 'seong' || placeType === '성' || placeType === 'city') return 5.5;
+                if (placeType === 'seong' || placeType === '성') return 5.2;
+                if (placeType === 'city') return 5.5;
                 if (c.is_military_flag || placeType === 'battle') return 6.3;
                 if (placeType === 'gun' || placeType === '군') return 6.3;
                 if (placeType === 'hyeon' || placeType === '현') return 6.6;
@@ -30358,7 +30359,7 @@ kingSelect.addEventListener('change', () => {
                         return hg.length ? hg.slice(-1)[0] : '?';
                     })();
 
-                    // 깃발 HTML 헬퍼: 이미지 있으면 img, 없으면 SVG 자동 생성 (14px 기준)
+                    // 깃발 HTML 헬퍼: 일반 성·도시 21px, 수도는 별도 28px
                     const _mkFlagHtml = (flagUrl, color, seal, size = 14, noMargin = false) => {
                         const mb = noMargin ? '0' : '1px';
                         const effectiveFlagUrl = effectiveCi3d?.flag || flagUrl;
@@ -30419,11 +30420,11 @@ kingSelect.addEventListener('change', () => {
                                 ${_battleIconHtml3d}
                             </div>`;
                         } else if (c.custom_icon) {
-                            _3dMarkerFlagHtml = placeType3d === 'heritage' ? '' : _mkFlagHtml(ci?.flag, dotColor3d, sealChar, 14);
+                            _3dMarkerFlagHtml = placeType3d === 'heritage' ? '' : _mkFlagHtml(ci?.flag, dotColor3d, sealChar, 21);
                             txtHtml = `<div style="${nameStyle3d}margin-bottom:2px;">${castleName3d}</div>`;
                             icoHtml = `<img src="${c.custom_icon}" style="width:${c.icon_width||ptCfg.size}px;height:${c.icon_height||ptCfg.size}px;object-fit:contain;" onerror="this.style.display='none'">`;
                         } else {
-                            _3dMarkerFlagHtml = placeType3d === 'heritage' ? '' : _mkFlagHtml(ci?.flag, dotColor3d, sealChar, 14);
+                            _3dMarkerFlagHtml = placeType3d === 'heritage' ? '' : _mkFlagHtml(ci?.flag, dotColor3d, sealChar, 21);
                             txtHtml = `<div style="${nameStyle3d}">${castleName3d}</div>`;
                             icoHtml = `<div class="place-glyph-seal" style="width:${ptCfg.size}px;height:${ptCfg.size}px;color:${dotColor3d};font-size:${Math.max(12, Math.round(ptCfg.size * .58))}px;">${ptCfg.hanja}</div>`;
                         }
@@ -30516,11 +30517,11 @@ kingSelect.addEventListener('change', () => {
                             }
                         }
                     } else if (c.custom_icon) {
-                        _3dMarkerFlagHtml = _mkFlagHtml(ci?.flag, dotColor3d, sealChar, 14);
+                        _3dMarkerFlagHtml = _mkFlagHtml(ci?.flag, dotColor3d, sealChar, 21);
                         txtHtml = `<div style="display:flex;flex-direction:column;align-items:center;"><div style="${nameStyle3d}margin-bottom:2px;">${castleName3d}</div></div>`;
                         icoHtml = `<img src="${(typeof toRawImageUrl==='function')?toRawImageUrl(c.custom_icon):c.custom_icon}" style="width:${c.icon_width||20}px;height:${c.icon_height||20}px;object-fit:contain;display:block;vertical-align:bottom;" onerror="this.style.display='none'">`;
                     } else {
-                        _3dMarkerFlagHtml = _mkFlagHtml(ci?.flag, dotColor3d, sealChar, 14);
+                        _3dMarkerFlagHtml = _mkFlagHtml(ci?.flag, dotColor3d, sealChar, 21);
                         txtHtml = `<div style="display:flex;flex-direction:column;align-items:center;"><div style="${nameStyle3d}">${castleName3d}</div></div>`;
                         icoHtml = `<div style="color:${dotColor3d};font-size:10px;line-height:1;display:block;margin-bottom:0;text-shadow:-1px -1px 1px rgba(0,0,0,0.45),1px 1px 1px rgba(0,0,0,0.45);">▼</div>`;
                     }
@@ -30550,6 +30551,7 @@ kingSelect.addEventListener('change', () => {
                     if (_isBattle3d) el.classList.add('ml3d-battle-wrap');
                     el.classList.add('ml3d-scale-marker');
                     el.dataset.ml3dPriority = String(_priority);
+                    if (placeType3d === 'seong' || placeType3d === '성') el.dataset.ml3dCastle = '1';
                     if (politicalSymbol3d) {
                         el.title = `${politicalName3d}${politicalEthnicity3d ? ` · ${politicalEthnicity3d}` : ''}`;
                         el.setAttribute('aria-label', el.title);
@@ -30864,8 +30866,7 @@ kingSelect.addEventListener('change', () => {
                     document.documentElement.style.setProperty('--macro-flag-scale', _flagScale.toFixed(3));
 
                     // z < 7.5 : 자연 마커 전체 숨김 (일반 성보다 먼저 사라짐)
-                    // z < 6.5 : 일반 성 텍스트 숨김
-                    // z < 5.5 : 일반 성 전체 숨김 + 왕성(수도) 텍스트 숨김
+                    // 성(城)은 5.2부터 빈 공간에만 표시하고, 기타 일반 마커는 기존 LOD 유지
                     // z >= 6.5 : 도시 마커가 보이는 줌 → 국가명 라벨 숨김 (중복 방지)
                     const hideNatural = getEffectiveZoom(_m) < 7.0;
                     const hideNormal = getEffectiveZoom(_m) < 6.0;
@@ -30874,6 +30875,19 @@ kingSelect.addEventListener('change', () => {
                     const hideCapitalAll = z < 4.5;
                     const hideCountryLabel = z >= 6.5;
                     const _naturalLayerOff = (typeof layerVisibility !== 'undefined') && layerVisibility.natural === false;
+                    // 낮은 배율의 성은 수도·국가명과 서로 겹치지 않는 위치만 노출한다.
+                    const sparseCastleZoom = z >= 5.2 && z < 6.0;
+                    const occupiedCastlePoints = [];
+                    if (sparseCastleZoom) {
+                        _3dMarkers.forEach(mk => {
+                            const el = mk.getElement();
+                            if (el.dataset.ml3dPriority !== '2' && el.dataset.ml3dPriority !== '3') return;
+                            if (el.style.visibility === 'hidden') return;
+                            if (el.dataset.ml3dPriority === '3' && hideCountryLabel) return;
+                            const p = _m.project(mk.getLngLat());
+                            occupiedCastlePoints.push(p);
+                        });
+                    }
                     // HTML 국가명은 MapLibre symbol collision 대상이 아니므로 저배율에서 직접 간격을 확보한다.
                     const occupiedCountryLabels = [];
                     const countryLabelGapX = z < 4 ? 112 : 82;
@@ -30922,9 +30936,18 @@ kingSelect.addEventListener('change', () => {
                                 if (nameEl) nameEl.style.display = hideCapital ? 'none' : '';
                             }
                         } else {
-                            // 일반 성 마커 — z < 5.5 이면 전체 숨김, z < 6.5 이면 텍스트만 숨김
-                            el.style.display = hideNormalAll ? 'none' : '';
-                            if (!hideNormalAll) txtEl.style.display = hideNormal ? 'none' : '';
+                            const sparseCastle = sparseCastleZoom && el.dataset.ml3dCastle === '1';
+                            if (sparseCastle) {
+                                const p = _m.project(mk.getLngLat());
+                                const overlaps = occupiedCastlePoints.some(other =>
+                                    Math.abs(other.x - p.x) < 76 && Math.abs(other.y - p.y) < 44);
+                                el.style.display = overlaps ? 'none' : '';
+                                txtEl.style.display = '';
+                                if (!overlaps) occupiedCastlePoints.push(p);
+                            } else {
+                                el.style.display = hideNormalAll ? 'none' : '';
+                                if (!hideNormalAll) txtEl.style.display = hideNormal ? 'none' : '';
+                            }
                         }
                     });
                 };

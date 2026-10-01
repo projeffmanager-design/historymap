@@ -111,4 +111,4 @@ async function reconnectDatabase() {
     return connectToDatabase(false);
 }
 
-module.exports = { connectToDatabase, reconnectDatabase, collections };
+module.exports = { connectToDatabase, reconnectDatabase, collections, getMongoClient: () => client };

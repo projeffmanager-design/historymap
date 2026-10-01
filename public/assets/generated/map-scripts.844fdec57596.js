@@ -27,6 +27,10 @@
   var _tgSnapSegments   = [];
   var _tgSnapDistancePx = 18;
   var _tgPairId=null,_tgPairGeometry=null,_tgPairOriginal=null,_tgPairClickHandler=null,_tgPairSharedLines=[],_tgPairMembers=[];
+  var _tgPairSelectDirection=null;
+  var _tgPairRangeEnabled=true,_tgPairStartPoint=null;
+  var _tgPairRangeMarker=null;
+  var _tgCanonicalGroups=[];
   var _tgCoastClickHandler=null,_tgCoastGuideLine=null,_tgCoastSelection=null;
   var _tgAOverlapCandidates=[];
   var _tgReferenceBId=null,_tgBoundarySelectMode=false,_tgBoundarySelected=new Map(),_tgBoundaryStroke=[],_tgBoundarySelecting=false;
@@ -200,6 +204,23 @@
     var btn=document.getElementById('territory-geom-pair-btn');if(!btn)return;
     btn.style.display=show?'':'none';btn.classList.toggle('active',!!active);
     btn.textContent=active?'↔ B 대상 선택 중':'↔ A 기준선에 B 경계 맞춤';
+  }
+  function _tgReversePairBtn(show,active){
+    var btn=document.getElementById('territory-geom-reverse-pair-btn');if(!btn)return;
+    btn.style.display=show?'':'none';btn.classList.toggle('active',!!active);
+    btn.textContent=active?'↔ B 기준 영토 선택 중':'↔ B 기준선에 A 경계 맞춤';
+  }
+  function _tgPairRangeBtn(show){
+    var btn=document.getElementById('territory-geom-pair-range-btn');if(!btn)return;
+    btn.style.display=show?'':'none';btn.classList.toggle('active',_tgPairRangeEnabled);
+    btn.textContent='📍 공유구간 양끝 지정 '+(_tgPairRangeEnabled?'ON':'OFF');
+  }
+  function _tgTogglePairRange(){
+    _tgPairRangeEnabled=!_tgPairRangeEnabled;_tgPairStartPoint=null;_tgClearPairRangeMarker();_tgPairRangeBtn(true);
+    _tgSetMsg(_tgPairRangeEnabled?'📍 B 영토를 고른 뒤 공유구간 시작점과 끝점을 차례로 클릭하세요.':'📍 B 영토를 고른 뒤 한 지점으로 가까운 공유구간을 자동 선택합니다.','dirty');
+  }
+  function _tgClearPairRangeMarker(){
+    if(_tgPairRangeMarker){_tgPairRangeMarker.remove();_tgPairRangeMarker=null;}
   }
   function _tgCoastBtn(show,active){
     var btn=document.getElementById('territory-geom-coast-btn');if(!btn)return;
@@ -654,7 +675,7 @@
         if(!best||focusDistance<best.focusDistance-1e-9||(Math.abs(focusDistance-best.focusDistance)<1e-9&&score>best.score))best={a:a,b:b,ra:ra,rb:rb,score:score,focusDistance:focusDistance,tolerance:tolerance};
       });});
     }
-    if(!best)return null;
+    if(!best)return _tgForceSharedBoundary(first,second,focus);
     var pa=_tgRunPoints(best.a.ring,best.ra),pb=_tgRunPoints(best.b.ring,best.rb);
     var reversed=_tgLineEndpointCost(pa,pb,true)<_tgLineEndpointCost(pa,pb,false);
     // A는 사용자가 이미 정리한 기준선이다. 새 중간선을 만들거나 A를 움직이지 않고
@@ -663,10 +684,92 @@
     var originalB=best.b.ring;
     _tgReplaceRingRun(best.b,best.rb,reversed?reference.slice().reverse():reference.slice());
     if(_tgGeometryHasSelfIntersection(second)){
-      best.b.container[best.b.index]=originalB;best.b.ring=originalB;return null;
+      best.b.container[best.b.index]=originalB;best.b.ring=originalB;
+      return _tgForceSharedBoundary(first,second,focus);
     }
     reference._matchTolerance=best.tolerance;
     return reference;
+  }
+  // 사용자가 두 끝을 지정하면 기준 폴리곤의 그 사이 호만 상대 영토에 복사한다.
+  function _tgMakeSharedBoundaryByRange(source,target,startPoint,endPoint){
+    if(!startPoint||!endPoint||Math.hypot(startPoint[0]-endPoint[0],startPoint[1]-endPoint[1])<1e-7)return null;
+    var candidates=[];
+    _tgOuterRingRefs(source).forEach(function(ref){
+      var open=ref.ring.slice(0,-1),n=open.length;if(n<3)return;
+      var si=0,ei=0,sd=Infinity,ed=Infinity;
+      open.forEach(function(point,index){
+        var a=Math.hypot(point[0]-startPoint[0],point[1]-startPoint[1]);
+        var b=Math.hypot(point[0]-endPoint[0],point[1]-endPoint[1]);
+        if(a<sd){sd=a;si=index;}if(b<ed){ed=b;ei=index;}
+      });
+      if(si===ei)return;
+      [{start:si,length:((ei-si+n)%n)+1},{start:ei,length:((si-ei+n)%n)+1}].forEach(function(run){
+        if(run.length>=n)return;
+        var line=_tgRunPoints(ref.ring,run),length=0;
+        for(var i=1;i<line.length;i++)length+=Math.hypot(line[i][0]-line[i-1][0],line[i][1]-line[i-1][1]);
+        candidates.push({line:line,score:sd+ed+length*.02});
+      });
+    });
+    candidates.sort(function(a,b){return a.score-b.score;});
+    var focus=[(startPoint[0]+endPoint[0])/2,(startPoint[1]+endPoint[1])/2];
+    for(var i=0;i<candidates.length;i++){
+      var line=candidates[i].line.map(function(point){return point.slice();});
+      if(_tgForceAttachToSharedLine(target,line,focus))return line;
+    }
+    return null;
+  }
+  // 꼭짓점 수가 달라도 선택한 B의 접경 호 전체를 A의 좌표열로 교체한다.
+  // 클릭 위치에서 가장 가까운 외곽 링만 대상으로 하고 자기교차는 허용하지 않는다.
+  function _tgForceSharedBoundary(first,second,focus){
+    if(!focus)return null;
+    var candidates=[];
+    _tgOuterRingRefs(first).forEach(function(a){_tgOuterRingRefs(second).forEach(function(b){
+      var ao=a.ring.slice(0,-1),bo=b.ring.slice(0,-1);
+      if(ao.length<3||bo.length<3)return;
+      var aFocus=_tgDistanceToRing(focus,a.ring),bFocus=_tgDistanceToRing(focus,b.ring);
+      var gap=Math.min.apply(null,ao.map(function(point){return _tgDistanceToRing(point,b.ring);}));
+      var aBox=_tgBBox(first),bBox=_tgBBox(second);
+      var span=Math.max(aBox.maxLng-aBox.minLng,aBox.maxLat-aBox.minLat,bBox.maxLng-bBox.minLng,bBox.maxLat-bBox.minLat);
+      var maxGap=Math.max(.25,Math.min(1.2,span*.2));
+      if(gap>maxGap)return;
+      var tolerance=Math.min(maxGap,Math.max(.015,gap*1.5));
+      var ar=_tgFocusedNearRun(a.ring,b.ring,tolerance,focus);
+      if(!ar){
+        var ai=0,ad=Infinity;
+        ao.forEach(function(point,index){var d=Math.hypot(point[0]-focus[0],point[1]-focus[1]);if(d<ad){ad=d;ai=index;}});
+        ar={start:(ai-1+ao.length)%ao.length,length:Math.min(3,ao.length)};
+      }
+      if(ar.length>=ao.length)return;
+      var line=_tgRunPoints(a.ring,ar),firstPoint=line[0],lastPoint=line[line.length-1];
+      var bi0=0,bi1=0,d0=Infinity,d1=Infinity;
+      bo.forEach(function(point,index){
+        var startDist=Math.hypot(point[0]-firstPoint[0],point[1]-firstPoint[1]);
+        var endDist=Math.hypot(point[0]-lastPoint[0],point[1]-lastPoint[1]);
+        if(startDist<d0){d0=startDist;bi0=index;}
+        if(endDist<d1){d1=endDist;bi1=index;}
+      });
+      if(bi0===bi1){
+        bi1=(bi0+1)%bo.length;
+        if(Math.hypot(bo[(bi0-1+bo.length)%bo.length][0]-lastPoint[0],bo[(bi0-1+bo.length)%bo.length][1]-lastPoint[1])
+          <Math.hypot(bo[bi1][0]-lastPoint[0],bo[bi1][1]-lastPoint[1]))bi1=(bi0-1+bo.length)%bo.length;
+      }
+      var forward=((bi1-bi0+bo.length)%bo.length)+1;
+      var backward=((bi0-bi1+bo.length)%bo.length)+1;
+      [{start:bi0,length:forward},{start:bi1,length:backward}].forEach(function(run){
+        if(run.length>=bo.length)return;
+        var old=_tgRunPoints(b.ring,run);
+        var score=old.reduce(function(sum,point){return sum+_tgDistanceToRing(point,line.concat([line[line.length-1]]));},0)/old.length;
+        candidates.push({b:b,run:run,line:line,score:score+aFocus+bFocus+d0+d1,reverse:_tgLineEndpointCost(old,line,true)<_tgLineEndpointCost(old,line,false)});
+      });
+    });});
+    candidates.sort(function(a,b){return a.score-b.score;});
+    for(var i=0;i<candidates.length;i++){
+      var candidate=candidates[i],original=candidate.b.ring;
+      _tgReplaceRingRun(candidate.b,candidate.run,candidate.reverse?candidate.line.slice().reverse():candidate.line.slice());
+      if(!_tgGeometryHasSelfIntersection(second))return candidate.line;
+      candidate.b.container[candidate.b.index]=original;candidate.b.ring=original;
+    }
+    return null;
   }
   function _tgMakeLocalMidBoundary(first,second,clickCoord,pointCount){
     function nearest(geometry,point){
@@ -817,24 +920,195 @@
     if(_tgGeometryHasSelfIntersection(geometry)){best.ref.container[best.ref.index]=originalRing;best.ref.ring=originalRing;return null;}
     return best.line;
   }
+  function _tgForceAttachToSharedLine(geometry,line,focus){
+    if(!line||line.length<2)return null;
+    var bbox=_tgBBox(geometry);if(!bbox)return null;
+    var span=Math.max(bbox.maxLng-bbox.minLng,bbox.maxLat-bbox.minLat);
+    var maxGap=Math.max(.25,Math.min(1.2,span*.2));
+    var candidates=[];
+    _tgOuterRingRefs(geometry).forEach(function(ref){
+      var ring=ref.ring.slice(0,-1),n=ring.length;if(n<3)return;
+      if(Math.min.apply(null,line.map(function(point){return _tgDistanceToRing(point,ref.ring);}))>maxGap)return;
+      var start=0,end=0,startDist=Infinity,endDist=Infinity;
+      ring.forEach(function(point,index){
+        var ds=Math.hypot(point[0]-line[0][0],point[1]-line[0][1]);
+        var de=Math.hypot(point[0]-line[line.length-1][0],point[1]-line[line.length-1][1]);
+        if(ds<startDist){startDist=ds;start=index;}
+        if(de<endDist){endDist=de;end=index;}
+      });
+      if(start===end)return;
+      [{start:start,length:((end-start+n)%n)+1},{start:end,length:((start-end+n)%n)+1}].forEach(function(run){
+        if(run.length>=n)return;
+        var old=_tgRunPoints(ref.ring,run);
+        var distance=old.reduce(function(sum,point){return sum+_tgDistanceToRing(point,line);},0)/old.length;
+        var focusDistance=focus?_tgDistanceToRing(focus,ref.ring):0;
+        candidates.push({ref:ref,run:run,score:distance+startDist+endDist+focusDistance,
+          reverse:_tgLineEndpointCost(old,line,true)<_tgLineEndpointCost(old,line,false)});
+      });
+    });
+    candidates.sort(function(a,b){return a.score-b.score;});
+    for(var i=0;i<candidates.length;i++){
+      var c=candidates[i],original=c.ref.ring;
+      _tgReplaceRingRun(c.ref,c.run,c.reverse?line.slice().reverse():line.slice());
+      if(!_tgGeometryHasSelfIntersection(geometry))return line;
+      c.ref.container[c.ref.index]=original;c.ref.ring=original;
+    }
+    return null;
+  }
+  function _tgSameBoundaryPoint(a,b){return !!a&&!!b&&Math.abs(a[0]-b[0])<1e-8&&Math.abs(a[1]-b[1])<1e-8;}
+  function _tgBindSavedLine(geometry,line){
+    var matched=0;
+    _tgGeometryRings(geometry).forEach(function(ring){
+      var length=ring.length-1;if(length<3)return;
+      for(var i=0;i<length;i++){
+        var next=(i+1)%length;
+        for(var j=0;j<line.length-1;j++){
+          if(_tgSameBoundaryPoint(ring[i],line[j])&&_tgSameBoundaryPoint(ring[next],line[j+1])){
+            ring[i]=line[j];ring[next]=line[j+1];matched++;break;
+          }
+          if(_tgSameBoundaryPoint(ring[i],line[j+1])&&_tgSameBoundaryPoint(ring[next],line[j])){
+            ring[i]=line[j+1];ring[next]=line[j];matched++;break;
+          }
+        }
+      }
+      ring[ring.length-1]=ring[0].slice();
+    });
+    return matched;
+  }
+  function _tgSharedGroupKey(group){return (group.memberIds||[]).map(String).sort().join(':');}
+  function _tgShowSharedLines(){
+    var m=window.mlMap3d;if(!m||!_tgPairSharedLines.length)return;
+    var data={type:'MultiLineString',coordinates:_tgPairSharedLines};
+    if(m.getSource('territory-3d-shared-line'))m.getSource('territory-3d-shared-line').setData(data);
+    else{
+      m.addSource('territory-3d-shared-line',{type:'geojson',data:data});
+      m.addLayer({id:'territory-3d-shared-line',type:'line',source:'territory-3d-shared-line',paint:{'line-color':'#ff56d8','line-width':7,'line-opacity':1}});
+    }
+  }
+  // 새 대상 B가 이미 다른 공유 그룹에 속한다면 그 연결 성분도 저장 묶음에 합친다.
+  async function _tgImportLinkedGroupsForIds(ids){
+    var existingKeys=new Set(_tgCanonicalGroups.map(_tgSharedGroupKey));
+    var found=[];
+    for(var id of [...new Set(ids.map(String))]){
+      var res=await fetch('/api/territories/shared-boundaries?territoryId='+encodeURIComponent(id),{
+        headers:{Authorization:'Bearer '+_tgToken()}
+      });
+      var response=await res.json();
+      if(!res.ok)throw new Error(response.message||'연결된 공유 경계 조회 실패: HTTP '+res.status);
+      (response||[]).forEach(function(group){
+        var key=_tgSharedGroupKey(group);
+        if(!existingKeys.has(key)){existingKeys.add(key);found.push(group);}
+      });
+    }
+    if(!found.length)return 0;
+    var byId=new Map([[String(_tgEditId),_tgEditedGeometry]]);
+    _tgPairMembers.forEach(function(member){byId.set(String(member.id),member.geometry);});
+    var missing=[...new Set(found.flatMap(function(group){return group.memberIds||[];}))]
+      .filter(function(id){return !byId.has(String(id));});
+    if(byId.size+missing.length>25||_tgCanonicalGroups.length+found.length>25)
+      throw new Error('연결된 공유 경계가 한 번에 저장할 수 있는 25개 영토/그룹을 넘습니다.');
+    var loaded=await Promise.all(missing.map(async function(id){
+      var full=await _tgFetch(id),geometry=full.geometry||(full.geojson&&full.geojson.geometry);
+      if(!geometry)throw new Error('연결 영토 '+id+'의 도형이 없습니다.');
+      return {id:String(id),name:_tgTerritoryName(full),original:JSON.parse(JSON.stringify(geometry)),geometry:JSON.parse(JSON.stringify(geometry))};
+    }));
+    loaded.forEach(function(member){byId.set(member.id,member.geometry);});
+    var references=new Map();
+    _tgPairSharedLines.forEach(function(line){line.forEach(function(point){references.set(point[0].toFixed(8)+','+point[1].toFixed(8),point);});});
+    var imported=found.map(function(group){
+      var lines=group.lines.map(function(raw){return raw.map(function(point){
+        var key=Number(point[0]).toFixed(8)+','+Number(point[1]).toFixed(8);
+        if(references.has(key))return references.get(key);
+        var copy=[Number(point[0]),Number(point[1])];references.set(key,copy);return copy;
+      });});
+      return {memberIds:group.memberIds.map(String),version:group.version,lines:lines};
+    });
+    // 먼저 모든 연결이 현재 DB 도형에 실제 존재하는지 확인한다.
+    imported.forEach(function(group){group.memberIds.forEach(function(id){
+      var geometry=byId.get(id),probe=geometry&&JSON.parse(JSON.stringify(geometry));
+      if(!probe||!group.lines.some(function(line){return _tgBindSavedLine(probe,line)>0;}))
+        throw new Error('기존 공유 경계와 영토 '+id+'의 좌표가 일치하지 않습니다. 새로고침 후 다시 선택하세요.');
+    });});
+    loaded.forEach(function(member){_tgPairMembers.push(member);});
+    imported.forEach(function(group){
+      group.memberIds.forEach(function(id){var geometry=byId.get(id);group.lines.forEach(function(line){_tgBindSavedLine(geometry,line);});});
+      _tgCanonicalGroups.push(group);
+      _tgPairSharedLines.push(...group.lines);
+    });
+    _tgShowSharedLines();_tg3dRefreshMarkers();
+    return imported.length;
+  }
+  async function _tgLoadSavedBoundaryGroups(){
+    var res=await fetch('/api/territories/shared-boundaries?territoryId='+encodeURIComponent(_tgEditId),{
+      headers:{Authorization:'Bearer '+_tgToken()}
+    });
+    if(!res.ok)throw new Error('공유 경계 조회 실패: HTTP '+res.status);
+    var groups=await res.json();if(!groups.length)return false;
+    var memberIds=[...new Set(groups.flatMap(function(group){return group.memberIds||[];}))].filter(function(id){return id!==String(_tgEditId);});
+    if(memberIds.length>24)throw new Error('한 번에 편집할 공유 경계 영토가 25개를 넘습니다.');
+    var loaded=await Promise.all(memberIds.map(async function(id){
+      var full=await _tgFetch(id),geometry=full.geometry||(full.geojson&&full.geojson.geometry);
+      if(!geometry)throw new Error('연결 영토 '+id+'의 도형이 없습니다.');
+      return {id:id,name:_tgTerritoryName(full),original:JSON.parse(JSON.stringify(geometry)),geometry:JSON.parse(JSON.stringify(geometry))};
+    }));
+    _tgPairMembers=loaded;
+    _tgCanonicalGroups=groups.map(function(group){return {memberIds:group.memberIds.map(String),version:group.version,lines:group.lines.map(function(line){return line.map(function(point){return point.slice();});})};});
+    _tgPairSharedLines=_tgCanonicalGroups.flatMap(function(group){return group.lines;});
+    var vertexRefs=new Map();
+    _tgPairSharedLines.forEach(function(line){line.forEach(function(point,i){
+      var key=point[0].toFixed(8)+','+point[1].toFixed(8);
+      if(vertexRefs.has(key))line[i]=vertexRefs.get(key);else vertexRefs.set(key,point);
+    });});
+    var byId=new Map([[String(_tgEditId),_tgEditedGeometry]]);
+    loaded.forEach(function(member){byId.set(member.id,member.geometry);});
+    _tgCanonicalGroups.forEach(function(group){
+      group.memberIds.forEach(function(id){
+        var geometry=byId.get(id);
+        var matched=0;
+        if(geometry)group.lines.forEach(function(line){matched+=_tgBindSavedLine(geometry,line);});
+        if(!geometry||!matched)
+          throw new Error('저장된 공유 경계와 영토 '+id+'의 좌표가 일치하지 않습니다.');
+      });
+    });
+    _tgPairId=loaded[0]?.id||null;_tgPairGeometry=loaded[0]?.geometry||null;_tgPairOriginal=loaded[0]?.original||null;
+    _tgShowSharedLines();
+    return true;
+  }
   function _tgClearPair(){
     var m=window.mlMap3d;
     if(m&&_tgPairClickHandler){m.off('click',_tgPairClickHandler);_tgPairClickHandler=null;}
     if(m){['territory-3d-shared-line','territory-3d-pair-fill','territory-3d-pair-line'].forEach(function(id){if(m.getLayer(id))m.removeLayer(id);});['territory-3d-shared-line','territory-3d-pair-edit'].forEach(function(id){if(m.getSource(id))m.removeSource(id);});}
-    _tgPairId=null;_tgPairGeometry=null;_tgPairOriginal=null;_tgPairSharedLines=[];_tgPairMembers=[];_tgPairBtn(false,false);
+    _tgPairId=null;_tgPairGeometry=null;_tgPairOriginal=null;_tgPairSharedLines=[];_tgPairMembers=[];_tgCanonicalGroups=[];_tgPairSelectDirection=null;_tgPairStartPoint=null;_tgClearPairRangeMarker();_tgPairBtn(false,false);_tgReversePairBtn(false,false);
+    var unlinkBtn=document.getElementById('territory-geom-unlink-btn');if(unlinkBtn)unlinkBtn.style.display='none';
   }
-  async function _tgPreparePair(hits,focus){
+  async function _tgUnlinkSharedBoundary(){
+    if(!_tgEditId||!_tgCanonicalGroups.length)return;
+    if(!confirm('이 영토에 연결된 공유 경계 '+_tgCanonicalGroups.length+'개를 해제할까요? 저장하지 않은 편집은 취소되고, DB에 저장된 영토 모양은 그대로 유지됩니다.'))return;
+    try{
+      var res=await fetch('/api/territories/shared-boundaries?territoryId='+encodeURIComponent(_tgEditId),{
+        method:'DELETE',headers:{Authorization:'Bearer '+_tgToken()}
+      });
+      var result=await res.json();if(!res.ok)throw new Error(result.message||'연결 해제 실패');
+      _tgClearPair();_tgEditedGeometry=JSON.parse(JSON.stringify(_tgOriginalGeom));_tg3dSetGeometry(_tgEditedGeometry);_tg3dRefreshMarkers();_tgPairBtn(true,false);
+      _tgSetMsg('🔓 공유 경계 연결 '+result.deletedCount+'개 해제 완료 · 영토 모양은 변경되지 않았습니다.','ok');
+    }catch(error){_tgSetMsg('❌ '+error.message,'err');}
+  }
+  async function _tgPreparePair(hits,focus,range){
     try{
       var unique=[],seen=new Set([String(_tgEditId)]);
       (hits||[]).forEach(function(hit){var id=_tgTerritoryId(hit);if(id&&!seen.has(id)){seen.add(id);unique.push({id:id,name:_tgTerritoryName(hit)});}});
       if(!unique.length)throw new Error('겹친 다른 영토를 찾지 못했습니다.');
       var loaded=await Promise.all(unique.map(async function(item){var full=await _tgFetch(item.id);return {id:_tgDisplayId(full._id||item.id),name:item.name,full:full};}));
+      if(_tgCanonicalGroups.length){
+        _tgExtendSavedPair(loaded,focus,range);
+        return;
+      }
       _tgPairMembers=[];_tgPairSharedLines=[];_tgBoundarySelected=new Map();
       var baseA=JSON.parse(JSON.stringify(_tgEditedGeometry)),trials=[];
       loaded.forEach(function(item){
         var geom=item.full.geometry||(item.full.geojson&&item.full.geojson.geometry);if(!geom)return;
         var candidateA=JSON.parse(JSON.stringify(baseA)),candidateB=JSON.parse(JSON.stringify(geom));
-        var shared=_tgMakeSharedBoundary(candidateA,candidateB,focus);if(!shared)return;
+        var shared=range?_tgMakeSharedBoundaryByRange(candidateA,candidateB,range[0],range[1]):_tgMakeSharedBoundary(candidateA,candidateB,focus);if(!shared)return;
         if(_tgGeometryHasSelfIntersection(candidateA)||_tgGeometryHasSelfIntersection(candidateB))return;
         var length=0;for(var i=1;i<shared.length;i++)length+=Math.hypot(shared[i][0]-shared[i-1][0],shared[i][1]-shared[i-1][1]);
         trials.push({item:item,a:candidateA,b:candidateB,shared:shared,length:length,original:JSON.parse(JSON.stringify(geom))});
@@ -850,31 +1124,182 @@
         if(item.id===first.item.id)return;
         var geom=item.full.geometry||(item.full.geojson&&item.full.geojson.geometry);if(!geom)return;
         var member={id:item.id,name:item.name,original:JSON.parse(JSON.stringify(geom)),geometry:JSON.parse(JSON.stringify(geom))};
-        var shared=_tgAttachToSharedLines(member.geometry,_tgPairSharedLines,focus);
-        if(shared)_tgPairMembers.push(member);
+        var shared=_tgAttachToSharedLines(member.geometry,_tgPairSharedLines,focus)
+          ||_tgForceAttachToSharedLine(member.geometry,first.shared,focus);
+        if(!shared)throw new Error(item.name+'의 경계를 안전하게 맞출 수 없습니다. 대상 선택을 줄이거나 접경 구간을 더 확대해 선택하세요.');
+        _tgPairMembers.push(member);
       });
+      _tgCanonicalGroups=[{memberIds:[String(_tgEditId)].concat(_tgPairMembers.map(function(member){return String(member.id);})),lines:_tgPairSharedLines}];
       _tgPairId=_tgPairMembers[0].id;_tgPairGeometry=_tgPairMembers[0].geometry;_tgPairOriginal=_tgPairMembers[0].original;
       var m=window.mlMap3d;_tg3dSetGeometry(_tgEditedGeometry);
       m.addSource('territory-3d-shared-line',{type:'geojson',data:{type:'MultiLineString',coordinates:_tgPairSharedLines}});
       m.addLayer({id:'territory-3d-shared-line',type:'line',source:'territory-3d-shared-line',paint:{'line-color':'#ff56d8','line-width':7,'line-opacity':1}});
       _tg3dRefreshMarkers();_tgPairBtn(true,false);m.getCanvas().style.cursor='';
       var gapText=Number(first.shared._matchTolerance)>0?' · 인식 허용 간격 약 '+Math.round(first.shared._matchTolerance*111)+'km':'';
-      _tgSetMsg('↔ A 기준선은 유지하고 선택한 B 영토 '+_tgPairMembers.length+'개의 경계를 같은 좌표열로 맞췄습니다.'+gapText,'dirty');
-    }catch(error){_tgClearPair();_tgPairBtn(true,false);_tgSetMsg('❌ 공유 경계 맞춤 실패: '+error.message,'err');}
+      _tgSetMsg('3/4 · A 기준선에 B 영토 '+_tgPairMembers.length+'개를 맞췄습니다.'+gapText+' 공유 꼭짓점을 미세 조정한 뒤 4/4 경계 저장을 누르세요.','dirty');
+    }catch(error){if(!_tgCanonicalGroups.length)_tgClearPair();_tgPairBtn(true,false);_tgSetMsg('❌ 공유 경계 맞춤 실패: '+error.message,'err');}
   }
-  function _tgStartPairSelect(){
-    var m=window.mlMap3d;if(!m||!_tgEditId||!_tgEditedGeometry)return;
-    if(_tgPairClickHandler){_tgClearPair();_tgPairBtn(true,false);_tgSetMsg('공유 경계 선택을 취소했습니다.');return;}
-    if(_tgPairMembers.length)_tgClearPair();
-    _tgPairBtn(true,true);m.getCanvas().style.cursor='crosshair';_tgSetMsg('↔ A에서 기준으로 삼을 경계 지점을 클릭하세요. 이어서 맞출 B 영토를 선택합니다.','dirty');
+  function _tgExtendSavedPair(loaded,focus,range){
+    var existingIds=new Set([String(_tgEditId),..._tgPairMembers.map(function(member){return String(member.id);})]);
+    var additions=loaded.filter(function(item){return !existingIds.has(String(item.id));});
+    if(!additions.length)throw new Error('선택한 영토는 이미 공유 경계 묶음에 포함되어 있습니다.');
+    if(existingIds.size+additions.length>25)throw new Error('한 번에 연결할 수 있는 영토는 최대 25개입니다.');
+    var prepared=additions.map(function(item){
+      var raw=item.full.geometry||(item.full.geojson&&item.full.geojson.geometry);
+      if(!raw)throw new Error(item.name+'의 도형이 없습니다.');
+      var a=JSON.parse(JSON.stringify(_tgEditedGeometry)),b=JSON.parse(JSON.stringify(raw));
+      var line=range?_tgMakeSharedBoundaryByRange(a,b,range[0],range[1]):_tgMakeSharedBoundary(a,b,focus);
+      if(!line||_tgGeometryHasSelfIntersection(b))
+        throw new Error(item.name+'의 접경 구간을 A 기준선에 안전하게 맞출 수 없습니다. 더 가까운 위치를 선택하세요.');
+      if(!_tgBindSavedLine(a,line)||!_tgBindSavedLine(JSON.parse(JSON.stringify(b)),line))
+        throw new Error(item.name+'의 공유 꼭짓점을 연결하지 못했습니다.');
+      return {item:item,original:JSON.parse(JSON.stringify(raw)),geometry:b,line:line};
+    });
+    // 저장된 공유 꼭짓점과 동일한 좌표는 같은 객체를 사용해 드래그 시 함께 이동한다.
+    var references=new Map();
+    _tgPairSharedLines.forEach(function(line){line.forEach(function(point){references.set(point[0].toFixed(8)+','+point[1].toFixed(8),point);});});
+    prepared.forEach(function(entry){
+      entry.line.forEach(function(point,index){
+        var key=point[0].toFixed(8)+','+point[1].toFixed(8);
+        if(references.has(key))entry.line[index]=references.get(key);
+        else references.set(key,point);
+      });
+      if(!_tgBindSavedLine(_tgEditedGeometry,entry.line)||!_tgBindSavedLine(entry.geometry,entry.line))
+        throw new Error(entry.item.name+'의 공유 꼭짓점을 연결하지 못했습니다. 편집을 다시 열어주세요.');
+      _tgPairMembers.push({id:entry.item.id,name:entry.item.name,original:entry.original,geometry:entry.geometry});
+      _tgPairSharedLines.push(entry.line);
+      _tgCanonicalGroups.push({memberIds:[String(_tgEditId),String(entry.item.id)],lines:[entry.line]});
+    });
+    var m=window.mlMap3d;
+    m.getSource('territory-3d-shared-line')?.setData({type:'MultiLineString',coordinates:_tgPairSharedLines});
+    _tg3dSetGeometry(_tgEditedGeometry);_tg3dRefreshMarkers();_tgPairBtn(true,false);
+    _tgSetMsg('3/4 · 이번 편집의 다른 접경은 유지하고 새 영토 '+prepared.length+'개를 맞췄습니다. 미세 조정한 뒤 경계 저장을 누르세요.','dirty');
+  }
+  async function _tgPrepareReversePair(hit,focus,range){
+    try{
+      var id=_tgTerritoryId(hit),full=await _tgFetch(id);
+      var linked=_tgPairMembers.find(function(member){return String(member.id)===String(id);});
+      var raw=linked?.geometry||full.geometry||(full.geojson&&full.geojson.geometry);
+      if(!raw)throw new Error('B 기준 영토의 도형이 없습니다.');
+      var candidateA=JSON.parse(JSON.stringify(_tgEditedGeometry));
+      var candidateB=JSON.parse(JSON.stringify(raw));
+      var line=range?_tgMakeSharedBoundaryByRange(candidateB,candidateA,range[0],range[1]):_tgMakeSharedBoundary(candidateB,candidateA,focus);
+      if(!line||_tgGeometryHasSelfIntersection(candidateA))throw new Error('선택 구간을 B 기준선에 안전하게 맞출 수 없습니다. 양끝을 좁혀 다시 선택하세요.');
+      // A가 이미 참여한 다른 공유선까지 끊어지는 작업은 저장 전에 중단한다.
+      _tgCanonicalGroups.filter(function(group){return group.memberIds.includes(String(_tgEditId));}).forEach(function(group){
+        var probe=JSON.parse(JSON.stringify(candidateA));
+        if(group.lines.some(function(saved){return !_tgBindSavedLine(probe,saved);}))
+          throw new Error('이 구간은 이미 다른 공유 경계에 연결되어 있습니다. 기존 연결을 유지한 채 A만 이동할 수 없습니다.');
+      });
+      var refs=new Map();
+      _tgPairSharedLines.forEach(function(saved){saved.forEach(function(point){refs.set(point[0].toFixed(8)+','+point[1].toFixed(8),point);});});
+      line.forEach(function(point,index){var key=point[0].toFixed(8)+','+point[1].toFixed(8);if(refs.has(key))line[index]=refs.get(key);else refs.set(key,point);});
+      if(!_tgBindSavedLine(candidateA,line))throw new Error('A 경계에 B 기준 좌표를 연결하지 못했습니다.');
+      var pairGroup=_tgCanonicalGroups.find(function(group){return group.memberIds.includes(String(_tgEditId))&&group.memberIds.includes(String(id));});
+      var lineAlreadySaved=pairGroup&&pairGroup.lines.some(function(saved){return saved.length===line.length&&saved.every(function(point,index){return _tgSameBoundaryPoint(point,line[index]);});});
+      if(pairGroup&&!lineAlreadySaved&&pairGroup.lines.length>=25)throw new Error('공유 경계선 25개 제한을 초과합니다.');
+      var member=linked;
+      if(!member){
+        member={id:String(id),name:_tgTerritoryName(full),original:JSON.parse(JSON.stringify(raw)),geometry:JSON.parse(JSON.stringify(raw))};
+      }
+      if(!_tgBindSavedLine(member.geometry,line))throw new Error('B 기준 경계 좌표를 확인할 수 없습니다.');
+      if(!linked)_tgPairMembers.push(member);
+      _tgEditedGeometry=candidateA;
+      _tgCanonicalGroups.filter(function(group){return group.memberIds.includes(String(_tgEditId));}).forEach(function(group){
+        group.lines.forEach(function(saved){_tgBindSavedLine(_tgEditedGeometry,saved);});
+      });
+      if(pairGroup){
+        if(!lineAlreadySaved)pairGroup.lines.push(line);
+      }else _tgCanonicalGroups.push({memberIds:[String(_tgEditId),String(id)],lines:[line]});
+      _tgPairSharedLines=_tgCanonicalGroups.flatMap(function(group){return group.lines;});
+      _tgPairId=String(id);_tgPairGeometry=member.geometry;_tgPairOriginal=member.original;
+      _tgShowSharedLines();_tg3dSetGeometry(_tgEditedGeometry);_tg3dRefreshMarkers();
+      _tgSetMsg('3/4 · B('+_tgTerritoryName(full)+') 기준선에 A를 맞췄습니다. 공유 꼭짓점을 미세 조정한 뒤 4/4 경계 저장을 누르세요.','dirty');
+    }catch(error){_tgSetMsg('❌ B 기준 맞춤 실패: '+error.message,'err');}
+    _tgPairBtn(true,false);_tgReversePairBtn(true,false);
+  }
+  async function _tgFindPairTargetsAt(point,lngLat,includeLinked){
+    var m=window.mlMap3d;
+    var ids=['territory-fill-city','territory-fill-province','territory-fill-country'].filter(function(id){return !!m.getLayer(id);});
+    var radius=30,box=[[point.x-radius,point.y-radius],[point.x+radius,point.y+radius]];
+    var rendered=ids.length?m.queryRenderedFeatures(box,{layers:ids}):[];
+    var corner=m.unproject([point.x+radius,point.y+radius]);
+    var pad=Math.max(.05,Math.min(.35,Math.max(Math.abs(corner.lng-lngLat.lng),Math.abs(corner.lat-lngLat.lat))));
+    var current=typeof getCurrentYearMonth==='function'?getCurrentYearMonth():null;
+    var bbox={minLng:lngLat.lng-pad,maxLng:lngLat.lng+pad,minLat:lngLat.lat-pad,maxLat:lngLat.lat+pad};
+    var nearby=[];
+    try{
+      var results=await Promise.all(['city','province','country'].map(async function(level){
+        var res=await fetch('/api/territories/intersect',{
+          method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_tgToken()},
+          body:JSON.stringify({bbox:bbox,level:level,year:current?.year,limit:100})
+        });
+        if(!res.ok)throw new Error('HTTP '+res.status);
+        return (await res.json()).territories||[];
+      }));
+      nearby=results.flat();
+    }catch(error){console.warn('[공유 경계] 주변 영토 DB 검색 실패, 표시된 지도 레이어만 사용:',error);}
+    var linkedIds=new Set([String(_tgEditId)]);
+    if(!includeLinked)_tgPairMembers.forEach(function(member){linkedIds.add(String(member.id));});
+    var seen=new Set();
+    return rendered.concat(nearby).filter(function(hit){
+      var id=_tgTerritoryId(hit);
+      if(!id||linkedIds.has(String(id))||seen.has(String(id)))return false;
+      seen.add(String(id));return true;
+    });
+  }
+  function _tgBeginPairRangeSelection(direction,selected){
+    var m=window.mlMap3d;
+    _tgPairStartPoint=null;_tgClearPairRangeMarker();m.getCanvas().style.cursor='crosshair';
+    _tgSetMsg(_tgPairRangeEnabled?'2/4 · B 선택 완료. 공유구간의 시작점과 끝점을 차례로 클릭하세요.':'2/4 · B 선택 완료. 맞출 경계의 한 지점을 클릭하세요.','dirty');
     _tgPairClickHandler=function(e){
-      var ids=['territory-fill-city','territory-fill-province','territory-fill-country'].filter(function(x){return !!m.getLayer(x);});
-      var hits=(ids.length?m.queryRenderedFeatures(e.point,{layers:ids}):[]).filter(function(f){return _tgTerritoryId(f)&&_tgTerritoryId(f)!==String(_tgEditId);});
-      if(!hits.length){_tgSetMsg('⚠️ 이 위치에 선택 가능한 다른 영토가 없습니다.','err');return;}
+      if(_tgPairRangeEnabled&&!_tgPairStartPoint){
+        _tgPairStartPoint={lngLat:{lng:e.lngLat.lng,lat:e.lngLat.lat}};
+        _tgClearPairRangeMarker();
+        var pin=document.createElement('div');
+        pin.style.cssText='width:15px;height:15px;border-radius:50%;background:#ffe08a;border:3px solid #3b1e06;box-shadow:0 0 0 3px #ffe08a88,0 1px 6px #000;pointer-events:none;';
+        _tgPairRangeMarker=new maplibregl.Marker({element:pin,anchor:'center'}).setLngLat(e.lngLat).addTo(m);
+        _tgSetMsg('2/4 · 시작점 지정 완료. 공유구간의 끝점을 클릭하세요.','dirty');
+        return;
+      }
       m.off('click',_tgPairClickHandler);_tgPairClickHandler=null;m.getCanvas().style.cursor='';
-      var focus=[e.lngLat.lng,e.lngLat.lat];
-      if(!_tgChoosePairTargets(hits,focus,function(chosen,point){_tgPreparePair(chosen,point);})){
-        _tgPairBtn(true,false);_tgSetMsg('⚠️ 이 위치에 선택 가능한 다른 영토가 없습니다.','err');
+      var range=_tgPairRangeEnabled&&_tgPairStartPoint
+        ? [[_tgPairStartPoint.lngLat.lng,_tgPairStartPoint.lngLat.lat],[e.lngLat.lng,e.lngLat.lat]]:null;
+      var focus=range?[(range[0][0]+range[1][0])/2,(range[0][1]+range[1][1])/2]:[e.lngLat.lng,e.lngLat.lat];
+      _tgPairStartPoint=null;_tgClearPairRangeMarker();_tgPairSelectDirection=null;
+      _tgPairBtn(true,false);_tgReversePairBtn(true,false);
+      _tgSetMsg('3/4 · 공유구간 좌표를 맞추는 중…','dirty');
+      if(direction==='reverse')_tgPrepareReversePair(selected,focus,range);
+      else _tgPreparePair(selected,focus,range);
+    };m.on('click',_tgPairClickHandler);
+  }
+  function _tgStartPairSelect(direction){
+    var m=window.mlMap3d;if(!m||!_tgEditId||!_tgEditedGeometry)return;
+    direction=direction==='reverse'?'reverse':'forward';
+    if(_tgPairClickHandler){
+      m.off('click',_tgPairClickHandler);_tgPairClickHandler=null;m.getCanvas().style.cursor='';_tgPairStartPoint=null;_tgClearPairRangeMarker();
+      if(_tgPairSelectDirection===direction){
+        _tgPairSelectDirection=null;_tgPairBtn(true,false);_tgReversePairBtn(true,false);
+        _tgSetMsg('공유 경계 선택을 취소했습니다.');return;
+      }
+    }
+    _tgHideLayerPicker();
+    if(_tgPairMembers.length&&!_tgCanonicalGroups.length)_tgClearPair();
+    _tgPairSelectDirection=direction;
+    _tgPairBtn(true,direction==='forward');_tgReversePairBtn(true,direction==='reverse');m.getCanvas().style.cursor='crosshair';
+    _tgSetMsg('1/4 · 지도에서 '+(direction==='reverse'?'기준으로 삼을 B 영토':'경계를 맞출 B 영토')+'를 클릭하세요.','dirty');
+    _tgPairClickHandler=async function(e){
+      m.off('click',_tgPairClickHandler);_tgPairClickHandler=null;m.getCanvas().style.cursor='';
+      _tgSetMsg('1/4 · 근처 province·city·country 폴리곤을 찾는 중…','dirty');
+      var hits=await _tgFindPairTargetsAt(e.point,e.lngLat,direction==='reverse');
+      if(!hits.length){_tgPairSelectDirection=null;_tgPairBtn(true,false);_tgReversePairBtn(true,false);_tgSetMsg('⚠️ 이 위치에 선택 가능한 B 영토가 없습니다.','err');return;}
+      if(direction==='reverse'){
+        if(!_tgChooseTerritory(hits,function(chosen){_tgBeginPairRangeSelection(direction,chosen);}))
+          _tgSetMsg('⚠️ B 기준 영토를 선택할 수 없습니다.','err');
+      }else if(!_tgChoosePairTargets(hits,null,function(chosen){
+        _tgBeginPairRangeSelection(direction,chosen);
+      })){
+        _tgSetMsg('⚠️ B 대상 영토를 선택할 수 없습니다.','err');
       }
     };m.on('click',_tgPairClickHandler);
   }
@@ -1018,6 +1443,9 @@
           if(snapped){ll=snapped;marker.setLngLat([ll.lng,ll.lat]);}
           coord[0]=ll.lng;coord[1]=ll.lat;
           if(ring)ring[ring.length-1]=ring[0].slice();
+          else [_tgEditedGeometry].concat(_tgPairMembers.map(function(member){return member.geometry;})).forEach(function(geometry){
+            _tgGeometryRings(geometry).forEach(function(boundaryRing){boundaryRing[boundaryRing.length-1]=boundaryRing[0].slice();});
+          });
           _tg3dSetGeometry(_tgEditedGeometry);
           _tg3dRefreshMarkers();
           _tgSetMsg(snapped
@@ -1063,6 +1491,7 @@
     _tgSimplifyBtn(false);
     _tgSnapBtn(false);
     _tgPairBtn(false,false);
+    _tgReversePairBtn(false,false);_tgPairRangeEnabled=true;_tgPairRangeBtn(false);_tgPairStartPoint=null;_tgClearPairRangeMarker();
     _tgCoastBtn(false,false);
     _tgHideBtn(false,false);
   }
@@ -1079,9 +1508,10 @@
       _tgCurrentHidden=full.hidden===true;
       _tgSetTitle('🧭 '+(name||full.name||displayId)+' 3D 경계 편집 · Object ID: '+displayId);
       _tgOriginalGeom=JSON.parse(JSON.stringify(geom));_tgEditedGeometry=JSON.parse(JSON.stringify(geom));
-      _tg3dSetGeometry(_tgEditedGeometry);_tg3dRefreshMarkers();_tgSaveBtn(true);_tgEraserBtn(true);_tgAddVertexBtn(true);_tgSimplifyBtn(true);_tgHideBtn(true,_tgCurrentHidden);_tgSnapBtn(true);_tgPairBtn(true,false);_tgCoastBtn(true,false);
-      _tgSetMsg('편집 준비 완료 · 주변 영토는 미리 불러오지 않습니다. 중간 경계 추천에서 선택한 영토만 로드합니다.');
-    }catch(e){_tgSetMsg('❌ '+e.message,'err');_tgEditMode=false;}
+      _tgClearPair();
+      _tg3dSetGeometry(_tgEditedGeometry);_tg3dRefreshMarkers();_tgSaveBtn(true);_tgEraserBtn(true);_tgAddVertexBtn(true);_tgSimplifyBtn(true);_tgHideBtn(true,_tgCurrentHidden);_tgSnapBtn(true);_tgPairBtn(true,false);_tgReversePairBtn(true,false);_tgPairRangeBtn(true);_tgCoastBtn(true,false);
+      _tgSetMsg('편집 준비 완료 · 저장된 폴리곤 좌표가 기준입니다. 접경마다 상대 영토를 선택해 맞출 수 있습니다.');
+    }catch(e){_tgClearPair();_tgSetMsg('❌ '+e.message,'err');_tgEditMode=false;}
   }
   function _tgEnter3dSelect() {
     var m=window.mlMap3d;if(!m)return;
@@ -1699,7 +2129,9 @@
       var res=await fetch(pairMode?'/api/territories/shared-boundary':'/api/territories/'+_tgEditId,{
         method:'PUT',
         headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
-        body:JSON.stringify(pairMode?{updates:[{id:_tgEditId,geometry:geometry,bbox:bbox}].concat(pairUpdates)}:{geometry:geometry,bbox:bbox})
+        body:JSON.stringify(pairMode?{
+          updates:[{id:_tgEditId,geometry:geometry,bbox:bbox}].concat(pairUpdates)
+        }:{geometry:geometry,bbox:bbox})
       });
       var json=await res.json();
       if (!res.ok){
@@ -1774,7 +2206,13 @@
     if(snapBtn)snapBtn.addEventListener('click',_tgToggleSnap);
 
     var pairBtn=document.getElementById('territory-geom-pair-btn');
-    if(pairBtn)pairBtn.addEventListener('click',_tgStartPairSelect);
+    if(pairBtn)pairBtn.addEventListener('click',function(){_tgStartPairSelect('forward');});
+    var reversePairBtn=document.getElementById('territory-geom-reverse-pair-btn');
+    if(reversePairBtn)reversePairBtn.addEventListener('click',function(){_tgStartPairSelect('reverse');});
+    var pairRangeBtn=document.getElementById('territory-geom-pair-range-btn');
+    if(pairRangeBtn)pairRangeBtn.addEventListener('click',_tgTogglePairRange);
+    var unlinkBtn=document.getElementById('territory-geom-unlink-btn');
+    if(unlinkBtn)unlinkBtn.addEventListener('click',_tgUnlinkSharedBoundary);
 
     var coastBtn=document.getElementById('territory-geom-coast-btn');
     if(coastBtn)coastBtn.addEventListener('click',_tgStartCoastFit);
