@@ -8,6 +8,7 @@
         ] },
         { title: '사람·군사', icon: '♙', layers: [
             ['menu-layer-ethnic-label', '민족', '♟'], ['menu-layer-military', '군대', '⚑'],
+            ['menu-national-power', '국력', '⚔'],
             ['menu-layer-heroes', '영웅', '♛'], ['menu-layer-pop-heat', '영토 인구', '●']
         ] },
         { title: '지형·자료', icon: '◇', layers: [
