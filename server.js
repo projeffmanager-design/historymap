@@ -11,6 +11,7 @@ const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
 const { withResidentPopulation } = require('./lib/koreaResidentPopulation');
+const { geometryAreaChange } = require('./lib/territoryGeometrySafety');
 const crypto = require('crypto');
 const { connectToDatabase, reconnectDatabase, collections, getMongoClient } = require('./db'); // 🚩 [추가] DB 연결 모듈
 const { put: blobPut, del: blobDel } = require('@vercel/blob'); // 🎙️ [추가] Vercel Blob SDK
@@ -6816,7 +6817,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     projection.coordinates = 1; // 구형 type+coordinates 문서도 스냅 대상으로 지원
                 }
                 const resultLimit = Math.min(200, Math.max(1, Number(limit) || 100));
-                let territories = await collections.territories.find(query, { projection }).limit(resultLimit).toArray();
+                // For point lookups, bbox is only a coarse prefilter. Limiting before
+                // point-in-polygon can discard the polygon actually under the click.
+                let territories = await (point
+                    ? collections.territories.find(query, { projection }).toArray()
+                    : collections.territories.find(query, { projection }).limit(resultLimit).toArray());
                 if (point) {
                     const { geometryContainsPoint } = require('./lib/territoryPointContainment');
                     const lng = Number(point.lng), lat = Number(point.lat);
@@ -6824,7 +6829,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         const geometry = territory.geometry || (territory.type && territory.coordinates
                             ? { type: territory.type, coordinates: territory.coordinates } : null);
                         return geometryContainsPoint(geometry, lng, lat);
-                    });
+                    }).slice(0, resultLimit);
                     if (include_geometry !== true) territories = territories.map(({ geometry, coordinates, ...territory }) => territory);
                 }
                 if (include_geometry === true) {
@@ -6959,8 +6964,14 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 });
                 if (ids.size !== updates.length) return res.status(400).json({ message: '공유 경계 그룹에 중복된 영토 ID가 있습니다.' });
                 const objectIds = operations.map(operation => operation.updateOne.filter._id);
-                const existingCount = await collections.territories.countDocuments({ _id: { $in: objectIds } });
-                if (existingCount !== updates.length) return res.status(404).json({ message: '공유 경계 대상 영토 일부를 찾지 못했습니다.' });
+                const existing = await collections.territories.find({ _id: { $in: objectIds } }, { projection: { name: 1, name_ko: 1, geometry: 1 } }).toArray();
+                if (existing.length !== updates.length) return res.status(404).json({ message: '공유 경계 대상 영토 일부를 찾지 못했습니다.' });
+                const originals = new Map(existing.map(territory => [String(territory._id), territory]));
+                const unsafe = updates.find(update => geometryAreaChange(originals.get(String(update.id))?.geometry, update.geometry).unsafe);
+                if (unsafe) {
+                    const territory = originals.get(String(unsafe.id));
+                    return res.status(409).json({ message: `${territory?.name_ko || territory?.name || unsafe.id}의 면적이 크게 변했습니다. 잘못된 경계 구간 선택 가능성이 있어 저장을 중단했습니다.` });
+                }
                 const session = getMongoClient().startSession();
                 try {
                     await session.withTransaction(async () => {
@@ -7029,6 +7040,13 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 const updatedTerritory = req.body;
                 if (updatedTerritory._id) delete updatedTerritory._id;
                 if (updatedTerritory.geometry && _geometryHasSelfIntersection(updatedTerritory.geometry)) return res.status(400).json({ message: '자기교차가 포함된 영토는 저장할 수 없습니다.' });
+                if (updatedTerritory.geometry) {
+                    const original = await collections.territories.findOne({ _id }, { projection: { geometry: 1 } });
+                    if (!original) return res.status(404).json({ message: '영토를 찾을 수 없습니다.' });
+                    if (geometryAreaChange(original.geometry, updatedTerritory.geometry).unsafe) {
+                        return res.status(409).json({ message: '영토 면적이 크게 변했습니다. 잘못된 경계 선택 가능성이 있어 저장을 중단했습니다.' });
+                    }
+                }
                 if (updatedTerritory.geometry) updatedTerritory.boundary_preserve = true;
 
                 // null 값은 $unset, 나머지는 $set으로 분리
