@@ -3110,6 +3110,26 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                 if (cInfo) showCountryInfoModal(cInfo);
             });
         }
+        if (castle.is_label && castle.label_type === 'ethnic' && castle.linked_country_id) {
+            const linkedCountry = getCountryInfoById(castle.linked_country_id);
+            if (linkedCountry) {
+                const linkedPhase = (linkedCountry.history || []).find(phase => String(phase._id) === String(castle.linked_phase_id || ''));
+                const link = document.createElement('button');
+                link.type = 'button';
+                link.textContent = `🛖 ${linkedPhase?.name || linkedCountry.name} 연혁 보기`;
+                link.style.cssText = 'color:#e7cb8a;background:#29271f;border:1px solid #806633;border-radius:4px;padding:3px 8px;cursor:pointer;';
+                link.addEventListener('click', () => {
+                    showCountryInfoModal(linkedCountry, 'lineage');
+                    if (linkedPhase) requestAnimationFrame(() => {
+                        const nodes = document.querySelectorAll('#cdp-tab-lineage [data-lineage-phase-id]');
+                        const node = [...nodes].find(item => item.dataset.lineagePhaseId === String(linkedPhase._id));
+                        node?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                        if (node) { node.style.outline = '2px solid #e7cb8a'; node.style.outlineOffset = '2px'; }
+                    });
+                });
+                metaEl.appendChild(link);
+            }
+        }
 
         // ── 설명 ──
         const descEl = document.getElementById('odp-desc');
@@ -7169,7 +7189,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 // 지명 라벨
                 if (castle.is_label) {
                     if (!isTimedMapItemActive(castle, year, month)) return;
-                    const cid = castle.country_id || castle.countryId;
+                    const cid = castle.label_type === 'ethnic' ? null : (castle.country_id || castle.countryId);
                     const ci  = getCountryInfoById(cid);
                     window._3dCastleData.push({ castle, activeRec: null, countryInfo: ci });
                     return;
@@ -7312,7 +7332,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 || (Array.isArray(castle.history) && castle.history.length > 0 ? castle.history[0]?.country_id : null);
 
             // 🚩 [추가] 국가 필터링 로직
-            if (selectedCountryId !== 'all' && baseCountryId && baseCountryId !== selectedCountryId) {
+            if (!(castle.is_label && castle.label_type === 'ethnic') && selectedCountryId !== 'all' && baseCountryId && baseCountryId !== selectedCountryId) {
                 return; // 선택된 국가와 일치하지 않으면 이 마커를 건너뜁니다.
             }
             
@@ -17100,6 +17120,7 @@ const loadingMessages = [
         if (currentType === 'label') {
             document.getElementById('labelColor').value = castle.label_color || '#d8cdb8';
             document.getElementById('labelType').value = castle.label_type || 'place'; // ✨ [신규] 라벨 타입 로드
+            _setEthnicHistoryLink(castle.linked_country_id, castle.linked_phase_id);
         }
 
         // 🚩 [수정] 타입에 따라 단일 기간 필드 채우기
@@ -17191,6 +17212,105 @@ const loadingMessages = [
         map.setView([castle.lat, castle.lng], map.getZoom());
     };
     
+    // 민족 거주 마커는 국가 소속이 아닌, 국가 연혁으로 향하는 탐색 링크만 갖는다.
+    function _refreshEthnicHistoryLink() {
+        const row = document.getElementById('ethnicHistoryLinkRow');
+        const countrySelect = document.getElementById('ethnicLinkedCountry');
+        const phaseSelect = document.getElementById('ethnicLinkedPhase');
+        if (!row || !countrySelect || !phaseSelect) return;
+        const isEthnic = markerTypeSelector.querySelector('button.active')?.dataset.type === 'label'
+            && document.getElementById('labelType')?.value === 'ethnic';
+        row.style.display = isEthnic ? 'flex' : 'none';
+        if (!isEthnic) return;
+        const selectedCountry = countrySelect.value;
+        countrySelect.innerHTML = '<option value="">연결 없음</option>' + (countries || []).map(country =>
+            `<option value="${country._id}">${countryHistoryEscape(country.name || '')}</option>`).join('');
+        countrySelect.value = selectedCountry;
+        const selectedPhase = phaseSelect.value;
+        const country = (countries || []).find(item => String(item._id) === String(countrySelect.value));
+        phaseSelect.innerHTML = '<option value="">국가 전체</option>' + (country?.history || []).map(phase =>
+            `<option value="${countryHistoryEscape(phase._id || '')}">${countryHistoryEscape(phase.name || '')} · ${countryHistoryEscape(phase.start_year ?? '')}년</option>`).join('');
+        phaseSelect.value = selectedPhase;
+    }
+    function _setEthnicHistoryLink(countryId, phaseId) {
+        const countrySelect = document.getElementById('ethnicLinkedCountry');
+        const phaseSelect = document.getElementById('ethnicLinkedPhase');
+        const search = document.getElementById('ethnicLinkedCountrySearch');
+        if (!countrySelect || !phaseSelect) return;
+        _refreshEthnicHistoryLink();
+        countrySelect.value = String(countryId?.$oid || countryId || '');
+        _refreshEthnicHistoryLink();
+        phaseSelect.value = String(phaseId || '');
+        const country = (countries || []).find(item => String(item._id) === countrySelect.value);
+        const phase = (country?.history || []).find(item => String(item._id) === phaseSelect.value);
+        if (search) search.value = country ? (phase ? `${phase.name} (${country.name})` : country.name) : '';
+        _hideEthnicCountryResults();
+    }
+    function _hideEthnicCountryResults() {
+        const results = document.getElementById('ethnicLinkedCountryResults');
+        const search = document.getElementById('ethnicLinkedCountrySearch');
+        if (results) { results.style.display = 'none'; results.replaceChildren(); }
+        if (search) search.setAttribute('aria-expanded', 'false');
+    }
+    function _selectEthnicCountryMatch(match) {
+        const countrySelect = document.getElementById('ethnicLinkedCountry');
+        const phaseSelect = document.getElementById('ethnicLinkedPhase');
+        const search = document.getElementById('ethnicLinkedCountrySearch');
+        if (!countrySelect || !phaseSelect || !search) return;
+        countrySelect.value = String(match.country._id);
+        _refreshEthnicHistoryLink();
+        phaseSelect.value = String(match.phase?._id || '');
+        search.value = match.phase ? `${match.phase.name} (${match.country.name})` : match.country.name;
+        _hideEthnicCountryResults();
+    }
+    function _showEthnicCountryMatches() {
+        const search = document.getElementById('ethnicLinkedCountrySearch');
+        const results = document.getElementById('ethnicLinkedCountryResults');
+        const countrySelect = document.getElementById('ethnicLinkedCountry');
+        const phaseSelect = document.getElementById('ethnicLinkedPhase');
+        if (!search || !results || !countrySelect || !phaseSelect) return;
+        countrySelect.value = '';
+        phaseSelect.value = '';
+        const query = search.value.trim();
+        if (!query) { _hideEthnicCountryResults(); return; }
+        const matches = getCountrySearchMatches(query, 30);
+        results.replaceChildren();
+        if (!matches.length) {
+            const empty = document.createElement('div');
+            empty.textContent = '일치하는 국가·부족이 없습니다.';
+            empty.style.cssText = 'padding:9px;color:#aab7bf;font-size:12px;';
+            results.appendChild(empty);
+        }
+        matches.forEach(match => {
+            const option = document.createElement('button');
+            option.type = 'button';
+            option.setAttribute('role', 'option');
+            option.textContent = getCountrySearchResultLabel(match);
+            option.style.cssText = 'display:block;width:100%;padding:8px 10px;text-align:left;background:transparent;color:#e6dfcc;border:0;border-bottom:1px solid #38444b;cursor:pointer;font-size:12px;';
+            option.addEventListener('click', () => _selectEthnicCountryMatch(match));
+            results.appendChild(option);
+        });
+        results.style.display = 'block';
+        search.setAttribute('aria-expanded', 'true');
+    }
+    document.getElementById('labelType')?.addEventListener('change', _refreshEthnicHistoryLink);
+    document.getElementById('ethnicLinkedCountrySearch')?.addEventListener('input', _showEthnicCountryMatches);
+    document.getElementById('ethnicLinkedCountrySearch')?.addEventListener('keydown', event => {
+        if (event.key === 'Escape') { _hideEthnicCountryResults(); return; }
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        const first = document.querySelector('#ethnicLinkedCountryResults [role="option"]');
+        if (first) first.click();
+    });
+    document.addEventListener('click', event => {
+        if (!event.target.closest('#ethnicHistoryLinkRow')) _hideEthnicCountryResults();
+    });
+    document.getElementById('ethnicLinkedCountry')?.addEventListener('change', () => {
+        const phaseSelect = document.getElementById('ethnicLinkedPhase');
+        if (phaseSelect) phaseSelect.value = '';
+        _refreshEthnicHistoryLink();
+    });
+
     // 마커 타입 버튼 상태 설정 및 관련 UI 토글
     function setActiveMarkerType(type) {
         markerTypeSelector.querySelectorAll('button').forEach(btn => btn.classList.remove('active'));
@@ -17208,6 +17328,7 @@ const loadingMessages = [
         naturalFeatureDetails.style.display = isNatural ? 'flex' : 'none';
         // [지명] 라벨 타입
         document.getElementById('labelTypeRow').style.display = isLabel ? 'flex' : 'none';
+        _refreshEthnicHistoryLink();
 
         // ── ③ 이름 영역 ──────────────────────────────
         // [군대] 소속국가 + 장수이름 블록
@@ -18005,6 +18126,13 @@ const loadingMessages = [
 
       const selectedType = markerTypeSelector.querySelector('button.active')?.dataset.type || 'normal'; // 🚩 [수정] 'capital' 타입 조건 제거
       console.log('🛠️ Castle 수정 - 선택된 타입:', selectedType); // 🚩 [디버그] 선택된 타입 확인
+      if (selectedType === 'label' && document.getElementById('labelType')?.value === 'ethnic'
+          && document.getElementById('ethnicLinkedCountrySearch')?.value.trim()
+          && !document.getElementById('ethnicLinkedCountry')?.value) {
+          alert('연결할 국가·부족을 검색 결과에서 선택해 주세요.');
+          document.getElementById('ethnicLinkedCountrySearch')?.focus();
+          return;
+      }
 
       // 🚩 [추가] 자연마커 타입이면 proxy 필드 → 실제 필드 동기화
       if (selectedType === 'natural') {
@@ -18035,6 +18163,10 @@ const loadingMessages = [
         is_natural_feature: selectedType === 'natural',
         is_label: selectedType === 'label',
         label_type: selectedType === 'label' ? (document.getElementById('labelType')?.value || 'place') : null, // ✨ [신규] 라벨 세부 타입
+        linked_country_id: selectedType === 'label' && document.getElementById('labelType')?.value === 'ethnic'
+            ? (document.getElementById('ethnicLinkedCountry')?.value || null) : null,
+        linked_phase_id: selectedType === 'label' && document.getElementById('labelType')?.value === 'ethnic'
+            ? (document.getElementById('ethnicLinkedPhase')?.value || null) : null,
         label_color: document.getElementById('labelColor').value,
         label_size: document.getElementById('labelSize').value,
         natural_feature_type: selectedType === 'natural' ? document.getElementById('naturalFeatureType').value : null,
@@ -20212,6 +20344,37 @@ const loadingMessages = [
             if (cInfo.bases && cInfo.bases.length) metaItems.push(`<span class="cdp-meta-item"><span class="cdp-meta-key">거점</span><span class="cdp-meta-val">${cInfo.bases.map(_esc).join(' · ')}</span></span>`);
             metaBar.innerHTML = metaItems.join(`<span class="cdp-meta-sep">|</span>`);
             metaBar.style.display = metaItems.length ? '' : 'none';
+
+            const ethnicLinks = document.getElementById('cdp-ethnic-marker-links');
+            if (ethnicLinks) {
+                const countryId = String(cInfo._id?.$oid || cInfo._id || cInfo.id || '');
+                const linkedMarkers = (typeof castles !== 'undefined' ? castles : []).filter(marker =>
+                    marker.is_label && marker.label_type === 'ethnic'
+                    && String(marker.linked_country_id?.$oid || marker.linked_country_id || '') === countryId);
+                ethnicLinks.replaceChildren();
+                ethnicLinks.style.display = linkedMarkers.length ? '' : 'none';
+                if (linkedMarkers.length) {
+                    const heading = document.createElement('div');
+                    heading.textContent = '🛖 연결된 민족 거주지';
+                    heading.style.cssText = 'font-weight:bold;margin-bottom:6px;';
+                    ethnicLinks.appendChild(heading);
+                    linkedMarkers.forEach(marker => {
+                        const phase = (cInfo.history || []).find(item => String(item._id) === String(marker.linked_phase_id || ''));
+                        const button = document.createElement('button');
+                        button.type = 'button';
+                        button.textContent = `${marker.name || '민족 거주지'}${phase ? ` · ${phase.name}` : ''}`;
+                        button.style.cssText = 'display:inline-block;margin:2px;padding:4px 8px;border:1px solid #806633;border-radius:4px;background:#29271f;color:#e7cb8a;cursor:pointer;';
+                        button.addEventListener('click', () => {
+                            if (Number.isFinite(Number(marker.lng)) && Number.isFinite(Number(marker.lat))) {
+                                if (window._is3dMode && window.mlMap3d) window.mlMap3d.flyTo({ center:[Number(marker.lng), Number(marker.lat)], zoom:Math.max(window.mlMap3d.getZoom(), 7) });
+                                else map.flyTo([Number(marker.lat), Number(marker.lng)], Math.max(map.getZoom(), 7));
+                            }
+                            openDetailPanel(marker, null, null);
+                        });
+                        ethnicLinks.appendChild(button);
+                    });
+                }
+            }
 
             // ── 개요 본문 ──
             document.getElementById('cdp-desc').textContent = cInfo.description || '';
@@ -26647,6 +26810,141 @@ kingSelect.addEventListener('change', () => {
             }
         }
 
+        // 지도 상태(카메라·연도·열린 패널)를 유지한 채 계정만 전환한다.
+        async function applyMapLogin(data, rememberMe) {
+            const nextUser = parseJwt(data.token);
+            if (!nextUser || nextUser.isGuest) throw new Error('로그인 사용자 정보를 확인할 수 없습니다.');
+            localStorage.removeItem('token');
+            sessionStorage.removeItem('token');
+            localStorage.removeItem('_heroVoted');
+            localStorage.removeItem('_heroWorstVoted');
+            if (rememberMe) localStorage.setItem('token', data.token);
+            else sessionStorage.setItem('token', data.token);
+            token = data.token;
+            currentUser = nextUser;
+            isLoggedIn = true;
+            localStorage.removeItem('lastKnownPosition');
+            document.body.classList.remove('guest-mode');
+            const myId = currentUser.userId || currentUser._id || currentUser.id || currentUser.username;
+            const mypageBtn = document.getElementById('topbar-mypage-btn');
+            if (mypageBtn) {
+                mypageBtn.style.display = '';
+                mypageBtn.onclick = () => window.open(`/mypage.html?id=${encodeURIComponent(myId)}`, '_blank');
+            }
+            const alertBtn = document.getElementById('topbar-historian-alert');
+            if (alertBtn) alertBtn.onclick = () => window.open(`/mypage.html?id=${encodeURIComponent(myId)}&tab=mentions`, '_blank');
+            const accountLink = document.getElementById('accountLink');
+            if (accountLink) accountLink.style.setProperty('display', 'inline-block');
+            const contributionBtn = document.querySelector('button[data-layer="userContributions"]');
+            if (contributionBtn) contributionBtn.style.display = 'inline-block';
+            const recordBtn = document.getElementById('historicalRecordButton');
+            if (recordBtn) recordBtn.style.display = 'block';
+            const menuRecord = document.getElementById('menu-historical-record');
+            if (menuRecord) menuRecord.style.display = '';
+            const menuAccount = document.getElementById('menu-account-management');
+            if (menuAccount) menuAccount.style.display = '';
+            const feedLabel = document.getElementById('menu-layer-activity-feed')?.closest('label');
+            if (feedLabel) feedLabel.style.display = '';
+            if (window.innerWidth <= 967) {
+                const menu = document.getElementById('hamburger-menu-panel');
+                Array.from(menu?.querySelectorAll('h3') || []).forEach(heading => {
+                    if (!heading.textContent.trim().includes('필터')) return;
+                    heading.style.display = '';
+                    if (heading.nextElementSibling?.classList.contains('menu-section')) heading.nextElementSibling.style.display = '';
+                });
+            }
+            const privileged = currentUser.role === 'admin' || currentUser.role === 'superuser';
+            const adminLink = document.getElementById('adminLink');
+            if (adminLink) adminLink.style.display = currentUser.role === 'admin' ? 'inline-block' : 'none';
+            const territoryLink = document.getElementById('territoryManagerLink');
+            if (territoryLink) territoryLink.style.display = privileged ? 'inline-block' : 'none';
+            if (editDropdownContainer) editDropdownContainer.style.display = privileged ? 'inline-block' : 'none';
+            const mobileEdit = document.getElementById('mobile-edit-dropdown-container');
+            if (mobileEdit) mobileEdit.style.display = privileged ? 'block' : 'none';
+            const rankingBtn = document.getElementById('rankingBtn');
+            if (rankingBtn) rankingBtn.style.display = 'inline-block';
+            syncHamburgerAuthButtons(true, false);
+            const loginBtn = document.getElementById('topbar-login-btn');
+            const logoutBtn = document.getElementById('topbar-logout-btn');
+            if (loginBtn) loginBtn.style.display = 'none';
+            if (logoutBtn) logoutBtn.style.display = 'inline-flex';
+            renderTopbarUsername(data.position || currentUser.position || '');
+            void updateTopBarUserInfo(true);
+            void (async () => { try {
+                const response = await fetch('/api/historian-notifications/unread-count', { headers: { Authorization: `Bearer ${token}` } });
+                if (response.ok) {
+                    const unread = Number((await response.json()).unread) || 0;
+                    const count = document.getElementById('topbar-historian-alert-count');
+                    if (count) count.textContent = unread > 99 ? '99+' : String(unread);
+                    if (alertBtn) alertBtn.style.display = unread ? '' : 'none';
+                }
+            } catch (_) {} })();
+            if (!window._inlineHistorianAlertTimer) {
+                window._inlineHistorianAlertTimer = window.setInterval(async () => {
+                    if (!currentUser || currentUser.isGuest) return;
+                    try {
+                        const response = await fetch('/api/historian-notifications/unread-count', { headers: { Authorization: `Bearer ${token}` } });
+                        if (!response.ok) return;
+                        const unread = Number((await response.json()).unread) || 0;
+                        const count = document.getElementById('topbar-historian-alert-count');
+                        if (count) count.textContent = unread > 99 ? '99+' : String(unread);
+                        if (alertBtn) alertBtn.style.display = unread ? '' : 'none';
+                    } catch (_) {}
+                }, 30000);
+            }
+            window.dispatchEvent(new CustomEvent('codex:auth-changed', { detail: { user: currentUser } }));
+            if (typeof showToast === 'function') showToast(`✅ ${data.username || currentUser.username}님, 로그인했습니다.`, 'success');
+        }
+
+        window.openMapLogin = function() {
+            if (document.getElementById('map-inline-login')) return;
+            const overlay = document.createElement('div');
+            overlay.id = 'map-inline-login';
+            overlay.setAttribute('role', 'dialog');
+            overlay.setAttribute('aria-modal', 'true');
+            overlay.setAttribute('aria-label', '지도에서 로그인');
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:1000001;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(2,5,9,.72);backdrop-filter:blur(4px);';
+            overlay.innerHTML = `<form id="map-inline-login-form" style="width:min(360px,100%);padding:24px;border:1px solid #b18a3b;border-radius:13px;background:#171d23;box-shadow:0 18px 60px #000b;color:#eee;display:grid;gap:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:20px;color:#f1d18b;">고려만리지도 로그인</strong><button type="button" id="map-inline-login-close" aria-label="닫기" style="background:none;border:0;color:#f1d18b;font-size:23px;cursor:pointer;">×</button></div>
+                <p style="margin:0;color:#9fb0bd;font-size:12px;">보고 있던 지도와 연도는 그대로 유지됩니다.</p>
+                <input name="username" autocomplete="username" required placeholder="아이디" style="padding:11px;border:1px solid #40505c;border-radius:6px;background:#0d141a;color:#fff;">
+                <input name="password" type="password" autocomplete="current-password" required placeholder="비밀번호" style="padding:11px;border:1px solid #40505c;border-radius:6px;background:#0d141a;color:#fff;">
+                <label style="font-size:12px;color:#c8d0d7;"><input name="remember" type="checkbox"> 로그인 상태 유지</label>
+                <p id="map-inline-login-message" role="status" style="min-height:17px;margin:0;color:#ff9b92;font-size:12px;"></p>
+                <button type="submit" style="padding:12px;border:0;border-radius:6px;background:#d4a843;color:#211807;font-weight:bold;cursor:pointer;">로그인</button>
+                <a href="/login" style="color:#9eb7c9;text-align:center;font-size:12px;">회원가입·계정 도움말</a>
+            </form>`;
+            document.body.appendChild(overlay);
+            const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); };
+            const onKey = event => { if (event.key === 'Escape') close(); };
+            document.addEventListener('keydown', onKey);
+            overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+            overlay.querySelector('#map-inline-login-close').addEventListener('click', close);
+            const form = overlay.querySelector('form');
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                const submit = form.querySelector('[type="submit"]');
+                const message = form.querySelector('#map-inline-login-message');
+                submit.disabled = true;
+                message.textContent = '로그인 중…';
+                try {
+                    const response = await fetch('/api/auth/login', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username: form.elements.username.value, password: form.elements.password.value })
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.message || '로그인에 실패했습니다.');
+                    await applyMapLogin(data, form.elements.remember.checked);
+                    close();
+                } catch (error) {
+                    message.textContent = error.message || '로그인 상태를 갱신하지 못했습니다.';
+                    submit.disabled = false;
+                }
+            });
+            form.elements.username.focus();
+        };
+        document.getElementById('topbar-login-btn')?.addEventListener('click', () => window.openMapLogin());
+
 
 
         // drawingForm 초기 위치는 openDrawingForm()에서 처음 열릴 때 설정됨 (드래그 이동 지원)
@@ -32631,7 +32929,7 @@ kingSelect.addEventListener('change', () => {
         if (menuLoginBtn) {
             menuLoginBtn.addEventListener('click', () => {
                 toggleHamburgerMenu();
-                window.location.href = '/login';
+                window.openMapLogin();
             });
         }
 

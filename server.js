@@ -2517,6 +2517,23 @@ async function setupRoutesAndCollections() {
                     // 빈 문자열이나 null은 명시적으로 null로 설정
                     newCastle.country_id = null;
                 }
+                if (newCastle.is_label && newCastle.label_type === 'ethnic') {
+                    // 민족 거주지와 국가 연혁의 연결은 소속/영토 산정용 country_id와 독립적이다.
+                    newCastle.country_id = null;
+                    newCastle.history = [];
+                    newCastle.is_capital = false;
+                    const linkedId = newCastle.linked_country_id ? toObjectId(newCastle.linked_country_id) : null;
+                    if (newCastle.linked_country_id && !linkedId) return res.status(400).json({ message: '연결 국가 ID가 올바르지 않습니다.' });
+                    const linkedCountry = linkedId ? await collections.countries.findOne({ _id: linkedId }, { projection: { history: 1 } }) : null;
+                    if (linkedId && !linkedCountry) return res.status(400).json({ message: '연결 국가를 찾을 수 없습니다.' });
+                    const phaseId = String(newCastle.linked_phase_id || '').trim();
+                    if (phaseId && !linkedCountry?.history?.some(phase => String(phase._id) === phaseId)) return res.status(400).json({ message: '연결 국가의 연혁 단계를 찾을 수 없습니다.' });
+                    newCastle.linked_country_id = linkedId ? String(linkedId) : null;
+                    newCastle.linked_phase_id = phaseId || null;
+                } else {
+                    newCastle.linked_country_id = null;
+                    newCastle.linked_phase_id = null;
+                }
                 // 기존 newCastle.country 필드가 있다면 삭제 (마이그레이션 구조 유지)
                 if (newCastle.country) delete newCastle.country;
 
@@ -2603,6 +2620,22 @@ async function setupRoutesAndCollections() {
                 } else if (updatedCastle.country_id === '' || updatedCastle.country_id === null) {
                     // 빈 문자열이나 null은 명시적으로 null로 설정 (삭제하지 않음)
                     updatedCastle.country_id = null;
+                }
+                if (updatedCastle.is_label && updatedCastle.label_type === 'ethnic') {
+                    updatedCastle.country_id = null;
+                    updatedCastle.history = [];
+                    updatedCastle.is_capital = false;
+                    const linkedId = updatedCastle.linked_country_id ? toObjectId(updatedCastle.linked_country_id) : null;
+                    if (updatedCastle.linked_country_id && !linkedId) return res.status(400).json({ message: '연결 국가 ID가 올바르지 않습니다.' });
+                    const linkedCountry = linkedId ? await collections.countries.findOne({ _id: linkedId }, { projection: { history: 1 } }) : null;
+                    if (linkedId && !linkedCountry) return res.status(400).json({ message: '연결 국가를 찾을 수 없습니다.' });
+                    const phaseId = String(updatedCastle.linked_phase_id || '').trim();
+                    if (phaseId && !linkedCountry?.history?.some(phase => String(phase._id) === phaseId)) return res.status(400).json({ message: '연결 국가의 연혁 단계를 찾을 수 없습니다.' });
+                    updatedCastle.linked_country_id = linkedId ? String(linkedId) : null;
+                    updatedCastle.linked_phase_id = phaseId || null;
+                } else if (updatedCastle.is_label !== undefined || updatedCastle.label_type !== undefined) {
+                    updatedCastle.linked_country_id = null;
+                    updatedCastle.linked_phase_id = null;
                 }
                 // country 필드가 넘어온다면 삭제 (ID 기반 구조 유지)
                 if (updatedCastle.country) delete updatedCastle.country;
@@ -6733,9 +6766,12 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // POST: 영역 교차 검색 (bbox 기반) - territory_manager에서 사용
         app.post('/api/territories/intersect', verifyAdmin, async (req, res) => {
             try {
-                const { bbox, include_geometry, limit, exclude_id, level, year, snap_tolerance } = req.body;
+                const { bbox, point, include_geometry, limit, exclude_id, level, year, snap_tolerance } = req.body;
                 if (!bbox || bbox.minLat === undefined || bbox.maxLat === undefined || bbox.minLng === undefined || bbox.maxLng === undefined) {
                     return res.status(400).json({ message: "bbox (minLat, maxLat, minLng, maxLng) 필드가 필요합니다." });
+                }
+                if (point && (!Number.isFinite(Number(point.lng)) || !Number.isFinite(Number(point.lat)))) {
+                    return res.status(400).json({ message: 'point 좌표가 올바르지 않습니다.' });
                 }
 
                 console.log(`🔎 영역 교차 검색: lat ${bbox.minLat}~${bbox.maxLat}, lng ${bbox.minLng}~${bbox.maxLng}`);
@@ -6775,12 +6811,22 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         level: 1,
                         bbox: 1
                 };
-                if (include_geometry === true) {
+                if (include_geometry === true || point) {
                     projection.geometry = 1;
                     projection.coordinates = 1; // 구형 type+coordinates 문서도 스냅 대상으로 지원
                 }
                 const resultLimit = Math.min(200, Math.max(1, Number(limit) || 100));
                 let territories = await collections.territories.find(query, { projection }).limit(resultLimit).toArray();
+                if (point) {
+                    const { geometryContainsPoint } = require('./lib/territoryPointContainment');
+                    const lng = Number(point.lng), lat = Number(point.lat);
+                    territories = territories.filter(territory => {
+                        const geometry = territory.geometry || (territory.type && territory.coordinates
+                            ? { type: territory.type, coordinates: territory.coordinates } : null);
+                        return geometryContainsPoint(geometry, lng, lat);
+                    });
+                    if (include_geometry !== true) territories = territories.map(({ geometry, coordinates, ...territory }) => territory);
+                }
                 if (include_geometry === true) {
                     const tolerance = Math.min(0.01, Math.max(0.0002, Number(snap_tolerance) || 0.0015));
                     territories = territories.map(territory => {

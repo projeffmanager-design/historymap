@@ -1221,24 +1221,21 @@
   async function _tgFindPairTargetsAt(point,lngLat,includeLinked){
     var m=window.mlMap3d;
     var ids=['territory-fill-city','territory-fill-province','territory-fill-country'].filter(function(id){return !!m.getLayer(id);});
-    var radius=30,box=[[point.x-radius,point.y-radius],[point.x+radius,point.y+radius]];
-    var rendered=ids.length?m.queryRenderedFeatures(box,{layers:ids}):[];
-    var corner=m.unproject([point.x+radius,point.y+radius]);
-    var pad=Math.max(.05,Math.min(.35,Math.max(Math.abs(corner.lng-lngLat.lng),Math.abs(corner.lat-lngLat.lat))));
+    var rendered=ids.length?m.queryRenderedFeatures(point,{layers:ids}):[];
     var current=typeof getCurrentYearMonth==='function'?getCurrentYearMonth():null;
-    var bbox={minLng:lngLat.lng-pad,maxLng:lngLat.lng+pad,minLat:lngLat.lat-pad,maxLat:lngLat.lat+pad};
+    var bbox={minLng:lngLat.lng,maxLng:lngLat.lng,minLat:lngLat.lat,maxLat:lngLat.lat};
     var nearby=[];
     try{
       var results=await Promise.all(['city','province','country'].map(async function(level){
         var res=await fetch('/api/territories/intersect',{
           method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_tgToken()},
-          body:JSON.stringify({bbox:bbox,level:level,year:current?.year,limit:100})
+          body:JSON.stringify({bbox:bbox,point:{lng:lngLat.lng,lat:lngLat.lat},level:level,year:current?.year,limit:100})
         });
         if(!res.ok)throw new Error('HTTP '+res.status);
         return (await res.json()).territories||[];
       }));
       nearby=results.flat();
-    }catch(error){console.warn('[공유 경계] 주변 영토 DB 검색 실패, 표시된 지도 레이어만 사용:',error);}
+    }catch(error){console.warn('[공유 경계] 클릭 위치의 영토 DB 검색 실패, 표시된 지도 레이어만 사용:',error);}
     var linkedIds=new Set([String(_tgEditId)]);
     if(!includeLinked)_tgPairMembers.forEach(function(member){linkedIds.add(String(member.id));});
     var seen=new Set();
@@ -1290,7 +1287,7 @@
     _tgSetMsg('1/4 · 지도에서 '+(direction==='reverse'?'기준으로 삼을 B 영토':'경계를 맞출 B 영토')+'를 클릭하세요.','dirty');
     _tgPairClickHandler=async function(e){
       m.off('click',_tgPairClickHandler);_tgPairClickHandler=null;m.getCanvas().style.cursor='';
-      _tgSetMsg('1/4 · 근처 province·city·country 폴리곤을 찾는 중…','dirty');
+      _tgSetMsg('1/4 · 클릭한 위치의 province·city·country 폴리곤을 찾는 중…','dirty');
       var hits=await _tgFindPairTargetsAt(e.point,e.lngLat,direction==='reverse');
       if(!hits.length){_tgPairSelectDirection=null;_tgPairBtn(true,false);_tgReversePairBtn(true,false);_tgSetMsg('⚠️ 이 위치에 선택 가능한 B 영토가 없습니다.','err');return;}
       if(direction==='reverse'){
