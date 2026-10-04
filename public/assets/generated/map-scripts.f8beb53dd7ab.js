@@ -471,13 +471,47 @@
         get label() { return this.placeLabel; },
         set label(value) { this.placeLabel = value; }
     };
-    // 📱 [추가] 모바일 시작 시 모든 패널 닫힘
-    if (window.innerWidth <= 967) {
-        layerVisibility.activityFeed = false;
-        layerVisibility.timeline = false;
-        layerVisibility.eventSidebar = false;
-        layerVisibility.kingPanel = false;
-        layerVisibility.historyPanel = false;
+    const mobileFirstPaint = window.innerWidth <= 967 || window.innerHeight > window.innerWidth;
+    let mobileLayerTouched = false;
+    // 모바일 첫 화면의 제품 기본값: 기본 지도 + 지명/국가명 + 영토만 표시한다.
+    // 앞으로 기능/레이어를 추가해도 특별한 모바일 표시 요청이 없다면 여기서 OFF를 유지할 것.
+    // 사용자가 이후 메뉴에서 직접 켜는 동작은 허용하며, PC 설정은 변경하지 않는다.
+    function applyMobileFirstPaintLayers(settings) {
+        if (!mobileFirstPaint) return settings;
+        if (mobileLayerTouched) {
+            const current = { ...(settings || {}), ...layerVisibility };
+            delete current.label;
+            return current;
+        }
+        const minimal = {};
+        // label은 placeLabel의 호환용 setter라 별도로 할당하면 지명 ON을 덮어쓴다.
+        Object.keys(layerVisibility).filter(key => key !== 'label').forEach(key => { minimal[key] = false; });
+        minimal.placeLabel = true;
+        minimal.countryLabel = true;
+        minimal.territoryPolygon = true;
+        const result = { ...(settings || {}), ...minimal };
+        delete result.label;
+        return result;
+    }
+    Object.assign(layerVisibility, applyMobileFirstPaintLayers(layerVisibility));
+    const mobileOptionalLoads = new Map();
+    function loadMobileOptionalLayer(layerName) {
+        if (!mobileFirstPaint || !layerVisibility[layerName]) return;
+        const loads = [];
+        if (layerName === 'event' || layerName === 'eventSidebar' || layerName === 'timeline') loads.push('events');
+        if (layerName === 'natural' || layerName === 'rivers' || layerName === 'relic') loads.push('drawings');
+        if (layerName === 'natural' || layerName === 'rivers') loads.push('natural-features');
+        loads.forEach(kind => {
+            if (mobileOptionalLoads.has(kind)) return;
+            const task = fetchData(kind).then(data => {
+                if (kind === 'events') events = data || [];
+                else if (kind === 'drawings') drawings = normalizeDrawings(data || []);
+                else naturalFeatures = data || [];
+                requestOverlayUpdate();
+            }).catch(error => console.warn('[모바일 선택 레이어] 로드 실패:', kind, error))
+              .finally(() => mobileOptionalLoads.delete(kind));
+            mobileOptionalLoads.set(kind, task);
+        });
     }
     // 🚩 [수정] battle 레이어: 독립 전장 마커(is_battle=true) + 역사 레코드 전장(history[].is_battle=true) 둘 다 지원
 
@@ -8999,7 +9033,7 @@ function invalidateCountryLookupCache() {
         const cachedRaw = localStorage.getItem(cacheKey);
         if (cachedRaw) {
             try {
-                const cachedSettings = withBrowserPanelConfiguration(JSON.parse(cachedRaw));
+                const cachedSettings = applyMobileFirstPaintLayers(withBrowserPanelConfiguration(JSON.parse(cachedRaw)));
                 Object.assign(layerVisibility, cachedSettings);
                 applyLayerSettingsToUI(cachedSettings);
 
@@ -9009,7 +9043,7 @@ function invalidateCountryLookupCache() {
                     .then(data => {
                         if (!data || !data.settings) return;
                         localStorage.setItem(cacheKey, JSON.stringify(data.settings));
-                        const mergedSettings = withBrowserPanelConfiguration(data.settings);
+                        const mergedSettings = applyMobileFirstPaintLayers(withBrowserPanelConfiguration(data.settings));
                         Object.assign(layerVisibility, mergedSettings);
                         applyLayerSettingsToUI(mergedSettings);
                     })
@@ -9032,8 +9066,8 @@ function invalidateCountryLookupCache() {
             }
 
             const data = await response.json();
-            const settings = withBrowserPanelConfiguration(data.settings);
-            localStorage.setItem(cacheKey, JSON.stringify(settings));
+            const settings = applyMobileFirstPaintLayers(withBrowserPanelConfiguration(data.settings));
+            localStorage.setItem(cacheKey, JSON.stringify(data.settings));
             // console.log('✅ 레이어 설정 로드 성공:', settings);
             
             // layerVisibility 객체 업데이트
@@ -10023,9 +10057,9 @@ const loadingMessages = [
       // 🎯 [핵심] 캐시 데이터 먼저 확인 (초기화 전에!)
       const cachedCountries = localStorage.getItem('countries_cache');
       const territoriesPromise = loadTerritoriesFromCache();
-      const eventsPromise = loadEventsFromCache();
-      const drawingsPromise = loadDrawingsFromCache();
-      const contributionsPromise = loadContributionsFromCache();
+      const eventsPromise = mobileFirstPaint ? Promise.resolve([]) : loadEventsFromCache();
+      const drawingsPromise = mobileFirstPaint ? Promise.resolve([]) : loadDrawingsFromCache();
+      const contributionsPromise = mobileFirstPaint ? Promise.resolve([]) : loadContributionsFromCache();
       // 🔔 [v3.9] castle 버전 체크 + 캐시 로드를 병렬로 (버전이 더 최신이면 캐시 무효화)
       const castleVersionPromise = fetchCastleVersion();
       const castlesPromise = loadCastlesFromCache(); // 🚀 [추가] Castles 캐시 우선 로드
@@ -10188,7 +10222,7 @@ const loadingMessages = [
               if (_guestTok) {
                   const _guestPay = JSON.parse(atob(_guestTok.split('.')[1]));
                   if (_guestPay && _guestPay.isGuest) {
-                      layerVisibility.activityFeed = true;
+                      if (!mobileFirstPaint) layerVisibility.activityFeed = true;
                       document.body.classList.add('guest-mode');
                       console.log('🧳 [게스트] 활동소식 패널 강제 ON');
                   }
@@ -10298,7 +10332,7 @@ const loadingMessages = [
           
           // 🚀 [백그라운드 로딩] events — idle 시점에 로드, TTL 30분 캐시
           console.log('📅 [백그라운드] events 데이터 로딩 예약 (idle defer)...');
-          defer(() => {
+          if (!mobileFirstPaint) defer(() => {
             if (events.length > 0 && !isCacheStale('events')) {
                 console.log(`⏭️ [idle] events 캐시 유효 (${events.length}개) → 스킵`);
                 return;
@@ -10528,7 +10562,7 @@ const loadingMessages = [
           })();
           
           // 🚀 [idle defer] drawings — TTL 30분, 지우개 저장 직후는 스킵
-          defer(() => {
+          if (!mobileFirstPaint) defer(() => {
             if (drawings.length > 0 && !isCacheStale('drawings')) {
                 console.log(`⏭️ [idle] drawings 캐시 유효 (${drawings.length}개) → 스킵`);
                 return;
@@ -10628,7 +10662,7 @@ const loadingMessages = [
           
           // 1️⃣ history 데이터 (2,221개) — idle 시점에 로드
           console.log('📚 history 데이터 idle defer 예약...');
-          defer(async () => {
+          if (!mobileFirstPaint) defer(async () => {
               try {
                   history = await fetchData('history');
                   console.log(`✅ history 백그라운드 로드 완료: ${history.length}개`);
@@ -26869,8 +26903,9 @@ kingSelect.addEventListener('change', () => {
             if (loginBtn) loginBtn.style.display = 'none';
             if (logoutBtn) logoutBtn.style.display = 'inline-flex';
             renderTopbarUsername(data.position || currentUser.position || '');
-            void updateTopBarUserInfo(true);
-            void (async () => { try {
+            // 로그인 응답 뒤 지도/모달을 먼저 그린다. 계정 부가 조회는 다음 프레임 이후 실행.
+            setTimeout(() => { void updateTopBarUserInfo(true); }, 500);
+            setTimeout(() => { void (async () => { try {
                 const response = await fetch('/api/historian-notifications/unread-count', { headers: { Authorization: `Bearer ${token}` } });
                 if (response.ok) {
                     const unread = Number((await response.json()).unread) || 0;
@@ -26878,7 +26913,7 @@ kingSelect.addEventListener('change', () => {
                     if (count) count.textContent = unread > 99 ? '99+' : String(unread);
                     if (alertBtn) alertBtn.style.display = unread ? '' : 'none';
                 }
-            } catch (_) {} })();
+            } catch (_) {} })(); }, 700);
             if (!window._inlineHistorianAlertTimer) {
                 window._inlineHistorianAlertTimer = window.setInterval(async () => {
                     if (!currentUser || currentUser.isGuest) return;
@@ -28629,7 +28664,9 @@ kingSelect.addEventListener('change', () => {
             if (checkbox) {
                 checkbox.checked = layerVisibility[layerName] === true;
                 checkbox.addEventListener('change', () => {
+                    if (mobileFirstPaint) mobileLayerTouched = true;
                     layerVisibility[layerName] = checkbox.checked;
+                    loadMobileOptionalLayer(layerName);
                     if (BROWSER_PANEL_KEYS.includes(layerName)) persistBrowserPanelConfiguration();
                     if (layerName === 'waterLevel') {
                         const { year } = getCurrentYearMonth();
@@ -31839,11 +31876,23 @@ kingSelect.addEventListener('change', () => {
                             bearing: 0,
                             antialias: false,
                             fadeDuration: 0,
-                            maxTileCacheSize: window.innerWidth <= 967 ? 24 : 48,
+                            // 모바일 첫 화면은 저해상도 캔버스와 작은 타일 캐시로 시작한다.
+                            // 레이어 기본값과 함께 유지하고, 고해상도는 데스크톱에 맡긴다.
+                            pixelRatio: mobileFirstPaint ? Math.min(window.devicePixelRatio || 1, 1.25) : undefined,
+                            maxTileCacheSize: mobileFirstPaint ? 16 : 48,
                             maxPitch: 85,
                             renderWorldCopies: globeProjection !== 'globe',
                             canvasContextAttributes: { alpha: true, antialias: false },
                         });
+                        if (mobileFirstPaint && typeof mlMap.setPixelRatio === 'function') {
+                            // 광역 첫 화면은 1.25배, 지역을 확대해서 볼 때만 선명도를 높인다.
+                            // 줌 중에는 재할당하지 않아 모바일 GPU의 캔버스 재생성 비용을 피한다.
+                            mlMap.on('zoomend', () => {
+                                const targetRatio = Math.min(window.devicePixelRatio || 1,
+                                    mlMap.getZoom() >= 6.3 ? 1.75 : 1.25);
+                                if (Math.abs(mlMap.getPixelRatio() - targetRatio) > 0.05) mlMap.setPixelRatio(targetRatio);
+                            });
+                        }
                         // OpenFreeMap 스타일이 간헐적으로 요청하는 누락 sprite 대체 이미지.
                         // listener를 지도 생성 직후 등록해 첫 스타일 렌더의 경고도 막는다.
                         mlMap.on('styleimagemissing', event => {
@@ -33171,11 +33220,13 @@ kingSelect.addEventListener('change', () => {
             // 체크박스 변경 시 해당 레이어 토글
             mobileLayerCheckboxes.forEach(checkbox => {
                 checkbox.addEventListener('change', () => {
+                    if (mobileFirstPaint) mobileLayerTouched = true;
                     const layerName = checkbox.dataset.layer;
                     const isChecked = checkbox.checked;
                     
                     // 기존 layerVisibility 객체 업데이트
                     layerVisibility[layerName] = isChecked;
+                    loadMobileOptionalLayer(layerName);
                     
                     // 레이어 표시/숨김 (기존 토글 버튼과 동일한 로직)
                     if (layerName === 'timeline') {
@@ -33624,12 +33675,14 @@ kingSelect.addEventListener('change', () => {
         // 🚩 [수정] 레이어 토글 버튼 이벤트 리스너를 다시 추가합니다.
         layerToggles.addEventListener('click', (e) => {
             if (e.target.classList.contains('layer-toggle-btn')) {
+                if (mobileFirstPaint) mobileLayerTouched = true;
                 const button = e.target;
                 if (button.disabled) return;
                 const layerType = button.dataset.layer;
                 
                 button.classList.toggle('active');
                 layerVisibility[layerType] = button.classList.contains('active');
+                loadMobileOptionalLayer(layerType);
                 
                 // 🚩 [추가] 기여 레이어 토글 시 contributionMode 토글 (게스트는 이미 버튼이 숨겨짐)
                 if (layerType === 'userContributions') {
