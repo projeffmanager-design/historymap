@@ -666,7 +666,8 @@
         return [{_id:r.id,name:r.name,pop_by_year:{[year]:r.population},population:r.population,lng:point[0],lat:point[1],region_id:r.id,population_origin:r.populationOrigin}];
       });
     } };
-    if(!window.nationalPowerPreview){
+    // 모바일은 국력 버튼을 누르기 전까지 대용량 인구/자원 스냅샷을 예열하지 않는다.
+    if(!window.nationalPowerPreview && !(window.innerWidth <= 967 || window.innerHeight > window.innerWidth)){
       const warm=()=>ensurePopulationBaseData().then(()=>{
         // Prepare the full resource and marker snapshot before first opening.
         setTimeout(()=>ensureBaseData().catch(()=>{}),1200);
@@ -674,7 +675,9 @@
       if('requestIdleCallback' in window)requestIdleCallback(warm,{timeout:4000});
       else setTimeout(warm,1500);
     }
-    if (new URLSearchParams(location.search).get('power') === '1') toggle(true);
+    // 모바일 국력은 첫 화면 자동 표시 대상이 아니다. 사용자가 버튼을 누를 때만 연다.
+    if (new URLSearchParams(location.search).get('power') === '1'
+      && !(window.innerWidth <= 967 || window.innerHeight > window.innerWidth)) toggle(true);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true }); else boot();
 })();

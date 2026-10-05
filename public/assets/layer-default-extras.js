@@ -2,6 +2,9 @@
 (function () {
   'use strict';
   window.addEventListener('load', async () => {
+    // 모바일 첫 화면은 기본 지도·지명·국가명·영토만 유지한다.
+    // 특별한 모바일 표시 요청이 없는 한 국력/자원/영웅 자동 활성화를 추가하지 말 것.
+    if (window.innerWidth <= 967 || window.innerHeight > window.innerWidth) return;
     try {
       const response = await fetch('/api/layer-settings', { cache: 'no-store' });
       if (!response.ok) return;

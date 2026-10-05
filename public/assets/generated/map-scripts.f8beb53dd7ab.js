@@ -489,9 +489,7 @@
         minimal.placeLabel = true;
         minimal.countryLabel = true;
         minimal.territoryPolygon = true;
-        const result = { ...(settings || {}), ...minimal };
-        delete result.label;
-        return result;
+        return minimal;
     }
     Object.assign(layerVisibility, applyMobileFirstPaintLayers(layerVisibility));
     const mobileOptionalLoads = new Map();
@@ -7205,6 +7203,18 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             castles.forEach(castle => {
                 if (!castle) return;
                 if (typeof castle.lat !== 'number' || typeof castle.lng !== 'number') return;
+                // 모바일의 꺼진 레이어는 3D 마커 배열에 넣기 전 제외한다.
+                // 시대 이동마다 수천 개 비표시 마커의 연대 조회·정렬을 반복하지 않기 위함.
+                if (mobileFirstPaint) {
+                    if (castle.is_natural_feature && !layerVisibility.natural && !layerVisibility.relic) return;
+                    if (castle.is_military_flag && !layerVisibility.military) return;
+                    if (castle.is_label) {
+                        const labelType = castle.label_type || 'place';
+                        if ((labelType === 'country' || labelType === 'admin') && !layerVisibility.adminLabel) return;
+                        if (labelType === 'ethnic' && !layerVisibility.ethnicLabel) return;
+                        if (!['country', 'admin', 'ethnic'].includes(labelType) && !layerVisibility.placeLabel) return;
+                    } else if (!castle.is_natural_feature && !castle.is_military_flag && !layerVisibility.city) return;
+                }
                 // 자연지물(산·강 등 항상 표시) — built/destroyed 범위 체크
                 if (castle.is_natural_feature) {
                     const _naturalTimeTypes = ['tomb','construction','hunting','temple','palace','mine','port','kiln','farmland','battle'];
@@ -14989,17 +14999,20 @@ const loadingMessages = [
         } 
         
         updateMap(year, month, cacheOnly); // 🚩 cacheOnly 매개변수 전달
-        if (typeof refreshWaterLevelOverlay === 'function') refreshWaterLevelOverlay(year);
-        if (!cacheOnly && typeof window._refreshPopulationForTime === 'function') {
+        // 고환경은 updateMap 안에서 이미 갱신한다. 꺼진 모바일 부가 레이어는 시대 이동 시 계산하지 않는다.
+        if (!cacheOnly && (!mobileFirstPaint || layerVisibility.heatmap)
+            && typeof window._refreshPopulationForTime === 'function') {
             window._refreshPopulationForTime(year);
         }
-        refreshHeroPinsForTime(year, month, cacheOnly);
+        if (!mobileFirstPaint || document.getElementById('menu-layer-heroes')?.checked) {
+            refreshHeroPinsForTime(year, month, cacheOnly);
+        }
         updateUI(year, month);
-        checkAndDisplayEvent(year, month);
+        if (layerVisibility.event) checkAndDisplayEvent(year, month);
         // createHistoricalEventMarkers(); // 🚩 [제거] 연도 변경 시 사건 마커 업데이트 - 제거됨
-        updateTimelineScroll(); // 🚩 [추가] 연도 변경 시 연대표도 함께 이동
+        if (layerVisibility.timeline) updateTimelineScroll();
         // 🚩 역사 패널은 debounce 처리 (연속 변경 시 마지막 값만 fetch)
-        scheduleHistoryPanelUpdate(year);
+        if (layerVisibility.historyPanel || layerVisibility.captionPanel) scheduleHistoryPanelUpdate(year);
     }
     window.goToHistoricalTime = function(year, month = 1) {
         const targetYear = Number.parseInt(year, 10);
@@ -29657,11 +29670,12 @@ kingSelect.addEventListener('change', () => {
                     _refreshLayersThrottled();
                     return;
                 }
-                // ── debounce: 400ms 안에 연속 호출은 마지막 1회만 실행 ──
+                // 모바일 시대 이동은 계산이 끝난 뒤 3D 반영을 오래 대기시키지 않는다.
+                // 연속 이동은 여전히 마지막 호출로 합쳐 중복 GPU 업로드를 피한다.
                 clearTimeout(_refreshLayersTimer);
                 _refreshLayersTimer = setTimeout(() => {
                     _refreshLayersThrottled();
-                }, 400);
+                }, mobileFirstPaint ? 80 : 400);
             }
 
             function _refreshLayersThrottled() {
