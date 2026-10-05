@@ -473,7 +473,7 @@
     };
     const mobileFirstPaint = window.innerWidth <= 967 || window.innerHeight > window.innerWidth;
     let mobileLayerTouched = false;
-    // 모바일 첫 화면의 제품 기본값: 기본 지도 + 지명/국가명 + 영토만 표시한다.
+    // 모바일 첫 화면의 제품 기본값: 지도 기본 카테고리의 5개 레이어만 표시한다.
     // 앞으로 기능/레이어를 추가해도 특별한 모바일 표시 요청이 없다면 여기서 OFF를 유지할 것.
     // 사용자가 이후 메뉴에서 직접 켜는 동작은 허용하며, PC 설정은 변경하지 않는다.
     function applyMobileFirstPaintLayers(settings) {
@@ -486,8 +486,10 @@
         const minimal = {};
         // label은 placeLabel의 호환용 setter라 별도로 할당하면 지명 ON을 덮어쓴다.
         Object.keys(layerVisibility).filter(key => key !== 'label').forEach(key => { minimal[key] = false; });
+        minimal.city = true;
         minimal.placeLabel = true;
         minimal.countryLabel = true;
+        minimal.adminLabel = true;
         minimal.territoryPolygon = true;
         return minimal;
     }
@@ -1431,6 +1433,30 @@
         return window[key];
     }
 
+    function normalizeOpenFreeMapGlyphStacks(style) {
+        for (const layer of style?.layers || []) {
+            const textFont = layer?.layout?.['text-font'];
+            // OpenFreeMap's glyph host serves individual font directories, but
+            // the Fiord style can advertise a comma-joined fallback stack.
+            // MapLibre then requests that joined directory and receives a 404.
+            if (Array.isArray(textFont) && textFont.length > 0
+                && textFont.every(font => typeof font === 'string')) {
+                const firstFont = textFont[0].split(',')[0].trim();
+                if (firstFont) layer.layout['text-font'] = [firstFont];
+            } else if (typeof textFont === 'string') {
+                const firstFont = textFont.split(',')[0].trim();
+                if (firstFont) layer.layout['text-font'] = [firstFont];
+            }
+        }
+        return style;
+    }
+
+    async function fetchOpenFreeMapStyle() {
+        const response = await fetch('https://tiles.openfreemap.org/styles/fiord');
+        if (!response.ok) throw new Error(`벡터 스타일 HTTP ${response.status}`);
+        return normalizeOpenFreeMapGlyphStacks(await response.json());
+    }
+
     async function ensureHistoryVectorLayer() {
         if (historyVectorLayerPromise) return historyVectorLayerPromise;
         historyVectorLayerPromise = (async () => {
@@ -1442,9 +1468,7 @@
                 await loadHistoryVectorAsset('script', 'https://unpkg.com/@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl.js');
             }
 
-            const response = await fetch('https://tiles.openfreemap.org/styles/fiord');
-            if (!response.ok) throw new Error(`벡터 스타일 HTTP ${response.status}`);
-            const style = await response.json();
+            const style = await fetchOpenFreeMapStyle();
             style.sources = style.sources || {};
             style.sources['history-terrain-dem'] = {
                 type: 'raster-dem',
@@ -10071,7 +10095,8 @@ const loadingMessages = [
       const drawingsPromise = mobileFirstPaint ? Promise.resolve([]) : loadDrawingsFromCache();
       const contributionsPromise = mobileFirstPaint ? Promise.resolve([]) : loadContributionsFromCache();
       // 🔔 [v3.9] castle 버전 체크 + 캐시 로드를 병렬로 (버전이 더 최신이면 캐시 무효화)
-      const castleVersionPromise = fetchCastleVersion();
+      // 모바일 첫 페인트를 버전 API 왕복에 묶지 않는다. 데이터 변경 감지는 뒤의 폴링이 맡는다.
+      const castleVersionPromise = mobileFirstPaint ? Promise.resolve(null) : fetchCastleVersion();
       const castlesPromise = loadCastlesFromCache(); // 🚀 [추가] Castles 캐시 우선 로드
       
       // 병렬 대기 (castles 포함)
@@ -10394,18 +10419,24 @@ const loadingMessages = [
                       const territoryLoadTime = ((performance.now() - territoryStartTime) / 1000).toFixed(2);
                       console.log(`✅ 영토 데이터 로딩 완료: ${territories.length}개 (${territoryLoadTime}초)`);
                       
-                      // 🎯 [IndexedDB] 로드한 영토 데이터를 캐시에 저장
-                      if (territories.length > 0) {
-                          await saveTerritoriesCache(territories);
-                          console.log('💾 영토 데이터 IndexedDB 캐시 저장 완료');
-                      }
-                      
                       // 🚀 [v2.0.9] 영토 로딩 완료 → 초기화 플래그 해제 및 즉시 렌더링
                       isInitializing = false;
                       console.log('🔓 [초기화 완료] isInitializing = false (영토 로딩 완료)');
                       
                       requestUpdateMap();
                       console.log('🗺️ [즉시 렌더링] 영토 데이터로 지도 렌더링 예약');
+                      // 큰 폴리곤의 IndexedDB structured-clone은 모바일 메인 스레드를
+                      // 오래 점유한다. 첫 지도 렌더와 입력을 막지 않도록 유휴 시점에 저장한다.
+                      if (territories.length > 0) {
+                          if (mobileFirstPaint) {
+                              setTimeout(() => {
+                                  defer(() => { void saveTerritoriesCache(territories).catch(error =>
+                                      console.warn('모바일 영토 캐시 저장 실패:', error)); }, 20000);
+                              }, 10000);
+                          } else {
+                              await saveTerritoriesCache(territories);
+                          }
+                      }
                   } catch (error) {
                       console.error('❌ 영토 데이터 로딩 실패:', error);
                       isInitializing = false; // 오류 시에도 해제
@@ -10833,7 +10864,7 @@ const loadingMessages = [
       // ═══════════════════════════════════════════════════════════════════════
       const _tileDeviceMode = /Mobi|Android|iPhone/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       const _tileStrategyConfig = _tileDeviceMode === 'mobile' ? {
-          bufferDeg:              5,    // 3D Globe 메모리 절약: 현재 뷰포트 인접 5°
+          bufferDeg:              0,    // 모바일은 보이는 뷰포트만 먼저 로드 (주변 5° 대형 타일 제외)
           prefetchNextZoomDeg:    false,
           prefetchPrevZoomDeg:    false,
           maxConcurrent:          4,
@@ -14989,6 +15020,7 @@ const loadingMessages = [
     var _historyPanelSearchSequence = 0;
     var _historyPanelSearchCache = new Map();
 
+    let _mobileTimeCommitTimer = null;
     function updateTime(year, month, cacheOnly = false) {
         // 🚩 [수정] yearInput, monthInput 업데이트는 updateUI에서 처리
         const totalMonths = yearMonthToTotalMonths(year, month);
@@ -14998,21 +15030,27 @@ const loadingMessages = [
             combinedSlider.value = totalMonths;
         } 
         
-        updateMap(year, month, cacheOnly); // 🚩 cacheOnly 매개변수 전달
-        // 고환경은 updateMap 안에서 이미 갱신한다. 꺼진 모바일 부가 레이어는 시대 이동 시 계산하지 않는다.
-        if (!cacheOnly && (!mobileFirstPaint || layerVisibility.heatmap)
-            && typeof window._refreshPopulationForTime === 'function') {
-            window._refreshPopulationForTime(year);
+        const commitMap = () => {
+            updateMap(year, month, cacheOnly);
+            // 고환경은 updateMap 안에서 이미 갱신한다. 꺼진 모바일 부가 레이어는 계산하지 않는다.
+            if (!cacheOnly && (!mobileFirstPaint || layerVisibility.heatmap)
+                && typeof window._refreshPopulationForTime === 'function') window._refreshPopulationForTime(year);
+            if (!mobileFirstPaint || document.getElementById('menu-layer-heroes')?.checked) {
+                refreshHeroPinsForTime(year, month, cacheOnly);
+            }
+            if (layerVisibility.event) checkAndDisplayEvent(year, month);
+            if (layerVisibility.timeline) updateTimelineScroll();
+            if (layerVisibility.historyPanel || layerVisibility.captionPanel) scheduleHistoryPanelUpdate(year);
+        };
+        if (mobileFirstPaint && !cacheOnly) {
+            // 날짜를 먼저 보여주고, 연속 탭으로 건너뛴 중간 연도는 렌더링하지 않는다.
+            updateUI(year, month);
+            clearTimeout(_mobileTimeCommitTimer);
+            _mobileTimeCommitTimer = setTimeout(commitMap, 80);
+        } else {
+            commitMap();
+            updateUI(year, month);
         }
-        if (!mobileFirstPaint || document.getElementById('menu-layer-heroes')?.checked) {
-            refreshHeroPinsForTime(year, month, cacheOnly);
-        }
-        updateUI(year, month);
-        if (layerVisibility.event) checkAndDisplayEvent(year, month);
-        // createHistoricalEventMarkers(); // 🚩 [제거] 연도 변경 시 사건 마커 업데이트 - 제거됨
-        if (layerVisibility.timeline) updateTimelineScroll();
-        // 🚩 역사 패널은 debounce 처리 (연속 변경 시 마지막 값만 fetch)
-        if (layerVisibility.historyPanel || layerVisibility.captionPanel) scheduleHistoryPanelUpdate(year);
     }
     window.goToHistoricalTime = function(year, month = 1) {
         const targetYear = Number.parseInt(year, 10);
@@ -30071,7 +30109,10 @@ kingSelect.addEventListener('change', () => {
 
                     render(gl) {
                         const pitch = map.getPitch();
-                        if (pitch < 15) { map.triggerRepaint(); return; }
+                        // Top-down globe does not draw this effect. Requesting
+                        // another frame here kept MapLibre's GPU readback loop
+                        // running forever even though no pixels changed.
+                        if (pitch < 15) return;
                         const pn = Math.min(1.0, (pitch - 15) / 45);
 
                         gl.useProgram(this._prog);
@@ -30098,10 +30139,23 @@ kingSelect.addEventListener('change', () => {
                         gl.disableVertexAttribArray(L.a_phase);
                         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-                        map.triggerRepaint();
+                        if (mobileFirstPaint) {
+                            // Keep the decorative twinkle light on mobile and
+                            // avoid driving the globe GPU at display refresh rate.
+                            if (!this._nextRepaintTimer) {
+                                this._nextRepaintTimer = setTimeout(() => {
+                                    this._nextRepaintTimer = null;
+                                    map.triggerRepaint();
+                                }, 80);
+                            }
+                        } else {
+                            map.triggerRepaint();
+                        }
                     },
 
                     onRemove(map, gl) {
+                        clearTimeout(this._nextRepaintTimer);
+                        this._nextRepaintTimer = null;
                         if (this._prog) gl.deleteProgram(this._prog);
                         if (this._vbo)  gl.deleteBuffer(this._vbo);
                     }
@@ -30555,6 +30609,10 @@ kingSelect.addEventListener('change', () => {
                                 ['==', ['get', 'kind'], 'label'], ['get', 'name'],
                                 ['concat', ['get', 'glyph'], ' ', ['get', 'name']]
                             ],
+                            // MapLibre's implicit default joins Open Sans and
+                            // Arial Unicode into a glyph directory that the
+                            // OpenFreeMap font host does not provide.
+                            'text-font': ['Open Sans Regular'],
                             'text-size': getMobileSymbolTextSizeExpression(),
                             'text-anchor': 'top',
                             'text-offset': [0, 0.45],
@@ -31027,6 +31085,10 @@ kingSelect.addEventListener('change', () => {
                         let labelLat, labelLng;
                         const capital = _capitalMap.get(countryId);
                         if (capital) { labelLat = capital.lat; labelLng = capital.lng; }
+                        if (!labelLat && typeof _renderedCountryLargestPatch !== 'undefined' && _renderedCountryLargestPatch.has(countryId)) {
+                            const patch = _renderedCountryLargestPatch.get(countryId);
+                            labelLat = patch.lat; labelLng = patch.lng;
+                        }
                         if (!labelLat && typeof _renderedCountryCentroids !== 'undefined' && _renderedCountryCentroids.has(countryId)) {
                             const cc = _renderedCountryCentroids.get(countryId);
                             labelLat = cc.lat / cc.count; labelLng = cc.lng / cc.count;
@@ -31119,8 +31181,13 @@ kingSelect.addEventListener('change', () => {
                     if (now - _last3dCullAt < minInterval) return;
                     _last3dCullAt = now;
 
-                    const cw = _cullCanvas.width  / (window.devicePixelRatio || 1);
-                    const ch = _cullCanvas.height / (window.devicePixelRatio || 1);
+                    // project()/unproject() use CSS pixels. MapLibre's mobile
+                    // pixelRatio can be lower than window.devicePixelRatio, so
+                    // dividing the backing-store size by the device DPR makes
+                    // the visible box far too short and culls the lower map.
+                    const canvasRect = _cullCanvas.getBoundingClientRect();
+                    const cw = _cullCanvas.clientWidth || canvasRect.width;
+                    const ch = _cullCanvas.clientHeight || canvasRect.height;
                     const sidePad = _mobile3dPerformance ? 80 : 300; // 좌우/아래 화면 밖 여유
                     const topCut  = -60;  // 위(하늘/지구 뒤): 거의 허용 안 함
 
@@ -31612,7 +31679,7 @@ kingSelect.addEventListener('change', () => {
                 document.querySelectorAll('.map-tile-btn[data-tile]').forEach(b => b.classList.remove('active'));
                 _elevateUiFor3d();
 
-                loadMapLibre(() => {
+                loadMapLibre(async () => {
                     // 전체화면 오버레이 생성 (1회)
                     if (!mlOverlay) {
                         mlOverlay = document.createElement('div');
@@ -31877,11 +31944,12 @@ kingSelect.addEventListener('change', () => {
                             document.head.appendChild(ss);
                         }
                         mlOverlay.appendChild(_spinner);
+                        const globeStyle = await fetchOpenFreeMapStyle();
                         mlMap = new maplibregl.Map({
                             container: mlOverlay,
                             // 모든 Globe 모드는 이 벡터 스타일 하나를 공유한다.
                             // 위성은 raster, 지형은 DEM 메시와 hillshade로 전환한다.
-                            style: 'https://tiles.openfreemap.org/styles/fiord',
+                            style: globeStyle,
                             center: [c.lng, c.lat],
                             zoom: initialCamera?.zoom ?? (globeMode && globeBasemap !== 'terrain'
                                 ? Math.min(map.getZoom(), 2.6)
@@ -31896,7 +31964,15 @@ kingSelect.addEventListener('change', () => {
                             maxTileCacheSize: mobileFirstPaint ? 16 : 48,
                             maxPitch: 85,
                             renderWorldCopies: globeProjection !== 'globe',
-                            canvasContextAttributes: { alpha: true, antialias: false },
+                            // Chromium's WebGL2 Pixel Pack Buffer path emits a
+                            // repeated READ-usage/fence warning during MapLibre
+                            // globe correction on mobile GPUs. MapLibre has a
+                            // WebGL1-compatible 1px readback path that avoids it.
+                            canvasContextAttributes: {
+                                alpha: true,
+                                antialias: false,
+                                contextType: mobileFirstPaint ? 'webgl' : 'webgl2'
+                            },
                         });
                         if (mobileFirstPaint && typeof mlMap.setPixelRatio === 'function') {
                             // 광역 첫 화면은 1.25배, 지역을 확대해서 볼 때만 선명도를 높인다.
@@ -32331,7 +32407,8 @@ kingSelect.addEventListener('change', () => {
 
                                                 _threeRenderer.resetState();
                                                 _threeRenderer.render(_threeScene, _threeCamera);
-                                                window.mlMap3d.triggerRepaint();
+                                                // The palace layer is static. Editing handlers request
+                                                // repaint explicitly; doing it here creates a permanent loop.
                                             } catch(re) { console.warn('[PalaceEditor] render 오류:', re.message); }
                                         }
                                     };

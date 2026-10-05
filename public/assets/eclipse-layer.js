@@ -14,7 +14,7 @@
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[char]));
-    let enabled = true;
+    let enabled = false;
     let requestController = null;
     let lastKey = '';
     let cachedData = emptyCollection();
@@ -333,7 +333,11 @@
         const mobile = document.getElementById('mobile-layer-eclipse');
         if (desktop) desktop.checked = enabled;
         if (mobile) mobile.checked = enabled;
-        if (!enabled) return clear();
+        if (!enabled) {
+            requestController?.abort();
+            requestController = null;
+            return clear();
+        }
         const { year } = readCurrentTime();
         update(year);
     }
@@ -350,6 +354,9 @@
     document.addEventListener('DOMContentLoaded', () => {
         bindToggle('menu-layer-eclipse');
         bindToggle('mobile-layer-eclipse');
-        setEnabled(document.getElementById('menu-layer-eclipse')?.checked !== false);
+        // 모바일 첫 화면은 기본 지도만 불러온다. 일식 데이터는 사용자가 레이어를 켤 때 요청한다.
+        const mobileFirstPaint = document.body.classList.contains('force-mobile')
+            || window.innerWidth <= 967 || window.innerHeight > window.innerWidth;
+        setEnabled(!mobileFirstPaint && document.getElementById('menu-layer-eclipse')?.checked !== false);
     });
 })();
