@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.f8beb53dd7ab.js'), 'utf8');
+const territoryEditorScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.844fdec57596.js'), 'utf8');
 const start = mapScript.indexOf('    const mobileFirstPaint =');
 const end = mapScript.indexOf('    const mobileOptionalLoads =', start);
 assert.ok(start >= 0 && end > start);
@@ -159,4 +160,11 @@ test('mobile MapLibre symbol layer declares one available glyph font', () => {
     const layerEnd = mapScript.indexOf('paint:', layerStart);
     assert.ok(layerStart >= 0 && layerEnd > layerStart);
     assert.match(mapScript.slice(layerStart, layerEnd), /'text-font': \['Open Sans Regular'\]/);
+});
+
+test('shared-boundary editor can reselect endpoints without restarting territory selection', () => {
+    assert.match(territoryEditorScript, /function _tgReselectPairRange\(\)/);
+    assert.match(territoryEditorScript, /btn\.textContent='📍 시작·끝점 다시 선택'/);
+    assert.match(territoryEditorScript, /_tgRestorePairState\(context\.snapshot\)/);
+    assert.match(territoryEditorScript, /btn\.textContent='📍 시작점 다시 선택'/);
 });

@@ -32,6 +32,7 @@
   var _tgPairPreviewRequest=0;
   var _tgPairRangeEnabled=true,_tgPairStartPoint=null;
   var _tgPairRangeMarker=null;
+  var _tgPairReselectContext=null;
   var _tgCanonicalGroups=[];
   var _tgCoastClickHandler=null,_tgCoastGuideLine=null,_tgCoastSelection=null;
   var _tgAOverlapCandidates=[];
@@ -222,14 +223,55 @@
   function _tgPairRangeBtn(show){
     var btn=document.getElementById('territory-geom-pair-range-btn');if(!btn)return;
     btn.style.display=show?'':'none';btn.classList.toggle('active',_tgPairRangeEnabled);
-    btn.textContent='📍 공유구간 양끝 지정 '+(_tgPairRangeEnabled?'ON':'OFF');
+    if(_tgPairClickHandler&&_tgPairStartPoint)btn.textContent='📍 시작점 다시 선택';
+    else if(_tgPairClickHandler&&_tgPairSelectDirection)btn.textContent='📍 양끝 선택 중';
+    else if(_tgPairReselectContext)btn.textContent='📍 시작·끝점 다시 선택';
+    else btn.textContent='📍 공유구간 양끝 지정 '+(_tgPairRangeEnabled?'ON':'OFF');
   }
   function _tgTogglePairRange(){
+    if(_tgPairClickHandler&&_tgPairSelectDirection){
+      _tgPairStartPoint=null;_tgClearPairRangeMarker();_tgPairRangeBtn(true);
+      _tgSetMsg('2/4 · 시작점을 다시 클릭한 뒤 공유구간의 끝점을 클릭하세요.','dirty');
+      return;
+    }
+    if(_tgPairReselectContext){_tgReselectPairRange();return;}
     _tgPairRangeEnabled=!_tgPairRangeEnabled;_tgPairStartPoint=null;_tgClearPairRangeMarker();_tgPairRangeBtn(true);
     _tgSetMsg(_tgPairRangeEnabled?'📍 B 영토를 고른 뒤 공유구간 시작점과 끝점을 차례로 클릭하세요.':'📍 B 영토를 고른 뒤 한 지점으로 가까운 공유구간을 자동 선택합니다.','dirty');
   }
   function _tgClearPairRangeMarker(){
     if(_tgPairRangeMarker){_tgPairRangeMarker.remove();_tgPairRangeMarker=null;}
+  }
+  function _tgCapturePairState(){
+    return JSON.parse(JSON.stringify({
+      editedGeometry:_tgEditedGeometry,pairId:_tgPairId,pairGeometry:_tgPairGeometry,
+      pairOriginal:_tgPairOriginal,pairSharedLines:_tgPairSharedLines,
+      pairMembers:_tgPairMembers,canonicalGroups:_tgCanonicalGroups,referenceBId:_tgReferenceBId
+    }));
+  }
+  function _tgRestorePairState(snapshot){
+    var state=JSON.parse(JSON.stringify(snapshot));
+    _tgEditedGeometry=state.editedGeometry;_tgPairId=state.pairId;_tgPairGeometry=state.pairGeometry;
+    _tgPairOriginal=state.pairOriginal;_tgPairMembers=state.pairMembers||[];
+    _tgCanonicalGroups=state.canonicalGroups||[];_tgReferenceBId=state.referenceBId||null;
+    _tgPairSharedLines=_tgCanonicalGroups.length
+      ? _tgCanonicalGroups.flatMap(function(group){return group.lines||[];})
+      : (state.pairSharedLines||[]);
+    var byId=new Map([[String(_tgEditId),_tgEditedGeometry]]);
+    _tgPairMembers.forEach(function(member){byId.set(String(member.id),member.geometry);});
+    _tgCanonicalGroups.forEach(function(group){group.memberIds.forEach(function(id){
+      var geometry=byId.get(String(id));if(geometry)group.lines.forEach(function(line){_tgBindSavedLine(geometry,line);});
+    });});
+    var m=window.mlMap3d;
+    if(m?.getLayer('territory-3d-shared-line'))m.removeLayer('territory-3d-shared-line');
+    if(m?.getSource('territory-3d-shared-line'))m.removeSource('territory-3d-shared-line');
+    _tgShowSharedLines();_tg3dSetGeometry(_tgEditedGeometry);_tg3dRefreshMarkers();
+  }
+  function _tgReselectPairRange(){
+    var context=_tgPairReselectContext;if(!context)return;
+    _tgRestorePairState(context.snapshot);
+    _tgPairSelectDirection=context.direction;
+    _tgPairBtn(true,context.direction==='forward');_tgReversePairBtn(true,context.direction==='reverse');
+    _tgBeginPairRangeSelection(context.direction,context.selected);
   }
   function _tgCoastBtn(show,active){
     var btn=document.getElementById('territory-geom-coast-btn');if(!btn)return;
@@ -1122,7 +1164,7 @@
     _tgPairPreviewRequest++;_tgClearPairSelectionOutline();
     if(m&&_tgPairClickHandler){m.off('click',_tgPairClickHandler);_tgPairClickHandler=null;}
     if(m){['territory-3d-shared-line','territory-3d-pair-fill','territory-3d-pair-line'].forEach(function(id){if(m.getLayer(id))m.removeLayer(id);});['territory-3d-shared-line','territory-3d-pair-edit'].forEach(function(id){if(m.getSource(id))m.removeSource(id);});}
-    _tgPairId=null;_tgPairGeometry=null;_tgPairOriginal=null;_tgPairSharedLines=[];_tgPairMembers=[];_tgCanonicalGroups=[];_tgPairSelectDirection=null;_tgPairStartPoint=null;_tgClearPairRangeMarker();_tgPairBtn(false,false);_tgReversePairBtn(false,false);
+    _tgPairId=null;_tgPairGeometry=null;_tgPairOriginal=null;_tgPairSharedLines=[];_tgPairMembers=[];_tgCanonicalGroups=[];_tgPairSelectDirection=null;_tgPairStartPoint=null;_tgPairReselectContext=null;_tgClearPairRangeMarker();_tgPairBtn(false,false);_tgReversePairBtn(false,false);_tgPairRangeBtn(!!_tgEditMode);
     var unlinkBtn=document.getElementById('territory-geom-unlink-btn');if(unlinkBtn)unlinkBtn.style.display='none';
   }
   async function _tgUnlinkSharedBoundary(){
@@ -1179,7 +1221,7 @@
       var m=window.mlMap3d;_tg3dSetGeometry(_tgEditedGeometry);
       m.addSource('territory-3d-shared-line',{type:'geojson',data:{type:'MultiLineString',coordinates:_tgPairSharedLines}});
       m.addLayer({id:'territory-3d-shared-line',type:'line',source:'territory-3d-shared-line',paint:{'line-color':'#ff56d8','line-width':7,'line-opacity':1}});
-      _tg3dRefreshMarkers();_tgPairBtn(true,false);m.getCanvas().style.cursor='';
+      _tg3dRefreshMarkers();_tgPairBtn(true,false);_tgPairRangeBtn(true);m.getCanvas().style.cursor='';
       var gapText=Number(first.shared._matchTolerance)>0?' · 인식 허용 간격 약 '+Math.round(first.shared._matchTolerance*111)+'km':'';
       _tgSetMsg('3/4 · A 기준선에 B 영토 '+_tgPairMembers.length+'개를 맞췄습니다.'+gapText+' 공유 꼭짓점을 미세 조정한 뒤 4/4 경계 저장을 누르세요.','dirty');
     }catch(error){if(!_tgCanonicalGroups.length)_tgClearPair();_tgPairBtn(true,false);_tgSetMsg('❌ 공유 경계 맞춤 실패: '+error.message,'err');}
@@ -1218,7 +1260,7 @@
     var m=window.mlMap3d;
     m.getSource('territory-3d-shared-line')?.setData({type:'MultiLineString',coordinates:_tgPairSharedLines});
     _tg3dSetGeometry(_tgEditedGeometry);_tg3dRefreshMarkers();_tgPairBtn(true,false);
-    _tgSetMsg('3/4 · 이번 편집의 다른 접경은 유지하고 새 영토 '+prepared.length+'개를 맞췄습니다. 미세 조정한 뒤 경계 저장을 누르세요.','dirty');
+    _tgPairRangeBtn(true);_tgSetMsg('3/4 · 이번 편집의 다른 접경은 유지하고 새 영토 '+prepared.length+'개를 맞췄습니다. 시작·끝점이 잘못되면 다시 선택할 수 있습니다.','dirty');
   }
   async function _tgPrepareReversePair(hit,focus,range){
     try{
@@ -1259,7 +1301,7 @@
       _tgPairSharedLines=_tgCanonicalGroups.flatMap(function(group){return group.lines;});
       _tgPairId=String(id);_tgPairGeometry=member.geometry;_tgPairOriginal=member.original;
       _tgShowSharedLines();_tg3dSetGeometry(_tgEditedGeometry);_tg3dRefreshMarkers();
-      _tgSetMsg('3/4 · B('+_tgTerritoryName(full)+') 기준선에 A를 맞췄습니다. 공유 꼭짓점을 미세 조정한 뒤 4/4 경계 저장을 누르세요.','dirty');
+      _tgPairRangeBtn(true);_tgSetMsg('3/4 · B('+_tgTerritoryName(full)+') 기준선에 A를 맞췄습니다. 시작·끝점이 잘못되면 다시 선택할 수 있습니다.','dirty');
     }catch(error){_tgSetMsg('❌ B 기준 맞춤 실패: '+error.message,'err');}
     _tgPairBtn(true,false);_tgReversePairBtn(true,false);
   }
@@ -1319,7 +1361,8 @@
       if(request===_tgPairPreviewRequest){_tgPairSelectDirection=null;_tgPairBtn(true,false);_tgReversePairBtn(true,false);_tgSetMsg('❌ B 외곽선 표시 실패: '+error.message,'err');}
       return;
     }
-    _tgPairStartPoint=null;_tgClearPairRangeMarker();m.getCanvas().style.cursor='crosshair';
+    if(_tgPairRangeEnabled)_tgPairReselectContext={direction:direction,selected:selected,snapshot:_tgCapturePairState()};
+    _tgPairStartPoint=null;_tgClearPairRangeMarker();m.getCanvas().style.cursor='crosshair';_tgPairRangeBtn(true);
     _tgSetMsg(_tgPairRangeEnabled?'2/4 · 색상별 B 외곽선을 확인하고 공유구간의 시작점과 끝점을 차례로 클릭하세요.':'2/4 · 색상별 B 외곽선을 확인하고 맞출 경계의 한 지점을 클릭하세요.','dirty');
     _tgPairClickHandler=function(e){
       if(_tgPairRangeEnabled&&!_tgPairStartPoint){
@@ -1328,7 +1371,7 @@
         var pin=document.createElement('div');
         pin.style.cssText='width:15px;height:15px;border-radius:50%;background:#ffe08a;border:3px solid #3b1e06;box-shadow:0 0 0 3px #ffe08a88,0 1px 6px #000;pointer-events:none;';
         _tgPairRangeMarker=new maplibregl.Marker({element:pin,anchor:'center'}).setLngLat(e.lngLat).addTo(m);
-        _tgSetMsg('2/4 · 시작점 지정 완료. 공유구간의 끝점을 클릭하세요.','dirty');
+        _tgPairRangeBtn(true);_tgSetMsg('2/4 · 시작점 지정 완료. 공유구간의 끝점을 클릭하세요. 잘못 찍었으면 시작점 다시 선택을 누르세요.','dirty');
         return;
       }
       m.off('click',_tgPairClickHandler);_tgPairClickHandler=null;m.getCanvas().style.cursor='';
@@ -1336,7 +1379,7 @@
         ? [[_tgPairStartPoint.lngLat.lng,_tgPairStartPoint.lngLat.lat],[e.lngLat.lng,e.lngLat.lat]]:null;
       var focus=range?[(range[0][0]+range[1][0])/2,(range[0][1]+range[1][1])/2]:[e.lngLat.lng,e.lngLat.lat];
       _tgPairStartPoint=null;_tgClearPairRangeMarker();_tgPairSelectDirection=null;_tgPairPreviewRequest++;_tgClearPairSelectionOutline();
-      _tgPairBtn(true,false);_tgReversePairBtn(true,false);
+      _tgPairBtn(true,false);_tgReversePairBtn(true,false);_tgPairRangeBtn(true);
       _tgSetMsg('3/4 · 공유구간 좌표를 맞추는 중…','dirty');
       if(direction==='reverse')_tgPrepareReversePair(selected,focus,range);
       else _tgPreparePair(selected,focus,range);
