@@ -3006,7 +3006,11 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         titleEl.textContent = castleName;
 
         const placeType = activeHistoryRecord?.place_type || castle.place_type;
-        const PLACE_LABELS = { capital:'왕성', ju:'州', gun:'郡', hyeon:'縣', seong:'城', jin:'鎭', gateway:'關', battle:'戰場', normal:'일반' };
+        const PLACE_LABELS = {
+            hwangseong:'천자 황성', capital:'왕성', do:'도(道)', gye:'계(界)', gyeong:'경(京)',
+            mok:'목(牧)', bu:'부(府)', gun:'군(郡)', hyeon:'현(縣)', jin:'진(鎭)',
+            seong:'성(城)', ju:'주(州)', gateway:'관(關)', battle:'전장', chon:'마을(村)', normal:'일반'
+        };
         if (placeType && placeType !== 'normal') {
             badgeEl.textContent = PLACE_LABELS[placeType] || placeType;
             badgeEl.style.display = '';
@@ -7926,15 +7930,20 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
         // place_type별 아이콘 설정 (capital은 별도 낙관 마커로 처리)
         const PLACE_TYPE_CONFIG = {
-            hwangseong: { size: 25, hanja: '皇', label: '천자' },
-            ju:       { size: 20, hanja: '州', label: '주'   },
-            gun:      { size: 15, hanja: '郡', label: '군'   },
-            hyeon:    { size: 15, hanja: '縣', label: '현'   },
-            seong:    { size: 17, hanja: '城', label: '성'   },
+            hwangseong: { size: 34, hanja: '皇', label: '천자' },
+            do:       { size: 30, hanja: '道', label: '도'   },
+            gye:      { size: 30, hanja: '界', label: '계'   },
+            gyeong:   { size: 28, hanja: '京', label: '경'   },
+            mok:      { size: 26, hanja: '牧', label: '목'   },
+            bu:       { size: 24, hanja: '府', label: '부'   },
+            gun:      { size: 21, hanja: '郡', label: '군'   },
+            hyeon:    { size: 18, hanja: '縣', label: '현'   },
             jin:      { size: 17, hanja: '鎭', label: '진'   },
+            seong:    { size: 17, hanja: '城', label: '성'   },
+            ju:       { size: 16, hanja: '州', label: '주'   },
             gateway:  { size: 17, hanja: '關', label: '관'  },
             battle:   { size: 20, hanja: '戰', label: '전장' },
-            chon:     { size: 15, hanja: '村', label: '마을' },
+            chon:     { size: 13, hanja: '村', label: '마을' },
         };
 
         // ── 4a. 왕성(capital)/황성(hwangseong): 커스텀 아이콘 우선, 없으면 낙관 마커 ──
@@ -7987,6 +7996,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 });
             }
             marker = L.marker([castle.lat, castle.lng], { icon: capitalIcon, zIndexOffset: 1000 });
+            marker._castleData = castle;
+            marker._activePlaceType = placeType;
+            marker.isCapital = true;
 
             const editorInfoHtml = castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">사관: ${castle.createdBy}</small>` : '';
             const _capFlagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" style="height:11px;vertical-align:middle;margin-right:3px;">` : '';
@@ -8025,12 +8037,20 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         if (ptCfg && layerVisibility.city) {
             const sz = ptCfg.size;
             const _hanjaColor = dotColor || '#d8cdb8';
+            const _isSeongSeal = placeType === 'seong' || placeType === '성';
+            const _isJinSeal = placeType === 'jin' || placeType === '진' || placeType === 'gateway';
+            const _isGyeongSeal = placeType === 'gyeong' || placeType === '경';
+            const _sealInlineStyle = _isGyeongSeal
+                ? 'background:#fff;border:2px solid #8b1e1e;color:#8b1e1e;font-weight:900;text-shadow:none;box-shadow:0 1px 6px rgba(0,0,0,.82),0 0 5px rgba(255,255,255,.55);'
+                : (_isSeongSeal || _isJinSeal
+                    ? 'background:#fff;border-color:#111;color:#111;font-weight:900;text-shadow:none;box-shadow:0 1px 4px rgba(0,0,0,.72);'
+                    : `color:${_hanjaColor};font-weight:900;`);
             const hanjaStyle = `color:${_hanjaColor};font-weight:300;font-size:10px;line-height:1;white-space:nowrap;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000,0 0 4px #000,0 0 8px rgba(0,0,0,0.9);`;
             const nameStyle  = `color:#d8cdb8;font-weight:300;font-family:'Nanum Myeongjo',serif;font-size:10px;white-space:nowrap;text-shadow:0 0 2px rgba(0,0,0,0.9),0 0 4px rgba(0,0,0,0.8);`;
 
             let specialMarkerHtml;
             let _sptAnchorY = sz; // 기본: 아이콘 높이 하단
-            if (castle.custom_icon) {
+            if (castle.custom_icon && !_isSeongSeal && !_isJinSeal && !_isGyeongSeal) {
                 // 커스텀 아이콘이 있으면 place_type 아이콘 대신 사용
                 const ciw = castle.icon_width || sz;
                 const cih = castle.icon_height || sz;
@@ -8073,7 +8093,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                         <div class="battle-rock br3"></div>
                         <div class="battle-rock br4"></div>
                       </div>
-                      <div class="place-glyph-seal" style="position:relative;z-index:2;width:${sz}px;height:${sz}px;color:${_hanjaColor};font-size:${Math.max(12, Math.round(sz * .58))}px;">${ptCfg.hanja}</div>
+                      <div class="place-glyph-seal" style="position:relative;z-index:2;width:${sz}px;height:${sz}px;${_sealInlineStyle}font-size:${Math.max(12, Math.round(sz * .58))}px;">${ptCfg.hanja}</div>
                       <!-- 이름 라벨: absolute로 아이콘 바로 아래 중앙 정렬 -->
                       <div style="position:absolute; top:${sz + 2}px; left:50%; transform:translateX(-50%); white-space:nowrap; z-index:2;">
                         <span style="${nameStyle}">${castleName}</span>
@@ -8089,7 +8109,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                     <div class="cm-wrap" style="display:flex; flex-direction:column; align-items:center; gap:0;">
                       ${markerPoliticalBadgeHtml}
                       ${_ptDefFlagHtml}
-                      <div class="place-glyph-seal" style="width:${sz}px;height:${sz}px;color:${_hanjaColor};font-size:${Math.max(11, Math.round(sz * .62))}px;">${ptCfg.hanja}</div>
+                      <div class="place-glyph-seal" style="width:${sz}px;height:${sz}px;${_sealInlineStyle}font-size:${Math.max(11, Math.round(sz * .62))}px;">${ptCfg.hanja}</div>
                       <div class="cm-name" style="display:flex;align-items:center;gap:1px;width:max-content;margin-top:1px;">
                         <span style="${nameStyle}">${castleName}</span>
                       </div>
@@ -8103,7 +8123,13 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 iconAnchor: placeType === 'battle' ? [sz / 2, sz / 2] : [50, _sptAnchorY],
                 popupAnchor: [0, placeType === 'battle' ? -(sz / 2 + 4) : -_sptAnchorY]
             });
-            marker = L.marker([castle.lat, castle.lng], { icon: specialIcon });
+            const _placeZIndex = ({ hwangseong:5000, capital:4800, gyeong:4500, do:4200, gye:4200,
+                mok:3800, bu:3500, gun:3000, hyeon:2600, jin:2200, seong:2200,
+                ju:1800, gateway:1600, battle:1400, chon:200 })[placeType] || 0;
+            marker = L.marker([castle.lat, castle.lng], { icon: specialIcon, zIndexOffset: _placeZIndex });
+            marker._castleData = castle;
+            marker._activePlaceType = placeType;
+            marker._markerHierarchyPriority = _placeZIndex;
 
             const editorInfoHtml = castle.createdBy ? `<br><small style="font-size:11px;color:#9aabbd;">사관: ${castle.createdBy}</small>` : '';
             const _sptFlagHtml = countryInfo?.flag ? `<img src="${countryInfo.flag}" style="height:11px;vertical-align:middle;margin-right:3px;">` : '';
@@ -8477,10 +8503,12 @@ function _applyMarkerLabelDeclutter() {
         const estW = Math.max(text.length * 7, 20); // 한자/한글 평균 ~7px
         const estH = 14;
 
-        // 수도 마커 우선순위: zIndexOffset 1000 이상 또는 isCapital 플래그
-        const priority = (m.isCapital || (m.options && m.options.zIndexOffset >= 1000)) ? 0 : 1;
+        const type = String(m._activePlaceType || m._castleData?.place_type || '').toLowerCase();
+        const rank = ({ hwangseong:0, capital:1, gyeong:2, do:3, gye:3, mok:4, bu:5,
+            gun:6, hyeon:7, jin:8, seong:8, ju:9, gateway:10, battle:11, chon:13 })[type];
+        const priority = (m.isCapital || (m.options && m.options.zIndexOffset >= 4800)) ? 0 : (rank ?? 12);
 
-        entries.push({ pt, labelEl, estW, estH, priority, latlng });
+        entries.push({ pt, labelEl, markerEl: el, estW, estH, priority, latlng });
     }
 
     // 2단계: 수도 우선으로 정렬 (priority 0이 먼저)
@@ -8490,7 +8518,8 @@ function _applyMarkerLabelDeclutter() {
     const occupied = []; // { x1, y1, x2, y2 }
 
     for (const entry of entries) {
-        const { pt, labelEl, estW, estH, priority } = entry;
+        const { pt, labelEl, markerEl, estW, estH, priority } = entry;
+        markerEl.style.visibility = '';
 
         // 라벨 AABB (라벨은 마커 아이콘 아래에 위치)
         const padding = 2; // 여유 간격
@@ -8516,7 +8545,8 @@ function _applyMarkerLabelDeclutter() {
         }
 
         if (overlaps) {
-            labelEl.style.visibility = 'hidden';
+            if (map.getZoom() < 9) markerEl.style.visibility = 'hidden';
+            else labelEl.style.visibility = 'hidden';
         } else {
             labelEl.style.visibility = '';
             occupied.push({ x1, y1, x2, y2 });
@@ -17100,17 +17130,22 @@ const loadingMessages = [
                 <div class="history-field-container history-place-type-container">
                     <label>유형</label>
                     <select class="history-place-type" style="font-size:11px; padding:3px 4px; background:#1a2535; color:#e0d4b8; border:1px solid rgba(180,140,80,0.4); border-radius:3px; height:28px;">
-                        <option value="normal"      ${(history.place_type||'normal')==='normal'    ? 'selected':''}>일반</option>
                         <option value="hwangseong" ${history.place_type==='hwangseong' ? 'selected':''}>천자(皇) - 황성</option>
                         <option value="capital"    ${(history.place_type==='capital'||(history.is_capital&&!history.place_type))  ? 'selected':''}>왕성(王)</option>
-                        <option value="ju"         ${history.place_type==='ju'       ? 'selected':''}>주(州)</option>
+                        <option value="do"         ${history.place_type==='do'       ? 'selected':''}>도(道)</option>
+                        <option value="gye"        ${history.place_type==='gye'      ? 'selected':''}>계(界)</option>
+                        <option value="gyeong"     ${history.place_type==='gyeong'   ? 'selected':''}>경(京)</option>
+                        <option value="mok"        ${history.place_type==='mok'      ? 'selected':''}>목(牧)</option>
+                        <option value="bu"         ${history.place_type==='bu'       ? 'selected':''}>부(府)</option>
                         <option value="gun"        ${history.place_type==='gun'      ? 'selected':''}>군(郡)</option>
                         <option value="hyeon"      ${history.place_type==='hyeon'    ? 'selected':''}>현(縣)</option>
-                        <option value="seong"      ${history.place_type==='seong'    ? 'selected':''}>성(城)</option>
                         <option value="jin"        ${history.place_type==='jin'      ? 'selected':''}>진(鎭)</option>
+                        <option value="seong"      ${history.place_type==='seong'    ? 'selected':''}>성(城)</option>
+                        <option value="ju"         ${history.place_type==='ju'       ? 'selected':''}>주(州)</option>
                         <option value="gateway"    ${(history.place_type==='gateway'||(history.is_gateway&&!history.place_type))  ? 'selected':''}>관(關)</option>
                         <option value="battle"     ${(history.place_type==='battle'||(history.is_battle&&!history.place_type))   ? 'selected':''}>전장(戰)</option>
                         <option value="chon"       ${history.place_type==='chon'     ? 'selected':''}>마을(村)</option>
+                        <option value="normal"      ${(history.place_type||'normal')==='normal'    ? 'selected':''}>일반</option>
                     </select>
                 </div>
                 <button type="button" class="history-delete-btn" onclick="this.closest('.history-record-row').remove(); rebuildCastleHistoryGapButtons();">✕</button>
@@ -27000,6 +27035,7 @@ kingSelect.addEventListener('change', () => {
             return ['*', safeScale, ['case',
                 ['==', ['get', 'label_type'], 'admin'], 12,
                 ['==', ['get', 'kind'], 'label'], 11,
+                ['==', ['get', 'kind'], 'city'], ['+', 7, ['get', 'marker_radius']],
                 10
             ]];
         }
@@ -29509,7 +29545,8 @@ kingSelect.addEventListener('change', () => {
                 if (c.is_military_flag)                        return 3; // 군대
                 if (effectivePlaceType === 'battle')           return 3; // 전장
                 if (c.population && c.population > 100000)    return 3; // 대도시
-                if (effectivePlaceType === '주' || effectivePlaceType === 'ju') return 3; // 주(州)
+                if (['do', 'gye', 'gyeong', 'mok', 'bu'].includes(effectivePlaceType)) return 3; // 상위 행정구역
+                if (effectivePlaceType === '주' || effectivePlaceType === 'ju') return 4; // 주(州)
                 if (effectivePlaceType === 'chon')             return 5; // 마을은 가장 낮은 우선순위
                 return 4; // 일반 성/현
             }
@@ -29529,13 +29566,15 @@ kingSelect.addEventListener('change', () => {
                 if (c.is_natural_feature) {
                     return 6.0;
                 }
-                if (placeType === 'ju' || placeType === '주') return 5.0;
-                if (placeType === 'seong' || placeType === '성' || placeType === 'city') return 5.5;
+                if (['do', 'gye', 'gyeong', 'mok'].includes(placeType)) return 5.6;
+                if (placeType === 'bu') return 5.9;
+                if (['seong', '성', 'gateway', 'jin', '진'].includes(placeType)) return 6.1;
                 if (c.is_military_flag || placeType === 'battle') return 6.3;
                 if (placeType === 'gun' || placeType === '군') return 6.3;
-                if (placeType === 'hyeon' || placeType === '현') return 6.6;
-                if (placeType === 'chon' || placeType === '촌' || placeType === 'village') return 7.2;
-                return 5.5; // normal/진/관문 등 일반 성 계열
+                if (placeType === 'ju' || placeType === '주') return 6.5;
+                if (placeType === 'hyeon' || placeType === '현') return 6.7;
+                if (['chon', '촌', 'village', 'normal', '', 'city'].includes(placeType)) return 6.9;
+                return 6.9;
             }
 
             let _mvtBaseStylesById = new Map();
@@ -30013,15 +30052,20 @@ kingSelect.addEventListener('change', () => {
                 };
 
                 const PLACE_TYPE_CONFIG_3D = {
-                    hwangseong: { size: 25, hanja: '皇' },
-                    ju:      { size: 20, hanja: '州' },
-                    gun:     { size: 15, hanja: '郡' },
-                    hyeon:   { size: 15, hanja: '縣' },
-                    seong:   { size: 17, hanja: '城' },
+                    hwangseong: { size: 34, hanja: '皇' },
+                    do:      { size: 30, hanja: '道' },
+                    gye:     { size: 30, hanja: '界' },
+                    gyeong:  { size: 28, hanja: '京' },
+                    mok:     { size: 26, hanja: '牧' },
+                    bu:      { size: 24, hanja: '府' },
+                    gun:     { size: 21, hanja: '郡' },
+                    hyeon:   { size: 18, hanja: '縣' },
                     jin:     { size: 17, hanja: '鎭' },
+                    seong:   { size: 17, hanja: '城' },
+                    ju:      { size: 16, hanja: '州' },
                     gateway: { size: 17, hanja: '關' },
                     battle:  { size: 20, hanja: '戰' },
-                    chon:    { size: 15, hanja: '村' },
+                    chon:    { size: 13, hanja: '村' },
                 };
                 const nameStyle3d = `color:#d8cdb8;font-family:'Nanum Myeongjo',serif;font-weight:300;font-size:10px;white-space:nowrap;text-shadow:0 0 2px rgba(0,0,0,0.9),0 0 4px rgba(0,0,0,0.8);`;
                 const hanjaStyle3d = `font-weight:300;font-size:10px;line-height:1;white-space:nowrap;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;`;
@@ -30049,6 +30093,7 @@ kingSelect.addEventListener('change', () => {
                     const labelType = c.is_label ? String(c.label_type || 'place') : '';
                     const kind = c.is_label ? 'label' : (c.is_natural_feature ? 'natural' : 'city');
                     const glyphByType = {
+                        do:'道', gye:'界', gyeong:'京', mok:'牧', bu:'府',
                         ju:'州', '주':'州', gun:'郡', '군':'郡', hyeon:'縣', '현':'縣',
                         seong:'城', '성':'城', jin:'鎭', '진':'鎭', gateway:'關', chon:'村', village:'村'
                     };
@@ -30060,8 +30105,11 @@ kingSelect.addEventListener('change', () => {
                             name: String(activeRec?.name || c.name || ''),
                             kind,
                             label_type: labelType,
+                            place_type: placeType,
                             glyph: kind === 'city' ? (glyphByType[placeType] || '·') : (kind === 'natural' ? '◆' : ''),
-                            color: String(c.label_color || ci?.color || (kind === 'natural' ? '#9eb68a' : '#d8cdb8'))
+                            color: String(placeType === 'gyeong' || placeType === '경' ? '#8b1e1e' : (['gateway', 'jin', '진', 'seong', '성'].includes(placeType) ? '#111111' : (c.label_color || ci?.color || (kind === 'natural' ? '#9eb68a' : '#d8cdb8')))),
+                            marker_fill: String(['gyeong', '경', 'gateway', 'jin', '진', 'seong', '성'].includes(placeType) ? '#ffffff' : (c.label_color || ci?.color || '#d8cdb8')),
+                            marker_radius: Number(({ do:6.5, gye:6.5, gyeong:6, mok:5.5, bu:5, gun:4.5, hyeon:4, gateway:3.8, jin:3.8, seong:3.8, ju:3.5, chon:3 }[placeType]) || 3.5)
                         }
                     };
                 };
@@ -30135,8 +30183,8 @@ kingSelect.addEventListener('change', () => {
                         source: _mobileSymbolSourceId,
                         filter: ['!=', ['get', 'kind'], 'label'],
                         paint: {
-                            'circle-radius': ['case', ['==', ['get', 'kind'], 'natural'], 3, 3.5],
-                            'circle-color': ['get', 'color'],
+                            'circle-radius': ['case', ['==', ['get', 'kind'], 'natural'], 3, ['get', 'marker_radius']],
+                            'circle-color': ['get', 'marker_fill'],
                             'circle-stroke-color': 'rgba(10,10,12,.9)',
                             'circle-stroke-width': 1,
                             'circle-opacity': 0.92
@@ -30160,7 +30208,15 @@ kingSelect.addEventListener('change', () => {
                         },
                         paint: {
                             'text-color': ['get', 'color'],
-                            'text-halo-color': 'rgba(8,8,10,.92)',
+                            'text-halo-color': ['case',
+                                ['any',
+                                    ['==', ['get', 'place_type'], 'gyeong'], ['==', ['get', 'place_type'], '경'],
+                                    ['==', ['get', 'place_type'], 'gateway'],
+                                    ['==', ['get', 'place_type'], 'jin'], ['==', ['get', 'place_type'], '진'],
+                                    ['==', ['get', 'place_type'], 'seong'], ['==', ['get', 'place_type'], '성']
+                                ],
+                                'rgba(255,255,255,.95)', 'rgba(8,8,10,.92)'
+                            ],
                             'text-halo-width': 1.2,
                             'text-halo-blur': 0.4
                         }
@@ -30263,11 +30319,15 @@ kingSelect.addEventListener('change', () => {
                     const politicalForm3d = normalizeCountryPoliticalForm(effectiveCi3d?.political_form || 'state');
                     const politicalSymbol3d = COUNTRY_POLITICAL_FORM_ICONS[politicalForm3d] || '';
 
-                    // ── 우선순위 결정 (충돌 감지용) ──
-                    // 2=수도, 1=자연지물/지명, 0=일반
-                    let _priority = 0;
-                    if (isCapital3d || placeType3d === 'capital' || placeType3d === 'hwangseong') _priority = 2;
-                    else if (c.is_natural_feature || c.is_label) _priority = 1;
+                    // ── 우선순위 결정 (충돌 감지·쌓임 순서용) ──
+                    const _placePriority3d = {
+                        hwangseong: 14, capital: 13, gyeong: 12, do: 11, gye: 11,
+                        mok: 10, bu: 9, gun: 8, hyeon: 7, jin: 6, seong: 6,
+                        ju: 5, gateway: 4, battle: 3, chon: 1
+                    };
+                    let _priority = _placePriority3d[placeType3d] || 2;
+                    if (isCapital3d) _priority = Math.max(_priority, 13);
+                    else if (c.is_natural_feature || c.is_label) _priority = Math.max(_priority, 2);
 
                     // ── 마커 HTML: txt/ico 분리 구조 ──
                     let txtHtml = '', icoHtml = '', _isBattle3d = false, _3dMarkerFlagHtml = '';
@@ -30317,7 +30377,7 @@ kingSelect.addEventListener('change', () => {
                             const sz = ptCfg.size;
                             const _battleIconHtml3d = c.custom_icon
                                 ? `<img src="${toRawImageUrl(c.custom_icon)}" style="width:${sz}px;height:${sz}px;object-fit:contain;display:block;position:relative;z-index:2;" onerror="this.style.display='none'">`
-                                : `<div class="place-glyph-seal" style="position:relative;z-index:2;width:${sz}px;height:${sz}px;color:${dotColor3d};font-size:${Math.max(16, Math.round(sz * .5))}px;">${ptCfg.hanja}</div>`;
+                                : `<div class="place-glyph-seal" style="position:relative;z-index:2;width:${sz}px;height:${sz}px;color:${dotColor3d};font-weight:900;font-size:${Math.max(16, Math.round(sz * .5))}px;">${ptCfg.hanja}</div>`;
                             txtHtml = `<div style="${nameStyle3d}position:absolute;top:${sz+2}px;left:50%;transform:translateX(-50%);white-space:nowrap;z-index:2;">${castleName3d}</div>`;
                             icoHtml = `<div style="position:relative;width:${sz}px;height:${sz}px;overflow:visible;">
                                 <div class="battle-fire-wrap" style="position:absolute;top:-10px;left:-4px;width:${sz}px;height:${sz}px;pointer-events:none;z-index:0;overflow:visible;">
@@ -30341,14 +30401,22 @@ kingSelect.addEventListener('change', () => {
                                 </div>
                                 ${_battleIconHtml3d}
                             </div>`;
-                        } else if (c.custom_icon) {
+                        } else if (c.custom_icon && !['gyeong', '경', 'gateway', 'jin', '진', 'seong', '성'].includes(placeType3d)) {
                             _3dMarkerFlagHtml = placeType3d === 'heritage' ? '' : _mkFlagHtml(ci?.flag, dotColor3d, sealChar, 14);
                             txtHtml = `<div style="${nameStyle3d}margin-bottom:2px;">${castleName3d}</div>`;
                             icoHtml = `<img src="${c.custom_icon}" style="width:${c.icon_width||ptCfg.size}px;height:${c.icon_height||ptCfg.size}px;object-fit:contain;" onerror="this.style.display='none'">`;
                         } else {
                             _3dMarkerFlagHtml = placeType3d === 'heritage' ? '' : _mkFlagHtml(ci?.flag, dotColor3d, sealChar, 14);
                             txtHtml = `<div style="${nameStyle3d}">${castleName3d}</div>`;
-                            icoHtml = `<div class="place-glyph-seal" style="width:${ptCfg.size}px;height:${ptCfg.size}px;color:${dotColor3d};font-size:${Math.max(12, Math.round(ptCfg.size * .58))}px;">${ptCfg.hanja}</div>`;
+                            const _isSeongSeal3d = placeType3d === 'seong' || placeType3d === '성';
+                            const _isJinSeal3d = placeType3d === 'jin' || placeType3d === '진' || placeType3d === 'gateway';
+                            const _isGyeongSeal3d = placeType3d === 'gyeong' || placeType3d === '경';
+                            const _sealStyle3d = _isGyeongSeal3d
+                                ? 'background:#fff;border:2px solid #8b1e1e;color:#8b1e1e;font-weight:900;text-shadow:none;box-shadow:0 1px 6px rgba(0,0,0,.82),0 0 5px rgba(255,255,255,.55);'
+                                : (_isSeongSeal3d || _isJinSeal3d
+                                    ? 'background:#fff;border-color:#111;color:#111;font-weight:900;text-shadow:none;box-shadow:0 1px 4px rgba(0,0,0,.72);'
+                                    : `color:${dotColor3d};font-weight:900;`);
+                            icoHtml = `<div class="place-glyph-seal" style="width:${ptCfg.size}px;height:${ptCfg.size}px;${_sealStyle3d}font-size:${Math.max(12, Math.round(ptCfg.size * .58))}px;">${ptCfg.hanja}</div>`;
                         }
                     } else if (c.is_label) {
                         const _lt = c.label_type || 'place';
@@ -30636,6 +30704,7 @@ kingSelect.addEventListener('change', () => {
                         const labelEl = document.createElement('div');
                         labelEl.style.cssText = 'pointer-events:none;';
                         labelEl.dataset.ml3dPriority = '3'; // 국가명 최우선
+                        labelEl.dataset.ml3dCountryLabel = '1';
                         if (country.ethnicity) labelEl.dataset.ml3dEthnicLabel = '1';
                         labelEl.innerHTML = `<div class="ml3d-txt" style="display:flex;flex-direction:column;align-items:center;">${labelHtml}</div>`;
                         const lblKey = `lbl_${countryId}`;
@@ -30647,6 +30716,7 @@ kingSelect.addEventListener('change', () => {
                             if (existingEl) {
                                 existingEl.innerHTML = labelEl.innerHTML;
                                 existingEl.dataset.ml3dPriority = '3';
+                                existingEl.dataset.ml3dCountryLabel = '1';
                                 if (country.ethnicity) existingEl.dataset.ml3dEthnicLabel = '1';
                                 else delete existingEl.dataset.ml3dEthnicLabel;
                             }
@@ -30758,6 +30828,24 @@ kingSelect.addEventListener('change', () => {
                             el.style.opacity = '';
                         }
                     });
+
+                    // 화면에서 마커가 겹치면 상위 위계만 남긴다. 확대 시 간격 기준을 줄여 다시 노출한다.
+                    const collisionDistance = _z < 6 ? 46 : (_z < 8 ? 34 : 22);
+                    const occupiedMarkers = [];
+                    [..._3dMarkers]
+                        .sort((a, b) => Number(b.getElement()?.dataset?.ml3dPriority || 0) - Number(a.getElement()?.dataset?.ml3dPriority || 0))
+                        .forEach(mk => {
+                            const el = mk.getElement();
+                            if (!el || el.style.visibility === 'hidden') return;
+                            if (el.dataset.ml3dCountryLabel === '1') return;
+                            const point = _m.project(mk.getLngLat());
+                            const overlaps = occupiedMarkers.some(other => (
+                                Math.abs(point.x - other.x) < collisionDistance &&
+                                Math.abs(point.y - other.y) < collisionDistance
+                            ));
+                            if (overlaps) el.style.visibility = 'hidden';
+                            else occupiedMarkers.push(point);
+                        });
                 };
                 _m.on('render', _3dRenderListener);
 
@@ -30782,7 +30870,7 @@ kingSelect.addEventListener('change', () => {
                     const hideNormalAll = getEffectiveZoom(_m) < 6.0;
                     const hideCapital = z < 5.5;
                     const hideCapitalAll = z < 4.5;
-                    const hideCountryLabel = z >= 6.5;
+                    const hideCountryLabel = false;
                     const _naturalLayerOff = (typeof layerVisibility !== 'undefined') && layerVisibility.natural === false;
                     // HTML 국가명은 MapLibre symbol collision 대상이 아니므로 저배율에서 직접 간격을 확보한다.
                     const occupiedCountryLabels = [];
@@ -30802,19 +30890,15 @@ kingSelect.addEventListener('change', () => {
                         const ethnicEl = el.querySelector('.ml3d-ethnic-label');
                         if (ethnicEl) ethnicEl.style.display = layerVisibility?.ethnicLabel === false ? 'none' : '';
                         if (el.classList.contains('ml3d-battle-wrap')) return;
-                        // 국가명 라벨 (priority=3): 도시 마커가 보이면 숨김
-                        if (el.dataset.ml3dPriority === '3') {
-                            if (hideCountryLabel) {
-                                el.style.display = 'none';
-                            } else {
-                                const point = _m.project(mk.getLngLat());
-                                const overlaps = z <= 5.0 && occupiedCountryLabels.some(other => (
-                                    Math.abs(other.x - point.x) < countryLabelGapX
-                                    && Math.abs(other.y - point.y) < countryLabelGapY
-                                ));
-                                el.style.display = overlaps ? 'none' : '';
-                                if (!overlaps) occupiedCountryLabels.push(point);
-                            }
+                        // 국가명 라벨: 줌과 관계없이 유지하고 국가명끼리만 충돌 정리
+                        if (el.dataset.ml3dCountryLabel === '1') {
+                            const point = _m.project(mk.getLngLat());
+                            const overlaps = occupiedCountryLabels.some(other => (
+                                Math.abs(other.x - point.x) < countryLabelGapX
+                                && Math.abs(other.y - point.y) < countryLabelGapY
+                            ));
+                            el.style.display = overlaps ? 'none' : '';
+                            if (!overlaps) occupiedCountryLabels.push(point);
                             return;
                         }
                         // 자연 마커: z < 7.5 이면 숨김 (일반성보다 먼저), 레이어 토글 off 시도 즉시 숨김
