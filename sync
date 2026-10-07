@@ -3,8 +3,8 @@
 # 어느 단계든 실패하면 즉시 종료하여 성공 메시지를 출력하지 않습니다.
 set -euo pipefail
 
-# 커밋 메시지를 인수로 받습니다.
-commit_message="$1"
+# 커밋 메시지를 인수로 받습니다. set -u 상태에서도 인수 없이 안전하게 처리합니다.
+commit_message="${*:-}"
 
 # 인수가 없으면 기본 메시지를 사용합니다.
 if [ -z "$commit_message" ]; then
@@ -12,9 +12,17 @@ if [ -z "$commit_message" ]; then
   exit 1
 fi
 
-# Git 명령어를 실행합니다.
-git add .
-git commit -m "$commit_message"
-git push origin main --force
+# 현재 작업 트리의 변경을 커밋합니다.
+git add -A
+if git diff --cached --quiet; then
+  echo "커밋할 변경 사항이 없습니다. 현재 HEAD를 동기화합니다."
+else
+  git commit -m "$commit_message"
+fi
+
+# Codex worktree는 detached HEAD일 수 있으므로 로컬 main이 아니라 현재 HEAD를 푸시합니다.
+# 원격 최신 상태를 확인한 뒤 force-with-lease로 다른 사람의 새 커밋을 덮어쓰지 않게 합니다.
+git fetch origin main
+git push origin HEAD:main --force-with-lease
 
 echo "GitHub에 강제 동기화 완료: $commit_message"
