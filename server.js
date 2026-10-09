@@ -2029,17 +2029,20 @@ async function setupRoutesAndCollections() {
         async function _gitPushTiles(label) {
             try {
                 const { execSync } = require('child_process');
+                // Codex worktree는 detached HEAD로 실행될 수 있으므로 푸시 대상을 명시한다.
+                // 강제 푸시는 사용하지 않아 원격 main의 새 커밋을 자동으로 덮어쓰지 않는다.
+                const pushCurrentHead = () => execSync('git push origin HEAD:main', { cwd: __dirname });
                 execSync('git add public/tiles/', { cwd: __dirname });
                 const diff = execSync('git diff --cached --stat', { cwd: __dirname }).toString().trim();
                 if (!diff) {
                     // 이전 싱크에서 commit은 됐지만 push만 실패한 경우도 복구한다.
-                    execSync('git push', { cwd: __dirname });
+                    pushCurrentHead();
                     console.log(`✅ [수동 싱크 확인] 신규 타일 커밋 없음 · 기존 미push 커밋 반영 (${label})`);
                     return { ok: true, changed: false, message: '신규 타일 커밋 없음 · 기존 미push 커밋 싱크 완료' };
                 }
                 const today = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
                 execSync(`git commit -m "chore: 영토 타일 증분 갱신 ${label} (${today})"`, { cwd: __dirname });
-                execSync('git push', { cwd: __dirname });
+                pushCurrentHead();
                 console.log(`✅ [Vercel 배포] 타일 push 완료 → Vercel 자동 재배포 (${label})`);
                 return { ok: true, changed: true, message: '타일 push 완료' };
             } catch (e) {
