@@ -8570,8 +8570,66 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         if (typeof window._3dRefreshLayers === 'function') window._3dRefreshLayers();
 
         // 🏷️ 마커 이름 라벨 겹침 방지 — DOM 렌더링 완료 후 실행
-        requestAnimationFrame(() => _applyMarkerLabelDeclutter());
+        requestAnimationFrame(() => {
+            _applyMarkerLabelDeclutter();
+            _resolveCountryCapitalOverlap();
+        });
     }
+
+// 국가명 라벨과 왕성 마커가 같은 수도 좌표를 사용할 때 왕성을 가리지 않도록 한다.
+// 왕성은 제자리에 유지하고 국가명을 가까운 빈 자리로 옮기며, 자리가 없을 때만 생략한다.
+function _resolveCountryCapitalOverlap() {
+    if (!map) return;
+    const macroPane = map.getPane && map.getPane('macroLabelPane');
+    const markerPane = map.getPane && map.getPane('markerPane');
+    if (!macroPane || !markerPane) return;
+
+    const capitalRects = Array.from(markerPane.querySelectorAll('.custom-capital-flag-marker'))
+        .filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
+        .map(el => el.getBoundingClientRect())
+        .filter(rect => rect.width > 0 && rect.height > 0);
+    if (!capitalRects.length) return;
+
+    const overlaps = (a, b, pad = 5) =>
+        a.left < b.right + pad && a.right > b.left - pad &&
+        a.top < b.bottom + pad && a.bottom > b.top - pad;
+    const shiftedRect = (rect, dx, dy) => ({
+        left: rect.left + dx, right: rect.right + dx,
+        top: rect.top + dy, bottom: rect.bottom + dy,
+        width: rect.width, height: rect.height
+    });
+    const occupiedCountryRects = [];
+
+    Array.from(macroPane.querySelectorAll('.macro-country-label-icon')).forEach(root => {
+        const content = root.firstElementChild || root;
+        content.style.translate = '';
+        root.style.visibility = '';
+
+        const base = content.getBoundingClientRect();
+        if (!base.width || !base.height) return;
+        const side = Math.max(54, Math.ceil(base.width / 2) + 24);
+        const vertical = Math.max(36, Math.ceil(base.height / 2) + 18);
+        const candidates = [
+            [0, 0], [-side, 0], [side, 0],
+            [-side, -vertical], [side, -vertical], [0, -vertical],
+            [-side, vertical], [side, vertical]
+        ];
+
+        const offset = candidates.find(([dx, dy]) => {
+            const rect = shiftedRect(base, dx, dy);
+            return !capitalRects.some(cap => overlaps(rect, cap)) &&
+                !occupiedCountryRects.some(other => overlaps(rect, other, 3));
+        });
+
+        if (!offset) {
+            root.style.visibility = 'hidden';
+            return;
+        }
+        const [dx, dy] = offset;
+        if (dx || dy) content.style.translate = `${dx}px ${dy}px`;
+        occupiedCountryRects.push(shiftedRect(base, dx, dy));
+    });
+}
 
 // 🏷️ 마커 이름 라벨 겹침 방지 함수
 // markers[] 배열의 모든 마커를 순회하여 픽셀 좌표 기반 AABB 충돌 감지 후 겹치는 라벨 숨김
@@ -31133,11 +31191,19 @@ kingSelect.addEventListener('change', () => {
                     const _capitalMap = new Map();
                     if (typeof castles !== 'undefined') {
                         castles.forEach(c => {
-                            if (!c.lat || !c.lng || !c.is_capital) return;
+                            if (!Number.isFinite(Number(c.lat)) || !Number.isFinite(Number(c.lng))) return;
                             const info = (typeof getActiveHistoryInfo === 'function') ? getActiveHistoryInfo(c.history, _lTotalMonths) : null;
-                            if (!info || !info.record.is_capital) return;
-                            const rcId = info.record.country_id
-                                ? (typeof info.record.country_id === 'object' ? (info.record.country_id.$oid || String(info.record.country_id)) : String(info.record.country_id))
+                            const rec = info?.record;
+                            const isCapitalAtTime = !!(
+                                rec?.is_capital === true ||
+                                rec?.place_type === 'capital' ||
+                                rec?.place_type === 'hwangseong' ||
+                                (!rec && (c.is_capital === true || c.place_type === 'capital' || c.place_type === 'hwangseong'))
+                            );
+                            if (!isCapitalAtTime) return;
+                            const rawCountryId = rec?.country_id || c.country_id || c.countryId;
+                            const rcId = rawCountryId
+                                ? (typeof rawCountryId === 'object' ? (rawCountryId.$oid || String(rawCountryId)) : String(rawCountryId))
                                 : null;
                             if (rcId && _renderedCountryIds.has(rcId) && !_capitalMap.has(rcId)) _capitalMap.set(rcId, c);
                         });
@@ -31393,6 +31459,18 @@ kingSelect.addEventListener('change', () => {
                     }
                     // HTML 국가명은 MapLibre symbol collision 대상이 아니므로 저배율에서 직접 간격을 확보한다.
                     const occupiedCountryLabels = [];
+                    // 왕성이 완전히 표시되는 줌에서는 같은 수도 좌표의 국가명을 생략한다.
+                    // 왕성 자체에 국가 인장과 도시명이 있으므로 두 표식을 겹쳐 놓지 않는다.
+                    const visibleCapitalPoints = [];
+                    if (!hideCapital) {
+                        _3dMarkers.forEach(mk => {
+                            const el = mk.getElement();
+                            if (!el || el.dataset.ml3dCountryLabel === '1' || el.style.visibility === 'hidden') return;
+                            const txtEl = el.querySelector('.ml3d-txt');
+                            if (!txtEl?.classList.contains('capital-marker')) return;
+                            visibleCapitalPoints.push(_m.project(mk.getLngLat()));
+                        });
+                    }
                     const countryLabelGapX = z < 4 ? 112 : 82;
                     const countryLabelGapY = z < 4 ? 54 : 42;
                     _3dMarkers.forEach(mk => {
@@ -31409,15 +31487,20 @@ kingSelect.addEventListener('change', () => {
                         const ethnicEl = el.querySelector('.ml3d-ethnic-label');
                         if (ethnicEl) ethnicEl.style.display = layerVisibility?.ethnicLabel === false ? 'none' : '';
                         if (el.classList.contains('ml3d-battle-wrap')) return;
-                        // 국가명 라벨: 줌과 관계없이 유지하고 국가명끼리만 충돌 정리
+                        // 국가명 라벨: 국가명끼리 정리하고, 왕성과 겹치면 왕성을 우선한다.
                         if (el.dataset.ml3dCountryLabel === '1') {
                             const point = _m.project(mk.getLngLat());
-                            const overlaps = occupiedCountryLabels.some(other => (
+                            const overlapsCapital = visibleCapitalPoints.some(capital => (
+                                Math.abs(capital.x - point.x) < 76
+                                && Math.abs(capital.y - point.y) < 50
+                            ));
+                            const overlapsCountry = occupiedCountryLabels.some(other => (
                                 Math.abs(other.x - point.x) < countryLabelGapX
                                 && Math.abs(other.y - point.y) < countryLabelGapY
                             ));
-                            el.style.display = overlaps ? 'none' : '';
-                            if (!overlaps) occupiedCountryLabels.push(point);
+                            const hiddenByCollision = overlapsCapital || overlapsCountry;
+                            el.style.display = hiddenByCollision ? 'none' : '';
+                            if (!hiddenByCollision) occupiedCountryLabels.push(point);
                             return;
                         }
                         // 자연 마커: z < 7.5 이면 숨김 (일반성보다 먼저), 레이어 토글 off 시도 즉시 숨김

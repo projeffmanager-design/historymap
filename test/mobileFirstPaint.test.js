@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.f8beb53dd7ab.js'), 'utf8');
+const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.6fae5ced90a9.js'), 'utf8');
 const territoryEditorScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.844fdec57596.js'), 'utf8');
 const start = mapScript.indexOf('    const mobileFirstPaint =');
 const end = mapScript.indexOf('    const mobileOptionalLoads =', start);
@@ -137,6 +137,12 @@ test('OpenFreeMap styles use a single glyph directory instead of a missing joine
         JSON.parse(JSON.stringify(context.result.layers.map(layer => layer.layout?.['text-font'] || null))),
         [['Open Sans Regular'], ['Open Sans Regular'], ['Open Sans Regular'], ['Noto Sans Regular'], null]
     );
+});
+
+test('3D country labels accept the active historical capital without requiring a legacy top-level flag', () => {
+    assert.match(mapScript, /rec\?\.place_type === 'capital'/);
+    assert.match(mapScript, /rec\?\.place_type === 'hwangseong'/);
+    assert.doesNotMatch(mapScript, /if \(!c\.lat \|\| !c\.lng \|\| !c\.is_capital\) return;/);
 });
 
 test('3D marker culling uses CSS canvas dimensions when MapLibre pixel ratio differs from device DPR', () => {
