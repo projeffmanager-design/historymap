@@ -4049,7 +4049,14 @@ function updateKingLabel(year, month) {
             if (rawKingHanja && !kingDisplayName.includes(rawKingHanja)) kingDisplayName += ` (${rawKingHanja})`;
             const countryDisplayName = escapeKingListText(country.name || '국가명 미상');
             const kingDisplayText = escapeKingListText(kingDisplayName);
-            let kingHtml = `${iconHtml} <span class="country-name-link" style="cursor: pointer; text-decoration: underline;" onclick="zoomToCountryCapital('${country._id}')">${countryDisplayName}</span> : <span class="king-name">${kingDisplayText}</span> (${period})${summaryBadge}`;
+            const kingSourceRefId = king.source_ref_id || king._id || king.person_id || '';
+            const kingHeroId = kingSourceRefId
+                ? `king:${String(rawCountry._id || country._id)}:${String(kingSourceRefId)}`
+                : '';
+            const kingNameHtml = kingHeroId
+                ? `<span class="king-name king-person-link" role="button" tabindex="0" data-hero-id="${escapeKingListText(kingHeroId)}" onclick="openKingPersonFromPanel(event,this.dataset.heroId)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openKingPersonFromPanel(event,this.dataset.heroId);}" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;">${kingDisplayText}</span>`
+                : `<span class="king-name">${kingDisplayText}</span>`;
+            let kingHtml = `${iconHtml} <span class="country-name">${countryDisplayName}</span> : ${kingNameHtml} (${period})${summaryBadge}`;
 
             html += `<div class="king-item">${kingHtml}</div>`;
         }
@@ -4066,12 +4073,25 @@ function updateKingLabel(year, month) {
         console.warn('⚠️ [왕 패널] map-king-list 요소를 찾을 수 없습니다');
     }
 }
+
+    window.openKingPersonFromPanel = function(e, heroId) {
+        e?.stopPropagation?.();
+        if (!heroId) return;
+        document.getElementById('king-summary-popup')?.classList.remove('visible');
+        if (window.heroSystem && typeof window.heroSystem.openSidebar === 'function') {
+            window.heroSystem.openSidebar(String(heroId));
+        }
+    };
     
     /** 🚩 한줄평 클릭 팝업 */
     window.showKingSummaryPopup = function(e, summary) {
         e.stopPropagation();
         const popup = document.getElementById('king-summary-popup');
         if (!popup) return;
+        // 지도/패널의 filter·transform이 만드는 stacking context에서 분리한다.
+        // body 직속 최상위 레이어로 옮겨 왕 목록 패널 배경 뒤에 가려지지 않게 한다.
+        if (popup.parentElement !== document.body) document.body.appendChild(popup);
+        popup.style.zIndex = '200000';
         // 같은 배지를 다시 클릭하면 닫기
         if (popup.classList.contains('visible') && popup._lastSummary === summary) {
             popup.classList.remove('visible');
