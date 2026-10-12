@@ -2037,8 +2037,10 @@
                 : null;
             if (!recCountryId) return;
             if (!_renderedCountryIds.has(recCountryId)) return;
-            if (!capitalByCountry.has(recCountryId)) {
-                capitalByCountry.set(recCountryId, c);
+            const capitalScore = rec.is_capital === true ? 3 : (rec.place_type === 'capital' ? 2 : 1);
+            const previousCapital = capitalByCountry.get(recCountryId);
+            if (!previousCapital || capitalScore > previousCapital.score) {
+                capitalByCountry.set(recCountryId, { castle: c, score: capitalScore });
             }
         });
 
@@ -2059,7 +2061,7 @@
             let labelLat, labelLng;
 
             // ① 수도 좌표에 정확히 고정 (오프셋 없음 - iconAnchor로 라벨을 위로 올림)
-            const capital = capitalByCountry.get(countryId);
+            const capital = capitalByCountry.get(countryId)?.castle || null;
             if (capital) {
                 labelLat = capital.lat;
                 labelLng = capital.lng;
@@ -20060,18 +20062,66 @@ const loadingMessages = [
                     king.country_name,
                     king.country
                 ].map(normalizeAffiliation).filter(Boolean);
-                const explicitlyLinked = allCountryKings.filter(king =>
-                    (king.country_phase_id && String(king.country_phase_id) === String(activePhase._id)) ||
-                    affiliationOf(king).some(name => phaseNames.has(name))
-                );
+                const royalCareerTypes = new Set(['emperor', 'king', 'khan', 'president']);
+                const phaseStart = Number(activePhase.start_year ?? activePhase.start);
+                const phaseEndRaw = activePhase.end_year ?? activePhase.end;
+                const phaseEnd = phaseEndRaw == null || phaseEndRaw === '' ? Infinity : Number(phaseEndRaw);
+                const phaseNameMatches = value => {
+                    const normalized = normalizeAffiliation(value);
+                    if (!normalized) return false;
+                    return [...phaseNames].some(name =>
+                        normalized === name || normalized.includes(name) || name.includes(normalized)
+                    );
+                };
+                const careerForPhase = king => (Array.isArray(king.career_history) ? king.career_history : [])
+                    .filter(career => !career.country_id || String(career.country_id) === countryId)
+                    .filter(career => royalCareerTypes.has(String(career.hero_type || career.type || '').toLowerCase()))
+                    .filter(career => {
+                        const start = Number(career.start_year ?? career.start);
+                        const endRaw = career.end_year ?? career.end;
+                        const end = endRaw == null || endRaw === '' ? Infinity : Number(endRaw);
+                        return Number.isFinite(start) && start <= phaseEnd && end >= phaseStart;
+                    })
+                    .find(career =>
+                        String(career.phase_id || '') === String(activePhase._id || '') ||
+                        phaseNameMatches(career.faction) ||
+                        phaseNameMatches(career.country_name) ||
+                        phaseNameMatches(career.title)
+                    );
+                const explicitlyLinked = allCountryKings.flatMap(king => {
+                    const phaseCareer = careerForPhase(king);
+                    if (phaseCareer) {
+                        // 통합 인물의 최상위 start/end는 생몰년일 수 있다. 왕계보는 해당 국호의 재위 이력을 쓴다.
+                        return [{
+                            ...king,
+                            start: Math.max(Number(phaseCareer.start_year ?? phaseCareer.start), phaseStart),
+                            start_month: Number(phaseCareer.start_year ?? phaseCareer.start) < phaseStart
+                                ? (Number(activePhase.start_month ?? 1) || 1)
+                                : (phaseCareer.start_month ?? phaseCareer.month ?? 1),
+                            end: Math.min(Number(phaseCareer.end_year ?? phaseCareer.end ?? phaseEnd), phaseEnd),
+                            end_month: Number(phaseCareer.end_year ?? phaseCareer.end ?? phaseEnd) > phaseEnd
+                                ? (Number(activePhase.end_month ?? 12) || 12)
+                                : (phaseCareer.end_month ?? 12),
+                            title: phaseCareer.title || king.title,
+                            faction: phaseCareer.faction || king.faction,
+                            _lineage_source_id: king._id
+                        }];
+                    }
+                    const hasRoyalCareerForCountry = (Array.isArray(king.career_history) ? king.career_history : []).some(career =>
+                        (!career.country_id || String(career.country_id) === countryId) &&
+                        royalCareerTypes.has(String(career.hero_type || career.type || '').toLowerCase())
+                    );
+                    const directlyLinked =
+                        (king.country_phase_id && String(king.country_phase_id) === String(activePhase._id)) ||
+                        affiliationOf(king).some(name => phaseNames.has(name));
+                    // 상세 군주 이력이 있는 인물은 다른 국호의 생몰년 때문에 끼워 넣지 않는다.
+                    return directlyLinked && !hasRoyalCareerForCountry ? [king] : [];
+                });
 
                 if (explicitlyLinked.length) {
                     visibleKings = explicitlyLinked;
                 } else {
                     // 구형 왕 데이터에 국호 문자열이 없거나 표기가 다른 경우 재위 기간으로 보완한다.
-                    const phaseStart = Number(activePhase.start_year ?? activePhase.start);
-                    const phaseEndRaw = activePhase.end_year ?? activePhase.end;
-                    const phaseEnd = phaseEndRaw == null || phaseEndRaw === '' ? Infinity : Number(phaseEndRaw);
                     visibleKings = allCountryKings.filter(king => {
                         // 다른 국호가 명시된 왕을 기간만 겹친다는 이유로 포함하지 않는다.
                         if (affiliationOf(king).length) return false;
@@ -20086,7 +20136,7 @@ const loadingMessages = [
             const myKings = visibleKings
                 .map((king, sourceIndex) => ({
                     king,
-                    sourceRefId: king._id ? String(king._id) : String(allCountryKings.indexOf(king) >= 0 ? allCountryKings.indexOf(king) : sourceIndex)
+                    sourceRefId: (king._lineage_source_id || king._id) ? String(king._lineage_source_id || king._id) : String(allCountryKings.indexOf(king) >= 0 ? allCountryKings.indexOf(king) : sourceIndex)
                 }))
                 .sort((a, b) => (a.king.start || 0) - (b.king.start || 0));
 
@@ -20145,7 +20195,90 @@ const loadingMessages = [
                     ${summary ? `<div class="cdp-king-desc">${sanitizeHeroDescriptionHtml(summary)}</div>` : ''}
                 </li>`;
             }).join('');
-            container.innerHTML = `<ul class="cdp-kings-timeline">${items}</ul>`;
+
+            // 같은 국가 객체 안에서 국호가 이어질 때 왕계보 끝에 다음 왕조로 가는 연결을 표시한다.
+            const rawCountry = (Array.isArray(countries) ? countries : []).find(country =>
+                String(country._id || '') === countryId
+            );
+            const phases = Array.isArray(rawCountry?.history)
+                ? rawCountry.history.slice().sort((a, b) =>
+                    Number(a.start_year ?? a.start ?? -Infinity) - Number(b.start_year ?? b.start ?? -Infinity)
+                )
+                : [];
+            const activePhaseIndex = activePhase
+                ? phases.findIndex(phase => String(phase._id || '') === String(activePhase._id || ''))
+                : -1;
+            const previousPhase = activePhaseIndex > 0 ? phases[activePhaseIndex - 1] : null;
+            const nextPhase = activePhaseIndex >= 0 ? phases[activePhaseIndex + 1] : null;
+            const predecessorTargets = [];
+            if (previousPhase) {
+                predecessorTargets.push({ country: rawCountry, phase: previousPhase,
+                    year: Number(previousPhase.end_year ?? previousPhase.end), month: Number(previousPhase.end_month ?? 12) || 12 });
+            } else {
+                (rawCountry?.predecessor_relations || []).forEach(relation => {
+                    if (String(relation.relation_type || 'continuation') !== 'continuation') return;
+                    const predecessor = (Array.isArray(countries) ? countries : []).find(country =>
+                        String(country._id || '') === String(relation.predecessor_country_id || '')
+                    );
+                    if (!predecessor) return;
+                    const phase = (predecessor.history || []).find(item =>
+                        String(item._id || '') === String(relation.predecessor_phase_id || '')
+                    ) || null;
+                    const year = Number(phase?.end_year ?? phase?.end ?? predecessor.end);
+                    const month = Number(phase?.end_month ?? predecessor.end_month ?? 12) || 12;
+                    predecessorTargets.push({ country: predecessor, phase, year, month });
+                });
+            }
+            const continuationTargets = [];
+            if (nextPhase) {
+                continuationTargets.push({ country: rawCountry, phase: nextPhase,
+                    year: Number(nextPhase.start_year ?? nextPhase.start), month: Number(nextPhase.start_month ?? 1) || 1 });
+            } else {
+                // 별도 국가 객체로 갈라져 저장된 정통 후속 왕조도 자동 탐색한다.
+                (Array.isArray(countries) ? countries : []).forEach(successor => {
+                    const relation = (successor.predecessor_relations || []).find(rel =>
+                        String(rel.predecessor_country_id || '') === countryId &&
+                        String(rel.relation_type || 'continuation') === 'continuation' &&
+                        (!rel.predecessor_phase_id || !activePhase ||
+                            String(rel.predecessor_phase_id) === String(activePhase._id || ''))
+                    );
+                    if (!relation) return;
+                    const year = Number(relation.year ?? successor.start);
+                    const month = Number(relation.month ?? successor.start_month ?? 1) || 1;
+                    continuationTargets.push({ country: successor, phase: null, year, month });
+                });
+            }
+            const predecessorHtml = predecessorTargets.map(target => {
+                const effective = typeof getEffectiveCountryInfo === 'function' && Number.isFinite(target.year)
+                    ? (getEffectiveCountryInfo(target.country, target.year, target.month) || target.country)
+                    : target.country;
+                return `
+                <button type="button" class="cdp-king-dynasty-link cdp-king-predecessor"
+                    data-country-id="${_esc(target.country?._id || '')}"
+                    data-phase-id="${_esc(target.phase?._id || '')}"
+                    data-year="${Number.isFinite(target.year) ? target.year : ''}"
+                    data-month="${target.month || 12}">
+                    <span class="cdp-king-continuation-arrow">↑</span>
+                    <span>선대 왕조</span>
+                    <strong>${_esc(effective?.name || target.phase?.name || target.country?.name || '이전 왕조')}</strong>
+                </button>`;
+            }).join('');
+            const continuationHtml = continuationTargets.map(target => {
+                const effective = typeof getEffectiveCountryInfo === 'function' && Number.isFinite(target.year)
+                    ? (getEffectiveCountryInfo(target.country, target.year, target.month) || target.country)
+                    : target.country;
+                return `
+                <button type="button" class="cdp-king-dynasty-link cdp-king-continuation"
+                    data-country-id="${_esc(target.country?._id || '')}"
+                    data-phase-id="${_esc(target.phase?._id || '')}"
+                    data-year="${Number.isFinite(target.year) ? target.year : ''}"
+                    data-month="${target.month || 1}">
+                    <span class="cdp-king-continuation-arrow">↓</span>
+                    <span>이어지는 왕조</span>
+                    <strong>${_esc(effective?.name || target.phase?.name || target.country?.name || '다음 왕조')}</strong>
+                </button>`;
+            }).join('');
+            container.innerHTML = `${predecessorHtml}<ul class="cdp-kings-timeline">${items}</ul>${continuationHtml}`;
 
             container.querySelectorAll('.cdp-king-name-link').forEach(button => {
                 button.addEventListener('click', () => {
@@ -20154,6 +20287,29 @@ const loadingMessages = [
                     window.heroSystem.openSidebar(heroId);
                 });
             });
+            container.querySelectorAll('.cdp-king-dynasty-link').forEach(continuationButton => continuationButton.addEventListener('click', event => {
+                const button = event.currentTarget;
+                const targetCountry = (Array.isArray(countries) ? countries : []).find(country =>
+                    String(country._id || '') === String(button.dataset.countryId || '')
+                );
+                const targetPhase = (targetCountry?.history || []).find(phase =>
+                    String(phase._id || '') === String(button.dataset.phaseId || '')
+                );
+                if (!targetCountry) return;
+                const phaseYear = targetPhase
+                    ? Number(targetPhase.start_year ?? targetPhase.start)
+                    : Number(button.dataset.year);
+                const phaseMonth = targetPhase
+                    ? (Number(targetPhase.start_month ?? 1) || 1)
+                    : (Number(button.dataset.month) || 1);
+                const effectiveTarget = typeof getEffectiveCountryInfo === 'function'
+                    ? getEffectiveCountryInfo(targetCountry, phaseYear, phaseMonth)
+                    : targetCountry;
+                if (Number.isFinite(phaseYear) && typeof updateTime === 'function') {
+                    updateTime(phaseYear, phaseMonth);
+                }
+                showCountryInfoModal(effectiveTarget || targetCountry, 'kings');
+            }));
         }
 
         function _renderMilitary(cInfo) {
@@ -30644,13 +30800,19 @@ kingSelect.addEventListener('change', () => {
                     const _capitalMap = new Map();
                     if (typeof castles !== 'undefined') {
                         castles.forEach(c => {
-                            if (!c.lat || !c.lng || !c.is_capital) return;
+                            if (!Number.isFinite(Number(c.lat)) || !Number.isFinite(Number(c.lng))) return;
                             const info = (typeof getActiveHistoryInfo === 'function') ? getActiveHistoryInfo(c.history, _lTotalMonths) : null;
-                            if (!info || !info.record.is_capital) return;
-                            const rcId = info.record.country_id
-                                ? (typeof info.record.country_id === 'object' ? (info.record.country_id.$oid || String(info.record.country_id)) : String(info.record.country_id))
+                            const rec = info?.record;
+                            const capitalScore = rec?.is_capital === true ? 3
+                                : (rec?.place_type === 'capital' ? 2 : (rec?.place_type === 'hwangseong' ? 1 : 0));
+                            if (!capitalScore) return;
+                            const rcId = rec.country_id
+                                ? (typeof rec.country_id === 'object' ? (rec.country_id.$oid || String(rec.country_id)) : String(rec.country_id))
                                 : null;
-                            if (rcId && _renderedCountryIds.has(rcId) && !_capitalMap.has(rcId)) _capitalMap.set(rcId, c);
+                            const previousCapital = rcId ? _capitalMap.get(rcId) : null;
+                            if (rcId && _renderedCountryIds.has(rcId) && (!previousCapital || capitalScore > previousCapital.score)) {
+                                _capitalMap.set(rcId, { castle: c, score: capitalScore });
+                            }
                         });
                     }
 
@@ -30661,14 +30823,14 @@ kingSelect.addEventListener('change', () => {
                         if (!country) return;
 
                         let labelLat, labelLng;
+                        const capital = _capitalMap.get(countryId)?.castle || null;
+                        if (capital) { labelLat = Number(capital.lat); labelLng = Number(capital.lng); }
                         const phaseAnchorLat = Number(country.label_lat ?? country.capital_lat);
                         const phaseAnchorLng = Number(country.label_lng ?? country.capital_lng);
-                        if (Number.isFinite(phaseAnchorLat) && Number.isFinite(phaseAnchorLng)) {
+                        if (!Number.isFinite(labelLat) && Number.isFinite(phaseAnchorLat) && Number.isFinite(phaseAnchorLng)) {
                             labelLat = phaseAnchorLat;
                             labelLng = phaseAnchorLng;
                         }
-                        const capital = _capitalMap.get(countryId);
-                        if (!Number.isFinite(labelLat) && capital) { labelLat = Number(capital.lat); labelLng = Number(capital.lng); }
                         if (!Number.isFinite(labelLat) && typeof _renderedCountryCentroids !== 'undefined' && _renderedCountryCentroids.has(countryId)) {
                             const cc = _renderedCountryCentroids.get(countryId);
                             labelLat = cc.lat / cc.count; labelLng = cc.lng / cc.count;

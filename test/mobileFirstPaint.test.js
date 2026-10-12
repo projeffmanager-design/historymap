@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.8353214b5733.js'), 'utf8');
+const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.defd246f7b0d.js'), 'utf8');
 const territoryEditorScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.844fdec57596.js'), 'utf8');
 const start = mapScript.indexOf('    const mobileFirstPaint =');
 const end = mapScript.indexOf('    const mobileOptionalLoads =', start);
@@ -178,6 +178,29 @@ test('country genealogy prefers exact phase rulers over a predecessor ending in 
     assert.deepEqual(JSON.parse(JSON.stringify(context.result.map(king => king.name))), ['태조', '정종']);
 });
 
+test('Gung Ye and Wang Geon are assigned by reign career, not birth year', () => {
+    const start = mapScript.indexOf('    function getKingsForCountryPhase');
+    const end = mapScript.indexOf('    /** 현재 연도와 월의 왕 정보를 패널에 업데이트합니다.', start);
+    const context = {};
+    vm.createContext(context);
+    vm.runInContext(mapScript.slice(start, end) + `
+        const rulers = [
+            { _id:'wang', name:'왕건', start:877, end:943, faction:'고려(高麗)', source_country_id:'goryeo', career_history:[
+                { country_id:'goryeo', faction:'후고구려(後高句麗)', hero_type:'general', start_year:898, end_year:917 },
+                { country_id:'goryeo', faction:'고려(高麗)', hero_type:'emperor', title:'태조', start_year:918, end_year:943 }
+            ]},
+            { _id:'gung', name:'궁예', start:882, end:918, faction:'후고구려(後高句麗)', source_country_id:'goryeo', career_history:[
+                { country_id:'goryeo', faction:'후고구려(後高句麗)', hero_type:'king', title:'후고구려 왕', start_year:898, end_year:903 },
+                { country_id:'goryeo', faction:'후고구려(後高句麗)', hero_type:'king', title:'마진 왕', start_year:904, end_year:910 },
+                { country_id:'goryeo', faction:'후고구려(後高句麗)', hero_type:'king', title:'태봉 왕', start_year:911, end_year:918 }
+            ]}
+        ];
+        this.majin = getKingsForCountryPhase(rulers, { _id:'majin-phase', name:'마진(摩震)', start_year:904, end_year:910 });
+        this.goryeo = getKingsForCountryPhase(rulers, { _id:'goryeo-phase', name:'고려(高麗)', start_year:918, end_year:1392 });`, context);
+    assert.deepEqual(JSON.parse(JSON.stringify(context.majin.map(king => [king.name, king.start, king.end]))), [['궁예', 904, 910]]);
+    assert.deepEqual(JSON.parse(JSON.stringify(context.goryeo.map(king => [king.name, king.start, king.end]))), [['왕건', 918, 943]]);
+});
+
 test('country detail uses the active phase dates instead of the merged base-country dates', () => {
     const start = mapScript.indexOf('function getEffectiveCountryInfo');
     const end = mapScript.indexOf('function getCountryInfoById', start);
@@ -213,6 +236,35 @@ test('country labels prefer phase capital coordinates before a remote territory 
 
 test('3D country labels treat an open-ended phase as current instead of year zero', () => {
     assert.match(mapScript, /if \(value == null \|\| value === ''\) return '';/);
+});
+
+test('king genealogy links to the next name phase in the same dynasty', () => {
+    assert.match(mapScript, /class="cdp-king-dynasty-link cdp-king-continuation"/);
+    assert.match(mapScript, /class="cdp-king-dynasty-link cdp-king-predecessor"/);
+    assert.match(mapScript, /<span>이어지는 왕조<\/span>/);
+    assert.match(mapScript, /<span>선대 왕조<\/span>/);
+    assert.match(mapScript, /successor\.predecessor_relations/);
+    assert.match(mapScript, /String\(rel\.relation_type \|\| 'continuation'\) === 'continuation'/);
+    assert.match(mapScript, /updateTime\(phaseYear, phaseMonth\)/);
+    assert.match(mapScript, /showCountryInfoModal\(effectiveTarget \|\| targetCountry, 'kings'\)/);
+});
+
+test('king genealogy uses phase-specific royal careers instead of birth and death years', () => {
+    assert.match(mapScript, /const phaseCareer = royalCareers\.filter\(careerOverlapsPhase\)/);
+    assert.match(mapScript, /royalCareerTypes\.has/);
+    assert.match(mapScript, /start: Math\.max\(careerStart, phaseStart\)/);
+    assert.match(mapScript, /end: Math\.min\(careerEnd, phaseEnd\)/);
+    assert.match(mapScript, /상세 왕 경력이 있는 인물은 생몰년만 겹친 다른 국호의 왕계보에 넣지 않는다/);
+    assert.match(mapScript, /_lineage_source_id: king\._id/);
+});
+
+test('country labels prefer the active true capital over palace or territory fallbacks', () => {
+    assert.match(mapScript, /rec\.is_capital === true \? 3/);
+    assert.match(mapScript, /_capitalMap\.get\(countryId\)\?\.castle/);
+    assert.ok(
+        mapScript.indexOf('_capitalMap.get(countryId)?.castle') <
+        mapScript.indexOf('country.label_lat ?? country.capital_lat', mapScript.indexOf('_capitalMap.get(countryId)?.castle'))
+    );
 });
 
 test('king summary popup escapes panel stacking contexts', () => {
