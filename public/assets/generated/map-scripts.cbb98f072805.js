@@ -20858,11 +20858,26 @@ const loadingMessages = [
             overlay.innerHTML = `<div class="cdp-king-history-linker-card">
                 <strong>🔗 ${_esc(block.dataset.kingName)}에게 기존 역사 연결</strong>
                 <input type="search" placeholder="역사 제목·내용 검색">
+                <div class="cdp-king-history-year-range">
+                    <label>시작 연도 <input type="number" class="cdp-king-history-year-from" value="${Number.isFinite(Number(block.dataset.startYear)) ? Number(block.dataset.startYear) : ''}" placeholder="전체"></label>
+                    <span>–</span>
+                    <label>종료 연도 <input type="number" class="cdp-king-history-year-to" value="${Number.isFinite(Number(block.dataset.endYear)) ? Number(block.dataset.endYear) : ''}" placeholder="전체"></label>
+                    <button type="button" class="cdp-king-history-year-clear">연도 초기화</button>
+                </div>
+                <div class="cdp-king-history-linker-selection">선택된 사건 <strong>0</strong>건</div>
                 <div class="cdp-king-history-linker-results">불러오는 중…</div>
-                <button type="button" class="cdp-king-history-linker-close">닫기</button>
+                <div class="cdp-king-history-linker-actions">
+                    <button type="button" class="cdp-king-history-linker-close">닫기</button>
+                    <button type="button" class="cdp-king-history-linker-submit" disabled>선택한 사건 연결</button>
+                </div>
             </div>`;
             document.body.appendChild(overlay);
             const results = overlay.querySelector('.cdp-king-history-linker-results');
+            const selectionLabel = overlay.querySelector('.cdp-king-history-linker-selection strong');
+            const submitButton = overlay.querySelector('.cdp-king-history-linker-submit');
+            const yearFromInput = overlay.querySelector('.cdp-king-history-year-from');
+            const yearToInput = overlay.querySelector('.cdp-king-history-year-to');
+            const selectedIds = new Set();
             let records = [];
             try {
                 const response = await fetch('/api/history', { cache:'no-store' });
@@ -20871,13 +20886,48 @@ const loadingMessages = [
             } catch (_) { results.textContent = '역사 목록을 불러오지 못했습니다.'; }
             const render = query => {
                 const q = String(query || '').trim().toLowerCase();
-                const filtered = records.filter(record => !q || JSON.stringify(record).toLowerCase().includes(q)).slice(0, 80);
+                const yearFrom = yearFromInput.value === '' ? -Infinity : Number(yearFromInput.value);
+                const yearTo = yearToInput.value === '' ? Infinity : Number(yearToInput.value);
+                const filtered = records.filter(record => {
+                    const recordYear = Number(record.year);
+                    const matchesText = !q || JSON.stringify(record).toLowerCase().includes(q);
+                    const matchesYear = !Number.isFinite(recordYear) || (recordYear >= yearFrom && recordYear <= yearTo);
+                    return matchesText && matchesYear;
+                }).sort((a, b) => Number(a.year) - Number(b.year) || Number(a.month || 1) - Number(b.month || 1)).slice(0, 80);
                 results.innerHTML = filtered.length ? '' : '<div class="cdp-king-events-empty">검색 결과가 없습니다.</div>';
                 filtered.forEach(record => {
+                    const recordId = String(record._id);
                     const button = document.createElement('button');
                     button.type = 'button';
-                    button.innerHTML = `<span>${_esc(record.event_name || '역사 기록')}</span><time>${Number(record.year) < 0 ? `B.C. ${Math.abs(Number(record.year))}` : `A.D. ${record.year}`} ${Number(record.month) > 1 ? `${record.month}월` : ''}</time>`;
-                    button.addEventListener('click', async () => {
+                    button.classList.toggle('selected', selectedIds.has(recordId));
+                    button.setAttribute('aria-pressed', String(selectedIds.has(recordId)));
+                    button.innerHTML = `<span class="cdp-king-history-check">${selectedIds.has(recordId) ? '✓' : ''}</span><span>${_esc(record.event_name || '역사 기록')}</span><time>${Number(record.year) < 0 ? `B.C. ${Math.abs(Number(record.year))}` : `A.D. ${record.year}`} ${Number(record.month) > 1 ? `${record.month}월` : ''}</time>`;
+                    button.addEventListener('click', () => {
+                        if (selectedIds.has(recordId)) selectedIds.delete(recordId);
+                        else selectedIds.add(recordId);
+                        selectionLabel.textContent = String(selectedIds.size);
+                        submitButton.disabled = selectedIds.size === 0;
+                        render(overlay.querySelector('input').value);
+                    });
+                    results.appendChild(button);
+                });
+            };
+            render('');
+            overlay.querySelector('input').addEventListener('input', event => render(event.target.value));
+            [yearFromInput, yearToInput].forEach(input => input.addEventListener('input', () => render(overlay.querySelector('input[type="search"]').value)));
+            overlay.querySelector('.cdp-king-history-year-clear').addEventListener('click', () => {
+                yearFromInput.value = '';
+                yearToInput.value = '';
+                render(overlay.querySelector('input[type="search"]').value);
+            });
+            submitButton.addEventListener('click', async () => {
+                const selectedRecords = records.filter(record => selectedIds.has(String(record._id)));
+                if (!selectedRecords.length) return;
+                submitButton.disabled = true;
+                submitButton.textContent = `연결 중 0/${selectedRecords.length}`;
+                let connected = 0;
+                try {
+                    for (const record of selectedRecords) {
                         const response = await fetch('/api/historical-relations', {
                             method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${token}` },
                             body:JSON.stringify({
@@ -20887,15 +20937,18 @@ const loadingMessages = [
                                 period:{ year:Number(record.year), month:Number(record.month) || 1 }
                             })
                         });
-                        if (!response.ok) return alert('역사 연결에 실패했습니다.');
-                        overlay.remove();
-                        await _loadKingHistoricalEvents(block, true);
-                    });
-                    results.appendChild(button);
-                });
-            };
-            render('');
-            overlay.querySelector('input').addEventListener('input', event => render(event.target.value));
+                        if (!response.ok) throw new Error(`${record.event_name || '역사 기록'} 연결 실패`);
+                        connected++;
+                        submitButton.textContent = `연결 중 ${connected}/${selectedRecords.length}`;
+                    }
+                    overlay.remove();
+                    await _loadKingHistoricalEvents(block, true);
+                } catch (error) {
+                    alert(error.message || '역사 연결에 실패했습니다.');
+                    submitButton.disabled = false;
+                    submitButton.textContent = '선택한 사건 연결';
+                }
+            });
             overlay.querySelector('.cdp-king-history-linker-close').addEventListener('click', () => overlay.remove());
             overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove(); });
         }
