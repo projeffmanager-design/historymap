@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.6fae5ced90a9.js'), 'utf8');
+const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.64ad1e356402.js'), 'utf8');
 const territoryEditorScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.844fdec57596.js'), 'utf8');
 const start = mapScript.indexOf('    const mobileFirstPaint =');
 const end = mapScript.indexOf('    const mobileOptionalLoads =', start);
@@ -143,6 +143,11 @@ test('3D country labels accept the active historical capital without requiring a
     assert.match(mapScript, /rec\?\.place_type === 'capital'/);
     assert.match(mapScript, /rec\?\.place_type === 'hwangseong'/);
     assert.doesNotMatch(mapScript, /if \(!c\.lat \|\| !c\.lng \|\| !c\.is_capital\) return;/);
+});
+
+test('king panel looks up rulers by the exact country object instead of a shared country name', () => {
+    assert.match(mapScript, /getKingByYear\(rawCountry, year, month\)/);
+    assert.doesNotMatch(mapScript, /getKingByYear\(rawCountry\.name, year, month\)/);
 });
 
 test('3D marker culling uses CSS canvas dimensions when MapLibre pixel ratio differs from device DPR', () => {

@@ -3967,9 +3967,12 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     
 
     /** 특정 연도에 재위 중인 왕 정보를 가져옵니다. */
-function getKingByYear(countryName, year, month) {
-  // 🚩 수정: 국가 이름으로 해당 국가의 ObjectId를 찾습니다.
-  const country = getCountryInfo(countryName);
+function getKingByYear(countryRef, year, month) {
+  // 같은 기본 이름(예: 한족)을 공유하는 국가 객체가 여럿일 수 있으므로
+  // 객체가 전달되면 이름 재검색 없이 그 객체의 고유 ID를 그대로 사용한다.
+  const country = countryRef && typeof countryRef === 'object'
+      ? countryRef
+      : getCountryInfo(countryRef);
   if (!country) return null;
   const kingKey = country._id; // <- ObjectId를 키로 사용
   const list = kings[kingKey];
@@ -3994,7 +3997,7 @@ function updateKingLabel(year, month) {
       const renderedKingRows = new Set();
       countries.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko')).forEach(rawCountry => { // 🚩 [수정] 국가명 가나다순 정렬
         const country = getEffectiveCountryInfo(rawCountry, year, month);
-        const king = getKingByYear(rawCountry.name, year, month); // 객체 연결은 변하지 않는 기본 국가명으로 조회
+        const king = getKingByYear(rawCountry, year, month); // 국가 이름이 아니라 고유 객체 ID로 왕 목록 조회
        if (king) { // <-- Now the 'if' statement works because 'king' is defined
             const rowKey = [
                 String(country.name || '').normalize('NFKC').replace(/\s+/g, ''),
@@ -7652,7 +7655,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
          const builtText = `${recordStartYear}년 ${recordStartMonth}월`;
          const destroyedText = recordEndYear === null ? '현재' : `${recordEndYear}년 ${recordEndMonth}월`;
          
-         const king = getKingByYear(countryName, year, month); // ⬅️ king 조회는 countryName 사용
+         const king = getKingByYear(countryInfo || countryName, year, month);
 
              // 🚩 1. 자연 지물 마커 (NEW)
             if (effectiveIsNatural) { 
