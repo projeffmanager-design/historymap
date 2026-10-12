@@ -30661,13 +30661,19 @@ kingSelect.addEventListener('change', () => {
                         if (!country) return;
 
                         let labelLat, labelLng;
+                        const phaseAnchorLat = Number(country.label_lat ?? country.capital_lat);
+                        const phaseAnchorLng = Number(country.label_lng ?? country.capital_lng);
+                        if (Number.isFinite(phaseAnchorLat) && Number.isFinite(phaseAnchorLng)) {
+                            labelLat = phaseAnchorLat;
+                            labelLng = phaseAnchorLng;
+                        }
                         const capital = _capitalMap.get(countryId);
-                        if (capital) { labelLat = capital.lat; labelLng = capital.lng; }
-                        if (!labelLat && typeof _renderedCountryCentroids !== 'undefined' && _renderedCountryCentroids.has(countryId)) {
+                        if (!Number.isFinite(labelLat) && capital) { labelLat = Number(capital.lat); labelLng = Number(capital.lng); }
+                        if (!Number.isFinite(labelLat) && typeof _renderedCountryCentroids !== 'undefined' && _renderedCountryCentroids.has(countryId)) {
                             const cc = _renderedCountryCentroids.get(countryId);
                             labelLat = cc.lat / cc.count; labelLng = cc.lng / cc.count;
                         }
-                        if (!labelLat || !labelLng) return;
+                        if (!Number.isFinite(labelLat) || !Number.isFinite(labelLng)) return;
 
                         const countryColor = country.color || '#ffffff';
                         const displayName = (typeof getMapCountryDisplayName === 'function')
@@ -30677,6 +30683,7 @@ kingSelect.addEventListener('change', () => {
                         const periodStart = activePhase.start_year ?? activePhase.start ?? country.start_year ?? country.start;
                         const periodEnd = activePhase.end_year ?? activePhase.end ?? country.end_year ?? country.end;
                         const format3dCountryPeriodYear = value => {
+                            if (value == null || value === '') return '';
                             const n = Number(value);
                             if (!Number.isFinite(n)) return '';
                             return n < 0 ? `${Math.abs(n)} BC` : String(n);

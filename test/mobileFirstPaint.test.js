@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.64d666e3f66c.js'), 'utf8');
+const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.8353214b5733.js'), 'utf8');
 const territoryEditorScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.844fdec57596.js'), 'utf8');
 const start = mapScript.indexOf('    const mobileFirstPaint =');
 const end = mapScript.indexOf('    const mobileOptionalLoads =', start);
@@ -162,6 +162,57 @@ test('country genealogy separates identical country names by the active historic
             { name:'태조', start:918, end:943, faction:'고려' }
         ], { _id:'late-goguryeo', name:'고려', start:427, end:668 });`, context);
     assert.deepEqual(JSON.parse(JSON.stringify(context.result.map(king => king.name))), ['장수왕']);
+});
+
+test('country genealogy prefers exact phase rulers over a predecessor ending in the same year', () => {
+    const start = mapScript.indexOf('    function getKingsForCountryPhase');
+    const end = mapScript.indexOf('    /** 현재 연도와 월의 왕 정보를 패널에 업데이트합니다.', start);
+    const context = {};
+    vm.createContext(context);
+    vm.runInContext(mapScript.slice(start, end) + `
+        this.result = getKingsForCountryPhase([
+            { name:'공양왕', start:1389, end:1392 },
+            { name:'태조', start:1392, end:1398, country_phase_id:'joseon' },
+            { name:'정종', start:1398, end:1400, country_phase_id:'joseon' }
+        ], { _id:'joseon', name:'조선', start_year:1392, end_year:1897 });`, context);
+    assert.deepEqual(JSON.parse(JSON.stringify(context.result.map(king => king.name))), ['태조', '정종']);
+});
+
+test('country detail uses the active phase dates instead of the merged base-country dates', () => {
+    const start = mapScript.indexOf('function getEffectiveCountryInfo');
+    const end = mapScript.indexOf('function getCountryInfoById', start);
+    assert.ok(start >= 0 && end > start);
+    const context = { document: { getElementById: () => null } };
+    vm.createContext(context);
+    vm.runInContext(mapScript.slice(start, end) + `
+        this.result = getEffectiveCountryInfo({
+            _id:'goryeo-lineage', name:'고려(高麗)', start:901, end:1392,
+            history:[{ _id:'joseon', name:'조선(朝鮮)', start_year:1392, end_year:1897 }]
+        }, 1679, 1);`, context);
+    assert.equal(context.result.name, '조선(朝鮮)');
+    assert.equal(context.result.start, 1392);
+    assert.equal(context.result.end, 1897);
+    const current = vm.runInContext(`getEffectiveCountryInfo({
+        _id:'goryeo-lineage', name:'고려(高麗)', start:901, end:1392,
+        history:[{ name:'대한민국', start_year:1919, end_year:null }]
+    }, 2000, 1)`, context);
+    assert.equal(current.end, null);
+});
+
+test('country labels prefer phase capital coordinates before a remote territory centroid', () => {
+    assert.match(mapScript, /country\.label_lat \?\? country\.capital_lat/);
+    assert.ok(
+        (mapScript.match(/country\.label_lat \?\? country\.capital_lat/g) || []).length >= 2,
+        '2D와 3D 국가 라벨 모두 시대별 수도 좌표를 사용해야 한다'
+    );
+    assert.ok(
+        mapScript.indexOf('country.label_lat ?? country.capital_lat') <
+        mapScript.indexOf('_renderedCountryLargestPatch.has(countryId)')
+    );
+});
+
+test('3D country labels treat an open-ended phase as current instead of year zero', () => {
+    assert.match(mapScript, /if \(value == null \|\| value === ''\) return '';/);
 });
 
 test('king summary popup escapes panel stacking contexts', () => {

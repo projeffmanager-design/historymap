@@ -2089,7 +2089,9 @@
             const activeCountryId = rec.country_id
                 ? (typeof rec.country_id === 'object' ? (rec.country_id.$oid || String(rec.country_id)) : String(rec.country_id))
                 : null;
-            if (activeCountryId) activeMarkerCountByCountry.set(activeCountryId, (activeMarkerCountByCountry.get(activeCountryId) || 0) + 1);
+            if (activeCountryId) {
+                activeMarkerCountByCountry.set(activeCountryId, (activeMarkerCountByCountry.get(activeCountryId) || 0) + 1);
+            }
             // 현재 history record에서 수도 여부 확인 (is_capital 또는 place_type=capital/hwangseong)
             const isCapRec = !!(rec.is_capital || rec.place_type === 'capital' || rec.place_type === 'hwangseong');
             if (!isCapRec) return;
@@ -2128,7 +2130,16 @@
                 labelLng = capital.lng;
             }
 
-            // ② 수도 없으면 가장 큰 영토 조각 중심
+            // 국가 단계에 저장된 수도/대표 좌표가 있으면 거점이나 영토의 분포보다 우선한다.
+            // 다른 국가의 거점이 같은 ID에 섞여 있어도 라벨이 외국으로 밀리지 않는다.
+            const phaseAnchorLat = Number(country.label_lat ?? country.capital_lat);
+            const phaseAnchorLng = Number(country.label_lng ?? country.capital_lng);
+            if (!labelLat && Number.isFinite(phaseAnchorLat) && Number.isFinite(phaseAnchorLng)) {
+                labelLat = phaseAnchorLat;
+                labelLng = phaseAnchorLng;
+            }
+
+            // ② 수도/대표 좌표가 없으면 가장 큰 영토 조각 중심
             if (!labelLat && _renderedCountryLargestPatch.has(countryId)) {
                 const p = _renderedCountryLargestPatch.get(countryId);
                 labelLat = p.lat;
@@ -3998,13 +4009,15 @@ function getKingByYear(countryRef, year, month) {
         const phaseEndRaw = activePhase.end_year ?? activePhase.end;
         const phaseEnd = phaseEndRaw == null || phaseEndRaw === '' ? Infinity : Number(phaseEndRaw);
 
-        return list.filter(king => {
+        const exactPhaseKings = activePhase._id
+            ? list.filter(king => king.country_phase_id && String(king.country_phase_id) === String(activePhase._id))
+            : [];
+        const candidates = exactPhaseKings.length ? exactPhaseKings : list;
+        return candidates.filter(king => {
             const kingStart = Number(king.start ?? king.start_year);
             const kingEndRaw = king.end ?? king.end_year;
             const kingEnd = kingEndRaw == null || kingEndRaw === '' ? Infinity : Number(kingEndRaw);
-            const phaseMatches = !king.country_phase_id || !activePhase._id ||
-                String(king.country_phase_id) === String(activePhase._id);
-            return Number.isFinite(kingStart) && kingStart <= phaseEnd && kingEnd >= phaseStart && phaseMatches;
+            return Number.isFinite(kingStart) && kingStart <= phaseEnd && kingEnd >= phaseStart;
         });
     }
 
@@ -8838,6 +8851,10 @@ function getEffectiveCountryInfo(country, year = null, month = null) {
         _id: country._id,
         base_name: country.name,
         name: phase.name || country.name,
+        start: phase.start_year !== undefined ? phase.start_year : (phase.start !== undefined ? phase.start : country.start),
+        start_month: phase.start_month ?? country.start_month ?? 1,
+        end: phase.end_year !== undefined ? phase.end_year : (phase.end !== undefined ? phase.end : country.end),
+        end_month: phase.end_month ?? country.end_month ?? 12,
         name_zh: phase.name_zh || country.name_zh || country.name_chi || '',
         color: phase.color || country.color,
         flag: phase.flag || country.flag,
@@ -31234,17 +31251,24 @@ kingSelect.addEventListener('change', () => {
                         if (!country) return;
 
                         let labelLat, labelLng;
+                        // 현재 왕조 단계의 수도/라벨 좌표를 3D 국가 마커에도 우선 적용한다.
+                        const phaseAnchorLat = Number(country.label_lat ?? country.capital_lat);
+                        const phaseAnchorLng = Number(country.label_lng ?? country.capital_lng);
+                        if (Number.isFinite(phaseAnchorLat) && Number.isFinite(phaseAnchorLng)) {
+                            labelLat = phaseAnchorLat;
+                            labelLng = phaseAnchorLng;
+                        }
                         const capital = _capitalMap.get(countryId);
-                        if (capital) { labelLat = capital.lat; labelLng = capital.lng; }
-                        if (!labelLat && typeof _renderedCountryLargestPatch !== 'undefined' && _renderedCountryLargestPatch.has(countryId)) {
+                        if (!Number.isFinite(labelLat) && capital) { labelLat = Number(capital.lat); labelLng = Number(capital.lng); }
+                        if (!Number.isFinite(labelLat) && typeof _renderedCountryLargestPatch !== 'undefined' && _renderedCountryLargestPatch.has(countryId)) {
                             const patch = _renderedCountryLargestPatch.get(countryId);
                             labelLat = patch.lat; labelLng = patch.lng;
                         }
-                        if (!labelLat && typeof _renderedCountryCentroids !== 'undefined' && _renderedCountryCentroids.has(countryId)) {
+                        if (!Number.isFinite(labelLat) && typeof _renderedCountryCentroids !== 'undefined' && _renderedCountryCentroids.has(countryId)) {
                             const cc = _renderedCountryCentroids.get(countryId);
                             labelLat = cc.lat / cc.count; labelLng = cc.lng / cc.count;
                         }
-                        if (!labelLat || !labelLng) return;
+                        if (!Number.isFinite(labelLat) || !Number.isFinite(labelLng)) return;
 
                         const countryColor = country.color || '#ffffff';
                         const displayName = (typeof getMapCountryDisplayName === 'function')
@@ -31254,6 +31278,7 @@ kingSelect.addEventListener('change', () => {
                         const periodStart = activePhase.start_year ?? activePhase.start ?? country.start_year ?? country.start;
                         const periodEnd = activePhase.end_year ?? activePhase.end ?? country.end_year ?? country.end;
                         const format3dCountryPeriodYear = value => {
+                            if (value == null || value === '') return '';
                             const n = Number(value);
                             if (!Number.isFinite(n)) return '';
                             return n < 0 ? `${Math.abs(n)} BC` : String(n);
