@@ -3989,6 +3989,25 @@ function getKingByYear(countryRef, year, month) {
       });
     }
 
+    /** 현재 국호 단계의 존속 기간과 겹치는 왕계보만 반환합니다. */
+    function getKingsForCountryPhase(allCountryKings, activePhase) {
+        const list = Array.isArray(allCountryKings) ? allCountryKings : [];
+        if (!activePhase) return list;
+        const phaseStart = Number(activePhase.start_year ?? activePhase.start);
+        if (!Number.isFinite(phaseStart)) return list;
+        const phaseEndRaw = activePhase.end_year ?? activePhase.end;
+        const phaseEnd = phaseEndRaw == null || phaseEndRaw === '' ? Infinity : Number(phaseEndRaw);
+
+        return list.filter(king => {
+            const kingStart = Number(king.start ?? king.start_year);
+            const kingEndRaw = king.end ?? king.end_year;
+            const kingEnd = kingEndRaw == null || kingEndRaw === '' ? Infinity : Number(kingEndRaw);
+            const phaseMatches = !king.country_phase_id || !activePhase._id ||
+                String(king.country_phase_id) === String(activePhase._id);
+            return Number.isFinite(kingStart) && kingStart <= phaseEnd && kingEnd >= phaseStart && phaseMatches;
+        });
+    }
+
     /** 현재 연도와 월의 왕 정보를 패널에 업데이트합니다. */
 function updateKingLabel(year, month) {
       // console.log(`🔍 [왕 패널] updateKingLabel 호출: ${year}년 ${month}월, kings 개수: ${Object.keys(kings).length}`);
@@ -20633,52 +20652,9 @@ const loadingMessages = [
             const kingsMap = (typeof kings !== 'undefined' && kings && typeof kings === 'object') ? kings : {};
             const allCountryKings = kingsMap[countryId] || [];
             const activePhase = cInfo.active_country_phase || null;
-            let visibleKings = allCountryKings;
-
-            // 하나의 국가 객체에 여러 국호가 합쳐진 경우 현재 패널의 국호에 속한 왕만 표시한다.
-            if (activePhase) {
-                const normalizeAffiliation = value => String(value || '')
-                    .normalize('NFKC')
-                    .toLowerCase()
-                    .replace(/[\s·・,._/\\-]+/g, '')
-                    .replace(/[()（）\[\]{}]/g, '')
-                    // 남조 왕 데이터의 축약 국호 표기를 정식 이력명과 맞춘다.
-                    .replace(/유송劉宋/g, '송宋')
-                    .replace(/남제南齊/g, '제齊')
-                    .replace(/남량南梁/g, '양梁')
-                    .replace(/남진南陳/g, '진陳');
-                const phaseNames = new Set([
-                    activePhase.name,
-                    activePhase.name_zh,
-                    ...(Array.isArray(activePhase.aliases) ? activePhase.aliases : [])
-                ].map(normalizeAffiliation).filter(Boolean));
-                const affiliationOf = king => [
-                    king.faction,
-                    king.country_name,
-                    king.country
-                ].map(normalizeAffiliation).filter(Boolean);
-                const explicitlyLinked = allCountryKings.filter(king =>
-                    (king.country_phase_id && String(king.country_phase_id) === String(activePhase._id)) ||
-                    affiliationOf(king).some(name => phaseNames.has(name))
-                );
-
-                if (explicitlyLinked.length) {
-                    visibleKings = explicitlyLinked;
-                } else {
-                    // 구형 왕 데이터에 국호 문자열이 없거나 표기가 다른 경우 재위 기간으로 보완한다.
-                    const phaseStart = Number(activePhase.start_year ?? activePhase.start);
-                    const phaseEndRaw = activePhase.end_year ?? activePhase.end;
-                    const phaseEnd = phaseEndRaw == null || phaseEndRaw === '' ? Infinity : Number(phaseEndRaw);
-                    visibleKings = allCountryKings.filter(king => {
-                        // 다른 국호가 명시된 왕을 기간만 겹친다는 이유로 포함하지 않는다.
-                        if (affiliationOf(king).length) return false;
-                        const kingStart = Number(king.start ?? king.start_year);
-                        const kingEndRaw = king.end ?? king.end_year;
-                        const kingEnd = kingEndRaw == null || kingEndRaw === '' ? Infinity : Number(kingEndRaw);
-                        return Number.isFinite(kingStart) && kingStart <= phaseEnd && kingEnd >= phaseStart;
-                    });
-                }
-            }
+            // 같은 국호가 서로 다른 시대에 다시 쓰여도 이름이 아니라 국호 단계의 기간으로 구분한다.
+            // 국호 변경 전에 즉위해 변경 뒤까지 재위한 왕은 기간이 겹치므로 포함된다.
+            const visibleKings = getKingsForCountryPhase(allCountryKings, activePhase);
 
             const myKings = visibleKings
                 .map((king, sourceIndex) => ({

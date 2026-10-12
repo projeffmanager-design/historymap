@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.5c5c4d50ffcf.js'), 'utf8');
+const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.64d666e3f66c.js'), 'utf8');
 const territoryEditorScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.844fdec57596.js'), 'utf8');
 const start = mapScript.indexOf('    const mobileFirstPaint =');
 const end = mapScript.indexOf('    const mobileOptionalLoads =', start);
@@ -148,6 +148,20 @@ test('3D country labels accept the active historical capital without requiring a
 test('king panel looks up rulers by the exact country object instead of a shared country name', () => {
     assert.match(mapScript, /getKingByYear\(rawCountry, year, month\)/);
     assert.doesNotMatch(mapScript, /getKingByYear\(rawCountry\.name, year, month\)/);
+});
+
+test('country genealogy separates identical country names by the active historical phase', () => {
+    const start = mapScript.indexOf('    function getKingsForCountryPhase');
+    const end = mapScript.indexOf('    /** 현재 연도와 월의 왕 정보를 패널에 업데이트합니다.', start);
+    assert.ok(start >= 0 && end > start);
+    const context = {};
+    vm.createContext(context);
+    vm.runInContext(mapScript.slice(start, end) + `
+        this.result = getKingsForCountryPhase([
+            { name:'장수왕', start:413, end:491, faction:'고려' },
+            { name:'태조', start:918, end:943, faction:'고려' }
+        ], { _id:'late-goguryeo', name:'고려', start:427, end:668 });`, context);
+    assert.deepEqual(JSON.parse(JSON.stringify(context.result.map(king => king.name))), ['장수왕']);
 });
 
 test('king summary popup escapes panel stacking contexts', () => {
