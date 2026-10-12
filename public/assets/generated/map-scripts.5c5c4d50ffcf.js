@@ -4056,7 +4056,11 @@ function updateKingLabel(year, month) {
             const kingNameHtml = kingHeroId
                 ? `<span class="king-name king-person-link" role="button" tabindex="0" data-hero-id="${escapeKingListText(kingHeroId)}" onclick="openKingPersonFromPanel(event,this.dataset.heroId)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openKingPersonFromPanel(event,this.dataset.heroId);}" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;">${kingDisplayText}</span>`
                 : `<span class="king-name">${kingDisplayText}</span>`;
-            let kingHtml = `${iconHtml} <span class="country-name">${countryDisplayName}</span> : ${kingNameHtml} (${period})${summaryBadge}`;
+            const countryDetailId = String(rawCountry._id || country._id || '');
+            const countryNameHtml = countryDetailId
+                ? `<span class="country-name country-name-link" role="button" tabindex="0" data-country-id="${escapeKingListText(countryDetailId)}" onclick="openKingCountryFromPanel(event,this.dataset.countryId)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openKingCountryFromPanel(event,this.dataset.countryId);}" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;">${countryDisplayName}</span>`
+                : `<span class="country-name">${countryDisplayName}</span>`;
+            let kingHtml = `${iconHtml} ${countryNameHtml} : ${kingNameHtml} (${period})${summaryBadge}`;
 
             html += `<div class="king-item">${kingHtml}</div>`;
         }
@@ -4082,6 +4086,19 @@ function updateKingLabel(year, month) {
             window.heroSystem.openSidebar(String(heroId));
         }
     };
+
+    window.openKingCountryFromPanel = function(e, countryId) {
+        e?.stopPropagation?.();
+        if (!countryId) return;
+        document.getElementById('king-summary-popup')?.classList.remove('visible');
+        const { year, month } = typeof getCurrentYearMonth === 'function'
+            ? getCurrentYearMonth()
+            : { year: null, month: null };
+        const country = getCountryInfoById(countryId, year, month);
+        if (country && typeof window.showCountryInfoModal === 'function') {
+            window.showCountryInfoModal(country);
+        }
+    };
     
     /** 🚩 한줄평 클릭 팝업 */
     window.showKingSummaryPopup = function(e, summary) {
@@ -4091,7 +4108,9 @@ function updateKingLabel(year, month) {
         // 지도/패널의 filter·transform이 만드는 stacking context에서 분리한다.
         // body 직속 최상위 레이어로 옮겨 왕 목록 패널 배경 뒤에 가려지지 않게 한다.
         if (popup.parentElement !== document.body) document.body.appendChild(popup);
-        popup.style.zIndex = '200000';
+        // 패널 전면화는 200000부터 계속 증가하므로 고정 200000으로는 다시 가려진다.
+        // 뉴스레터 전체화면(2147483000) 바로 아래의 전용 오버레이 층을 사용한다.
+        popup.style.setProperty('z-index', '2147482500', 'important');
         // 같은 배지를 다시 클릭하면 닫기
         if (popup.classList.contains('visible') && popup._lastSummary === summary) {
             popup.classList.remove('visible');

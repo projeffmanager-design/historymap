@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.85094d0c86f4.js'), 'utf8');
+const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.5c5c4d50ffcf.js'), 'utf8');
 const territoryEditorScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.844fdec57596.js'), 'utf8');
 const start = mapScript.indexOf('    const mobileFirstPaint =');
 const end = mapScript.indexOf('    const mobileOptionalLoads =', start);
@@ -152,13 +152,14 @@ test('king panel looks up rulers by the exact country object instead of a shared
 
 test('king summary popup escapes panel stacking contexts', () => {
     assert.match(mapScript, /document\.body\.appendChild\(popup\)/);
-    assert.match(mapScript, /popup\.style\.zIndex = '200000'/);
+    assert.match(mapScript, /popup\.style\.setProperty\('z-index', '2147482500', 'important'\)/);
 });
 
-test('king panel links ruler names to person details and leaves country names inert', () => {
+test('king panel links ruler names to people and country names to country details', () => {
     assert.match(mapScript, /openKingPersonFromPanel\(event,this\.dataset\.heroId\)/);
     assert.match(mapScript, /window\.heroSystem\.openSidebar\(String\(heroId\)\)/);
-    assert.doesNotMatch(mapScript, /onclick="zoomToCountryCapital\('\$\{country\._id\}'\)"/);
+    assert.match(mapScript, /openKingCountryFromPanel\(event,this\.dataset\.countryId\)/);
+    assert.match(mapScript, /window\.showCountryInfoModal\(country\)/);
 });
 
 test('3D marker culling uses CSS canvas dimensions when MapLibre pixel ratio differs from device DPR', () => {
