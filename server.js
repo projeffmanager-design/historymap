@@ -5625,6 +5625,25 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         }).sort((a, b) => Number(a.period?.year ?? a.period?.start_year ?? Infinity) - Number(b.period?.year ?? b.period?.start_year ?? Infinity));
                     }
                 }
+                if (String(req.query.includeRecords || '') === '1') {
+                    const documentEntities = relations.flatMap(relation => [relation.subject, relation.object])
+                        .filter(entity => entity?.id && (entity.type === 'history_record' || entity.type === 'source_record'));
+                    const historyIds = [...new Set(documentEntities.filter(entity => entity.type === 'history_record').map(entity => toObjectId(entity.id)).filter(Boolean))];
+                    const sourceIds = [...new Set(documentEntities.filter(entity => entity.type === 'source_record').map(entity => toObjectId(entity.id)).filter(Boolean))];
+                    const [historyRecords, sourceRecords] = await Promise.all([
+                        historyIds.length ? collections.history.find({ _id:{ $in:historyIds } }, { projection:{ event_name:1, year:1, month:1, comment:1, records:1, photo:1 } }).toArray() : [],
+                        sourceIds.length ? collections.sourceRecords.find({ _id:{ $in:sourceIds } }, { projection:{ title:1, year:1, month:1, source:1, content:1, content_type:1, link_exclusions:1 } }).toArray() : []
+                    ]);
+                    const recordMap = new Map([
+                        ...historyRecords.map(record => [`history_record:${record._id}`, record]),
+                        ...sourceRecords.map(record => [`source_record:${record._id}`, record])
+                    ]);
+                    relations = relations.map(relation => {
+                        const document = [relation.subject, relation.object].find(entity => entity?.type === 'history_record' || entity?.type === 'source_record');
+                        const record = document ? recordMap.get(`${document.type}:${document.id}`) : null;
+                        return record ? { ...relation, record } : relation;
+                    });
+                }
                 res.set('Cache-Control', 'no-store');
                 res.json(relations);
             } catch (error) {

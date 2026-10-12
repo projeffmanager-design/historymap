@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.defd246f7b0d.js'), 'utf8');
+const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.8dd474ba3c36.js'), 'utf8');
 const territoryEditorScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.844fdec57596.js'), 'utf8');
 const start = mapScript.indexOf('    const mobileFirstPaint =');
 const end = mapScript.indexOf('    const mobileOptionalLoads =', start);
@@ -256,6 +256,19 @@ test('king genealogy uses phase-specific royal careers instead of birth and deat
     assert.match(mapScript, /end: Math\.min\(careerEnd, phaseEnd\)/);
     assert.match(mapScript, /상세 왕 경력이 있는 인물은 생몰년만 겹친 다른 국호의 왕계보에 넣지 않는다/);
     assert.match(mapScript, /_lineage_source_id: king\._id/);
+});
+
+test('king genealogy can show, link, and create connected historical events', () => {
+    assert.match(mapScript, /class="cdp-king-events"/);
+    assert.match(mapScript, /includeRecords:'1'/);
+    assert.match(mapScript, /_historyRichContent\(summary, year, month/);
+    assert.match(mapScript, /🔗 기존 역사 연결/);
+    assert.match(mapScript, /＋ 새 역사 입력/);
+    assert.match(mapScript, /predicate:'participated_in'/);
+    assert.match(mapScript, /\[\[person:\$\{block\.dataset\.heroId\}\|\$\{block\.dataset\.kingName\}\]\]/);
+    assert.match(mapScript, /주요 사건 한 번에 보기/);
+    assert.match(mapScript, /한 번에 접기/);
+    assert.match(mapScript, /for \(let index = 0; index < blocks\.length; index \+= 4\)/);
 });
 
 test('country labels prefer the active true capital over palace or territory fallbacks', () => {

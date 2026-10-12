@@ -20716,6 +20716,197 @@ const loadingMessages = [
             document.getElementById('cdp-overview-content').style.display = 'block';
         }
 
+        const _kingHistoryEventCache = new Map();
+
+        function _kingHistorySummary(record = {}) {
+            const raw = record.comment || record.records?.korean?.content || record.records?.true_history?.content || record.content || '';
+            return String(raw).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        }
+
+        async function _loadKingHistoricalEvents(block, force = false) {
+            const listEl = block?.querySelector('.cdp-king-events-list');
+            if (!block || !listEl) return;
+            const heroId = block.dataset.heroId;
+            const kingName = block.dataset.kingName || '';
+            const startYear = Number(block.dataset.startYear);
+            const endYear = Number(block.dataset.endYear);
+            const cacheKey = `${heroId}:${startYear}:${endYear}`;
+            listEl.hidden = false;
+            listEl.innerHTML = '<div class="cdp-king-events-empty">연결된 역사를 불러오는 중…</div>';
+            try {
+                let relations = !force ? _kingHistoryEventCache.get(cacheKey) : null;
+                if (!relations) {
+                    const params = new URLSearchParams({ entityType:'person', entityId:heroId, includeRecords:'1' });
+                    if (kingName) params.append('name', kingName);
+                    if (Number.isFinite(startYear)) params.set('startYear', String(startYear));
+                    if (Number.isFinite(endYear)) params.set('endYear', String(endYear));
+                    const response = await fetch(`/api/historical-relations?${params.toString()}`, { cache:'no-store' });
+                    if (!response.ok) throw new Error('역사 연결 조회 실패');
+                    relations = await response.json();
+                    _kingHistoryEventCache.set(cacheKey, relations);
+                }
+                const events = (Array.isArray(relations) ? relations : []).map(relation => {
+                    const document = [relation.subject, relation.object].find(entity => entity?.type === 'history_record' || entity?.type === 'source_record');
+                    if (!document) return null;
+                    const record = relation.record || {};
+                    return {
+                        relation, document, record,
+                        year: Number(record.year ?? relation.period?.year ?? relation.period?.start_year),
+                        month: Number(record.month ?? relation.period?.month ?? relation.period?.start_month ?? 1) || 1
+                    };
+                }).filter(Boolean).sort((a, b) => a.year - b.year || a.month - b.month);
+                const adminActions = canAdminEditHistoryRecords() ? `
+                    <div class="cdp-king-events-actions">
+                        <button type="button" class="cdp-king-history-link">🔗 기존 역사 연결</button>
+                        <button type="button" class="cdp-king-history-add">＋ 새 역사 입력</button>
+                    </div>` : '';
+                if (!events.length) {
+                    listEl.innerHTML = `<div class="cdp-king-events-empty">연결된 주요 사건이 없습니다.</div>${adminActions}`;
+                } else {
+                    listEl.innerHTML = events.map(({ document, record, year, month }) => {
+                        const title = record.event_name || record.title || document.label || '역사 기록';
+                        const yearLabel = Number.isFinite(year) ? `${year < 0 ? `B.C. ${Math.abs(year)}` : `A.D. ${year}`}${month > 1 ? ` ${month}월` : ''}` : '시점 미상';
+                        const summary = _kingHistorySummary(record);
+                        return `<article class="cdp-king-event-item">
+                            <button type="button" class="cdp-king-event-title" data-record-id="${_esc(document.id)}" data-record-type="${document.type === 'source_record' ? 'source' : 'history'}" data-year="${Number.isFinite(year) ? year : ''}" data-month="${month}">${_esc(title)}</button>
+                            <time>${_esc(yearLabel)}</time>
+                            ${summary ? `<div class="cdp-king-event-summary">${_historyRichContent(summary, year, month, [])}</div>` : ''}
+                        </article>`;
+                    }).join('') + adminActions;
+                }
+                listEl.querySelectorAll('.cdp-king-event-title').forEach(button => button.addEventListener('click', () => {
+                    window.openLinkedHistoryRecord?.({ id:button.dataset.recordId, type:button.dataset.recordType, year:Number(button.dataset.year), month:Number(button.dataset.month) || 1, title:button.textContent.trim() });
+                }));
+                listEl.querySelector('.cdp-king-history-link')?.addEventListener('click', () => _openKingHistoryLinker(block));
+                listEl.querySelector('.cdp-king-history-add')?.addEventListener('click', () => _openNewKingHistory(block));
+            } catch (error) {
+                listEl.innerHTML = '<div class="cdp-king-events-empty is-error">연결된 역사를 불러오지 못했습니다.</div>';
+            }
+        }
+
+        function _toggleKingHistoricalEvents(block) {
+            const listEl = block?.querySelector('.cdp-king-events-list');
+            const toggle = block?.querySelector('.cdp-king-events-toggle');
+            if (!listEl || !toggle) return;
+            if (!listEl.hidden) {
+                listEl.hidden = true;
+                toggle.textContent = '📜 주요 사건 보기';
+                return;
+            }
+            toggle.textContent = '📜 주요 사건 접기';
+            _loadKingHistoricalEvents(block);
+        }
+
+        async function _expandAllKingHistoricalEvents(container) {
+            const blocks = [...container.querySelectorAll('.cdp-king-events')];
+            const expandButton = container.querySelector('.cdp-king-events-expand-all');
+            if (expandButton) {
+                expandButton.disabled = true;
+                expandButton.textContent = `사건 불러오는 중 0/${blocks.length}`;
+            }
+            let completed = 0;
+            // 왕이 많은 국가에서도 관계 API 요청이 한꺼번에 몰리지 않도록 네 개씩 처리한다.
+            for (let index = 0; index < blocks.length; index += 4) {
+                const batch = blocks.slice(index, index + 4);
+                await Promise.all(batch.map(async block => {
+                    const listEl = block.querySelector('.cdp-king-events-list');
+                    const toggle = block.querySelector('.cdp-king-events-toggle');
+                    if (listEl) listEl.hidden = false;
+                    if (toggle) toggle.textContent = '📜 주요 사건 접기';
+                    await _loadKingHistoricalEvents(block);
+                    completed++;
+                    if (expandButton) expandButton.textContent = `사건 불러오는 중 ${completed}/${blocks.length}`;
+                }));
+            }
+            if (expandButton) {
+                expandButton.disabled = false;
+                expandButton.textContent = '📜 주요 사건 한 번에 보기';
+            }
+        }
+
+        function _collapseAllKingHistoricalEvents(container) {
+            container.querySelectorAll('.cdp-king-events').forEach(block => {
+                const listEl = block.querySelector('.cdp-king-events-list');
+                const toggle = block.querySelector('.cdp-king-events-toggle');
+                if (listEl) listEl.hidden = true;
+                if (toggle) toggle.textContent = '📜 주요 사건 보기';
+            });
+        }
+
+        async function _openKingHistoryLinker(block) {
+            if (!canAdminEditHistoryRecords()) return;
+            document.getElementById('king-history-linker')?.remove();
+            const overlay = document.createElement('div');
+            overlay.id = 'king-history-linker';
+            overlay.className = 'cdp-king-history-linker';
+            overlay.innerHTML = `<div class="cdp-king-history-linker-card">
+                <strong>🔗 ${_esc(block.dataset.kingName)}에게 기존 역사 연결</strong>
+                <input type="search" placeholder="역사 제목·내용 검색">
+                <div class="cdp-king-history-linker-results">불러오는 중…</div>
+                <button type="button" class="cdp-king-history-linker-close">닫기</button>
+            </div>`;
+            document.body.appendChild(overlay);
+            const results = overlay.querySelector('.cdp-king-history-linker-results');
+            let records = [];
+            try {
+                const response = await fetch('/api/history', { cache:'no-store' });
+                if (!response.ok) throw new Error();
+                records = await response.json();
+            } catch (_) { results.textContent = '역사 목록을 불러오지 못했습니다.'; }
+            const render = query => {
+                const q = String(query || '').trim().toLowerCase();
+                const filtered = records.filter(record => !q || JSON.stringify(record).toLowerCase().includes(q)).slice(0, 80);
+                results.innerHTML = filtered.length ? '' : '<div class="cdp-king-events-empty">검색 결과가 없습니다.</div>';
+                filtered.forEach(record => {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.innerHTML = `<span>${_esc(record.event_name || '역사 기록')}</span><time>${Number(record.year) < 0 ? `B.C. ${Math.abs(Number(record.year))}` : `A.D. ${record.year}`} ${Number(record.month) > 1 ? `${record.month}월` : ''}</time>`;
+                    button.addEventListener('click', async () => {
+                        const response = await fetch('/api/historical-relations', {
+                            method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${token}` },
+                            body:JSON.stringify({
+                                subject:{ type:'person', id:block.dataset.heroId, label:block.dataset.kingName },
+                                predicate:'participated_in',
+                                object:{ type:'history_record', id:String(record._id), label:record.event_name || '역사 기록' },
+                                period:{ year:Number(record.year), month:Number(record.month) || 1 }
+                            })
+                        });
+                        if (!response.ok) return alert('역사 연결에 실패했습니다.');
+                        overlay.remove();
+                        await _loadKingHistoricalEvents(block, true);
+                    });
+                    results.appendChild(button);
+                });
+            };
+            render('');
+            overlay.querySelector('input').addEventListener('input', event => render(event.target.value));
+            overlay.querySelector('.cdp-king-history-linker-close').addEventListener('click', () => overlay.remove());
+            overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove(); });
+        }
+
+        function _openNewKingHistory(block) {
+            if (!canAdminEditHistoryRecords()) return;
+            editingHistoryKey = null;
+            const form = document.getElementById('addHistoryForm');
+            form.reset();
+            delete form.dataset.originalYear;
+            openEditPanel('historyForm');
+            const startYear = Number(block.dataset.startYear);
+            document.getElementById('historyYear').value = Number.isFinite(startYear) ? startYear : getCurrentYearMonth().year;
+            document.getElementById('historyMonth').value = 1;
+            document.getElementById('historyEvent').value = `${block.dataset.kingName} 재위 주요 사건`;
+            document.getElementById('koreanContent').value = `[[person:${block.dataset.heroId}|${block.dataset.kingName}]] `;
+            document.getElementById('deleteHistoryBtn').style.display = 'none';
+            document.getElementById('saveHistoryBtn').textContent = '저장';
+            window._pendingKingHistoryBlock = block;
+        }
+
+        window.refreshPendingKingHistoryEvents = async function() {
+            const block = window._pendingKingHistoryBlock;
+            window._pendingKingHistoryBlock = null;
+            if (block?.isConnected) await _loadKingHistoricalEvents(block, true);
+        };
+
         function _renderKings(cInfo) {
             const container = document.getElementById('cdp-kings-list');
 
@@ -20788,6 +20979,11 @@ const loadingMessages = [
                     </div>
                     <div class="cdp-king-period">재위 ${_esc(period)}</div>
                     ${summary ? `<div class="cdp-king-desc">${sanitizeHeroDescriptionHtml(summary)}</div>` : ''}
+                    <div class="cdp-king-events" data-hero-id="${_esc(`king:${countryId}:${sourceRefId}`)}"
+                        data-king-name="${_esc(rawName)}" data-start-year="${sy ?? ''}" data-end-year="${ey ?? ''}">
+                        <button type="button" class="cdp-king-events-toggle">📜 주요 사건 보기</button>
+                        <div class="cdp-king-events-list" hidden></div>
+                    </div>
                 </li>`;
             }).join('');
 
@@ -20873,7 +21069,11 @@ const loadingMessages = [
                     <strong>${_esc(effective?.name || target.phase?.name || target.country?.name || '다음 왕조')}</strong>
                 </button>`;
             }).join('');
-            container.innerHTML = `${predecessorHtml}<ul class="cdp-kings-timeline">${items}</ul>${continuationHtml}`;
+            const eventToolbar = `<div class="cdp-king-events-toolbar">
+                <button type="button" class="cdp-king-events-expand-all">📜 주요 사건 한 번에 보기</button>
+                <button type="button" class="cdp-king-events-collapse-all">한 번에 접기</button>
+            </div>`;
+            container.innerHTML = `${predecessorHtml}${eventToolbar}<ul class="cdp-kings-timeline">${items}</ul>${continuationHtml}`;
 
             container.querySelectorAll('.cdp-king-name-link').forEach(button => {
                 button.addEventListener('click', () => {
@@ -20882,6 +21082,11 @@ const loadingMessages = [
                     window.heroSystem.openSidebar(heroId);
                 });
             });
+            container.querySelectorAll('.cdp-king-events-toggle').forEach(button => {
+                button.addEventListener('click', () => _toggleKingHistoricalEvents(button.closest('.cdp-king-events')));
+            });
+            container.querySelector('.cdp-king-events-expand-all')?.addEventListener('click', () => _expandAllKingHistoricalEvents(container));
+            container.querySelector('.cdp-king-events-collapse-all')?.addEventListener('click', () => _collapseAllKingHistoricalEvents(container));
             container.querySelectorAll('.cdp-king-dynasty-link').forEach(continuationButton => continuationButton.addEventListener('click', event => {
                 const button = event.currentTarget;
                 const targetCountry = (Array.isArray(countries) ? countries : []).find(country =>
@@ -26369,6 +26574,7 @@ kingSelect.addEventListener('change', () => {
                 await updateHistoryPanel(savedYear);
             }
             await window.refreshOpenHeroHistoricalRelations?.();
+            await window.refreshPendingKingHistoryEvents?.();
             const currentTime = getCurrentYearMonth();
             updateMap(currentTime.year, currentTime.month, false, true);
             editingHistoryKey = null;
