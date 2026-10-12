@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.8dd474ba3c36.js'), 'utf8');
+const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.bdd02a47e0d3.js'), 'utf8');
 const territoryEditorScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.844fdec57596.js'), 'utf8');
 const start = mapScript.indexOf('    const mobileFirstPaint =');
 const end = mapScript.indexOf('    const mobileOptionalLoads =', start);
@@ -269,6 +269,9 @@ test('king genealogy can show, link, and create connected historical events', ()
     assert.match(mapScript, /주요 사건 한 번에 보기/);
     assert.match(mapScript, /한 번에 접기/);
     assert.match(mapScript, /for \(let index = 0; index < blocks\.length; index \+= 4\)/);
+    assert.match(mapScript, /relation\.source === 'manual'/);
+    assert.match(mapScript, /class="cdp-king-event-unlink"/);
+    assert.match(mapScript, /method:'DELETE'/);
 });
 
 test('country labels prefer the active true capital over palace or territory fallbacks', () => {

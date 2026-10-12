@@ -20763,19 +20763,35 @@ const loadingMessages = [
                 if (!events.length) {
                     listEl.innerHTML = `<div class="cdp-king-events-empty">연결된 주요 사건이 없습니다.</div>${adminActions}`;
                 } else {
-                    listEl.innerHTML = events.map(({ document, record, year, month }) => {
+                    listEl.innerHTML = events.map(({ relation, document, record, year, month }) => {
                         const title = record.event_name || record.title || document.label || '역사 기록';
                         const yearLabel = Number.isFinite(year) ? `${year < 0 ? `B.C. ${Math.abs(year)}` : `A.D. ${year}`}${month > 1 ? ` ${month}월` : ''}` : '시점 미상';
                         const summary = _kingHistorySummary(record);
+                        const removable = canAdminEditHistoryRecords() && relation?._id && relation.source === 'manual';
                         return `<article class="cdp-king-event-item">
-                            <button type="button" class="cdp-king-event-title" data-record-id="${_esc(document.id)}" data-record-type="${document.type === 'source_record' ? 'source' : 'history'}" data-year="${Number.isFinite(year) ? year : ''}" data-month="${month}">${_esc(title)}</button>
-                            <time>${_esc(yearLabel)}</time>
+                            <div class="cdp-king-event-heading">
+                                <button type="button" class="cdp-king-event-title" data-record-id="${_esc(document.id)}" data-record-type="${document.type === 'source_record' ? 'source' : 'history'}" data-year="${Number.isFinite(year) ? year : ''}" data-month="${month}">${_esc(title)}</button>
+                                <time>${_esc(yearLabel)}</time>
+                                ${removable ? `<button type="button" class="cdp-king-event-unlink" data-relation-id="${_esc(relation._id)}" title="사건 기록은 유지하고 이 왕과의 연결만 제거">연결 제거</button>` : ''}
+                            </div>
                             ${summary ? `<div class="cdp-king-event-summary">${_historyRichContent(summary, year, month, [])}</div>` : ''}
                         </article>`;
                     }).join('') + adminActions;
                 }
                 listEl.querySelectorAll('.cdp-king-event-title').forEach(button => button.addEventListener('click', () => {
                     window.openLinkedHistoryRecord?.({ id:button.dataset.recordId, type:button.dataset.recordType, year:Number(button.dataset.year), month:Number(button.dataset.month) || 1, title:button.textContent.trim() });
+                }));
+                listEl.querySelectorAll('.cdp-king-event-unlink').forEach(button => button.addEventListener('click', async () => {
+                    if (!confirm('사건 기록은 유지하고 이 왕과의 연결만 제거할까요?')) return;
+                    button.disabled = true;
+                    const response = await fetch(`/api/historical-relations/${encodeURIComponent(button.dataset.relationId)}`, {
+                        method:'DELETE', headers:{ 'Authorization':`Bearer ${token}` }
+                    });
+                    if (!response.ok) {
+                        button.disabled = false;
+                        return alert('사건 연결 제거에 실패했습니다.');
+                    }
+                    await _loadKingHistoricalEvents(block, true);
                 }));
                 listEl.querySelector('.cdp-king-history-link')?.addEventListener('click', () => _openKingHistoryLinker(block));
                 listEl.querySelector('.cdp-king-history-add')?.addEventListener('click', () => _openNewKingHistory(block));
