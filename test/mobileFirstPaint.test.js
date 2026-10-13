@@ -284,6 +284,11 @@ test('king genealogy can show, link, and create connected historical events', ()
     assert.match(mapScript, /_recordType:'source'/);
     assert.match(mapScript, /type:record\._recordType === 'source' \? 'source_record' : 'history_record'/);
     assert.match(mapScript, /predicate:record\._recordType === 'source' \? 'documented_in' : 'participated_in'/);
+    assert.match(mapScript, /class="cdp-king-history-record-source">출처 ·/);
+    assert.match(mapScript, /class="cdp-king-event-source">출처 ·/);
+    assert.match(mapScript, /class="cdp-king-history-source-filter"/);
+    assert.match(mapScript, /<option value="">전체 출처<\/option>/);
+    assert.match(mapScript, /const matchesSource = !selectedSource/);
 });
 
 test('admin can edit a research history record without enabling map edit mode', () => {
