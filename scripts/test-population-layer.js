@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const model=require('../public/assets/power-model');
-const source=fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.eb32f757b6b4.js'),'utf8');
+const source=fs.readFileSync(require.resolve('../public/assets/map/map-data-layers.js'),'utf8');
 const start=source.indexOf('(function() {\n  var _layer = null;');
 const end=source.indexOf('\n})();',start)+6;
 assert.ok(start>=0&&end>start);

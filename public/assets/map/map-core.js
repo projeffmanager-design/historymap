@@ -20757,19 +20757,21 @@ const loadingMessages = [
                 }).filter(Boolean).sort((a, b) => a.year - b.year || a.month - b.month);
                 const adminActions = canAdminEditHistoryRecords() ? `
                     <div class="cdp-king-events-actions">
-                        <button type="button" class="cdp-king-history-link">🔗 기존 역사 연결</button>
+                        <button type="button" class="cdp-king-history-link">🔗 역사·원전 사료 연결</button>
                         <button type="button" class="cdp-king-history-add">＋ 새 역사 입력</button>
                     </div>` : '';
                 if (!events.length) {
-                    listEl.innerHTML = `<div class="cdp-king-events-empty">연결된 주요 사건이 없습니다.</div>${adminActions}`;
+                    listEl.innerHTML = `<div class="cdp-king-events-empty">연결된 주요 사건이나 원전 사료가 없습니다.</div>${adminActions}`;
                 } else {
                     listEl.innerHTML = events.map(({ relation, document, record, year, month }) => {
                         const title = record.event_name || record.title || document.label || '역사 기록';
+                        const documentLabel = document.type === 'source_record' ? '원전' : '사건';
                         const yearLabel = Number.isFinite(year) ? `${year < 0 ? `B.C. ${Math.abs(year)}` : `A.D. ${year}`}${month > 1 ? ` ${month}월` : ''}` : '시점 미상';
                         const summary = _kingHistorySummary(record);
                         const removable = canAdminEditHistoryRecords() && relation?._id && relation.source === 'manual';
                         return `<article class="cdp-king-event-item">
                             <div class="cdp-king-event-heading">
+                                <span class="cdp-king-event-kind ${document.type === 'source_record' ? 'is-source' : ''}">${documentLabel}</span>
                                 <button type="button" class="cdp-king-event-title" data-record-id="${_esc(document.id)}" data-record-type="${document.type === 'source_record' ? 'source' : 'history'}" data-year="${Number.isFinite(year) ? year : ''}" data-month="${month}">${_esc(title)}</button>
                                 <time>${_esc(yearLabel)}</time>
                                 ${removable ? `<button type="button" class="cdp-king-event-unlink" data-relation-id="${_esc(relation._id)}" title="사건 기록은 유지하고 이 왕과의 연결만 제거">연결 제거</button>` : ''}
@@ -20856,19 +20858,19 @@ const loadingMessages = [
             overlay.id = 'king-history-linker';
             overlay.className = 'cdp-king-history-linker';
             overlay.innerHTML = `<div class="cdp-king-history-linker-card">
-                <strong>🔗 ${_esc(block.dataset.kingName)}에게 기존 역사 연결</strong>
-                <input type="search" placeholder="역사 제목·내용 검색">
+                <strong>🔗 ${_esc(block.dataset.kingName)}에게 역사·원전 사료 연결</strong>
+                <input type="search" placeholder="사건·사료 제목·내용·출전 검색">
                 <div class="cdp-king-history-year-range">
                     <label>시작 연도 <input type="number" class="cdp-king-history-year-from" value="${Number.isFinite(Number(block.dataset.startYear)) ? Number(block.dataset.startYear) : ''}" placeholder="전체"></label>
                     <span>–</span>
                     <label>종료 연도 <input type="number" class="cdp-king-history-year-to" value="${Number.isFinite(Number(block.dataset.endYear)) ? Number(block.dataset.endYear) : ''}" placeholder="전체"></label>
                     <button type="button" class="cdp-king-history-year-clear">연도 초기화</button>
                 </div>
-                <div class="cdp-king-history-linker-selection">선택된 사건 <strong>0</strong>건</div>
+                <div class="cdp-king-history-linker-selection">선택된 기록 <strong>0</strong>건</div>
                 <div class="cdp-king-history-linker-results">불러오는 중…</div>
                 <div class="cdp-king-history-linker-actions">
                     <button type="button" class="cdp-king-history-linker-close">닫기</button>
-                    <button type="button" class="cdp-king-history-linker-submit" disabled>선택한 사건 연결</button>
+                    <button type="button" class="cdp-king-history-linker-submit" disabled>선택한 기록 연결</button>
                 </div>
             </div>`;
             document.body.appendChild(overlay);
@@ -20880,10 +20882,20 @@ const loadingMessages = [
             const selectedIds = new Set();
             let records = [];
             try {
-                const response = await fetch('/api/history', { cache:'no-store' });
-                if (!response.ok) throw new Error();
-                records = await response.json();
-            } catch (_) { results.textContent = '역사 목록을 불러오지 못했습니다.'; }
+                const sourceParams = new URLSearchParams({ limit:'500' });
+                if (Number.isFinite(Number(block.dataset.startYear))) sourceParams.set('yearFrom', block.dataset.startYear);
+                if (Number.isFinite(Number(block.dataset.endYear))) sourceParams.set('yearTo', block.dataset.endYear);
+                const [historyResponse, sourceResponse] = await Promise.all([
+                    fetch('/api/history', { cache:'no-store' }),
+                    fetch(`/api/source-records?${sourceParams.toString()}`, { cache:'no-store' })
+                ]);
+                if (!historyResponse.ok || !sourceResponse.ok) throw new Error();
+                const [historyRecords, sourceRecords] = await Promise.all([historyResponse.json(), sourceResponse.json()]);
+                records = [
+                    ...historyRecords.map(record => ({ ...record, _recordType:'history' })),
+                    ...sourceRecords.map(record => ({ ...record, _recordType:'source' }))
+                ];
+            } catch (_) { results.textContent = '역사·원전 사료 목록을 불러오지 못했습니다.'; }
             const render = query => {
                 const q = String(query || '').trim().toLowerCase();
                 const yearFrom = yearFromInput.value === '' ? -Infinity : Number(yearFromInput.value);
@@ -20897,14 +20909,16 @@ const loadingMessages = [
                 results.innerHTML = filtered.length ? '' : '<div class="cdp-king-events-empty">검색 결과가 없습니다.</div>';
                 filtered.forEach(record => {
                     const recordId = String(record._id);
+                    const selectionKey = `${record._recordType}:${recordId}`;
                     const button = document.createElement('button');
                     button.type = 'button';
-                    button.classList.toggle('selected', selectedIds.has(recordId));
-                    button.setAttribute('aria-pressed', String(selectedIds.has(recordId)));
-                    button.innerHTML = `<span class="cdp-king-history-check">${selectedIds.has(recordId) ? '✓' : ''}</span><span>${_esc(record.event_name || '역사 기록')}</span><time>${Number(record.year) < 0 ? `B.C. ${Math.abs(Number(record.year))}` : `A.D. ${record.year}`} ${Number(record.month) > 1 ? `${record.month}월` : ''}</time>`;
+                    button.classList.toggle('selected', selectedIds.has(selectionKey));
+                    button.setAttribute('aria-pressed', String(selectedIds.has(selectionKey)));
+                    const recordKind = record._recordType === 'source' ? '원전' : '사건';
+                    button.innerHTML = `<span class="cdp-king-history-check">${selectedIds.has(selectionKey) ? '✓' : ''}</span><span><small class="cdp-king-history-record-kind ${record._recordType === 'source' ? 'is-source' : ''}">${recordKind}</small>${_esc(record.event_name || record.title || '역사 기록')}</span><time>${Number(record.year) < 0 ? `B.C. ${Math.abs(Number(record.year))}` : `A.D. ${record.year}`} ${Number(record.month) > 1 ? `${record.month}월` : ''}</time>`;
                     button.addEventListener('click', () => {
-                        if (selectedIds.has(recordId)) selectedIds.delete(recordId);
-                        else selectedIds.add(recordId);
+                        if (selectedIds.has(selectionKey)) selectedIds.delete(selectionKey);
+                        else selectedIds.add(selectionKey);
                         selectionLabel.textContent = String(selectedIds.size);
                         submitButton.disabled = selectedIds.size === 0;
                         render(overlay.querySelector('input').value);
@@ -20921,7 +20935,7 @@ const loadingMessages = [
                 render(overlay.querySelector('input[type="search"]').value);
             });
             submitButton.addEventListener('click', async () => {
-                const selectedRecords = records.filter(record => selectedIds.has(String(record._id)));
+                const selectedRecords = records.filter(record => selectedIds.has(`${record._recordType}:${record._id}`));
                 if (!selectedRecords.length) return;
                 submitButton.disabled = true;
                 submitButton.textContent = `연결 중 0/${selectedRecords.length}`;
@@ -20932,12 +20946,16 @@ const loadingMessages = [
                             method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${token}` },
                             body:JSON.stringify({
                                 subject:{ type:'person', id:block.dataset.heroId, label:block.dataset.kingName },
-                                predicate:'participated_in',
-                                object:{ type:'history_record', id:String(record._id), label:record.event_name || '역사 기록' },
+                                predicate:record._recordType === 'source' ? 'documented_in' : 'participated_in',
+                                object:{
+                                    type:record._recordType === 'source' ? 'source_record' : 'history_record',
+                                    id:String(record._id),
+                                    label:record.event_name || record.title || (record._recordType === 'source' ? '원전 사료' : '역사 기록')
+                                },
                                 period:{ year:Number(record.year), month:Number(record.month) || 1 }
                             })
                         });
-                        if (!response.ok) throw new Error(`${record.event_name || '역사 기록'} 연결 실패`);
+                        if (!response.ok) throw new Error(`${record.event_name || record.title || '역사 기록'} 연결 실패`);
                         connected++;
                         submitButton.textContent = `연결 중 ${connected}/${selectedRecords.length}`;
                     }
@@ -20946,7 +20964,7 @@ const loadingMessages = [
                 } catch (error) {
                     alert(error.message || '역사 연결에 실패했습니다.');
                     submitButton.disabled = false;
-                    submitButton.textContent = '선택한 사건 연결';
+                    submitButton.textContent = '선택한 기록 연결';
                 }
             });
             overlay.querySelector('.cdp-king-history-linker-close').addEventListener('click', () => overlay.remove());
@@ -26655,7 +26673,9 @@ kingSelect.addEventListener('change', () => {
     });
     
     window.editHistory = async function(key) {
-        if (!editMode || !(currentUser?.role === 'superuser' || currentUser?.role === 'admin')) return;
+        // 연구 기록 편집은 지도 도형 편집 모드와 별개다. 목록에 수정 버튼이
+        // 표시되는 권한 기준과 실제 편집 진입 기준을 동일하게 유지한다.
+        if (!canAdminEditHistoryRecords()) return;
 
         // 로컬 캐시에서 먼저 찾고, 없으면 서버에서 조회
         let record = history.find(h => h._id === key);

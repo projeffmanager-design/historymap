@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const { isSharedLine } = require('../lib/territorySharedBoundary');
 
-const source = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.844fdec57596.js'), 'utf8');
+const source = fs.readFileSync(require.resolve('../public/assets/map/territory-editor.js'), 'utf8');
 const start = source.indexOf('  function _tgOuterRingRefs(');
 const end = source.indexOf('  function _tgMakeLocalMidBoundary(');
 const context = {
@@ -214,10 +214,12 @@ test('editor selects B before asking for shared-boundary start and end', async (
         _tgPairClickHandler: null, _tgPairSelectDirection: null, _tgPairStartPoint: null,
         _tgPairRangeEnabled: true, _tgPairRangeMarker: null,
         _tgPairPreviewRequest: 0,
+        _tgPairReselectContext: null,
         _tgHideLayerPicker: () => {}, _tgClearPair: () => {}, _tgClearPairRangeMarker: () => {},
         _tgClearPairSelectionOutline: () => {},
+        _tgCapturePairState: () => ({}),
         _tgShowPairSelectionOutline: async () => { calls.push('show-B-outline'); return true; },
-        _tgPairBtn: () => {}, _tgReversePairBtn: () => {}, _tgSetMsg: () => {},
+        _tgPairBtn: () => {}, _tgReversePairBtn: () => {}, _tgPairRangeBtn: () => {}, _tgSetMsg: () => {},
         _tgFindPairTargetsAt: async () => [{ _id: 'B' }],
         _tgChoosePairTargets: (hits, _focus, choose) => { calls.push('choose-B'); choose(hits); return true; },
         _tgPreparePair: (_hits, _focus, range) => calls.push({ range }),

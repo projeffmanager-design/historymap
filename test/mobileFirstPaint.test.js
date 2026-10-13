@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const mapScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.cbb98f072805.js'), 'utf8');
-const territoryEditorScript = fs.readFileSync(require.resolve('../public/assets/generated/map-scripts.844fdec57596.js'), 'utf8');
+const mapScript = fs.readFileSync(require.resolve('../public/assets/map/map-core.js'), 'utf8');
+const territoryEditorScript = fs.readFileSync(require.resolve('../public/assets/map/territory-editor.js'), 'utf8');
 const start = mapScript.indexOf('    const mobileFirstPaint =');
 const end = mapScript.indexOf('    const mobileOptionalLoads =', start);
 assert.ok(start >= 0 && end > start);
@@ -262,9 +262,9 @@ test('king genealogy can show, link, and create connected historical events', ()
     assert.match(mapScript, /class="cdp-king-events"/);
     assert.match(mapScript, /includeRecords:'1'/);
     assert.match(mapScript, /_historyRichContent\(summary, year, month/);
-    assert.match(mapScript, /🔗 기존 역사 연결/);
+    assert.match(mapScript, /🔗 역사·원전 사료 연결/);
     assert.match(mapScript, /＋ 새 역사 입력/);
-    assert.match(mapScript, /predicate:'participated_in'/);
+    assert.match(mapScript, /'documented_in' : 'participated_in'/);
     assert.match(mapScript, /\[\[person:\$\{block\.dataset\.heroId\}\|\$\{block\.dataset\.kingName\}\]\]/);
     assert.match(mapScript, /주요 사건 한 번에 보기/);
     assert.match(mapScript, /한 번에 접기/);
@@ -273,11 +273,26 @@ test('king genealogy can show, link, and create connected historical events', ()
     assert.match(mapScript, /class="cdp-king-event-unlink"/);
     assert.match(mapScript, /method:'DELETE'/);
     assert.match(mapScript, /const selectedIds = new Set\(\)/);
-    assert.match(mapScript, /선택한 사건 연결/);
+    assert.match(mapScript, /선택한 기록 연결/);
     assert.match(mapScript, /selectedRecords = records\.filter/);
     assert.match(mapScript, /cdp-king-history-year-from/);
     assert.match(mapScript, /recordYear >= yearFrom && recordYear <= yearTo/);
     assert.match(mapScript, /연도 초기화/);
+    assert.match(mapScript, /역사·원전 사료 연결/);
+    assert.match(mapScript, /const sourceParams = new URLSearchParams\(\{ limit:'500' \}\)/);
+    assert.match(mapScript, /sourceParams\.set\('yearFrom', block\.dataset\.startYear\)/);
+    assert.match(mapScript, /_recordType:'source'/);
+    assert.match(mapScript, /type:record\._recordType === 'source' \? 'source_record' : 'history_record'/);
+    assert.match(mapScript, /predicate:record\._recordType === 'source' \? 'documented_in' : 'participated_in'/);
+});
+
+test('admin can edit a research history record without enabling map edit mode', () => {
+    const editHistoryStart = mapScript.indexOf('window.editHistory = async function(key)');
+    const editHistoryEnd = mapScript.indexOf('document.getElementById(\'historyKey\').value', editHistoryStart);
+    assert.ok(editHistoryStart >= 0 && editHistoryEnd > editHistoryStart);
+    const editHistoryHandler = mapScript.slice(editHistoryStart, editHistoryEnd);
+    assert.match(editHistoryHandler, /if \(!canAdminEditHistoryRecords\(\)\) return;/);
+    assert.doesNotMatch(editHistoryHandler, /!editMode/);
 });
 
 test('country labels prefer the active true capital over palace or territory fallbacks', () => {
