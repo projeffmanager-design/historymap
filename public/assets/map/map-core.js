@@ -20889,15 +20889,78 @@ const loadingMessages = [
             });
         }
 
+        function _makeKingHistoryLinkerDraggable(card, handle) {
+            let drag = null;
+            const place = (left, top) => {
+                const rect = card.getBoundingClientRect();
+                const maxLeft = Math.max(8, window.innerWidth - rect.width - 8);
+                const maxTop = Math.max(8, window.innerHeight - rect.height - 8);
+                card.style.left = `${Math.max(8, Math.min(maxLeft, left))}px`;
+                card.style.top = `${Math.max(8, Math.min(maxTop, top))}px`;
+            };
+            const fixPosition = () => {
+                const rect = card.getBoundingClientRect();
+                // 中央配置から切り替える前の寸法・座標を固定し、ドラッグ開始時の跳ねを防ぐ。
+                card.style.width = `${rect.width}px`;
+                card.style.height = `${rect.height}px`;
+                card.classList.add('is-positioned');
+                place(rect.left, rect.top);
+                return card.getBoundingClientRect();
+            };
+            const stop = event => {
+                if (!drag || (event && event.pointerId !== drag.pointerId)) return;
+                const pointerId = drag.pointerId;
+                drag = null;
+                handle.classList.remove('is-dragging');
+                if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+            };
+            handle.addEventListener('pointerdown', event => {
+                if (event.button !== 0 || event.isPrimary === false || drag) return;
+                const rect = fixPosition();
+                drag = { pointerId:event.pointerId, x:event.clientX, y:event.clientY, left:rect.left, top:rect.top };
+                handle.classList.add('is-dragging');
+                handle.setPointerCapture(event.pointerId);
+                event.preventDefault();
+                event.stopPropagation();
+            });
+            handle.addEventListener('pointermove', event => {
+                if (!drag || event.pointerId !== drag.pointerId) return;
+                place(drag.left + event.clientX - drag.x, drag.top + event.clientY - drag.y);
+            });
+            ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(type => handle.addEventListener(type, stop));
+            handle.addEventListener('keydown', event => {
+                const direction = { ArrowLeft:[-1, 0], ArrowRight:[1, 0], ArrowUp:[0, -1], ArrowDown:[0, 1] }[event.key];
+                if (!direction) return;
+                const rect = fixPosition();
+                const step = event.shiftKey ? 40 : 10;
+                place(rect.left + direction[0] * step, rect.top + direction[1] * step);
+                event.preventDefault();
+                event.stopPropagation();
+            });
+            const onResize = () => {
+                if (!card.classList.contains('is-positioned')) return;
+                stop();
+                const rect = card.getBoundingClientRect();
+                place(rect.left, rect.top);
+            };
+            window.addEventListener('resize', onResize);
+            return () => {
+                stop();
+                window.removeEventListener('resize', onResize);
+            };
+        }
+
         async function _openKingHistoryLinker(block) {
             if (!canAdminEditHistoryRecords()) return;
-            document.getElementById('king-history-linker')?.remove();
+            const previousLinker = document.getElementById('king-history-linker');
+            previousLinker?._disposeDrag?.();
+            previousLinker?.remove();
             const king = { ...block.dataset };
             const overlay = document.createElement('div');
             overlay.id = 'king-history-linker';
             overlay.className = 'cdp-king-history-linker';
             overlay.innerHTML = `<div class="cdp-king-history-linker-card">
-                <strong>🔗 ${_esc(block.dataset.kingName)}에게 역사·원전 사료 연결</strong>
+                <strong class="cdp-king-history-linker-handle" tabindex="0" title="드래그하여 이동 · 방향키로 이동">🔗 ${_esc(block.dataset.kingName)}에게 역사·원전 사료 연결</strong>
                 <input type="search" placeholder="사건·사료 제목·내용·출전 검색">
                 <label class="cdp-king-history-source-filter-label">원전 출처
                     <select class="cdp-king-history-source-filter">
@@ -20918,6 +20981,10 @@ const loadingMessages = [
                 </div>
             </div>`;
             document.body.appendChild(overlay);
+            overlay._disposeDrag = _makeKingHistoryLinkerDraggable(
+                overlay.querySelector('.cdp-king-history-linker-card'),
+                overlay.querySelector('.cdp-king-history-linker-handle')
+            );
             const results = overlay.querySelector('.cdp-king-history-linker-results');
             const selectionLabel = overlay.querySelector('.cdp-king-history-linker-selection strong');
             const submitButton = overlay.querySelector('.cdp-king-history-linker-submit');
@@ -20926,6 +20993,7 @@ const loadingMessages = [
             const yearToInput = overlay.querySelector('.cdp-king-history-year-to');
             const selectedIds = new Set();
             const closeLinker = () => {
+                overlay._disposeDrag();
                 overlay.remove();
             };
             let records = [];
