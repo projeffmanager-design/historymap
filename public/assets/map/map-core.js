@@ -15580,12 +15580,29 @@ const loadingMessages = [
       if (Number.isFinite(currentYear)) updateHistoryPanel(currentYear);
     }
 
+    function _sortHistoryPanelRecords(records) {
+      const datePart = (value, fallback) => {
+        if (value == null || String(value).trim() === '') return fallback;
+        const number = Number(value);
+        return Number.isFinite(number) ? number : fallback;
+      };
+      // 복사본을 정렬해 연도별 캐시와 원본 데이터의 순서는 변경하지 않는다.
+      return (Array.isArray(records) ? records.slice() : []).sort((a, b) => {
+        for (const [field, fallback] of [['year', Infinity], ['month', 1], ['day', 1]]) {
+          const left = datePart(a?.[field], fallback);
+          const right = datePart(b?.[field], fallback);
+          if (left !== right) return left < right ? -1 : 1;
+        }
+        return 0;
+      });
+    }
+
     function _renderHistoryPanelSearchResults(query, records) {
       const content = document.getElementById('map-all-records-content');
       const status = document.getElementById('map-history-search-status');
       const title = document.getElementById('map-history-year-title');
       if (!content) return;
-      const results = Array.isArray(records) ? records : [];
+      const results = _sortHistoryPanelRecords(records);
       if (status) status.textContent = `${results.length}건`;
       if (title) title.textContent = `역사 검색 · ${query}`;
       content.innerHTML = '';
@@ -16155,6 +16172,8 @@ const loadingMessages = [
     function _renderHistoryPanel(year, historyRecords, sourceRecords, heroFigures = []) {
       const mapAllRecordsContent = document.getElementById('map-all-records-content');
       if (!mapAllRecordsContent) return;
+      historyRecords = _sortHistoryPanelRecords(historyRecords);
+      sourceRecords = _sortHistoryPanelRecords(sourceRecords);
 
       // 검색 중에도 연도별 자막 데이터는 계속 갱신하되, 패널의 전체 시대 검색
       // 결과는 연도 슬라이더 변경으로 덮어쓰지 않는다.
@@ -16170,6 +16189,15 @@ const loadingMessages = [
 
       let html = '';
       const recordMonth = record => Number(record?.month) || 1;
+      const recordDate = record => {
+        const recordYear = Number(record?.year ?? year);
+        const month = Number(record?.month);
+        const yearLabel = Number.isFinite(recordYear)
+          ? `${recordYear <= 0 ? 'B.C.' : 'A.D.'} ${Math.abs(recordYear)}`
+          : '연도 미상';
+        const monthLabel = Number.isInteger(month) && month >= 1 && month <= 12 ? ` ${month}월` : '';
+        return `<time class="history-record-date">${yearLabel}${monthLabel}</time>`;
+      };
       const commentWidget = (recordType, recordId) => `<div class="history-comments" data-record-type="${recordType}" data-record-id="${_escapeHistoryInline(recordId)}"><button type="button" class="history-comments-toggle">💬 사관 의견 보기</button><div class="history-comments-panel" hidden></div></div>`;
       html += `<div class="history-comments-global-bar"><button type="button" class="history-comments-global-toggle" aria-pressed="false">💬 모든 의견 보기</button></div>`;
       html += `<div class="history-hud-summary">
@@ -16186,12 +16214,10 @@ const loadingMessages = [
             const editBtn = isAdmin
               ? `<button class="history-edit-action" onclick="editHistory('${r._id}')" title="기록 수정">✏ 수정</button>`
               : '';
-            const name = r.event_name
-              ? `<div class="history-record-head">`
-                + `<span class="history-record-title">${_historyEntityLinks(r.event_name, year, recordMonth(r), heroFigures)}</span>`
+            const name = `<div class="history-record-head">`
+                + `<span class="history-record-title">${r.event_name ? _historyEntityLinks(r.event_name, year, recordMonth(r), heroFigures) : ''}${recordDate(r)}</span>`
                 + editBtn
-                + `</div>`
-              : '';
+                + `</div>`;
             let body = '';
             if (r.records?.korean?.content) {
               const src = r.records.korean.source
@@ -16287,9 +16313,7 @@ const loadingMessages = [
             html += `<div class="history-source-items">`;
             recs.forEach(r => {
               const isChinese = r.content_type === 'chinese_original';
-              const titleRow = r.title
-                ? `<div class="history-source-title">${_historyEntityLinks(r.title, year, recordMonth(r), heroFigures, { excludedLinks:r.link_exclusions })}${isChinese ? ' <span class="history-source-tag">원문</span>' : ''}</div>`
-                : '';
+              const titleRow = `<div class="history-source-title">${r.title ? _historyEntityLinks(r.title, year, recordMonth(r), heroFigures, { excludedLinks:r.link_exclusions }) : ''}${isChinese ? ' <span class="history-source-tag">원문</span>' : ''}${recordDate(r)}</div>`;
               const sourceEditButton = isAdmin
                 ? `<button type="button" class="history-edit-action history-source-edit" data-source-id="${_escapeHistoryInline(r._id)}" title="이 원전 사료 바로 수정">✏ 수정</button>`
                 : '';
