@@ -16039,6 +16039,18 @@ const loadingMessages = [
 
     window.openLinkedHistoryRecord = async function(record) {
       if (!record?.id) return;
+      // 연결한 기록을 열 때는 남아 있는 전체 시대 검색이 연도별 본문을 가리지 않게 한다.
+      const historySearchInput = document.getElementById('map-history-search-input');
+      if (historySearchInput?.value.trim()) {
+        historySearchInput.value = '';
+        clearTimeout(_historyPanelSearchTimer);
+        _historyPanelSearchAbort?.abort();
+        ++_historyPanelSearchSequence;
+        const searchClear = document.getElementById('map-history-search-clear');
+        const searchStatus = document.getElementById('map-history-search-status');
+        if (searchClear) searchClear.hidden = true;
+        if (searchStatus) searchStatus.textContent = '';
+      }
       window.prepareMobilePanelTransition?.('history');
       // 인물 상세에서 연결 기록을 열 때는 오른쪽 상세 정보는 유지하고,
       // 왼쪽 전신 일러스트만 접어 역사 패널의 내용을 가리지 않게 한다.
@@ -20880,6 +20892,7 @@ const loadingMessages = [
         async function _openKingHistoryLinker(block) {
             if (!canAdminEditHistoryRecords()) return;
             document.getElementById('king-history-linker')?.remove();
+            const king = { ...block.dataset };
             const overlay = document.createElement('div');
             overlay.id = 'king-history-linker';
             overlay.className = 'cdp-king-history-linker';
@@ -20912,6 +20925,9 @@ const loadingMessages = [
             const yearFromInput = overlay.querySelector('.cdp-king-history-year-from');
             const yearToInput = overlay.querySelector('.cdp-king-history-year-to');
             const selectedIds = new Set();
+            const closeLinker = () => {
+                overlay.remove();
+            };
             let records = [];
             try {
                 const sourceParams = new URLSearchParams({ limit:'500' });
@@ -20952,7 +20968,10 @@ const loadingMessages = [
                 filtered.forEach(record => {
                     const recordId = String(record._id);
                     const selectionKey = `${record._recordType}:${recordId}`;
+                    const row = document.createElement('div');
+                    row.className = 'cdp-king-history-linker-row';
                     const button = document.createElement('button');
+                    button.className = 'cdp-king-history-select';
                     button.type = 'button';
                     button.classList.toggle('selected', selectedIds.has(selectionKey));
                     button.setAttribute('aria-pressed', String(selectedIds.has(selectionKey)));
@@ -20966,7 +20985,28 @@ const loadingMessages = [
                         submitButton.disabled = selectedIds.size === 0;
                         render(overlay.querySelector('input').value);
                     });
-                    results.appendChild(button);
+                    const previewButton = document.createElement('button');
+                    previewButton.type = 'button';
+                    previewButton.className = 'cdp-king-history-preview';
+                    previewButton.textContent = '내용 확인';
+                    previewButton.title = '역사 패널에서 기록 내용 보기';
+                    previewButton.addEventListener('click', async () => {
+                        overlay.classList.add('is-previewing');
+                        previewButton.disabled = true;
+                        try {
+                            await window.openLinkedHistoryRecord({
+                                id:recordId, type:record._recordType,
+                                year:Number(record.year), month:Number(record.month) || 1,
+                                title:record.event_name || record.title || '역사 기록'
+                            });
+                        } catch (error) {
+                            alert('기록 내용을 불러오지 못했습니다. 다시 시도해 주세요.');
+                        } finally {
+                            previewButton.disabled = false;
+                        }
+                    });
+                    row.append(button, previewButton);
+                    results.appendChild(row);
                 });
             };
             render('');
@@ -20989,7 +21029,7 @@ const loadingMessages = [
                         const response = await fetch('/api/historical-relations', {
                             method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${token}` },
                             body:JSON.stringify({
-                                subject:{ type:'person', id:block.dataset.heroId, label:block.dataset.kingName },
+                                subject:{ type:'person', id:king.heroId, label:king.kingName },
                                 predicate:record._recordType === 'source' ? 'documented_in' : 'participated_in',
                                 object:{
                                     type:record._recordType === 'source' ? 'source_record' : 'history_record',
@@ -21003,16 +21043,20 @@ const loadingMessages = [
                         connected++;
                         submitButton.textContent = `연결 중 ${connected}/${selectedRecords.length}`;
                     }
-                    overlay.remove();
-                    await _loadKingHistoricalEvents(block, true);
+                    closeLinker();
+                    // 내용 확인으로 지도 시점이 바뀌면 왕계보 DOM이 다시 만들어질 수 있다.
+                    const currentBlock = block.isConnected ? block : [...document.querySelectorAll('.cdp-king-events')]
+                        .find(item => item.dataset.heroId === king.heroId);
+                    if (currentBlock) await _loadKingHistoricalEvents(currentBlock, true);
+                    else _kingHistoryEventCache.clear();
                 } catch (error) {
                     alert(error.message || '역사 연결에 실패했습니다.');
                     submitButton.disabled = false;
                     submitButton.textContent = '선택한 기록 연결';
                 }
             });
-            overlay.querySelector('.cdp-king-history-linker-close').addEventListener('click', () => overlay.remove());
-            overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove(); });
+            overlay.querySelector('.cdp-king-history-linker-close').addEventListener('click', closeLinker);
+            overlay.addEventListener('click', event => { if (event.target === overlay) closeLinker(); });
         }
 
         function _openNewKingHistory(block) {
