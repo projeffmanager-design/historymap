@@ -15541,7 +15541,7 @@ const loadingMessages = [
       return _historyPanelSourcesPromise;
     }
 
-    async function _loadHistoryPanelSourcePage(offset = 0, selectRecord = 'first') {
+    async function _loadHistoryPanelSourcePage(offset = 0, selectRecord = null) {
       const source = document.getElementById('map-history-source-select')?.value || '';
       if (!source) return;
       const query = String(document.getElementById('map-history-search-input')?.value || '').trim();
@@ -15695,6 +15695,7 @@ const loadingMessages = [
       content.innerHTML = '';
       const wrap = document.createElement('div');
       wrap.className = `history-panel-search-results${options.sourceBrowse ? ' is-source-browse' : ''}`;
+      document.getElementById('map-history-records')?.classList.toggle('history-source-browse-active', Boolean(options.sourceBrowse));
       const heading = document.createElement('div');
       heading.className = 'history-panel-search-heading';
       heading.innerHTML = `<span>⌕ 전체 시대 검색 결과</span><span class="history-panel-search-heading-actions"><span>${results.length}건</span><button type="button" data-search-prev title="이전 검색 결과" aria-label="이전 검색 결과">‹</button><button type="button" data-search-next title="다음 검색 결과" aria-label="다음 검색 결과">›</button></span>`;
@@ -15752,7 +15753,7 @@ const loadingMessages = [
         }
         const normalized = (index + resultButtons.length) % resultButtons.length;
         resultButtons[normalized].click();
-        resultButtons[normalized].scrollIntoView({ behavior:'smooth', block:'nearest' });
+        if (!list.hidden) resultButtons[normalized].scrollIntoView({ behavior:'smooth', block:'nearest' });
       };
       heading.querySelector('[data-search-prev]')?.addEventListener('click', () => selectResultAt(selectedResultIndex < 0 ? resultButtons.length - 1 : selectedResultIndex - 1));
       heading.querySelector('[data-search-next]')?.addEventListener('click', () => selectResultAt(selectedResultIndex + 1));
@@ -15760,19 +15761,43 @@ const loadingMessages = [
         const pagination = document.createElement('div');
         pagination.className = 'history-source-pagination';
         pagination.innerHTML = `<button type="button" data-source-page-prev ${options.offset === 0 ? 'disabled' : ''}>이전 페이지</button><span>${options.total ? options.offset + 1 : 0}–${options.offset + results.length} / ${options.total}건</span><button type="button" data-source-page-next ${options.offset + results.length >= options.total ? 'disabled' : ''}>다음 페이지</button>`;
-        pagination.querySelector('[data-source-page-prev]')?.addEventListener('click', () => options.onPage(Math.max(0, options.offset - options.pageSize), 'first'));
-        pagination.querySelector('[data-source-page-next]')?.addEventListener('click', () => options.onPage(options.offset + options.pageSize, 'first'));
+        pagination.querySelector('[data-source-page-prev]')?.addEventListener('click', () => options.onPage(Math.max(0, options.offset - options.pageSize)));
+        pagination.querySelector('[data-source-page-next]')?.addEventListener('click', () => options.onPage(options.offset + options.pageSize));
         wrap.appendChild(pagination);
       }
       content.appendChild(wrap);
       if (options.sourceBrowse) _historyPanelSourceNavigate = direction => selectResultAt(selectedResultIndex + direction);
-      if (options.sourceBrowse && resultButtons.length) selectResultAt(options.selectRecord === 'last' ? resultButtons.length - 1 : 0);
+      if (options.sourceBrowse && resultButtons.length && options.selectRecord) selectResultAt(options.selectRecord === 'last' ? resultButtons.length - 1 : 0);
+    }
+
+    function _closeHistoryPanelSearchDetail(wrap) {
+      if (!wrap) return;
+      wrap._historyDetailRequest = null;
+      wrap.querySelector('.history-panel-search-detail')?.remove();
+      wrap.classList.remove('is-detail-open');
+      const list = wrap.querySelector('.history-panel-search-list');
+      const pagination = wrap.querySelector('.history-source-pagination');
+      if (list) {
+        list.hidden = false;
+        list.scrollTop = wrap._historyListScrollTop ?? list.scrollTop;
+      }
+      if (pagination) pagination.hidden = false;
+      wrap.querySelector('.history-panel-search-result.is-selected')?.focus({ preventScroll:true });
     }
 
     async function _showHistoryPanelSearchDetail(record, wrap) {
       const id = String(record?._id || '');
       if (!id || !wrap) return;
-      wrap._historyDetailRequest = id;
+      const request = {};
+      wrap._historyDetailRequest = request;
+      if (wrap.classList.contains('is-source-browse')) {
+        const list = wrap.querySelector('.history-panel-search-list');
+        const pagination = wrap.querySelector('.history-source-pagination');
+        if (list && !list.hidden) wrap._historyListScrollTop = list.scrollTop;
+        if (list) list.hidden = true;
+        if (pagination) pagination.hidden = true;
+        wrap.classList.add('is-detail-open');
+      }
       const type = record.type === 'source' ? 'source' : 'history';
       const year = record.year == null ? NaN : Number(record.year);
       const month = Number(record.month) || 1;
@@ -15781,9 +15806,18 @@ const loadingMessages = [
       if (!detail) {
         detail = document.createElement('section');
         detail.className = 'history-panel-search-detail';
+        detail.addEventListener('keydown', event => {
+          if (event.key !== 'Escape') return;
+          event.preventDefault();
+          _closeHistoryPanelSearchDetail(wrap);
+        });
         wrap.appendChild(detail);
       }
-      detail.innerHTML = '<div class="history-panel-search-detail-loading">선택한 기록을 불러오는 중…</div>';
+      detail.innerHTML = '<div class="history-panel-search-detail-heading"><span>선택 기록</span><time></time><button type="button" class="history-detail-close" aria-label="상세 닫고 기사 목록 보기">← 기사 목록</button></div><div class="history-panel-search-detail-body"><div class="history-panel-search-detail-loading">선택한 기록을 불러오는 중…</div></div>';
+      const body = detail.querySelector('.history-panel-search-detail-body');
+      const close = detail.querySelector('.history-detail-close');
+      close.addEventListener('click', () => _closeHistoryPanelSearchDetail(wrap));
+      close.focus({ preventScroll:true });
       try {
         const endpoint = type === 'source'
           ? `/api/source-records/${encodeURIComponent(id)}`
@@ -15791,7 +15825,7 @@ const loadingMessages = [
         const response = await fetch(endpoint, { cache:'no-store' });
         if (!response.ok) throw new Error('기록 조회 실패');
         const item = await response.json();
-        if (wrap._historyDetailRequest !== id || wrap.isConnected === false) return;
+        if (wrap._historyDetailRequest !== request || wrap.isConnected === false) return;
         const itemTitle = item.title || item.event_name || '(제목 없음)';
         let blocks = '';
         if (type === 'source') {
@@ -15811,16 +15845,18 @@ const loadingMessages = [
         const period = Number.isFinite(year)
           ? `${year <= 0 ? '기원전 ' : '서기 '}${Math.abs(year)}년${item.month ? ` ${month}월` : ''}`
           : '연도 미상';
-        detail.innerHTML = `<div class="history-panel-search-detail-heading"><span>선택 기록</span><time>${period}</time></div><article class="history-record-card"><div class="history-record-head"><div class="history-record-title">${_escapeHistoryInline(itemTitle)}</div>${editAction}</div>${blocks || '<div class="history-record-block">본문이 없습니다.</div>'}${_historyVideoMarkup(item.video_url)}</article>`;
+        detail.querySelector('time').textContent = period;
+        body.innerHTML = `<article class="history-record-card"><div class="history-record-head"><div class="history-record-title">${_escapeHistoryInline(itemTitle)}</div>${editAction}</div>${blocks || '<div class="history-record-block">본문이 없습니다.</div>'}${_historyVideoMarkup(item.video_url)}</article>`;
         detail.querySelector('.history-search-detail-edit')?.addEventListener('click', event => {
           event.stopPropagation();
           if (type === 'source') openSourceRecordEditor(item, []);
           else editHistory(item._id || id);
         });
-        detail.scrollIntoView({ behavior:'smooth', block:'nearest' });
+        detail.scrollTop = 0;
+        if (!wrap.classList.contains('is-source-browse')) detail.scrollIntoView({ behavior:'smooth', block:'nearest' });
       } catch (_) {
-        if (wrap._historyDetailRequest !== id || wrap.isConnected === false) return;
-        detail.innerHTML = '<div class="history-panel-search-detail-loading is-error">선택한 기록을 불러오지 못했습니다.</div>';
+        if (wrap._historyDetailRequest !== request || wrap.isConnected === false) return;
+        body.innerHTML = '<div class="history-panel-search-detail-loading is-error">선택한 기록을 불러오지 못했습니다.</div>';
       }
     }
 
@@ -16382,6 +16418,7 @@ const loadingMessages = [
         return;
       }
 
+      document.getElementById('map-history-records')?.classList.remove('history-source-browse-active');
       // 타이틀 재갱신 (캐시 경로에서도 호출 가능하므로)
       const mapHistoryYearTitle = document.getElementById('map-history-year-title');
       const titleText = `${year <= 0 ? ' 기원전' : ' 서기'} ${Math.abs(year)}년 역사 기록`;

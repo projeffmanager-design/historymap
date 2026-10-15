@@ -77,7 +77,10 @@ test('undated browsing omits year filtering and retrieves lightweight source sum
 });
 
 test('opening an undated search detail keeps the map date and displays no fabricated January', async () => {
-    const detail = { innerHTML:'', querySelector:() => null, scrollIntoView() {} };
+    const time = { textContent:'' };
+    const body = { innerHTML:'' };
+    const close = { addEventListener() {}, focus() {} };
+    const detail = { innerHTML:'', querySelector:selector => ({ time, '.history-panel-search-detail-body':body, '.history-detail-close':close }[selector] || null), scrollIntoView() {} };
     const context = vm.createContext({
         document: { createElement:() => detail },
         window: { goToHistoricalTime:() => assert.fail('must not navigate to year zero') },
@@ -86,9 +89,9 @@ test('opening an undated search detail keeps the map date and displays no fabric
         canAdminEditHistoryRecords:() => false, _historyVideoMarkup:() => ''
     });
     vm.runInContext(functionCode('_showHistoryPanelSearchDetail', 'async function _runHistoryPanelSearch'), context);
-    await context._showHistoryPanelSearchDetail({ _id:'undated', type:'source', year:null, month:null }, { querySelector:() => detail });
-    assert.match(detail.innerHTML, /<time>연도 미상<\/time>/);
-    assert.doesNotMatch(detail.innerHTML, /0년|1월|NaN/);
+    await context._showHistoryPanelSearchDetail({ _id:'undated', type:'source', year:null, month:null }, { querySelector:() => detail, classList:{ contains:() => false } });
+    assert.equal(time.textContent, '연도 미상');
+    assert.doesNotMatch(time.textContent, /0년|1월|NaN/);
 });
 
 test('source API applies pagination with a stable tie-breaker for records in the same month', async () => {

@@ -100,6 +100,7 @@ test('client book requests omit the map year, use lightweight pages, and retain 
     assert.equal(params.has('year'), false);
     assert.equal(rendered[0][1][0].type, 'source');
     assert.equal(rendered[0][2].total, 1);
+    assert.equal(rendered[0][2].selectRecord, null, 'initial page must show the list without choosing an article');
 });
 
 test('switching books quickly cannot display the earlier book response', async () => {
@@ -129,4 +130,69 @@ test('all-source selection restores current-year behavior instead of continuing 
     vm.runInContext(code('_runHistoryPanelSearch', 'async function _loadHistoryPanelUndatedRecords'), context);
     await context._runHistoryPanelSearch();
     assert.equal(restored, 1);
+});
+
+function detailContext(fetch) {
+    const classes = new Set(['is-source-browse']);
+    const list = { hidden:false, scrollTop:320 };
+    const pagination = { hidden:false };
+    const closeEvents = {};
+    const keyboardEvents = {};
+    let focusOptions;
+    const selected = { focus:options => { focusOptions = options; } };
+    const body = { innerHTML:'' };
+    const close = { addEventListener:(name, fn) => { closeEvents[name] = fn; }, focus() {} };
+    const time = { textContent:'' };
+    let currentDetail = null;
+    const detail = {
+        innerHTML:'', remove() { currentDetail = null; },
+        addEventListener:(name, fn) => { keyboardEvents[name] = fn; },
+        querySelector:selector => ({ '.history-panel-search-detail-body':body, '.history-detail-close':close, time }[selector] || null)
+    };
+    const wrap = {
+        isConnected:true,
+        classList:{ contains:name => classes.has(name), add:name => classes.add(name), remove:name => classes.delete(name) },
+        appendChild(node) { currentDetail = node; },
+        querySelector:selector => ({ '.history-panel-search-list':list, '.history-source-pagination':pagination, '.history-panel-search-result.is-selected':selected }[selector] || (selector === '.history-panel-search-detail' ? currentDetail : null))
+    };
+    const context = vm.createContext({
+        document:{ createElement:() => detail }, window:{}, fetch,
+        _escapeHistoryInline:value => value, _historyRichContent:value => value,
+        _historyVideoMarkup:() => '', canAdminEditHistoryRecords:() => false
+    });
+    const start = script.indexOf('    function _closeHistoryPanelSearchDetail(');
+    const end = script.indexOf('    async function _runHistoryPanelSearch(', start);
+    vm.runInContext(script.slice(start, end), context);
+    return { context, wrap, list, pagination, body, closeEvents, keyboardEvents, current:() => currentDetail, focus:() => focusOptions };
+}
+
+test('closing a detail during loading restores list scroll and ignores the late response', async () => {
+    let resolve;
+    const state = detailContext(() => new Promise(done => { resolve = done; }));
+    const request = state.context._showHistoryPanelSearchDetail({ _id:'article', type:'source', year:null }, state.wrap);
+    assert.equal(state.list.hidden, true);
+    assert.equal(state.pagination.hidden, true);
+    assert.equal(state.wrap._historyListScrollTop, 320);
+    state.list.scrollTop = 0;
+    state.closeEvents.click();
+    assert.equal(state.list.hidden, false);
+    assert.equal(state.pagination.hidden, false);
+    assert.equal(state.list.scrollTop, 320);
+    assert.equal(state.focus().preventScroll, true);
+    assert.equal(state.current(), null);
+    resolve({ ok:true, json:async () => ({ title:'늦게 도착한 기사', content:'본문' }) });
+    await request;
+    assert.equal(state.current(), null);
+    assert.doesNotMatch(state.body.innerHTML, /늦게 도착한 기사/);
+});
+
+test('a failed detail still has a working close control and Escape returns to the list', async () => {
+    const state = detailContext(async () => ({ ok:false }));
+    await state.context._showHistoryPanelSearchDetail({ _id:'article', type:'source', year:null }, state.wrap);
+    assert.match(state.body.innerHTML, /불러오지 못했습니다/);
+    let prevented = false;
+    state.keyboardEvents.keydown({ key:'Escape', preventDefault() { prevented = true; } });
+    assert.equal(prevented, true);
+    assert.equal(state.list.hidden, false);
+    assert.equal(state.current(), null);
 });
