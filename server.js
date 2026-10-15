@@ -6220,9 +6220,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // GET: 연도 범위로 사료 기록 조회 (인증 불필요 - 공개 데이터)
         app.get('/api/source-records', async (req, res) => {
             try {
-                const { year, yearFrom, yearTo, source, limit } = req.query;
+                const { year, yearFrom, yearTo, source, limit, offset, undated, summary } = req.query;
                 const query = {};
-                if (year !== undefined) {
+                if (undated === '1') {
+                    query.year = null;
+                } else if (year !== undefined) {
                     query.year = parseInt(year);
                 } else if (yearFrom !== undefined || yearTo !== undefined) {
                     query.year = {};
@@ -6230,10 +6232,12 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     if (yearTo !== undefined) query.year.$lte = parseInt(yearTo);
                 }
                 if (source) query.source = { $regex: source, $options: 'i' };
-                const lim = limit ? Math.min(parseInt(limit), 500) : 100;
+                const lim = Math.max(1, Math.min(parseInt(limit) || 100, 500));
+                const skip = Math.max(0, parseInt(offset) || 0);
                 const records = await collections.sourceRecords
-                    .find(query)
-                    .sort({ year: 1, month: 1 })
+                    .find(query, summary === '1' ? { projection: { title:1, source:1, year:1, month:1 } } : {})
+                    .sort({ year: 1, month: 1, _id: 1 })
+                    .skip(skip)
                     .limit(lim)
                     .toArray();
                 res.set('Cache-Control', 'public, max-age=300'); // 5분 캐시
@@ -6247,7 +6251,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // GET: source_records의 연도 목록 (중복 제거, 이전/다음 탐색용)
         app.get('/api/source-records/years', async (req, res) => {
             try {
-                const years = await collections.sourceRecords.distinct('year');
+                const years = await collections.sourceRecords.distinct('year', { year: { $type: 'number' } });
                 years.sort((a, b) => a - b);
                 res.json(years);
             } catch (error) {

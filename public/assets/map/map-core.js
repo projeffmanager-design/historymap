@@ -15240,6 +15240,7 @@ const loadingMessages = [
     var _historyPanelSearchAbort = null;
     var _historyPanelSearchSequence = 0;
     var _historyPanelSearchCache = new Map();
+    var _historyPanelUndatedActive = false;
 
     let _mobileTimeCommitTimer = null;
     function updateTime(year, month, cacheOnly = false) {
@@ -15503,6 +15504,21 @@ const loadingMessages = [
         }, 200);
     }
 
+    async function _fetchHistoryPanelSourceRecords(year, signal, { undated = false } = {}) {
+      const records = [];
+      const pageSize = 500;
+      const requestTime = Date.now();
+      for (let offset = 0; ; offset += pageSize) {
+        const query = undated ? 'undated=1&summary=1' : `year=${year}`;
+        const response = await fetch(`/api/source-records?${query}&limit=${pageSize}&offset=${offset}&_=${requestTime}`, { signal, cache:'no-store' });
+        if (!response.ok) throw new Error('원전 사료 조회 실패');
+        const page = await response.json();
+        if (!Array.isArray(page)) throw new Error('원전 사료 응답 형식 오류');
+        records.push(...page);
+        if (page.length < pageSize) return records;
+      }
+    }
+
     async function updateHistoryPanel(year) {
       year = Number(year);
       _historyPanelTargetYear = year;
@@ -15514,7 +15530,7 @@ const loadingMessages = [
 
       const mapHistoryYearTitle = document.getElementById('map-history-year-title');
       const mapAllRecordsContent = document.getElementById('map-all-records-content');
-      const historyPanelSearchActive = Boolean(document.getElementById('map-history-search-input')?.value.trim());
+      const historyPanelSearchActive = _historyPanelUndatedActive || Boolean(document.getElementById('map-history-search-input')?.value.trim());
 
       // 모바일 CSS의 강제 display 규칙과 무관하게 관리자만 편집 버튼을 가진다.
       const mapOpenHistoryFormBtn = document.getElementById('map-open-history-form-btn');
@@ -15542,13 +15558,12 @@ const loadingMessages = [
 
       try {
         // 기록과 인물 베이스를 병렬 조회한다. 인물 베이스는 기록 속 이름을 인물 상세로 연결할 때 사용한다.
-        const [historyRes, sourceRes, heroBaseRes] = await Promise.all([
+        const [historyRes, sourceRecords, heroBaseRes] = await Promise.all([
           fetch(`/api/history-by-year?year=${year}`, { signal, cache:'no-store' }),
-          fetch(`/api/source-records?year=${year}&limit=100&_=${Date.now()}`, { signal, cache:'no-store' }),
+          _fetchHistoryPanelSourceRecords(year, signal),
           fetch('/api/heroes/base', { signal, cache: 'force-cache' })
         ]);
         const historyRecords = historyRes.ok ? await historyRes.json() : [];
-        const sourceRecords = sourceRes.ok ? await sourceRes.json() : [];
         const heroBase = heroBaseRes.ok ? await heroBaseRes.json() : {};
         const heroFigures = Array.isArray(heroBase?.figures) ? heroBase.figures : [];
 
@@ -15633,9 +15648,9 @@ const loadingMessages = [
         const name = document.createElement('strong');
         name.textContent = `${type === 'source' ? '📖' : '📜'} ${record.event_name || record.title || '(제목 없음)'}`;
         const period = document.createElement('time');
-        const recordYear = Number(record.year);
+        const recordYear = record.year == null ? NaN : Number(record.year);
         period.textContent = Number.isFinite(recordYear)
-          ? `${recordYear <= 0 ? '기원전 ' : '서기 '}${Math.abs(recordYear)}년 ${Number(record.month) || 1}월`
+          ? `${recordYear <= 0 ? '기원전 ' : '서기 '}${Math.abs(recordYear)}년${record.month ? ` ${Number(record.month)}월` : ''}`
           : '연도 미상';
         const source = document.createElement('small');
         source.textContent = record.source || record.comment || (type === 'source' ? '원전 사료' : '연구 기록');
@@ -15664,7 +15679,7 @@ const loadingMessages = [
       const id = String(record?._id || '');
       if (!id || !wrap) return;
       const type = record.type === 'source' ? 'source' : 'history';
-      const year = Number(record.year);
+      const year = record.year == null ? NaN : Number(record.year);
       const month = Number(record.month) || 1;
       if (Number.isFinite(year)) window.goToHistoricalTime?.(year, month);
       let detail = wrap.querySelector('.history-panel-search-detail');
@@ -15697,7 +15712,10 @@ const loadingMessages = [
         const editAction = canAdminEditHistoryRecords()
           ? `<button type="button" class="history-edit-action history-search-detail-edit" title="선택한 기록 수정">✏ 수정</button>`
           : '';
-        detail.innerHTML = `<div class="history-panel-search-detail-heading"><span>선택 기록</span><time>${year <= 0 ? '기원전 ' : '서기 '}${Math.abs(year)}년 ${month}월</time></div><article class="history-record-card"><div class="history-record-head"><div class="history-record-title">${_escapeHistoryInline(itemTitle)}</div>${editAction}</div>${blocks || '<div class="history-record-block">본문이 없습니다.</div>'}${_historyVideoMarkup(item.video_url)}</article>`;
+        const period = Number.isFinite(year)
+          ? `${year <= 0 ? '기원전 ' : '서기 '}${Math.abs(year)}년${item.month ? ` ${month}월` : ''}`
+          : '연도 미상';
+        detail.innerHTML = `<div class="history-panel-search-detail-heading"><span>선택 기록</span><time>${period}</time></div><article class="history-record-card"><div class="history-record-head"><div class="history-record-title">${_escapeHistoryInline(itemTitle)}</div>${editAction}</div>${blocks || '<div class="history-record-block">본문이 없습니다.</div>'}${_historyVideoMarkup(item.video_url)}</article>`;
         detail.querySelector('.history-search-detail-edit')?.addEventListener('click', event => {
           event.stopPropagation();
           if (type === 'source') openSourceRecordEditor(item, []);
@@ -15710,6 +15728,8 @@ const loadingMessages = [
     }
 
     async function _runHistoryPanelSearch() {
+      _historyPanelUndatedActive = false;
+      document.getElementById('map-history-undated-btn')?.setAttribute('aria-pressed', 'false');
       const input = document.getElementById('map-history-search-input');
       const clear = document.getElementById('map-history-search-clear');
       const status = document.getElementById('map-history-search-status');
@@ -15754,6 +15774,32 @@ const loadingMessages = [
         if (content) content.innerHTML = '<div class="history-empty-state"><div><span>⚠</span>검색 결과를 불러오지 못했습니다.<br><small>잠시 후 다시 시도해 주세요.</small></div></div>';
       }
     }
+
+    document.getElementById('map-history-undated-btn')?.addEventListener('click', async event => {
+      _historyPanelUndatedActive = !_historyPanelUndatedActive;
+      event.currentTarget.setAttribute('aria-pressed', String(_historyPanelUndatedActive));
+      const sequence = ++_historyPanelSearchSequence;
+      _historyPanelSearchAbort?.abort();
+      clearTimeout(_historyPanelSearchTimer);
+      const input = document.getElementById('map-history-search-input');
+      if (input) input.value = '';
+      document.getElementById('map-history-search-clear')?.setAttribute('hidden', '');
+      const status = document.getElementById('map-history-search-status');
+      if (!_historyPanelUndatedActive) {
+        if (status) status.textContent = '';
+        _restoreHistoryPanelYear();
+        return;
+      }
+      if (status) status.textContent = '불러오는 중…';
+      _historyPanelSearchAbort = new AbortController();
+      try {
+        const records = await _fetchHistoryPanelSourceRecords(null, _historyPanelSearchAbort.signal, { undated:true });
+        if (sequence !== _historyPanelSearchSequence || !_historyPanelUndatedActive) return;
+        _renderHistoryPanelSearchResults('연도 미상 원전 사료', records.map(record => ({ ...record, type:'source' })));
+      } catch (error) {
+        if (error.name !== 'AbortError' && sequence === _historyPanelSearchSequence && status) status.textContent = '조회 실패';
+      }
+    });
 
     document.getElementById('map-history-search-input')?.addEventListener('input', () => {
       clearTimeout(_historyPanelSearchTimer);
@@ -16041,8 +16087,10 @@ const loadingMessages = [
       if (!record?.id) return;
       // 연결한 기록을 열 때는 남아 있는 전체 시대 검색이 연도별 본문을 가리지 않게 한다.
       const historySearchInput = document.getElementById('map-history-search-input');
-      if (historySearchInput?.value.trim()) {
-        historySearchInput.value = '';
+      if (_historyPanelUndatedActive || historySearchInput?.value.trim()) {
+        _historyPanelUndatedActive = false;
+        document.getElementById('map-history-undated-btn')?.setAttribute('aria-pressed', 'false');
+        if (historySearchInput) historySearchInput.value = '';
         clearTimeout(_historyPanelSearchTimer);
         _historyPanelSearchAbort?.abort();
         ++_historyPanelSearchSequence;
@@ -16059,7 +16107,7 @@ const loadingMessages = [
         linkedHeroIllustration.classList.remove('open');
         window._historyOpenedFromHeroDetail = true;
       }
-      const year = Number(record.year);
+      const year = record.year == null ? NaN : Number(record.year);
       const month = Number(record.month) || 1;
       window._historyRecordFocusRequest = {
         id:String(record.id),
@@ -16078,6 +16126,15 @@ const loadingMessages = [
       window.bringLinkedDetailPanelToFront?.('history');
       const menuCheckbox = document.getElementById('menu-layer-history');
       if (menuCheckbox) menuCheckbox.checked = true;
+      if (!Number.isFinite(year)) {
+        _historyPanelUndatedActive = true;
+        document.getElementById('map-history-undated-btn')?.setAttribute('aria-pressed', 'true');
+        const result = { ...record, _id:record.id };
+        _renderHistoryPanelSearchResults('연도 미상 원전 사료', [result]);
+        const wrap = document.querySelector('.history-panel-search-results');
+        if (wrap) await _showHistoryPanelSearchDetail(result, wrap);
+        return;
+      }
       await updateHistoryPanel(year);
       if (!_focusRequestedHistoryRecord(year)) {
         // 같은 연도에 원전 사료가 100건을 넘으면 연도 목록 응답에서 대상이 잘릴 수 있다.
@@ -16181,15 +16238,24 @@ const loadingMessages = [
       }
     }
 
+    function _isChineseDynasticSource(source) {
+      // 출전의 권·편명과 괄호 표기 차이도 허용한다. 25사의 판본에 따라
+      // 추가되는 신원사와 청사고를 모두 같은 묶음에서 볼 수 있게 한다.
+      const name = String(source || '').normalize('NFKC').replace(/[《》『』「」]/g, '').trim();
+      return /^(?:사기|史記|史记|한서|漢書|汉书|후한서|後漢書|后汉书|삼국지|三國志|三国志|진서|晉書|晋书|陳書|陈书|송서|宋書|宋书|남제서|南齊書|南齐书|양서|梁書|梁书|위서|魏書|魏书|북제서|北齊書|北齐书|주서|周書|周书|수서|隋書|隋书|남사|南史|북사|北史|구당서|舊唐書|旧唐书|신당서|新唐書|新唐书|구오대사|舊五代史|旧五代史|신오대사|新五代史|송사|宋史|요사|遼史|辽史|금사|金史|원사|元史|명사|明史|신원사|新元史|청사고|[清淸]史稿)(?=$|[\s(/:：·]|권|卷|本紀|本纪|列傳|列传)/u.test(name);
+    }
+
     function _renderHistoryPanel(year, historyRecords, sourceRecords, heroFigures = []) {
       const mapAllRecordsContent = document.getElementById('map-all-records-content');
       if (!mapAllRecordsContent) return;
       historyRecords = _sortHistoryPanelRecords(historyRecords);
       sourceRecords = _sortHistoryPanelRecords(sourceRecords);
+      const chineseRecords = sourceRecords.filter(record => _isChineseDynasticSource(record.source));
+      const otherSourceRecords = sourceRecords.filter(record => !_isChineseDynasticSource(record.source));
 
       // 검색 중에도 연도별 자막 데이터는 계속 갱신하되, 패널의 전체 시대 검색
       // 결과는 연도 슬라이더 변경으로 덮어쓰지 않는다.
-      if (document.getElementById('map-history-search-input')?.value.trim()) {
+      if (_historyPanelUndatedActive || document.getElementById('map-history-search-input')?.value.trim()) {
         updateHistoryCaption(year, historyRecords, sourceRecords);
         return;
       }
@@ -16258,7 +16324,11 @@ const loadingMessages = [
         }
 
         // ── 섹션 2: source_records 컬렉션 (원전 사료) ──
-        if (sourceRecords.length > 0) {
+        for (const sourceSection of [
+          { title:'📖 원전 사료', records:otherSourceRecords },
+          { title:`📚 중국 25사 · ${chineseRecords.length}건`, records:chineseRecords }
+        ]) {
+          if (!sourceSection.records.length) continue;
           const sourceColors = {
             // ── 한국 사서 ──
             '고려사(高麗史)': '#f0d080',
@@ -16298,6 +16368,8 @@ const loadingMessages = [
             '금사(金史)': '#ffb07a',
             '원사(元史)': '#ffb07a',
             '명사(明史)': '#ffb07a',
+            '신원사(新元史)': '#ffb07a',
+            '청사고(清史稿)': '#ffb07a',
             // ── 중국 편년·유서(類書) ──
             '자치통감(資治通鑑)': '#d4a0ff',
             '통전(通典)': '#d4a0ff',
@@ -16309,17 +16381,17 @@ const loadingMessages = [
             '天地瑞祥志': '#d4a0ff',
             '太平廣記': '#d4a0ff',
           };
-          const grouped = {};
-          sourceRecords.forEach(r => {
+          const grouped = new Map();
+          sourceSection.records.forEach(r => {
             const src = r.source || '기타';
-            if (!grouped[src]) grouped[src] = [];
-            grouped[src].push(r);
+            if (!grouped.has(src)) grouped.set(src, []);
+            grouped.get(src).push(r);
           });
           html += `<section class="history-section">`;
-          html += `<div class="history-section-heading">📖 원전 사료</div>`;
+          html += `<div class="history-section-heading">${sourceSection.title}</div>`;
           let sourceGroupIndex = 0;
-          for (const [src, recs] of Object.entries(grouped)) {
-            const color = sourceColors[src] || '#c8c8c8';
+          for (const [src, recs] of grouped) {
+            const color = sourceColors[src] || (_isChineseDynasticSource(src) ? '#ffb07a' : '#c8c8c8');
             html += `<details class="history-source-group" ${sourceGroupIndex++ === 0 ? 'open' : ''}>`;
             html += `<summary style="color:${color};">${_escapeHistoryInline(src)} <span style="opacity:.65;font-weight:400;">${recs.length}건</span></summary>`;
             html += `<div class="history-source-items">`;
