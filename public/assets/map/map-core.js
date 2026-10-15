@@ -9436,6 +9436,7 @@ function invalidateCountryLookupCache() {
         if (!visible && mobile) panel.classList.remove('expanded');
         if (visible) window.bringAppPanelToFront?.(panel);
         else window.releaseAppPanel?.(panel);
+        if (visible) _loadHistoryPanelSourceOptions();
         if (!visible && window._historyOpenedFromHeroDetail) {
             document.getElementById('heroIllustWrap')?.classList.remove('open');
             window._historyOpenedFromHeroDetail = false;
@@ -12284,6 +12285,7 @@ const loadingMessages = [
       
       // 🚩 [수정] 이전/다음 역사 이동 함수로 추출
       const gotoPrevHistory = () => {
+          if (document.getElementById('map-history-source-select')?.value) return _historyPanelSourceNavigate?.(-1);
           const year = parseInt(yearInput.value);
           // 🚩 [v3.6.36] 연도 단위 이동: 현재 연도의 1월 기준으로 비교
           const currentTotalMonths = yearMonthToTotalMonths(year, 1);
@@ -12298,6 +12300,7 @@ const loadingMessages = [
       };
 
       const gotoNextHistory = () => {
+          if (document.getElementById('map-history-source-select')?.value) return _historyPanelSourceNavigate?.(1);
           const year = parseInt(yearInput.value);
           // 🚩 [v3.6.36] 연도 단위 이동: 현재 연도의 1월 기준으로 비교
           const currentTotalMonths = yearMonthToTotalMonths(year, 1);
@@ -15241,6 +15244,9 @@ const loadingMessages = [
     var _historyPanelSearchSequence = 0;
     var _historyPanelSearchCache = new Map();
     var _historyPanelUndatedActive = false;
+    var _historyPanelSourcesPromise = null;
+    var _historyPanelSourcesLoaded = false;
+    var _historyPanelSourceNavigate = null;
 
     let _mobileTimeCommitTimer = null;
     function updateTime(year, month, cacheOnly = false) {
@@ -15483,7 +15489,8 @@ const loadingMessages = [
 
         // 역사 패널과 역사 자막은 서로 독립된 레이어다. 둘 중 하나라도 보이면
         // 기록을 갱신해야 한다. (기존에는 역사 패널을 끄면 자막도 과거 시점에 멈췄다.)
-        if (!layerVisibility.historyPanel && !layerVisibility.captionPanel) return;
+        const browsingSource = Boolean(document.getElementById('map-history-source-select')?.value);
+        if ((!layerVisibility.historyPanel || browsingSource) && !layerVisibility.captionPanel) return;
 
         // 이전 예약 취소
         if (_historyPanelTimer) clearTimeout(_historyPanelTimer);
@@ -15502,6 +15509,71 @@ const loadingMessages = [
             _historyPanelTimer = null;
             updateHistoryPanel(year);
         }, 200);
+    }
+
+    async function _loadHistoryPanelSourceOptions() {
+      const select = document.getElementById('map-history-source-select');
+      if (!select || _historyPanelSourcesLoaded) return;
+      if (_historyPanelSourcesPromise) return _historyPanelSourcesPromise;
+      const hint = document.getElementById('map-history-source-hint');
+      _historyPanelSourcesPromise = (async () => {
+        try {
+          const response = await fetch('/api/source-records/sources');
+          if (!response.ok) throw new Error('사서 목록 조회 실패');
+          const sources = await response.json();
+          if (!Array.isArray(sources)) throw new Error('사서 목록 응답 오류');
+          sources.sort((a, b) => String(a.source).localeCompare(String(b.source), 'ko'));
+          sources.forEach(item => {
+            if (typeof item.source !== 'string' || !item.source) return;
+            const option = document.createElement('option');
+            option.value = item.source;
+            option.textContent = `${item.source} · ${Number(item.count).toLocaleString('ko-KR')}건`;
+            select.appendChild(option);
+          });
+          _historyPanelSourcesLoaded = true;
+          if (hint) hint.textContent = '선택한 책은 전체 시대 보기';
+        } catch (_) {
+          if (hint) hint.textContent = '사서 목록을 불러오지 못했습니다. 선택창을 누르면 다시 시도합니다.';
+        } finally {
+          _historyPanelSourcesPromise = null;
+        }
+      })();
+      return _historyPanelSourcesPromise;
+    }
+
+    async function _loadHistoryPanelSourcePage(offset = 0, selectRecord = 'first') {
+      const source = document.getElementById('map-history-source-select')?.value || '';
+      if (!source) return;
+      const query = String(document.getElementById('map-history-search-input')?.value || '').trim();
+      const status = document.getElementById('map-history-search-status');
+      const content = document.getElementById('map-all-records-content');
+      const title = document.getElementById('map-history-year-title');
+      const sequence = ++_historyPanelSearchSequence;
+      _historyPanelSourceNavigate = null;
+      _historyPanelSearchAbort?.abort();
+      _historyPanelSearchAbort = new AbortController();
+      const pageSize = 50;
+      const params = new URLSearchParams({ sourceExact:source, summary:'1', withTotal:'1', limit:String(pageSize), offset:String(Math.max(0, offset)) });
+      if (query) params.set('q', query);
+      if (_historyPanelUndatedActive) params.set('undated', '1');
+      if (status) status.textContent = '불러오는 중…';
+      if (title) title.textContent = `사서 열람 · ${source}`;
+      if (content) content.innerHTML = '<div class="history-panel-search-detail-loading">선택한 사서의 기록을 불러오는 중…</div>';
+      try {
+        const response = await fetch(`/api/source-records?${params}`, { signal:_historyPanelSearchAbort.signal, cache:'no-store' });
+        if (!response.ok) throw new Error('사서 기록 조회 실패');
+        const page = await response.json();
+        if (sequence !== _historyPanelSearchSequence || source !== document.getElementById('map-history-source-select')?.value) return;
+        if (!Array.isArray(page.records) || !Number.isFinite(page.total)) throw new Error('사서 기록 응답 오류');
+        _renderHistoryPanelSearchResults(source, page.records.map(record => ({ ...record, type:'source' })), {
+          sourceBrowse:true, total:page.total, offset:page.offset, pageSize,
+          selectRecord, onPage:_loadHistoryPanelSourcePage
+        });
+      } catch (error) {
+        if (error.name === 'AbortError' || sequence !== _historyPanelSearchSequence) return;
+        if (status) status.textContent = '조회 실패';
+        if (content) content.innerHTML = '<div class="history-empty-state"><div><span>⚠</span>사서 기록을 불러오지 못했습니다.<br><small>사서를 다시 선택해 주세요.</small></div></div>';
+      }
     }
 
     async function _fetchHistoryPanelSourceRecords(year, signal, { undated = false } = {}) {
@@ -15530,7 +15602,7 @@ const loadingMessages = [
 
       const mapHistoryYearTitle = document.getElementById('map-history-year-title');
       const mapAllRecordsContent = document.getElementById('map-all-records-content');
-      const historyPanelSearchActive = _historyPanelUndatedActive || Boolean(document.getElementById('map-history-search-input')?.value.trim());
+      const historyPanelSearchActive = _historyPanelUndatedActive || Boolean(document.getElementById('map-history-source-select')?.value) || Boolean(document.getElementById('map-history-search-input')?.value.trim());
 
       // 모바일 CSS의 강제 display 규칙과 무관하게 관리자만 편집 버튼을 가진다.
       const mapOpenHistoryFormBtn = document.getElementById('map-open-history-form-btn');
@@ -15584,7 +15656,7 @@ const loadingMessages = [
         if (e.name === 'AbortError') return;
         console.error('updateHistoryPanel fetch error:', e);
         const mapAllRecordsContent = document.getElementById('map-all-records-content');
-        if (mapAllRecordsContent) {
+        if (mapAllRecordsContent && !historyPanelSearchActive && _historyPanelTargetYear === year && !document.getElementById('map-history-source-select')?.value && !_historyPanelUndatedActive && !document.getElementById('map-history-search-input')?.value.trim()) {
           mapAllRecordsContent.innerHTML = '<div style="color:#e74c3c; font-size:12px; padding:8px 0;">기록 로드 실패</div>';
         }
       }
@@ -15612,20 +15684,27 @@ const loadingMessages = [
       });
     }
 
-    function _renderHistoryPanelSearchResults(query, records) {
+    function _renderHistoryPanelSearchResults(query, records, options = {}) {
       const content = document.getElementById('map-all-records-content');
       const status = document.getElementById('map-history-search-status');
       const title = document.getElementById('map-history-year-title');
       if (!content) return;
-      const results = _sortHistoryPanelRecords(records);
-      if (status) status.textContent = `${results.length}건`;
-      if (title) title.textContent = `역사 검색 · ${query}`;
+      const results = options.sourceBrowse ? records.slice() : _sortHistoryPanelRecords(records);
+      if (status) status.textContent = `${options.sourceBrowse ? options.total : results.length}건`;
+      if (title) title.textContent = `${options.sourceBrowse ? '사서 열람' : '역사 검색'} · ${query}`;
       content.innerHTML = '';
       const wrap = document.createElement('div');
-      wrap.className = 'history-panel-search-results';
+      wrap.className = `history-panel-search-results${options.sourceBrowse ? ' is-source-browse' : ''}`;
       const heading = document.createElement('div');
       heading.className = 'history-panel-search-heading';
       heading.innerHTML = `<span>⌕ 전체 시대 검색 결과</span><span class="history-panel-search-heading-actions"><span>${results.length}건</span><button type="button" data-search-prev title="이전 검색 결과" aria-label="이전 검색 결과">‹</button><button type="button" data-search-next title="다음 검색 결과" aria-label="다음 검색 결과">›</button></span>`;
+      if (options.sourceBrowse) {
+        heading.firstElementChild.textContent = '📖 선택 사서 · 전체 시대';
+        for (const [selector, label] of [['[data-search-prev]', '이전 기사'], ['[data-search-next]', '다음 기사']]) {
+          const button = heading.querySelector(selector);
+          if (button) { button.title = label; button.setAttribute('aria-label', label); }
+        }
+      }
       wrap.appendChild(heading);
       const list = document.createElement('div');
       list.className = 'history-panel-search-list';
@@ -15666,18 +15745,34 @@ const loadingMessages = [
       });
       const selectResultAt = index => {
         if (!resultButtons.length) return;
+        if (options.sourceBrowse && (index < 0 || index >= resultButtons.length)) {
+          if (index < 0 && options.offset > 0) options.onPage(Math.max(0, options.offset - options.pageSize), 'last');
+          if (index >= resultButtons.length && options.offset + results.length < options.total) options.onPage(options.offset + options.pageSize, 'first');
+          return;
+        }
         const normalized = (index + resultButtons.length) % resultButtons.length;
         resultButtons[normalized].click();
         resultButtons[normalized].scrollIntoView({ behavior:'smooth', block:'nearest' });
       };
       heading.querySelector('[data-search-prev]')?.addEventListener('click', () => selectResultAt(selectedResultIndex < 0 ? resultButtons.length - 1 : selectedResultIndex - 1));
       heading.querySelector('[data-search-next]')?.addEventListener('click', () => selectResultAt(selectedResultIndex + 1));
+      if (options.sourceBrowse) {
+        const pagination = document.createElement('div');
+        pagination.className = 'history-source-pagination';
+        pagination.innerHTML = `<button type="button" data-source-page-prev ${options.offset === 0 ? 'disabled' : ''}>이전 페이지</button><span>${options.total ? options.offset + 1 : 0}–${options.offset + results.length} / ${options.total}건</span><button type="button" data-source-page-next ${options.offset + results.length >= options.total ? 'disabled' : ''}>다음 페이지</button>`;
+        pagination.querySelector('[data-source-page-prev]')?.addEventListener('click', () => options.onPage(Math.max(0, options.offset - options.pageSize), 'first'));
+        pagination.querySelector('[data-source-page-next]')?.addEventListener('click', () => options.onPage(options.offset + options.pageSize, 'first'));
+        wrap.appendChild(pagination);
+      }
       content.appendChild(wrap);
+      if (options.sourceBrowse) _historyPanelSourceNavigate = direction => selectResultAt(selectedResultIndex + direction);
+      if (options.sourceBrowse && resultButtons.length) selectResultAt(options.selectRecord === 'last' ? resultButtons.length - 1 : 0);
     }
 
     async function _showHistoryPanelSearchDetail(record, wrap) {
       const id = String(record?._id || '');
       if (!id || !wrap) return;
+      wrap._historyDetailRequest = id;
       const type = record.type === 'source' ? 'source' : 'history';
       const year = record.year == null ? NaN : Number(record.year);
       const month = Number(record.month) || 1;
@@ -15696,6 +15791,7 @@ const loadingMessages = [
         const response = await fetch(endpoint, { cache:'no-store' });
         if (!response.ok) throw new Error('기록 조회 실패');
         const item = await response.json();
+        if (wrap._historyDetailRequest !== id || wrap.isConnected === false) return;
         const itemTitle = item.title || item.event_name || '(제목 없음)';
         let blocks = '';
         if (type === 'source') {
@@ -15723,11 +15819,17 @@ const loadingMessages = [
         });
         detail.scrollIntoView({ behavior:'smooth', block:'nearest' });
       } catch (_) {
+        if (wrap._historyDetailRequest !== id || wrap.isConnected === false) return;
         detail.innerHTML = '<div class="history-panel-search-detail-loading is-error">선택한 기록을 불러오지 못했습니다.</div>';
       }
     }
 
     async function _runHistoryPanelSearch() {
+      if (document.getElementById('map-history-source-select')?.value) {
+        const clear = document.getElementById('map-history-search-clear');
+        if (clear) clear.hidden = !document.getElementById('map-history-search-input')?.value.trim();
+        return _loadHistoryPanelSourcePage(0);
+      }
       _historyPanelUndatedActive = false;
       document.getElementById('map-history-undated-btn')?.setAttribute('aria-pressed', 'false');
       const input = document.getElementById('map-history-search-input');
@@ -15775,9 +15877,7 @@ const loadingMessages = [
       }
     }
 
-    document.getElementById('map-history-undated-btn')?.addEventListener('click', async event => {
-      _historyPanelUndatedActive = !_historyPanelUndatedActive;
-      event.currentTarget.setAttribute('aria-pressed', String(_historyPanelUndatedActive));
+    async function _loadHistoryPanelUndatedRecords() {
       const sequence = ++_historyPanelSearchSequence;
       _historyPanelSearchAbort?.abort();
       clearTimeout(_historyPanelSearchTimer);
@@ -15799,6 +15899,25 @@ const loadingMessages = [
       } catch (error) {
         if (error.name !== 'AbortError' && sequence === _historyPanelSearchSequence && status) status.textContent = '조회 실패';
       }
+    }
+
+    document.getElementById('map-history-undated-btn')?.addEventListener('click', () => {
+      _historyPanelUndatedActive = !_historyPanelUndatedActive;
+      document.getElementById('map-history-undated-btn')?.setAttribute('aria-pressed', String(_historyPanelUndatedActive));
+      if (document.getElementById('map-history-source-select')?.value) return _loadHistoryPanelSourcePage(0);
+      _loadHistoryPanelUndatedRecords();
+    });
+
+    document.getElementById('map-history-source-select')?.addEventListener('focus', _loadHistoryPanelSourceOptions);
+    document.getElementById('map-history-source-select')?.addEventListener('change', () => {
+      clearTimeout(_historyPanelSearchTimer);
+      _historyPanelSearchAbort?.abort();
+      ++_historyPanelSearchSequence;
+      const input = document.getElementById('map-history-search-input');
+      if (input) input.placeholder = document.getElementById('map-history-source-select')?.value ? '선택한 사서 안에서 검색' : '전체 시대의 역사 기록·원전 사료 검색';
+      if (document.getElementById('map-history-source-select')?.value) return _loadHistoryPanelSourcePage(0);
+      if (_historyPanelUndatedActive) return _loadHistoryPanelUndatedRecords();
+      _runHistoryPanelSearch();
     });
 
     document.getElementById('map-history-search-input')?.addEventListener('input', () => {
@@ -16087,7 +16206,10 @@ const loadingMessages = [
       if (!record?.id) return;
       // 연결한 기록을 열 때는 남아 있는 전체 시대 검색이 연도별 본문을 가리지 않게 한다.
       const historySearchInput = document.getElementById('map-history-search-input');
-      if (_historyPanelUndatedActive || historySearchInput?.value.trim()) {
+      if (_historyPanelUndatedActive || document.getElementById('map-history-source-select')?.value || historySearchInput?.value.trim()) {
+        const sourceSelect = document.getElementById('map-history-source-select');
+        if (sourceSelect) sourceSelect.value = '';
+        if (historySearchInput) historySearchInput.placeholder = '전체 시대의 역사 기록·원전 사료 검색';
         _historyPanelUndatedActive = false;
         document.getElementById('map-history-undated-btn')?.setAttribute('aria-pressed', 'false');
         if (historySearchInput) historySearchInput.value = '';
@@ -16255,7 +16377,7 @@ const loadingMessages = [
 
       // 검색 중에도 연도별 자막 데이터는 계속 갱신하되, 패널의 전체 시대 검색
       // 결과는 연도 슬라이더 변경으로 덮어쓰지 않는다.
-      if (_historyPanelUndatedActive || document.getElementById('map-history-search-input')?.value.trim()) {
+      if (_historyPanelUndatedActive || document.getElementById('map-history-source-select')?.value || document.getElementById('map-history-search-input')?.value.trim()) {
         updateHistoryCaption(year, historyRecords, sourceRecords);
         return;
       }

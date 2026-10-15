@@ -6220,7 +6220,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // GET: 연도 범위로 사료 기록 조회 (인증 불필요 - 공개 데이터)
         app.get('/api/source-records', async (req, res) => {
             try {
-                const { year, yearFrom, yearTo, source, limit, offset, undated, summary } = req.query;
+                const { year, yearFrom, yearTo, source, sourceExact, q, limit, offset, undated, summary, withTotal } = req.query;
                 const query = {};
                 if (undated === '1') {
                     query.year = null;
@@ -6231,20 +6231,45 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                     if (yearFrom !== undefined) query.year.$gte = parseInt(yearFrom);
                     if (yearTo !== undefined) query.year.$lte = parseInt(yearTo);
                 }
-                if (source) query.source = { $regex: source, $options: 'i' };
+                if (typeof sourceExact === 'string' && sourceExact) query.source = sourceExact;
+                else if (source) query.source = { $regex: source, $options: 'i' };
+                if (typeof q === 'string' && q.trim()) {
+                    const contains = { $regex:q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options:'i' };
+                    query.$or = [{ title:contains }, { content:contains }];
+                }
                 const lim = Math.max(1, Math.min(parseInt(limit) || 100, 500));
                 const skip = Math.max(0, parseInt(offset) || 0);
-                const records = await collections.sourceRecords
+                const recordsRequest = collections.sourceRecords
                     .find(query, summary === '1' ? { projection: { title:1, source:1, year:1, month:1 } } : {})
                     .sort({ year: 1, month: 1, _id: 1 })
                     .skip(skip)
                     .limit(lim)
                     .toArray();
+                const [records, total] = await Promise.all([
+                    recordsRequest,
+                    withTotal === '1' ? collections.sourceRecords.countDocuments(query) : null
+                ]);
                 res.set('Cache-Control', 'public, max-age=300'); // 5분 캐시
-                res.json(records);
+                res.json(withTotal === '1' ? { records, total, offset:skip, limit:lim } : records);
             } catch (error) {
                 console.error("Source records 조회 중 오류:", error);
                 res.status(500).json({ message: "Source records 조회 실패", error: error.message });
+            }
+        });
+
+        // GET: 실제 등록된 사서 목록과 건수 (특정 연도와 무관)
+        app.get('/api/source-records/sources', async (req, res) => {
+            try {
+                const sources = await collections.sourceRecords.aggregate([
+                    { $match: { source: { $type:'string', $ne:'' } } },
+                    { $group: { _id:'$source', count:{ $sum:1 } } },
+                    { $sort: { _id:1 } },
+                    { $project: { _id:0, source:'$_id', count:1 } }
+                ]).toArray();
+                res.set('Cache-Control', 'public, max-age=300');
+                res.json(sources);
+            } catch (error) {
+                res.status(500).json({ message:'사서 목록 조회 실패', error:error.message });
             }
         });
 

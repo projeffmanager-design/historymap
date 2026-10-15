@@ -93,7 +93,7 @@ test('opening an undated search detail keeps the map date and displays no fabric
 
 test('source API applies pagination with a stable tie-breaker for records in the same month', async () => {
     const start = server.indexOf("        app.get('/api/source-records',");
-    const end = server.indexOf('        // GET: source_records의 연도 목록', start);
+    const end = server.indexOf('        // GET: 실제 등록된 사서 목록', start);
     const calls = {};
     const cursor = {
         sort(value) { calls.sort = value; return this; },
