@@ -13,6 +13,15 @@ const fs = require('fs');
 const { withResidentPopulation } = require('./lib/koreaResidentPopulation');
 const { geometryAreaChange } = require('./lib/territoryGeometrySafety');
 const crypto = require('crypto');
+const { CATEGORY:TRANSLATION_CATEGORY, createTranslationService } = require('./lib/historyTranslation');
+let invalidateTranslationRankings = () => {};
+async function handleTranslationTransition(req, res, action) {
+    try {
+        const service = createTranslationService({ collections, toObjectId, getMongoClient, ranks:RANK_CONFIG,
+            invalidate:() => invalidateTranslationRankings() });
+        return res.json(await service.transition(req.params.id, req.user, action, req.body?.comment, req.body?.revision));
+    } catch (error) { return res.status(error.status || 500).json({ message:error.message }); }
+}
 const { connectToDatabase, reconnectDatabase, collections, getMongoClient } = require('./db'); // 🚩 [추가] DB 연결 모듈
 const { put: blobPut, del: blobDel } = require('@vercel/blob'); // 🎙️ [추가] Vercel Blob SDK
 const multer = require('multer'); // 🦸 [추가] Hero 이미지 업로드용 Multer
@@ -6217,6 +6226,50 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         // 📜 SOURCE RECORDS API 엔드포인트 (사료 원전 기록)
         // ----------------------------------------------------
 
+        const translationService = createTranslationService({
+            collections, toObjectId, getMongoClient, ranks:RANK_CONFIG,
+            invalidate:() => invalidateTranslationRankings()
+        });
+        app.post('/api/translation-proposals', verifyToken, async (req, res) => {
+            try { res.status(201).json(await translationService.submit(req.user, req.body)); }
+            catch (error) { res.status(error.status || 500).json({ message:error.message }); }
+        });
+        app.put('/api/translation-proposals/:id', verifyToken, async (req, res) => {
+            try { res.json(await translationService.edit(req.params.id, req.user, req.body)); }
+            catch (error) { res.status(error.status || 500).json({ message:error.message }); }
+        });
+        app.get('/api/translation-proposals/counts', async (req, res) => {
+            try {
+                res.set('Cache-Control', 'no-store');
+                res.json(await translationService.counts(req.query));
+            } catch (error) { res.status(error.status || 500).json({ message:error.message }); }
+        });
+        app.get('/api/translation-proposals', async (req, res) => {
+            try {
+                const { targetType, targetId } = req.query;
+                if (!['source', 'history'].includes(targetType) || !toObjectId(targetId)) {
+                    return res.status(400).json({ message:'기록 유형 또는 ID를 확인해 주세요.' });
+                }
+                const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+                const query = { category:TRANSLATION_CATEGORY, targetType, targetId };
+                const [proposals, total, pending] = await Promise.all([
+                    collections.contributions.find(query, { projection:{
+                        userId:1, username:1, content:1, evidence:1, status:1, createdAt:1, updatedAt:1, revision:1, revisionOf:1,
+                        reviewComment:1, rejectComment:1, approverUsername:1, approvedAt:1
+                    } }).sort({ createdAt:-1, _id:-1 }).skip(offset).limit(20).toArray(),
+                    collections.contributions.countDocuments(query),
+                    collections.contributions.countDocuments({ ...query, status:{ $in:['pending', 'reviewed'] } })
+                ]);
+                res.set('Cache-Control', 'no-store');
+                res.json({ proposals, total, pending, offset, limit:20 });
+            } catch (error) { res.status(500).json({ message:'번역 제안 조회 실패' }); }
+        });
+
+        app.get('/api/translation-proposals/:id', verifyToken, async (req, res) => {
+            try { res.json(await translationService.getOwn(req.params.id, req.user)); }
+            catch (error) { res.status(error.status || 500).json({ message:error.message }); }
+        });
+
         // GET: 연도 범위로 사료 기록 조회 (인증 불필요 - 공개 데이터)
         app.get('/api/source-records', async (req, res) => {
             try {
@@ -8887,6 +8940,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         placeType, is_natural_feature, natural_feature_type, country_id, start_year, end_year, is_capital, new_country_name,
                         _forceUsername, _forceUserId } = req.body;
                 const recordCategories = new Set(['historical_record', 'hero_research']);
+                if (category === TRANSLATION_CATEGORY) return res.status(400).json({ message:'기사의 번역 제안 버튼을 이용해 주세요.' });
 
                 // 🚩 [추가] 관리자가 대신 기여자 이름/ID를 지정할 수 있음
                 const isAdmin = req.user.position === 'admin';
@@ -9081,6 +9135,11 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 
                 const contribution = await collections.contributions.findOne({ _id: toObjectId(id) });
                 if (!contribution) return res.status(404).json({ message: "항목을 찾을 수 없습니다." });
+
+                if (contribution.category === TRANSLATION_CATEGORY) {
+                    if (!['approved', 'rejected'].includes(status)) return res.status(400).json({ message:'잘못된 심사 상태입니다.' });
+                    return handleTranslationTransition(req, res, status === 'approved' ? 'approve' : 'reject');
+                }
 
                 // 같은 상태로의 재요청은 점수·활동 로그·마커 생성을 반복하지 않는다.
                 // 이미 승인된 기여에서 생성된 마커를 일반 수정할 때 발생하던 중복 승인 방어.
@@ -9308,6 +9367,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
         let _rankingsCacheTime = 0;
         const RANKINGS_CACHE_TTL = 3 * 60 * 1000; // 3분
         function invalidateRankingsCache() { _rankingsCache = null; }
+        invalidateTranslationRankings = invalidateRankingsCache;
 
         app.get('/api/rankings', async (req, res) => {
             try {
@@ -10604,6 +10664,11 @@ app.put('/api/contributions/:id/review', verifyToken, async (req, res) => {
         const contribution = await collections.contributions.findOne({ _id: toObjectId(id) });
         if (!contribution) return res.status(404).json({ message: "기여를 찾을 수 없습니다." });
 
+        if (contribution.category === TRANSLATION_CATEGORY) {
+            if (!['approved', 'rejected'].includes(status)) return res.status(400).json({ message:'잘못된 검토 상태입니다.' });
+            return handleTranslationTransition(req, res, status === 'approved' ? 'review' : 'review-reject');
+        }
+
         // pending 상태에서만 검토 가능
         if (contribution.status !== 'pending') return res.status(400).json({ message: "이미 검토된 기여입니다." });
 
@@ -10731,6 +10796,8 @@ app.put('/api/contributions/:id/approve', verifyToken, async (req, res) => {
 
         const contribution = await collections.contributions.findOne({ _id: toObjectId(id) });
         if (!contribution) return res.status(404).json({ message: "기여를 찾을 수 없습니다." });
+
+        if (contribution.category === TRANSLATION_CATEGORY) return handleTranslationTransition(req, res, 'approve');
 
         console.log('🔍 [Approve] 기여 상태:', contribution.status, '기여 ID:', id);
 
@@ -11056,6 +11123,7 @@ app.put('/api/contributions/:id/reject-final', verifyToken, async (req, res) => 
 
         const contribution = await collections.contributions.findOne({ _id: toObjectId(id) });
         if (!contribution) return res.status(404).json({ message: "기여를 찾을 수 없습니다." });
+        if (contribution.category === TRANSLATION_CATEGORY) return handleTranslationTransition(req, res, 'reject');
         if (contribution.status === 'approved') {
             return res.status(400).json({ message: "이미 최종 승인된 기여는 반려할 수 없습니다." });
         }

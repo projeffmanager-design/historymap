@@ -3065,6 +3065,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         if (immediateHistory) immediateHistory.style.display = '';
         if (immediateTimeline) immediateTimeline.innerHTML = '<li class="odp-tl-item"><div class="odp-tl-dot current"></div><div class="odp-tl-name" style="color:#78909d;">상세 기록을 불러오는 중…</div></li>';
         const detailCastleId = castle?._id || castle?.id;
+        globalThis.EntityTagTools?.mount(document.getElementById('odp-entity-tag-tools'), 'place', detailCastleId, immediateTitle);
         // 기본 상세는 지도에 이미 적재된 마커 데이터만 사용해 즉시 렌더링한다.
         // 연결 사료는 각 역사 행의 linked_records를 사용하며 추가 네트워크 요청을 하지 않는다.
         const graphLinkedRecords = [];
@@ -15292,6 +15293,12 @@ const loadingMessages = [
         const currentYear = Number.parseInt(yearInput?.value, 10);
         if (currentYear === targetYear && layerVisibility.historyPanel) updateHistoryPanel(targetYear);
     };
+    globalThis.HistoryTranslations?.configure({
+        getUser:() => currentUser, getToken:() => token,
+        onApplied:target => {
+            if (target.year != null) _historyPanelCache?.delete(Number(target.year));
+        }
+    });
 
     function refreshHeroPinsForTime(year, month, cacheOnly = false) {
         if (!cacheOnly) {
@@ -15735,6 +15742,9 @@ const loadingMessages = [
         const source = document.createElement('small');
         source.textContent = record.source || record.comment || (type === 'source' ? '원전 사료' : '연구 기록');
         button.append(name, period, source);
+        if (globalThis.HistoryTranslations) {
+          button.insertAdjacentHTML('beforeend', globalThis.HistoryTranslations.resultBadge(record, type));
+        }
         button.addEventListener('click', () => {
           selectedResultIndex = recordIndex;
           wrap.querySelectorAll('.history-panel-search-result.is-selected').forEach(item => item.classList.remove('is-selected'));
@@ -15766,6 +15776,7 @@ const loadingMessages = [
         wrap.appendChild(pagination);
       }
       content.appendChild(wrap);
+      void globalThis.HistoryTranslations?.hydrate(wrap);
       if (options.sourceBrowse) _historyPanelSourceNavigate = direction => selectResultAt(selectedResultIndex + direction);
       if (options.sourceBrowse && resultButtons.length && options.selectRecord) selectResultAt(options.selectRecord === 'last' ? resultButtons.length - 1 : 0);
     }
@@ -15846,7 +15857,12 @@ const loadingMessages = [
           ? `${year <= 0 ? '기원전 ' : '서기 '}${Math.abs(year)}년${item.month ? ` ${month}월` : ''}`
           : '연도 미상';
         detail.querySelector('time').textContent = period;
-        body.innerHTML = `<article class="history-record-card"><div class="history-record-head"><div class="history-record-title">${_escapeHistoryInline(itemTitle)}</div>${editAction}</div>${blocks || '<div class="history-record-block">본문이 없습니다.</div>'}${_historyVideoMarkup(item.video_url)}</article>`;
+        body.innerHTML = `<article class="history-record-card"><div class="history-record-head"><div class="history-record-title">${_escapeHistoryInline(itemTitle)}</div>${editAction}</div>${blocks || '<div class="history-record-block">본문이 없습니다.</div>'}${_historyVideoMarkup(item.video_url)}<div class="history-feedback-actions">${globalThis.HistoryTranslations?.markup(item, type) || ''}<div class="history-comments" data-record-type="${type}" data-record-id="${_escapeHistoryInline(id)}"><button type="button" class="history-comments-toggle">💬 사관의견</button><div class="history-comments-panel" hidden></div></div></div></article>`;
+        detail.querySelector('.history-comments-toggle')?.addEventListener('click', event => {
+          event.stopPropagation();
+          _toggleHistoryComments(event.currentTarget.closest('.history-comments'));
+        });
+        void globalThis.HistoryTranslations?.hydrate(detail);
         detail.querySelector('.history-search-detail-edit')?.addEventListener('click', event => {
           event.stopPropagation();
           if (type === 'source') openSourceRecordEditor(item, []);
@@ -16435,7 +16451,7 @@ const loadingMessages = [
         const monthLabel = Number.isInteger(month) && month >= 1 && month <= 12 ? ` ${month}월` : '';
         return `<time class="history-record-date">${yearLabel}${monthLabel}</time>`;
       };
-      const commentWidget = (recordType, recordId) => `<div class="history-comments" data-record-type="${recordType}" data-record-id="${_escapeHistoryInline(recordId)}"><button type="button" class="history-comments-toggle">💬 사관 의견 보기</button><div class="history-comments-panel" hidden></div></div>`;
+      const commentWidget = (recordType, record) => `<div class="history-feedback-actions">${globalThis.HistoryTranslations?.markup(record, recordType) || ''}<div class="history-comments" data-record-type="${recordType}" data-record-id="${_escapeHistoryInline(record._id)}"><button type="button" class="history-comments-toggle">💬 사관의견</button><div class="history-comments-panel" hidden></div></div></div>`;
       html += `<div class="history-comments-global-bar"><button type="button" class="history-comments-global-toggle" aria-pressed="false">💬 모든 의견 보기</button></div>`;
       html += `<div class="history-hud-summary">
         <div class="history-hud-stat"><strong>${historyRecords.length}</strong><span>연구 기록</span></div>
@@ -16477,7 +16493,7 @@ const loadingMessages = [
             if (r.records?.true_history?.content) {
               body += `<div class="history-record-block is-research">${_historyRichContent(r.records.true_history.content, year, recordMonth(r), heroFigures)}</div>`;
             }
-            html += `<article class="history-record-card" data-history-record-id="${_escapeHistoryInline(r._id)}">${name}${body}${_historyVideoMarkup(r.video_url)}${commentWidget('history', r._id)}</article>`;
+            html += `<article class="history-record-card" data-history-record-id="${_escapeHistoryInline(r._id)}">${name}${body}${_historyVideoMarkup(r.video_url)}${commentWidget('history', r)}</article>`;
           });
           html += `</section>`;
         }
@@ -16563,7 +16579,7 @@ const loadingMessages = [
               const content = r.content
                 ? `<div class="history-source-content${isChinese ? ' is-original' : ''}">${_historyRichContent(r.content, year, recordMonth(r), heroFigures, { excludedLinks:r.link_exclusions })}</div>`
                 : '';
-              html += `<div class="history-source-item" data-source-record-id="${_escapeHistoryInline(r._id)}"><div class="history-source-item-head">${titleRow}${sourceEditButton}</div>${content}${_historyVideoMarkup(r.video_url)}${commentWidget('source', r._id)}</div>`;
+              html += `<div class="history-source-item" data-source-record-id="${_escapeHistoryInline(r._id)}"><div class="history-source-item-head">${titleRow}${sourceEditButton}</div>${content}${_historyVideoMarkup(r.video_url)}${commentWidget('source', r)}</div>`;
             });
             html += `</div></details>`;
           }
@@ -16609,6 +16625,7 @@ const loadingMessages = [
           });
         });
         const historyCommentCountsReady = _loadHistoryCommentCounts(mapAllRecordsContent, historyRecords, sourceRecords);
+        void globalThis.HistoryTranslations?.hydrate(mapAllRecordsContent);
         mapAllRecordsContent.querySelector('.history-comments-global-toggle')?.addEventListener('click', event => {
           _toggleAllHistoryComments(mapAllRecordsContent, event.currentTarget, historyCommentCountsReady);
         });
@@ -16625,12 +16642,12 @@ const loadingMessages = [
       const button = widget?.querySelector('.history-comments-toggle');
       if (!button) return;
       if (isOpen) {
-        button.textContent = '💬 의견 닫기';
+        button.textContent = '💬 사관의견 닫기';
         return;
       }
       const hasCount = widget.dataset.commentCount !== undefined;
       const count = Math.max(0, Number(widget.dataset.commentCount) || 0);
-      button.textContent = hasCount ? `💬 사관 의견 보기 · ${count}` : '💬 사관 의견 보기';
+      button.textContent = hasCount ? `💬 사관의견 · ${count}` : '💬 사관의견';
     }
 
     async function _loadHistoryCommentCounts(container, historyRecords, sourceRecords) {
@@ -24448,6 +24465,7 @@ kingSelect.addEventListener('change', () => {
 
         function showHeroDetailPreview(hero) {
             if (!hero) return;
+            globalThis.EntityTagTools?.mount(document.getElementById('hero-entity-tag-tools'), 'person', hero._id, hero.name_ko || hero.name);
             const previewImage = document.getElementById('heroIllustImg');
             const previewPlaceholder = document.getElementById('heroIllustPlaceholder');
             previewImage.src = hero.illustration_url || hero.avatar_url || HERO_PANEL_DEFAULT_IMAGE_URL;
@@ -24642,6 +24660,7 @@ kingSelect.addEventListener('change', () => {
             currentHeroId = heroId;
             const sidebar = document.getElementById('heroSidebar');
             const requestSeq = ++_heroSidebarRequestSeq;
+            document.getElementById('hero-entity-tag-tools')?.replaceChildren();
             const currentTime = (typeof getCurrentYearMonth === 'function')
                 ? getCurrentYearMonth()
                 : { year: 0, month: 1 };
@@ -24692,6 +24711,7 @@ kingSelect.addEventListener('change', () => {
                     };
                 }
                 currentHeroIdentityKey = hero.person_id ? `person:${hero.person_id}` : String(hero._id);
+                globalThis.EntityTagTools?.mount(document.getElementById('hero-entity-tag-tools'), 'person', hero._id, hero.name_ko || hero.name);
                 // 일러스트
                 const illImg = document.getElementById('heroIllustImg');
                 const illPh  = document.getElementById('heroIllustPlaceholder');
