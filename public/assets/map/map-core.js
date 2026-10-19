@@ -21001,6 +21001,22 @@ const loadingMessages = [
         }
 
         const _kingHistoryEventCache = new Map();
+        const _kingHistoryPreviewCount = 3;
+
+        function _setKingHistoricalEventsExpanded(block, expanded = false) {
+            const listEl = block.querySelector('.cdp-king-events-list');
+            const items = [...listEl.querySelectorAll('.cdp-king-event-item')];
+            block.dataset.eventsExpanded = String(expanded);
+            items.forEach((item, index) => { item.hidden = !expanded && index >= _kingHistoryPreviewCount; });
+            const count = listEl.querySelector('.cdp-king-events-count');
+            if (count) count.textContent = `${expanded ? items.length : Math.min(items.length, _kingHistoryPreviewCount)} / ${items.length}건`;
+            listEl.querySelectorAll('.cdp-king-events-show-all').forEach(button => {
+                button.textContent = expanded ? `${_kingHistoryPreviewCount}건만 보기` : `전체보기 (${items.length}건)`;
+                button.setAttribute('aria-expanded', String(expanded));
+            });
+            const bottomControl = listEl.querySelector('.cdp-king-events-bottom');
+            if (bottomControl) bottomControl.hidden = !expanded;
+        }
 
         function _kingHistorySummary(record = {}) {
             const raw = record.comment || record.records?.korean?.content || record.records?.true_history?.content || record.content || '';
@@ -21047,14 +21063,16 @@ const loadingMessages = [
                 if (!events.length) {
                     listEl.innerHTML = `<div class="cdp-king-events-empty">연결된 주요 사건이나 원전 사료가 없습니다.</div>${adminActions}`;
                 } else {
-                    listEl.innerHTML = events.map(({ relation, document, record, year, month }) => {
+                    const hasMore = events.length > _kingHistoryPreviewCount;
+                    const rangeControls = hasMore ? '<div class="cdp-king-events-range"><span class="cdp-king-events-count"></span><button type="button" class="cdp-king-events-show-all" aria-expanded="false"></button></div>' : '';
+                    listEl.innerHTML = rangeControls + events.map(({ relation, document, record, year, month }, index) => {
                         const title = record.event_name || record.title || document.label || '역사 기록';
                         const documentLabel = document.type === 'source_record' ? '원전' : '사건';
                         const sourceLabel = document.type === 'source_record' ? String(record.source || '').trim() : '';
                         const yearLabel = Number.isFinite(year) ? `${year < 0 ? `B.C. ${Math.abs(year)}` : `A.D. ${year}`}${month > 1 ? ` ${month}월` : ''}` : '시점 미상';
                         const summary = _kingHistorySummary(record);
                         const removable = canAdminEditHistoryRecords() && relation?._id && relation.source === 'manual';
-                        return `<article class="cdp-king-event-item">
+                        return `<article class="cdp-king-event-item"${index >= _kingHistoryPreviewCount ? ' hidden' : ''}>
                             <div class="cdp-king-event-heading">
                                 <span class="cdp-king-event-kind ${document.type === 'source_record' ? 'is-source' : ''}">${documentLabel}</span>
                                 <button type="button" class="cdp-king-event-title" data-record-id="${_esc(document.id)}" data-record-type="${document.type === 'source_record' ? 'source' : 'history'}" data-year="${Number.isFinite(year) ? year : ''}" data-month="${month}">${_esc(title)}</button>
@@ -21064,7 +21082,17 @@ const loadingMessages = [
                             ${sourceLabel ? `<div class="cdp-king-event-source">출처 · ${_esc(sourceLabel)}</div>` : ''}
                             ${summary ? `<div class="cdp-king-event-summary">${_historyRichContent(summary, year, month, [])}</div>` : ''}
                         </article>`;
-                    }).join('') + adminActions;
+                    }).join('') + (hasMore ? '<div class="cdp-king-events-bottom" hidden><button type="button" class="cdp-king-events-show-all" aria-expanded="false"></button></div>' : '') + adminActions;
+                    _setKingHistoricalEventsExpanded(block, block.dataset.eventsExpanded === 'true');
+                    listEl.querySelectorAll('.cdp-king-events-show-all').forEach(button => button.addEventListener('click', () => {
+                        const fromBottom = Boolean(button.closest('.cdp-king-events-bottom'));
+                        _setKingHistoricalEventsExpanded(block, block.dataset.eventsExpanded !== 'true');
+                        if (fromBottom) {
+                            const topButton = listEl.querySelector('.cdp-king-events-show-all');
+                            topButton.focus({ preventScroll:true });
+                            topButton.scrollIntoView({ block:'nearest' });
+                        }
+                    }));
                 }
                 listEl.querySelectorAll('.cdp-king-event-title').forEach(button => button.addEventListener('click', () => {
                     window.openLinkedHistoryRecord?.({ id:button.dataset.recordId, type:button.dataset.recordType, year:Number(button.dataset.year), month:Number(button.dataset.month) || 1, title:button.textContent.trim() });
@@ -21095,9 +21123,13 @@ const loadingMessages = [
             if (!listEl.hidden) {
                 listEl.hidden = true;
                 toggle.textContent = '📜 주요 사건 보기';
+                toggle.setAttribute('aria-expanded', 'false');
+                block.dataset.eventsExpanded = 'false';
                 return;
             }
             toggle.textContent = '📜 주요 사건 접기';
+            toggle.setAttribute('aria-expanded', 'true');
+            block.dataset.eventsExpanded = 'false';
             _loadKingHistoricalEvents(block);
         }
 
@@ -21117,6 +21149,8 @@ const loadingMessages = [
                     const toggle = block.querySelector('.cdp-king-events-toggle');
                     if (listEl) listEl.hidden = false;
                     if (toggle) toggle.textContent = '📜 주요 사건 접기';
+                    toggle?.setAttribute('aria-expanded', 'true');
+                    block.dataset.eventsExpanded = 'false';
                     await _loadKingHistoricalEvents(block);
                     completed++;
                     if (expandButton) expandButton.textContent = `사건 불러오는 중 ${completed}/${blocks.length}`;
@@ -21134,6 +21168,8 @@ const loadingMessages = [
                 const toggle = block.querySelector('.cdp-king-events-toggle');
                 if (listEl) listEl.hidden = true;
                 if (toggle) toggle.textContent = '📜 주요 사건 보기';
+                toggle?.setAttribute('aria-expanded', 'false');
+                block.dataset.eventsExpanded = 'false';
             });
         }
 
@@ -21472,7 +21508,7 @@ const loadingMessages = [
                     ${summary ? `<div class="cdp-king-desc">${sanitizeHeroDescriptionHtml(summary)}</div>` : ''}
                     <div class="cdp-king-events" data-hero-id="${_esc(`king:${countryId}:${sourceRefId}`)}"
                         data-king-name="${_esc(rawName)}" data-start-year="${sy ?? ''}" data-end-year="${ey ?? ''}">
-                        <button type="button" class="cdp-king-events-toggle">📜 주요 사건 보기</button>
+                        <button type="button" class="cdp-king-events-toggle" aria-expanded="false">📜 주요 사건 보기</button>
                         <div class="cdp-king-events-list" hidden></div>
                     </div>
                 </li>`;
