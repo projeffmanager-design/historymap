@@ -106,6 +106,9 @@ function insertToken(field, start, end, marker, token, state, type, id) {
     }
   }
   const delta = marker.length - (end - start);
+  // 같은 표시명의 다른 장소를 다시 선택하면 이전 대상 ID를 새 선택으로 교체한다.
+  state.links = state.links.filter((link) => !Number.isInteger(link.start) || !Number.isInteger(link.end)
+    || link.end <= start || link.start >= end);
   state.links.forEach((link) => {
     if (!Number.isInteger(link.start) || link.start < end) return;
     link.start += delta; link.end += delta;
@@ -224,6 +227,7 @@ function bind(field) {
         const marker = `@${label}`;
         insertToken(field, start, caret, marker, `[[${type}:${id}|${label}]]`, state, type, id);
         close();
+        if (type === 'place') window.previewEntityMentionPlaceOnMap?.(item);
       });
       popup.appendChild(button); return button;
     });
@@ -258,7 +262,7 @@ new MutationObserver((records) => records.forEach((record) => record.addedNodes.
 
 // 댓글처럼 FormData를 사용하지 않고 버튼 클릭 시 value를 직접 읽는 저장기도 지원한다.
 document.addEventListener('click', (event) => {
-  if (!event.target.closest('button,[type="submit"]') || event.target.closest('.global-entity-mention-results')) return;
+  if (!event.target.closest('button,[type="submit"]') || event.target.closest('.global-entity-mention-results, .maplibregl-popup-close-button')) return;
   boundFields.forEach((field) => {
     const state = mentionState.get(field);
     if (!state?.links.length || !field.isConnected) return;

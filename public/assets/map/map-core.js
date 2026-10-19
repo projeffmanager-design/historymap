@@ -16337,6 +16337,50 @@ const loadingMessages = [
       }
     };
 
+    let _entityMentionPlacePreview = null;
+    window.previewEntityMentionPlaceOnMap = function(place) {
+      const rawLat = place?.lat ?? place?.location?.coordinates?.[1];
+      const rawLng = place?.lng ?? place?.location?.coordinates?.[0];
+      const lat = Number(rawLat);
+      const lng = Number(rawLng);
+      if (rawLat == null || rawLat === '' || rawLng == null || rawLng === ''
+          || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+      _entityMentionPlacePreview?.();
+      const label = String(place.matched_history_name || place.name || '선택한 지명');
+      const coordinates = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      let popup, highlight;
+      let finished = false;
+      const clearPreview = () => {
+        if (finished) return;
+        finished = true;
+        highlight?.remove();
+        popup?.remove();
+        _entityMentionPlacePreview = null;
+      };
+      _entityMentionPlacePreview = clearPreview;
+      const content = document.createElement('div');
+      content.textContent = `${label} (${coordinates})`;
+      try {
+        if (window._is3dMode && window.mlMap3d) {
+          const globe = window.mlMap3d;
+          globe.flyTo({ center:[lng, lat], zoom:Math.max(globe.getZoom(), 9), duration:800 });
+          popup = new maplibregl.Popup({ closeOnClick:false, focusAfterOpen:false, className:'ml3d-popup', maxWidth:'280px' })
+            .setLngLat([lng, lat]).setDOMContent(content).addTo(globe);
+          popup.on('close', clearPreview);
+        } else {
+          map.flyTo([lat, lng], Math.max(map.getZoom(), 9), { animate:true, duration:.8 });
+          highlight = L.circleMarker([lat, lng], { radius:10, color:'#ffe08a', weight:3, fillColor:'#e39c32', fillOpacity:.7, interactive:false }).addTo(map);
+          popup = L.popup({ closeOnClick:false, autoPan:false }).setLatLng([lat, lng]).setContent(content).openOn(map);
+          popup.on('remove', clearPreview);
+        }
+        return true;
+      } catch (error) {
+        clearPreview();
+        console.warn('선택한 지명 지도 미리보기 실패:', error);
+        return false;
+      }
+    };
+
     async function _openHistoryPlaceOnMap(castleId, targetYear, targetMonth) {
       const castle = (castles || []).find(item => String(item?._id) === String(castleId));
       if (!castle || !Number.isFinite(Number(castle.lat)) || !Number.isFinite(Number(castle.lng))) return;
