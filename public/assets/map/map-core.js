@@ -26616,7 +26616,7 @@ kingSelect.addEventListener('change', () => {
         document.getElementById('source-record-direct-editor')?.remove();
         const overlay = document.createElement('div');
         overlay.id = 'source-record-direct-editor';
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:10020;background:rgba(3,7,10,.64);display:grid;place-items:center;padding:16px;';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:2147482000!important;background:rgba(3,7,10,.64);display:grid;place-items:center;padding:16px;';
         overlay.innerHTML = `
           <form id="source-record-direct-form" style="box-sizing:border-box;width:min(620px,100%);max-height:88vh;overflow:auto;padding:15px;border:1px solid rgba(207,163,75,.5);border-radius:9px;background:linear-gradient(145deg,#202b35,#121a21);box-shadow:0 18px 55px rgba(0,0,0,.65);">
             <div class="source-record-direct-header" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:9px;border-bottom:1px solid rgba(218,178,94,.24);">
