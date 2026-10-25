@@ -1,18 +1,9 @@
 (function renderDetailPageAd() {
-  var provider = 'google';
+  var provider = 'kakao';
   window.KOREA_MAP_AD_PROVIDER = provider;
 
-  // 상세 문서에도 AdSense 공통 로더를 한 번만 등록한다.
-  if (!document.querySelector('script[src*="pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"]')) {
-    var adsenseLoader = document.createElement('script');
-    adsenseLoader.async = true;
-    adsenseLoader.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6821586098117394';
-    adsenseLoader.crossOrigin = 'anonymous';
-    document.head.appendChild(adsenseLoader);
-  }
-
   function mountAd() {
-    // Kakao 슬롯과 로더는 롤백을 위해 아래에 보존하되 현재 제공자가 아니면 실행하지 않는다.
+    // 기존 AdFit 광고 영역을 중복 없이 생성한다.
     if (provider !== 'kakao') return;
     var main = document.querySelector('main');
     if (!main || document.getElementById('detail-page-ads')) return;
