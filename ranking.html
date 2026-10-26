@@ -6064,6 +6064,9 @@
         }
 
         // 사료 데이터 로드
+        const escapeContributionText = value => String(value ?? '').replace(/[&<>"']/g, char => ({
+            '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+        }[char]));
         async function loadContributions() {
             try {
                 const searchText = document.getElementById('searchInput').value.toLowerCase();
@@ -6212,8 +6215,8 @@
                                        item.status === 'approved' ? '#9b59b6' : '#e74c3c';
                     
                     // 데이터 안전 처리
-                    const markerName = item.name || item.markerName || item.title || '제목 없음';
-                    const submitter = item.submittedBy?.username || item.username || '알 수 없음';
+                    const markerName = escapeContributionText(item.name || item.markerName || item.title || '제목 없음');
+                    const submitter = escapeContributionText(item.submittedBy?.username || item.username || '알 수 없음');
                     const date = item.createdAt ? new Date(item.createdAt).toLocaleDateString('ko-KR') : '날짜 없음';
                     
                     div.innerHTML = `
@@ -6290,6 +6293,17 @@
                     alert('사료 정보를 찾을 수 없습니다.');
                     return;
                 }
+
+                const isTranslation = selectedContribution.category === 'history_translation';
+                const originalSubmitter = selectedContribution.submittedBy?.username || selectedContribution.username || '';
+                if (isTranslation) {
+                    selectedContribution = { ...selectedContribution };
+                    for (const key of ['name', 'username', 'content', 'source', 'evidence', 'originalContent',
+                        'previousTranslation', 'reviewComment', 'rejectComment', 'approveComment',
+                        'reviewerUsername', 'approverUsername']) {
+                        selectedContribution[key] = escapeContributionText(selectedContribution[key]);
+                    }
+                }
                 
                 const detailContent = document.getElementById('contributionDetailContent');
                 
@@ -6313,6 +6327,7 @@
                     'natural_other': '자연지물 - 기타'
                 };
                 const categoryMap = {
+                    'history_translation': '번역 제안',
                     'geography': '지형/기후 증거',
                     'oldmap': '고지도 증거',
                     'literature': '문헌 증거',
@@ -6362,7 +6377,7 @@
                 const approverPositions = ['동수국사', '수국사', '판사관사', '감수국사'];
                 
                 // 본인이 작성한 사료가 아니고 승인되지 않은 경우 추천 버튼 표시
-                const isOwnContribution = submitter === currentUsername;
+                const isOwnContribution = originalSubmitter === currentUsername;
                 console.log('🔍 [ranking.html 권한 체크]');
                 console.log('  - currentUsername:', currentUsername);
                 console.log('  - submitter:', submitter);
@@ -6373,10 +6388,11 @@
                 
                 const isAdminRole = userRole === 'admin' || userRole === 'superuser';
                 const canVote = !isOwnContribution && selectedContribution.status === 'pending' && !isGuestUser;
-                const canReview = (isAdminRole || reviewerPositions.includes(userPosition)) && selectedContribution.status === 'pending' && !isOwnContribution;
+                const canReview = (isAdminRole || reviewerPositions.includes(userPosition) || (isTranslation && approverPositions.some(pos => userPosition.includes(pos)))) && selectedContribution.status === 'pending' && !isOwnContribution;
                 const positionMatches = (pos, list) => list.some(p => pos && pos.includes(p));
                 const canApprove = (isAdminRole || positionMatches(userPosition, approverPositions))
                     && (selectedContribution.status === 'reviewed' || selectedContribution.status === 'pending')
+                    && (!isTranslation || isAdminRole || selectedContribution.status === 'reviewed')
                     && (!isOwnContribution || isAdminRole);
                 const canRejectFinal = canApprove;
                 
@@ -6453,10 +6469,14 @@
                         </div>
                         ` : ''}
                         
+                        ${isTranslation ? `<div style="padding:16px;border:1px solid #776536;border-radius:7px;margin-bottom:15px;">
+                            <strong>📜 번역 대상 원문</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:280px;overflow:auto;margin:10px 0;">${selectedContribution.originalContent}</div>
+                            ${selectedContribution.previousTranslation ? `<strong>기존 사관 번역</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:200px;overflow:auto;">${selectedContribution.previousTranslation}</div>` : ''}
+                        </div>` : ''}
                         ${selectedContribution.description || selectedContribution.content ? `
                         <div style="background: rgba(255,255,255,0.04); padding: 18px; border-radius: 8px; margin-bottom: 15px; border: 1px solid rgba(180,140,80,0.25);">
-                            <div style="color: #f0e2c0; font-weight: 700; margin-bottom: 10px; font-size: 15px;">📝 상세 설명</div>
-                            <div style="color: #c8bdb2; line-height: 1.75; font-size: 14px;">${selectedContribution.description || selectedContribution.content}</div>
+                            <div style="color: #f0e2c0; font-weight: 700; margin-bottom: 10px; font-size: 15px;">${isTranslation ? '🌐 제안 번역문' : '📝 상세 설명'}</div>
+                            <div style="color: #c8bdb2; line-height: 1.75; font-size: 14px;${isTranslation ? 'white-space:pre-wrap;overflow-wrap:anywhere;' : ''}">${selectedContribution.description || selectedContribution.content}</div>
                         </div>
                         ` : ''}
                         
@@ -6472,7 +6492,7 @@
                             <div style="background: rgba(255,255,255,0.04); padding: 16px; border-radius: 8px; border: 1px solid rgba(180,140,80,0.22);">
                                 <div style="color: #c88840; font-weight: 700; margin-bottom: 8px; font-size: 14px;">🔍 참고 URL</div>
                                 <div style="color: #c8bdb2; line-height: 1.6; font-size: 13px; word-break: break-all;">
-                                    ${selectedContribution.evidence.startsWith('http') 
+                                    ${!isTranslation && selectedContribution.evidence.startsWith('http')
                                         ? `<a href="${selectedContribution.evidence}" target="_blank" style="color:#7ab8cc;">${selectedContribution.evidence}</a>`
                                         : selectedContribution.evidence}
                                 </div>
@@ -6762,13 +6782,14 @@
         }
 
         // 🚩 index.html(지도)에 사료 상태 변경 알림 — 사관 사료 마커 즉시 갱신
-        function notifyOpenerContributionChanged(contributionId, newStatus, history = null) {
+        function notifyOpenerContributionChanged(contributionId, newStatus, history = null, translationTarget = null) {
             if (window.opener && !window.opener.closed) {
                 window.opener.postMessage({
                     type: 'contributionReviewed',
                     contributionId,
                     newStatus,
-                    history
+                    history,
+                    translationTarget
                 }, '*');
                 console.log(`✅ [ranking.html → index.html] 사료 상태 변경 알림: ${contributionId} → ${newStatus}`);
             }
@@ -6799,7 +6820,7 @@
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ status: status, comment })
+                    body: JSON.stringify({ status: status, comment, revision:window.loadedContributions?.find(item => item._id === contributionId)?.revision || 0 })
                 });
                 
                 const result = await response.json();
@@ -6809,7 +6830,7 @@
                     
                     // 서버 실제 상태: approved → reviewed, rejected → rejected
                     const serverStatus = status === 'approved' ? 'reviewed' : 'rejected';
-                    notifyOpenerContributionChanged(contributionId, serverStatus);
+                    notifyOpenerContributionChanged(contributionId, serverStatus, null, result.translationTarget || null);
                     
                     // �🚩 [수정] 모달을 닫고 목록 새로고침 (상태가 변경되므로)
                     document.getElementById('contributionDetailModal').style.display = 'none';
@@ -6834,9 +6855,10 @@
                 
                 const selected = window.loadedContributions?.find(item => item._id === contributionId);
                 const isHistoricalRecord = selected?.category === 'historical_record';
+                const isTranslation = selected?.category === 'history_translation';
                 if (!confirm(isHistoricalRecord
                     ? '이 사료를 최종 승인하고 해당 연도의 역사 패널에 등록하시겠습니까?'
-                    : '이 사료를 최종 승인하시겠습니까?')) {
+                    : isTranslation ? '번역을 승인하고 제안한 사관의 이름으로 기사 하단에 적용하시겠습니까?' : '이 사료를 최종 승인하시겠습니까?')) {
                     return;
                 }
                 
@@ -6845,7 +6867,8 @@
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json'
-                    }
+                    },
+                    body: JSON.stringify({ revision:selected?.revision || 0 })
                 });
                 
                 const result = await response.json();
@@ -6853,7 +6876,7 @@
                 if (response.ok) {
                     alert(result.message || '최종 승인되었습니다!');
                     
-                    notifyOpenerContributionChanged(contributionId, 'approved', result.history || null);
+                    notifyOpenerContributionChanged(contributionId, 'approved', result.history || null, result.translationTarget || null);
                     
                     // 🚩 [수정] 모달을 닫고 목록 새로고침 (상태가 변경되므로)
                     document.getElementById('contributionDetailModal').style.display = 'none';
@@ -6887,14 +6910,14 @@
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ comment })
+                    body: JSON.stringify({ comment, revision:window.loadedContributions?.find(item => item._id === contributionId)?.revision || 0 })
                 });
 
                 const result = await response.json();
 
                 if (response.ok) {
                     alert('🚫 ' + (result.message || '최종 반려되었습니다.'));
-                    notifyOpenerContributionChanged(contributionId, 'rejected');
+                    notifyOpenerContributionChanged(contributionId, 'rejected', null, result.translationTarget || null);
                     document.getElementById('contributionDetailModal').style.display = 'none';
                     loadContributions();
                 } else {

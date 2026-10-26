@@ -15,6 +15,11 @@
         review:           { icon: '🔍' },
         review_reject:    { icon: '❌' },
         approve:          { icon: '🏆' },
+        translation_submit: { icon: '🌐' },
+        translation_update: { icon: '✏️' },
+        translation_review: { icon: '🔍' },
+        translation_approve: { icon: '✅' },
+        translation_reject: { icon: '↩️' },
         comment:          { icon: '💬' },
         rankup:           { icon: '⭐' },
         checkin:          { icon: '🏛️' },
@@ -28,7 +33,7 @@
         hero_create:      { icon: '👤' },
     };
 
-    function e(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function e(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
     function buildMessage(log) {
         const actorName = log.actor || '알 수 없음';
@@ -42,8 +47,11 @@
 
         // 지명 링크: castle_id가 있으면 클릭 가능한 링크로, 없으면 일반 span
         const castleId = extra.castle_id || null;
+        const historyTarget = extra.category === 'history_translation' && extra.record_id && ['source', 'history'].includes(extra.record_type);
         const target = log.targetName
-            ? (castleId
+            ? (historyTarget
+                ? `<button type="button" class="af-target af-history-link" data-record-id="${e(extra.record_id)}" data-record-type="${e(extra.record_type)}" data-record-year="${e(extra.year ?? '')}" data-record-month="${e(extra.month ?? '')}" title="기사와 번역 제안 열기" style="background:none;border:0;padding:0;font:inherit;text-align:left;cursor:pointer;text-decoration:underline;">${e(log.targetName)}</button>`
+                : castleId
                 ? `<span class="af-target af-target-link" data-castle-id="${e(castleId)}">${e(log.targetName)}</span>`
                 : `<span class="af-target">${e(log.targetName)}</span>`)
             : '';
@@ -52,6 +60,7 @@
         const CATEGORY_LABEL = {
             'historical_site': '역사유적',
             'historical_record': '사관기록',
+            'history_translation': '번역',
             'natural_feature': '자연지형',
             'battle': '전투',
             'capital': '도읍',
@@ -76,6 +85,18 @@
                 return `${pos}${actor} 사관으로 임관하셨습니다. 🎊`;
             case 'submit':
                 return `${pos}${actor}님이 ${target ? target + ' ' : ''}기록을 제출하셨습니다.${catBadge}`;
+            case 'translation_submit':
+                return `${pos}${actor}님이 ${target} 번역을 제안하셨습니다.${catBadge}`;
+            case 'translation_update':
+                return `${pos}${actor}님이 ${target} 번역 수정안을 제출하셨습니다.${catBadge}`;
+            case 'translation_review':
+                return `${pos}${actor}님이 ${target} 번역 검토를 완료하셨습니다.${catBadge}${commentTxt}`;
+            case 'translation_approve': {
+                const translator = `<a class="af-actor" href="/mypage.html?id=${encodeURIComponent(extra.translator_id || extra.translator || '')}" target="_blank" rel="opener">${e(extra.translator || '알 수 없음')}</a>`;
+                return `${pos}${actor}님이 ${translator} 사관의 ${target} 번역을 <span class="af-restore">승인·적용</span>하셨습니다.${catBadge}${commentTxt}`;
+            }
+            case 'translation_reject':
+                return `${pos}${actor}님이 ${target} 번역 제안을 <span style="color:#ff9980;">반려</span>하셨습니다.${catBadge}${commentTxt}`;
             case 'review':
                 return `${pos}${actor}님이 ${target ? target + ' ' : ''}검토를 완료하셨습니다.${catBadge}${commentTxt}`;
             case 'review_reject':
@@ -345,6 +366,17 @@
         const feedScroll = document.getElementById('activity-feed-scroll');
         if (feedScroll) {
             feedScroll.addEventListener('click', function(e) {
+                const historyLink = e.target.closest('.af-history-link');
+                if (historyLink) {
+                    e.stopPropagation();
+                    window.openLinkedHistoryRecord?.({
+                        id:historyLink.dataset.recordId, type:historyLink.dataset.recordType,
+                        year:historyLink.dataset.recordYear === '' ? null : Number(historyLink.dataset.recordYear),
+                        month:historyLink.dataset.recordMonth === '' ? null : Number(historyLink.dataset.recordMonth),
+                        title:historyLink.textContent
+                    });
+                    return;
+                }
                 // 지명 링크(.af-target-link) 직접 클릭: 버블링 막고 해당 마커만 열기
                 const targetLink = e.target.closest('.af-target-link[data-castle-id]');
                 if (targetLink) {

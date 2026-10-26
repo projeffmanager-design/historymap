@@ -149,7 +149,7 @@ async function searchAll(query) {
   ];
 }
 
-window.renderEntityLinkTokens = function renderEntityLinkTokens(value) {
+window.renderEntityLinkTokens = window.EntityTagTools?.renderText || function renderEntityLinkTokens(value) {
   return esc(value).replace(/\[\[(person|place|country|historian):([^|\]]+)\|([^\]]+)\]\]/g, (_token, type, id, label) => (
     `<button type="button" class="history-${type === 'person' ? 'person' : type === 'country' ? 'country' : type === 'historian' ? 'historian' : 'place'}-link global-entity-token-link" data-entity-type="${type}" data-entity-id="${esc(id)}">${esc(label)}</button>`
   ));
@@ -294,4 +294,4 @@ document.addEventListener('click', (event) => {
       if (Number.isFinite(Number(castle.lat)) && Number.isFinite(Number(castle.lng))) window.map?.flyTo?.([Number(castle.lat), Number(castle.lng)], 10);
     }).catch(() => {});
   }
-});
+}, true);
