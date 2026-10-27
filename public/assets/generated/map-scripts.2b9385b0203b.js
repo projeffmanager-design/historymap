@@ -694,8 +694,8 @@
         try {
             const { r, g, b } = hexToRgb(hex);
             let [h, s, l] = rgbToHsl(r, g, b);
-            // Keep saturation vivid — only clamp extreme values
-            s = Math.max(0.45, Math.min(1.0, s));
+            // 무채색에 채도를 추가하면 흰색·회색 국가가 붉게 바뀐다.
+            if (s > 0) s = Math.max(0.45, Math.min(1.0, s));
             // Keep lightness in a visible range without washing out
             l = Math.min(0.72, Math.max(0.32, l));
             const rgb = hslToRgb(h, s, l);
@@ -705,8 +705,8 @@
         }
     }
 
-    // 🎨 getTerritoryStyle 결과 캐시 — 국가 색상은 연도와 무관하므로 countryId 기준으로 캐싱
-    const _territoryStyleCache = new Map(); // key: `${countryId}_${level}_${mode}`
+    // 국가의 시대별 색상과 편집 결과를 구분해 캐싱한다.
+    const _territoryStyleCache = new Map();
 
     // Global UI settings
     // By default we prefer country-assigned colors; this flag can be toggled in the console for testing.
@@ -729,8 +729,12 @@
             const mode = typeof spec === 'string' ? spec : 'country';
             const isProvince = territory.level === 'province';
 
-            // 🎨 캐시 키: 국가 ID + 레벨 + 모드 (색상은 연도와 무관)
-            const cacheKey = `${countryInfo?._id || countryInfo?.name || 'unknown'}_${territory.level || 'city'}_${mode}`;
+            const baseColor = countryInfo && countryInfo.color ? countryInfo.color : '#888888';
+            const cacheKey = JSON.stringify([
+                countryInfo?._id || countryInfo?.name || 'unknown', territory.level || 'city', mode, baseColor,
+                mode === 'ethnicity' ? countryInfo?.ethnicity : null,
+                mode === 'random' ? String(territory._id || territory.name || 'territory') : null
+            ]);
             if (_territoryStyleCache.has(cacheKey)) {
                 return _territoryStyleCache.get(cacheKey);
             }
@@ -738,9 +742,6 @@
             // 🔑 province/city 모두 동일한 fillOpacity — 실제 level별 opacity는 renderBucket에서 덮어씀
             //    (country:0.55 / province:0.70 / city:0.82 — 독립 영토일수록 진하게)
             const baseOpacity = 0.35;
-            // 🔑 [개선] countryInfo가 null (국가 로딩 중)이면 회색 fallback 표시
-            const baseColor = countryInfo && countryInfo.color ? countryInfo.color : '#888888';
-
             // 항상 elegantColor(파스텔) 적용 — 원색 깜빡임 없이 처음부터 일정한 색
             let colorForUse = elegantColor(baseColor);
 
@@ -29275,13 +29276,21 @@ kingSelect.addEventListener('change', () => {
             let orbitTimer = null;
 
             function get3dTerritoryBasemapOpacity() {
-                // 위성 질감이 영토색 아래에서 탁해지지 않도록 채색은 얇게 유지한다.
-                return window._historyGlobeBasemap === 'terrain' ? 0.18 : 0.26;
+                // 영상의 산세는 유지하면서 국가색이 배경에 묻히지 않게 한다.
+                const mode = window._historyGlobeBasemap || 'vector';
+                if (mode === 'terrain') return 0.40;
+                if (mode === 'satellite') return 0.44;
+                return 0.35;
+            }
+
+            function get3dTerritoryFillOpacity() {
+                return ['case', ['==', ['get', 'country_id'], '__unowned__'], 0.18,
+                    get3dTerritoryBasemapOpacity()];
             }
 
             function apply3dTerritoryBasemapOpacity() {
                 if (!mlMap) return;
-                const opacity = get3dTerritoryBasemapOpacity();
+                const opacity = get3dTerritoryFillOpacity();
                 ['country', 'province', 'city'].forEach(key => {
                     const fillId = `territory-fill-${key}`;
                     if (mlMap.getLayer(fillId)) mlMap.setPaintProperty(fillId, 'fill-opacity', opacity);
@@ -30021,7 +30030,7 @@ kingSelect.addEventListener('change', () => {
                                 const fid = `territory-fill-${k}`;
                                 if (_m.getLayer(fid)) {
                                     _m.setPaintProperty(fid, 'fill-color', ['get','fillColor']);
-                                    _m.setPaintProperty(fid, 'fill-opacity', ['get','fillOpacity']);
+                                    _m.setPaintProperty(fid, 'fill-opacity', get3dTerritoryFillOpacity());
                                 }
                             });
                         }, 500);
@@ -30262,12 +30271,10 @@ kingSelect.addEventListener('change', () => {
                 if (currentTerrain) _m.setTerrain(null);
 
                 // ── 영토: 데이터 수집 단계에서 이미 국가별 최상위 레벨만 저장됨 ──
-                // fillOpacity/lineOpacity는 feature properties에 저장되어 있으므로 ['get',...] 사용
+                // 채우기는 배경별 국가색/중립색 불투명도를, 외곽선은 feature 속성을 사용한다.
                 const td = window._3dTerritoryData || { country: [], province: [], city: [] };
                 const _showTerritory = (typeof layerVisibility === 'undefined') || layerVisibility.territoryPolygon !== false;
-                const territoryBasemapOpacity = get3dTerritoryBasemapOpacity();
-                // 2D와 동일한 level별 opacity — feature properties에 이미 저장됨, fallback만 여기서 정의
-                const LEVEL_FILL_OPACITY = { country: 0.14, province: 0.18, city: 0.22 };
+                const territoryFillOpacity = get3dTerritoryFillOpacity();
                 ['country', 'province', 'city'].forEach(key => {
                     const fillId    = `territory-fill-${key}`;
                     const outlineId = `territory-outline-${key}`;
@@ -30280,7 +30287,7 @@ kingSelect.addEventListener('change', () => {
                         _m.getSource(srcId).setData(fc);
                         const vis = (features.length > 0 && _showTerritory) ? 'visible' : 'none';
                         [fillId, outlineId].forEach(id => { if (_m.getLayer(id)) _m.setLayoutProperty(id, 'visibility', vis); });
-                        if (_m.getLayer(fillId)) _m.setPaintProperty(fillId, 'fill-opacity', territoryBasemapOpacity);
+                        if (_m.getLayer(fillId)) _m.setPaintProperty(fillId, 'fill-opacity', territoryFillOpacity);
                     } else {
                         // ── 최초 렌더: terrain 우회 후 소스+레이어 생성 ──
                         if (features.length === 0 || !_showTerritory) return;
@@ -30288,7 +30295,7 @@ kingSelect.addEventListener('change', () => {
                         _m.addLayer({ id: fillId, type: 'fill', source: srcId,
                             paint: {
                                 'fill-color':   ['coalesce', ['get', 'fillColor'], '#888888'],
-                                'fill-opacity': territoryBasemapOpacity
+                                'fill-opacity': territoryFillOpacity
                             }
                         });
                         _m.addLayer({ id: outlineId, type: 'line', source: srcId,
