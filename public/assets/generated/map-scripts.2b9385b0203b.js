@@ -1567,7 +1567,8 @@
         // 지명/도로를 제거한 평면 음영 지도. Globe 벡터 모드와 별도로 유지한다.
         '지형모드': historyVectorLayer,
         // 순수 MapLibre Globe가 실제 화면을 담당하며 이 그룹은 전환 키를 유지한다.
-        '벡터실험': historyVectorLayer
+        '벡터실험': historyVectorLayer,
+        '야간모드': historyVectorLayer
     };
     
     // 🚩 [추가] 오버레이 레이어 (연대표 토글 제거)
@@ -29278,13 +29279,15 @@ kingSelect.addEventListener('change', () => {
             function get3dTerritoryBasemapOpacity() {
                 // 영상의 산세는 유지하면서 국가색이 배경에 묻히지 않게 한다.
                 const mode = window._historyGlobeBasemap || 'vector';
+                if (mode === 'night') return 0.10;
                 if (mode === 'terrain') return 0.40;
                 if (mode === 'satellite') return 0.44;
                 return 0.35;
             }
 
             function get3dTerritoryFillOpacity() {
-                return ['case', ['==', ['get', 'country_id'], '__unowned__'], 0.18,
+                return ['case', ['==', ['get', 'country_id'], '__unowned__'],
+                    window._historyGlobeBasemap === 'night' ? 0.03 : 0.18,
                     get3dTerritoryBasemapOpacity()];
             }
 
@@ -32662,6 +32665,9 @@ kingSelect.addEventListener('change', () => {
                 is3d = false;
                 window._is3dMode = false;
                 window._historyGlobeMode = false;
+                document.body.classList.remove('night-map-mode');
+                const nightCaption = document.getElementById('night-map-caption');
+                if (nightCaption) nightCaption.hidden = true;
                 if (window._exit3dPopulationMode) window._exit3dPopulationMode();
                 const starBackdrop = document.getElementById('globe-star-backdrop');
                 if (starBackdrop) starBackdrop.style.display = 'none';
@@ -32801,6 +32807,38 @@ kingSelect.addEventListener('change', () => {
                 }
             }
 
+            function ensureNightOverlay() {
+                if (!mlMap) return;
+                const sourceId = 'history-globe-night-source';
+                const layerId = 'history-globe-night';
+                if (!mlMap.getSource(sourceId)) {
+                    mlMap.addSource(sourceId, {
+                        type: 'raster',
+                        tiles: ['https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_CityLights_2012/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg'],
+                        tileSize: 256,
+                        maxzoom: 8,
+                        attribution: '<a href="https://science.nasa.gov/earth/earth-observatory/earth-at-night/maps/" target="_blank" rel="noopener">NASA Earth at Night · VIIRS 2012</a>'
+                    });
+                }
+                if (!mlMap.getLayer(layerId)) {
+                    const firstHistoryLayer = (mlMap.getStyle()?.layers || []).find(layer =>
+                        /^territory-|^castle-|^3d-|^dynamic-palace|^history-globe-coastline/.test(layer.id)
+                    );
+                    mlMap.addLayer({
+                        id: layerId,
+                        type: 'raster',
+                        source: sourceId,
+                        layout: { visibility: 'none' },
+                        paint: {
+                            'raster-opacity': 1,
+                            'raster-saturation': 0.12,
+                            'raster-contrast': 0.16,
+                            'raster-fade-duration': 250
+                        }
+                    }, firstHistoryLayer?.id);
+                }
+            }
+
             function ensureGlobeCoastlineShadow() {
                 if (!mlMap || mlMap.getLayer('history-globe-coastline-edge')) return;
                 const waterLayer = (mlMap.getStyle()?.layers || []).find(layer =>
@@ -32848,6 +32886,8 @@ kingSelect.addEventListener('change', () => {
             function applyGlobeBasemapLayers(mode) {
                 captureGlobeBaseLayerVisibility();
                 ensureSatelliteOverlay();
+                // 야간 타일은 야간 모드를 처음 선택했을 때만 요청한다.
+                if (mode === 'night') ensureNightOverlay();
                 ensureGlobeCoastlineShadow();
                 // 이전 지형 모드에서 숨긴 베이스 레이어를 먼저 원상 복구한 뒤
                 // 선택한 모드에 필요한 레이어만 다시 조정한다.
@@ -32860,9 +32900,15 @@ kingSelect.addEventListener('change', () => {
                     // 위성 영상 자체의 명암을 살리고, 단색 hillshade가 영상을 덮지 않게 한다.
                     mlMap.setLayoutProperty('history-globe-hillshade', 'visibility', 'none');
                 }
+                if (mlMap.getLayer('history-globe-night')) {
+                    mlMap.setLayoutProperty('history-globe-night', 'visibility', mode === 'night' ? 'visible' : 'none');
+                }
+                document.body.classList.toggle('night-map-mode', mode === 'night');
+                const nightCaption = document.getElementById('night-map-caption');
+                if (nightCaption) nightCaption.hidden = mode !== 'night';
                 // 영상 위에서는 OpenFreeMap의 국가·도시 symbol을 완전히 숨긴다.
                 // 역사 국가명과 마커는 capture 대상에서 제외되어 영향을 받지 않는다.
-                if (mode === 'satellite' || mode === 'terrain') setGlobeBaseSymbolVisibility(false);
+                if (mode === 'satellite' || mode === 'terrain' || mode === 'night') setGlobeBaseSymbolVisibility(false);
                 if (mode === 'terrain') applyMinimalTerrainStyle();
                 apply3dTerritoryBasemapOpacity();
             }
@@ -32927,7 +32973,7 @@ kingSelect.addEventListener('change', () => {
                 btn3d.classList.remove('active');
                 const activeKey = initialBasemap === 'satellite'
                     ? '위성모드'
-                    : (initialBasemap === 'terrain' ? '지형모드' : '벡터실험');
+                    : (initialBasemap === 'terrain' ? '지형모드' : (initialBasemap === 'night' ? '야간모드' : '벡터실험'));
                 document.querySelectorAll('.map-tile-btn[data-tile]').forEach(button => {
                     button.classList.toggle('active', button.dataset.tile === activeKey);
                 });
@@ -32984,7 +33030,7 @@ kingSelect.addEventListener('change', () => {
                 window._historyMapMode = true;
                 window._historyVectorMode = true;
                 document.body.classList.add('history-map-mode', 'history-vector-mode');
-                window._enterHistoryGlobe('satellite');
+                window._enterHistoryGlobe(shareParams.get('basemap') === 'night' ? 'night' : 'satellite');
                 requestAnimationFrame(() => requestAnimationFrame(() => {
                     if (mapEl) mapEl.style.visibility = '';
                 }));
@@ -32994,7 +33040,7 @@ kingSelect.addEventListener('change', () => {
             document.querySelectorAll('.map-tile-btn[data-tile]').forEach(b => {
                 b.addEventListener('click', () => {
                     const keepGlobe = window._historyGlobeMode
-                        && (b.dataset.tile === '위성모드' || b.dataset.tile === '지형모드' || b.dataset.tile === '벡터실험');
+                        && (b.dataset.tile === '위성모드' || b.dataset.tile === '지형모드' || b.dataset.tile === '벡터실험' || b.dataset.tile === '야간모드');
                     if (is3d && !keepGlobe) exit3d();
                 });
             });
@@ -34245,11 +34291,11 @@ kingSelect.addEventListener('change', () => {
             // 순수 MapLibre Globe가 열린 동안 위성/벡터 버튼은 지도를 닫지 않고
             // 같은 구면 위의 베이스맵만 교체한다.
             if (window._historyGlobeMode
-                && (newLayerKey === '위성모드' || newLayerKey === '지형모드' || newLayerKey === '벡터실험')
+                && (newLayerKey === '위성모드' || newLayerKey === '지형모드' || newLayerKey === '벡터실험' || newLayerKey === '야간모드')
                 && typeof window._setHistoryGlobeBasemap === 'function') {
                 const mapLibreMode = newLayerKey === '위성모드'
                     ? 'satellite'
-                    : (newLayerKey === '지형모드' ? 'terrain' : 'vector');
+                    : (newLayerKey === '지형모드' ? 'terrain' : (newLayerKey === '야간모드' ? 'night' : 'vector'));
                 window._setHistoryGlobeBasemap(mapLibreMode);
                 document.querySelectorAll('.map-tile-btn').forEach(btn => {
                     btn.classList.toggle('active', btn.dataset.tile === newLayerKey);
@@ -34257,15 +34303,15 @@ kingSelect.addEventListener('change', () => {
                 return;
             }
             // 위성 모드는 항상 순수 MapLibre Globe로 연다.
-            if (newLayerKey === '위성모드' && typeof window._enterHistoryGlobe === 'function') {
+            if ((newLayerKey === '위성모드' || newLayerKey === '야간모드') && typeof window._enterHistoryGlobe === 'function') {
                 window._historyMapMode = true;
                 window._historyVectorMode = true;
                 document.body.classList.add('history-map-mode', 'history-vector-mode');
                 document.body.classList.remove('history-vector-render-ready');
                 setHistoryCoastlineVisible(true, true);
-                window._enterHistoryGlobe('satellite');
+                window._enterHistoryGlobe(newLayerKey === '야간모드' ? 'night' : 'satellite');
                 document.querySelectorAll('.map-tile-btn').forEach(btn => {
-                    btn.classList.toggle('active', btn.dataset.tile === '위성모드');
+                    btn.classList.toggle('active', btn.dataset.tile === newLayerKey);
                 });
                 return;
             }
