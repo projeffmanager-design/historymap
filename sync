@@ -4,17 +4,24 @@
 set -euo pipefail
 
 # 커밋 메시지를 인수로 받습니다.
-commit_message="$1"
+commit_message="${1:-}"
 
-# 인수가 없으면 기본 메시지를 사용합니다.
+# 인수가 없으면 사용법을 안내합니다.
 if [ -z "$commit_message" ]; then
   echo "커밋 메시지를 입력하세요. (예: sync 동기화1)"
   exit 1
 fi
 
 # Git 명령어를 실행합니다.
+cd "$(dirname "${BASH_SOURCE[0]}")"
 git add .
-git commit -m "$commit_message"
-git push origin main --force
+if ! git diff --cached --quiet; then
+  git commit -m "$commit_message"
+else
+  echo "새 변경사항 없음: 현재 커밋을 동기화합니다."
+fi
+# worktree의 detached HEAD에서도 현재 수정본을 올립니다.
+# 원격의 다른 변경사항이 있으면 강제로 덮어쓰지 않고 중단합니다.
+git push origin HEAD:main
 
-echo "GitHub에 강제 동기화 완료: $commit_message"
+echo "GitHub main에 현재 작업 동기화 완료: $commit_message"
