@@ -12,6 +12,7 @@ const path = require('path');
 const fs = require('fs');
 const { withResidentPopulation } = require('./lib/koreaResidentPopulation');
 const { geometryAreaChange } = require('./lib/territoryGeometrySafety');
+const { polygonPreviewHandler, polygonEditAreaChange } = require('./lib/territoryPolygonEdit');
 const crypto = require('crypto');
 const { CATEGORY:TRANSLATION_CATEGORY, createTranslationService } = require('./lib/historyTranslation');
 let invalidateTranslationRankings = () => {};
@@ -6942,6 +6943,9 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        // 추가/제외 결과만 계산한다. 실제 DB/타일 변경은 기존 경계 저장에서 수행한다.
+        app.post('/api/territories/geometry-preview', verifyAdmin, polygonPreviewHandler);
+
         // GET: 영토 단건 조회 (full geometry 포함)
         app.get('/api/territories/:id', async (req, res) => {
             try {
@@ -7093,12 +7097,20 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                 if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
 
                 const updatedTerritory = req.body;
+                const polygonOperations = updatedTerritory.geometry_operations;
+                delete updatedTerritory.geometry_operations;
                 if (updatedTerritory._id) delete updatedTerritory._id;
                 if (updatedTerritory.geometry && _geometryHasSelfIntersection(updatedTerritory.geometry)) return res.status(400).json({ message: '자기교차가 포함된 영토는 저장할 수 없습니다.' });
                 if (updatedTerritory.geometry) {
                     const original = await collections.territories.findOne({ _id }, { projection: { geometry: 1 } });
                     if (!original) return res.status(404).json({ message: '영토를 찾을 수 없습니다.' });
-                    if (geometryAreaChange(original.geometry, updatedTerritory.geometry).unsafe) {
+                    let areaChange;
+                    try {
+                        areaChange = polygonEditAreaChange(original.geometry, updatedTerritory.geometry, polygonOperations);
+                    } catch (error) {
+                        return res.status(400).json({ message: error.message });
+                    }
+                    if (areaChange.unsafe) {
                         return res.status(409).json({ message: '영토 면적이 크게 변했습니다. 잘못된 경계 선택 가능성이 있어 저장을 중단했습니다.' });
                     }
                 }
