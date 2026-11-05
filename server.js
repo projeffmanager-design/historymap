@@ -2042,13 +2042,15 @@ async function setupRoutesAndCollections() {
                 const diff = execSync('git diff --cached --stat', { cwd: __dirname }).toString().trim();
                 if (!diff) {
                     // 이전 싱크에서 commit은 됐지만 push만 실패한 경우도 복구한다.
-                    execSync('git push', { cwd: __dirname });
+                    const unpushedCount = Number(execSync('git rev-list --count origin/main..HEAD', { cwd: __dirname }).toString().trim());
+                    execSync('git push origin HEAD:main', { cwd: __dirname });
                     console.log(`✅ [수동 싱크 확인] 신규 타일 커밋 없음 · 기존 미push 커밋 반영 (${label})`);
-                    return { ok: true, changed: false, message: '신규 타일 커밋 없음 · 기존 미push 커밋 싱크 완료' };
+                    return { ok: true, changed: unpushedCount > 0, message: '신규 타일 커밋 없음 · 기존 미push 커밋 싱크 완료' };
                 }
                 const today = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
                 execSync(`git commit -m "chore: 영토 타일 증분 갱신 ${label} (${today})"`, { cwd: __dirname });
-                execSync('git push', { cwd: __dirname });
+                // Codex worktree의 detached HEAD에서도 현재 타일 커밋을 main으로 전송한다.
+                execSync('git push origin HEAD:main', { cwd: __dirname });
                 console.log(`✅ [Vercel 배포] 타일 push 완료 → Vercel 자동 재배포 (${label})`);
                 return { ok: true, changed: true, message: '타일 push 완료' };
             } catch (e) {
@@ -10177,7 +10179,7 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             try {
                 const lastCommit  = execSync('git log -1 --format="%H|%s|%ci"', { cwd: __dirname }).toString().trim();
                 const [sha, msg, date] = lastCommit.split('|');
-                const unpushed = execSync('git log @{u}..HEAD --oneline 2>/dev/null || true', { cwd: __dirname }).toString().trim();
+                const unpushed = execSync('git log origin/main..HEAD --oneline 2>/dev/null || true', { cwd: __dirname }).toString().trim();
                 const dirtyFiles = execSync('git status --porcelain public/tiles/ 2>/dev/null | wc -l', { cwd: __dirname }).toString().trim();
                 gitInfo = { sha: sha?.slice(0,7), msg, date, unpushedCount: unpushed ? unpushed.split('\n').filter(Boolean).length : 0, localDirtyTiles: parseInt(dirtyFiles) || 0 };
             } catch(e) { gitInfo = { error: e.message }; }
