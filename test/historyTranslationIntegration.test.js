@@ -23,6 +23,8 @@ function articleContext() {
         _focusRequestedHistoryRecord() {}, _renderHistoryPlaceBacklinks() {}
     });
     context.window = context;
+    context._historyPanelSearchDetailSequence = 0;
+    vm.runInContext(mapScript.slice(mapScript.indexOf('    function _historyRecordYear('), mapScript.indexOf('    function _restoreHistoryPanelYear(')), context);
     vm.runInContext(loaded('/history-translations.js'), context);
     return { context, container };
 }

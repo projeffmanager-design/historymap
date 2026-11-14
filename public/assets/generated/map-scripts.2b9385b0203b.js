@@ -3157,8 +3157,13 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         const countryText = countryName
             ? `<span class="odp-country-link" data-country-id="${countryId}" style="color:#7eb8e8; cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px;">${countryFlag}${countryName}</span>`
             : '';
-        const creatorText = castle.createdBy ? `<span>✍️ ${castle.createdBy}</span>` : '';
-        metaEl.innerHTML = [periodText, countryText, creatorText].filter(Boolean).join('');
+        metaEl.innerHTML = [periodText, countryText].filter(Boolean).join('');
+        if (castle.createdBy) {
+            const creator = document.createElement('span');
+            creator.setAttribute('data-marker-contributor', '');
+            creator.textContent = `✍️ ${castle.createdBy}`;
+            metaEl.appendChild(creator);
+        }
         // 국가명 클릭 → 국가 정보 모달
         const countryLink = metaEl.querySelector('.odp-country-link');
         if (countryLink) {
@@ -3553,6 +3558,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     function openEditPanel(formId) {
         const panel = document.getElementById(formId);
         if (!panel) return;
+        if (formId === 'castleForm' && editingCastleKey === null) window.markerContributorForm?.clear();
         window.prepareMobilePanelTransition?.('editor');
         // 다른 편집 패널은 모두 닫기
         EDIT_PANEL_IDS.forEach(id => {
@@ -13328,63 +13334,162 @@ const loadingMessages = [
       // L.DomEvent.disableClickPropagation(mapButtonContainer);
       // L.DomEvent.disableScrollPropagation(mapButtonContainer);
 
-    // 🚩 도시/성 편집 검색 (select 없이 검색+클릭으로만 선택)
+    // 통합 편집 검색: 서버에서 전체 데이터의 이름을 검색합니다.
     let citySearchForEditInitialized = false;
-    let _selectedCityIdForEdit = null; // 선택된 city ID 저장
+    let _selectedCityIdForEdit = null;
+    let _selectedObjectForEdit = null;
+    let _objectEditSearchRevision = 0;
+    let _objectEditSearchTimer = null;
+    let _objectEditSearchController = null;
+    const editableObjectKey = record => `${record.source}:${record._id}`;
+    function editableObjectHeaders() {
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        return token ? { Authorization:`Bearer ${token}` } : {};
+    }
+    function setObjectSearchStatus(message) {
+        const status = document.getElementById('editableObjectSearchStatus');
+        if (status) status.textContent = message;
+    }
     function initCitySearchForEdit() {
         if (citySearchForEditInitialized) return;
-        const citySearchInputForEdit = document.getElementById('citySearchInputForEdit');
-        const citySearchResults = document.getElementById('citySearchResults');
-        const citySelectedDisplay = document.getElementById('citySelectedDisplay');
-        if (!citySearchInputForEdit || !citySearchResults) return;
-
+        const input = document.getElementById('citySearchInputForEdit');
+        const results = document.getElementById('citySearchResults');
+        const display = document.getElementById('citySelectedDisplay');
+        if (!input || !results) return;
         citySearchForEditInitialized = true;
-
-        citySearchInputForEdit.addEventListener('input', () => {
-            const searchTerm = citySearchInputForEdit.value.toLowerCase().trim();
-            citySearchResults.innerHTML = '';
-            if (searchTerm.length < 1) {
-                citySearchResults.style.display = 'none';
-                return;
-            }
-            const filteredCastles = castles.filter(c =>
-                !c.is_military_flag &&
-                !c.is_natural_feature &&
-                c.name.toLowerCase().includes(searchTerm)
-            ).slice(0, 50); // 최대 50개만 표시
-
-            if (filteredCastles.length === 0) {
-                citySearchResults.style.display = 'none';
-                return;
-            }
-            filteredCastles.forEach(castle => {
-                const div = document.createElement('div');
-                const typeLabel = castle.is_label ? '지명' : '성/도시';
-                const countryName = getCountryInfoById(castle.country_id)?.name || '';
-                div.textContent = `${castle.name} [${typeLabel}]${countryName ? ' · ' + countryName : ''}`;
-                div.style.cssText = 'padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid rgba(255,255,255,0.05);';
-                div.onmouseover = () => div.style.background = '#5d7185';
-                div.onmouseout  = () => div.style.background = '';
-                div.onclick = () => {
-                    _selectedCityIdForEdit = castle._id;
-                    citySearchInputForEdit.value = castle.name;
-                    citySearchResults.style.display = 'none';
-                    if (citySelectedDisplay) {
-                        citySelectedDisplay.textContent = `✅ 선택됨: ${castle.name} [${typeLabel}]${countryName ? ' · ' + countryName : ''}`;
-                        citySelectedDisplay.style.display = 'block';
+        input.addEventListener('input', () => {
+            _selectedCityIdForEdit = null;
+            _selectedObjectForEdit = null;
+            if (display) display.style.display = 'none';
+            clearTimeout(_objectEditSearchTimer);
+            _objectEditSearchController?.abort();
+            const revision = ++_objectEditSearchRevision;
+            const term = input.value.trim();
+            results.innerHTML = '';
+            results.style.display = 'none';
+            setObjectSearchStatus(term ? '검색 중…' : '이름·한자명·영문명·과거 이름으로 모든 유형을 검색합니다.');
+            if (!term || !canEditObjects()) return;
+            _objectEditSearchTimer = setTimeout(() => searchObjectsForEdit(term, revision), 200);
+        });
+        document.addEventListener('click', event => {
+            if (!input.contains(event.target) && !results.contains(event.target)) results.style.display = 'none';
+        });
+    }
+    async function searchObjectsForEdit(term, revision) {
+        const input = document.getElementById('citySearchInputForEdit');
+        const results = document.getElementById('citySearchResults');
+        const display = document.getElementById('citySelectedDisplay');
+        const controller = new AbortController();
+        _objectEditSearchController = controller;
+        try {
+            const response = await fetch(`/api/editable-objects/search?q=${encodeURIComponent(term)}&limit=50`, {
+                headers:editableObjectHeaders(), cache:'no-store', signal:controller.signal
+            });
+            if (!response.ok) throw new Error('검색 요청 실패');
+            const records = await response.json();
+            if (revision !== _objectEditSearchRevision || input.value.trim() !== term) return;
+            if (!Array.isArray(records)) throw new Error('잘못된 검색 응답');
+            results.innerHTML = '';
+            setObjectSearchStatus(records.length ? `${records.length}개 검색됨${records.length === 50 ? ' · 최대 50개 표시, 검색어를 좁혀 주세요.' : ''}` : '검색 결과가 없습니다.');
+            for (const record of records) {
+                const row = document.createElement('div');
+                const alias = record.matchedName !== record.name ? ` · 검색된 이름: ${record.matchedName}` : '';
+                row.textContent = `${record.name} [${record.typeLabel}]${alias}`;
+                row.style.cssText = 'padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid rgba(255,255,255,0.08);';
+                row.setAttribute('role', 'button');
+                row.tabIndex = 0;
+                const choose = () => {
+                    _selectedObjectForEdit = record;
+                    _selectedCityIdForEdit = editableObjectKey(record);
+                    input.value = record.name;
+                    results.style.display = 'none';
+                    if (display) {
+                        display.textContent = `✅ 선택됨: ${record.name} [${record.typeLabel}]`;
+                        display.style.display = 'block';
                     }
                 };
-                citySearchResults.appendChild(div);
-            });
-            citySearchResults.style.display = 'block';
-        });
-
-        // 바깥 클릭 시 결과창 닫기
-        document.addEventListener('click', (e) => {
-            if (!citySearchInputForEdit.contains(e.target) && !citySearchResults.contains(e.target)) {
-                citySearchResults.style.display = 'none';
+                row.onclick = choose;
+                row.onkeydown = event => {
+                    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); choose(); }
+                };
+                results.appendChild(row);
             }
-        });
+            results.style.display = records.length ? 'block' : 'none';
+        } catch (error) {
+            if (error.name === 'AbortError' || revision !== _objectEditSearchRevision || input.value.trim() !== term) return;
+            results.innerHTML = '';
+            results.style.display = 'none';
+            setObjectSearchStatus('검색에 실패했습니다. 연결 상태를 확인한 뒤 다시 입력해 주세요.');
+        }
+    }
+    function rememberEditableObject(list, record) {
+        const id = value => String(value?.$oid || value || '');
+        const index = list.findIndex(item => id(item._id) === id(record._id));
+        if (index < 0) list.push(record); else list[index] = record;
+    }
+    async function openSelectedObjectForEdit() {
+        const selected = _selectedObjectForEdit;
+        if (!selected || _selectedCityIdForEdit !== editableObjectKey(selected)) {
+            alert('편집할 오브젝트를 검색하여 선택해 주세요.');
+            return;
+        }
+        if (!canEditObjects()) return;
+        try {
+            setObjectSearchStatus('선택한 오브젝트를 불러오는 중…');
+            const response = await fetch(`/api/editable-objects/${encodeURIComponent(selected.source)}/${encodeURIComponent(selected._id)}`, {
+                headers:editableObjectHeaders(), cache:'no-store'
+            });
+            if (!response.ok) throw new Error('삭제되었거나 편집 권한이 없는 오브젝트입니다. 다시 검색해 주세요.');
+            const record = await response.json();
+            if (_selectedCityIdForEdit !== editableObjectKey(selected) || !canEditObjects()) return;
+            switch (selected.source) {
+                case 'castle':
+                    rememberEditableObject(castles, record);
+                    closeEditPanel('editCitySelectionForm');
+                    window.openCastleForm(record._id);
+                    break;
+                case 'natural-feature':
+                    rememberEditableObject(naturalFeatures, record);
+                    closeEditPanel('editCitySelectionForm');
+                    openNaturalFeatureForm(record);
+                    break;
+                case 'drawing':
+                    rememberEditableObject(drawings, record);
+                    closeEditPanel('editCitySelectionForm');
+                    openDrawingForm(record.geojson, record);
+                    break;
+                case 'resource':
+                case 'crop':
+                    closeEditPanel('editCitySelectionForm');
+                    if (selected.source === 'resource') window.rcOpenMarkerEdit(record._id, record);
+                    else await window.rcOpenCropEdit(record._id, record);
+                    break;
+                case 'ad-marker':
+                    rememberEditableObject(adMarkers, record);
+                    closeEditPanel('editCitySelectionForm');
+                    openAdMarkerForm(record);
+                    break;
+                case 'contribution':
+                    // 미승인 연구는 기존 검토 절차를 통해 지도 오브젝트로 반영합니다.
+                    rememberEditableObject(contributions, record);
+                    if (record.status === 'approved' && record._editableLinkedCastle) {
+                        rememberEditableObject(castles, record._editableLinkedCastle);
+                        closeEditPanel('editCitySelectionForm');
+                        window.openCastleForm(record._editableLinkedCastle._id);
+                    } else if (record.status === 'approved' && record._editableMissingMarker) {
+                        closeEditPanel('editCitySelectionForm');
+                        window.approveContribution(record._id);
+                        showToast('승인된 사료에 지도 오브젝트가 없습니다. 위치를 지정하고 저장하면 지도에 등록됩니다.', 'info', 7000);
+                    } else {
+                        window.openContribDetail(record._id);
+                        setObjectSearchStatus('제출 사료의 상세·검토 창을 열었습니다. 위치 보완과 지도 반영은 검토/승인 절차에서 진행합니다.');
+                    }
+                    break;
+                default: throw new Error('지원하지 않는 오브젝트 유형입니다.');
+            }
+        } catch (error) {
+            setObjectSearchStatus(error.message || '오브젝트를 불러오지 못했습니다.');
+        }
     }
 
       updateCountrySelect();
@@ -15024,6 +15129,8 @@ const loadingMessages = [
     var _historyPanelSearchAbort = null;
     var _historyPanelSearchSequence = 0;
     var _historyPanelSearchCache = new Map();
+    var _historyPanelSearchOffset = 0;
+    var _historyPanelSearchDetailSequence = 0;
 
     let _mobileTimeCommitTimer = null;
     function updateTime(year, month, cacheOnly = false) {
@@ -15304,7 +15411,7 @@ const loadingMessages = [
 
       const mapHistoryYearTitle = document.getElementById('map-history-year-title');
       const mapAllRecordsContent = document.getElementById('map-all-records-content');
-      const historyPanelSearchActive = Boolean(document.getElementById('map-history-search-input')?.value.trim());
+      const historyPanelSearchActive = _historyPanelSearchState().active;
 
       // 모바일 CSS의 강제 display 규칙과 무관하게 관리자만 편집 버튼을 가진다.
       const mapOpenHistoryFormBtn = document.getElementById('map-open-history-form-btn');
@@ -15365,25 +15472,60 @@ const loadingMessages = [
       }
     }
 
+    function _historyRecordYear(value) {
+      if (value === null || value === undefined || String(value).trim() === '') return null;
+      const year = Number(value);
+      return Number.isInteger(year) ? year : null;
+    }
+
+    function _historyPanelSearchState() {
+      const query = String(document.getElementById('map-history-search-input')?.value || '').trim();
+      const source = document.getElementById('map-history-source-filter')?.value || '';
+      const undated = document.getElementById('map-history-undated-filter')?.checked === true;
+      return { query, source, undated, active: Boolean(query || source || undated) };
+    }
+
+    async function _loadHistorySearchSources() {
+      const select = document.getElementById('map-history-source-filter');
+      if (!select) return;
+      try {
+        const response = await fetch('/api/history/search/sources');
+        if (!response.ok) throw new Error('사료 목록 조회 실패');
+        const sources = await response.json();
+        sources.forEach(source => {
+          const option = document.createElement('option');
+          option.value = source;
+          option.textContent = source;
+          select.appendChild(option);
+        });
+      } catch (_) { select.title = '사료 목록을 불러오지 못했습니다. 검색어로 사료명을 입력해주세요.'; }
+    }
+
+    async function _refreshHistoryPanelSearchAfterSave() {
+      _historyPanelSearchCache.clear();
+      if (_historyPanelSearchState().active) await _runHistoryPanelSearch(_historyPanelSearchOffset);
+    }
+
     function _restoreHistoryPanelYear() {
       const currentYear = Number(yearInput?.value ?? _historyPanelTargetYear);
       if (Number.isFinite(currentYear)) updateHistoryPanel(currentYear);
     }
 
-    function _renderHistoryPanelSearchResults(query, records) {
+    function _renderHistoryPanelSearchResults(query, records, page = {}) {
       const content = document.getElementById('map-all-records-content');
       const status = document.getElementById('map-history-search-status');
       const title = document.getElementById('map-history-year-title');
       if (!content) return;
       const results = Array.isArray(records) ? records : [];
-      if (status) status.textContent = `${results.length}건`;
-      if (title) title.textContent = `역사 검색 · ${query}`;
+      const total = page.total ?? results.length;
+      if (status) status.textContent = `${total.toLocaleString('ko-KR')}건`;
+      if (title) title.textContent = `역사 검색 · ${query || '전체 사료'}`;
       content.innerHTML = '';
       const wrap = document.createElement('div');
       wrap.className = 'history-panel-search-results';
       const heading = document.createElement('div');
       heading.className = 'history-panel-search-heading';
-      heading.innerHTML = `<span>⌕ 전체 시대 검색 결과</span><span class="history-panel-search-heading-actions"><span>${results.length}건</span><button type="button" data-search-prev title="이전 검색 결과" aria-label="이전 검색 결과">‹</button><button type="button" data-search-next title="다음 검색 결과" aria-label="다음 검색 결과">›</button></span>`;
+      heading.innerHTML = `<span>⌕ 전체 시대 검색 결과</span><span class="history-panel-search-heading-actions"><span>${total.toLocaleString('ko-KR')}건</span><button type="button" data-search-prev title="이전 검색 결과" aria-label="이전 검색 결과">‹</button><button type="button" data-search-next title="다음 검색 결과" aria-label="다음 검색 결과">›</button></span>`;
       wrap.appendChild(heading);
       const list = document.createElement('div');
       list.className = 'history-panel-search-list';
@@ -15406,10 +15548,10 @@ const loadingMessages = [
         const name = document.createElement('strong');
         name.textContent = `${type === 'source' ? '📖' : '📜'} ${record.event_name || record.title || '(제목 없음)'}`;
         const period = document.createElement('time');
-        const recordYear = Number(record.year);
-        period.textContent = Number.isFinite(recordYear)
+        const recordYear = _historyRecordYear(record.year);
+        period.textContent = recordYear !== null
           ? `${recordYear <= 0 ? '기원전 ' : '서기 '}${Math.abs(recordYear)}년 ${Number(record.month) || 1}월`
-          : '연도 미상';
+          : '연도 미지정';
         const source = document.createElement('small');
         source.textContent = record.source || record.comment || (type === 'source' ? '원전 사료' : '연구 기록');
         button.append(name, period, source);
@@ -15433,6 +15575,15 @@ const loadingMessages = [
       };
       heading.querySelector('[data-search-prev]')?.addEventListener('click', () => selectResultAt(selectedResultIndex < 0 ? resultButtons.length - 1 : selectedResultIndex - 1));
       heading.querySelector('[data-search-next]')?.addEventListener('click', () => selectResultAt(selectedResultIndex + 1));
+      if (total > results.length) {
+        const pages = document.createElement('div');
+        pages.className = 'history-search-pages';
+        const offset = page.offset || 0;
+        pages.innerHTML = `<button type="button" data-page-prev ${offset === 0 ? 'disabled' : ''}>이전 목록</button><span>${total ? offset + 1 : 0}–${offset + results.length} / ${total.toLocaleString('ko-KR')}건</span><button type="button" data-page-next ${page.hasMore ? '' : 'disabled'}>다음 목록</button>`;
+        pages.querySelector('[data-page-prev]').addEventListener('click', () => _runHistoryPanelSearch(Math.max(0, offset - 100)));
+        pages.querySelector('[data-page-next]').addEventListener('click', () => _runHistoryPanelSearch(offset + 100));
+        wrap.appendChild(pages);
+      }
       content.appendChild(wrap);
       void globalThis.HistoryTranslations?.hydrate(wrap);
     }
@@ -15441,9 +15592,10 @@ const loadingMessages = [
       const id = String(record?._id || '');
       if (!id || !wrap) return;
       const type = record.type === 'source' ? 'source' : 'history';
-      const year = Number(record.year);
+      const detailSequence = ++_historyPanelSearchDetailSequence;
+      const year = _historyRecordYear(record.year);
       const month = Number(record.month) || 1;
-      if (Number.isFinite(year)) window.goToHistoricalTime?.(year, month);
+      if (year !== null) window.goToHistoricalTime?.(year, month);
       let detail = wrap.querySelector('.history-panel-search-detail');
       if (!detail) {
         detail = document.createElement('section');
@@ -15458,6 +15610,9 @@ const loadingMessages = [
         const response = await fetch(endpoint, { cache:'no-store' });
         if (!response.ok) throw new Error('기록 조회 실패');
         const item = await response.json();
+        if (detailSequence !== _historyPanelSearchDetailSequence || wrap.isConnected === false) return;
+        const itemYear = _historyRecordYear(item.year);
+        const period = itemYear === null ? '연도 미지정' : `${itemYear <= 0 ? '기원전 ' : '서기 '}${Math.abs(itemYear)}년 ${Number(item.month) || 1}월`;
         const itemTitle = item.title || item.event_name || '(제목 없음)';
         let blocks = '';
         if (type === 'source') {
@@ -15474,7 +15629,7 @@ const loadingMessages = [
         const editAction = canAdminEditHistoryRecords()
           ? `<button type="button" class="history-edit-action history-search-detail-edit" title="선택한 기록 수정">✏ 수정</button>`
           : '';
-        detail.innerHTML = `<div class="history-panel-search-detail-heading"><span>선택 기록</span><time>${year <= 0 ? '기원전 ' : '서기 '}${Math.abs(year)}년 ${month}월</time></div><article class="history-record-card"><div class="history-record-head"><div class="history-record-title">${_escapeHistoryInline(itemTitle)}</div>${editAction}</div>${blocks || '<div class="history-record-block">본문이 없습니다.</div>'}${_historyVideoMarkup(item.video_url)}<div class="history-feedback-actions">${globalThis.HistoryTranslations?.markup(item, type) || ''}<div class="history-comments" data-record-type="${type}" data-record-id="${_escapeHistoryInline(id)}"><button type="button" class="history-comments-toggle">💬 사관의견</button><div class="history-comments-panel" hidden></div></div></div></article>`;
+        detail.innerHTML = `<div class="history-panel-search-detail-heading"><span>선택 기록</span><time>${period}</time></div><article class="history-record-card"><div class="history-record-head"><div class="history-record-title">${_escapeHistoryInline(itemTitle)}</div>${editAction}</div>${blocks || '<div class="history-record-block">본문이 없습니다.</div>'}${_historyVideoMarkup(item.video_url)}<div class="history-feedback-actions">${globalThis.HistoryTranslations?.markup(item, type) || ''}<div class="history-comments" data-record-type="${type}" data-record-id="${_escapeHistoryInline(id)}"><button type="button" class="history-comments-toggle">💬 사관의견</button><div class="history-comments-panel" hidden></div></div></div></article>`;
         detail.querySelector('.history-comments-toggle')?.addEventListener('click', event => {
           event.stopPropagation();
           _toggleHistoryComments(event.currentTarget.closest('.history-comments'));
@@ -15483,59 +15638,75 @@ const loadingMessages = [
         detail.querySelector('.history-search-detail-edit')?.addEventListener('click', event => {
           event.stopPropagation();
           if (type === 'source') openSourceRecordEditor(item, []);
-          else editHistory(item._id || id);
+          else {
+            if (!editMode && canAdminEditHistoryRecords()) setEditModeState(true);
+            editHistory(item._id || id);
+          }
         });
         detail.scrollIntoView({ behavior:'smooth', block:'nearest' });
       } catch (_) {
+        if (detailSequence !== _historyPanelSearchDetailSequence || wrap.isConnected === false) return;
         detail.innerHTML = '<div class="history-panel-search-detail-loading is-error">선택한 기록을 불러오지 못했습니다.</div>';
       }
     }
 
-    async function _runHistoryPanelSearch() {
+    async function _runHistoryPanelSearch(offset = 0) {
       const input = document.getElementById('map-history-search-input');
       const clear = document.getElementById('map-history-search-clear');
       const status = document.getElementById('map-history-search-status');
       const content = document.getElementById('map-all-records-content');
-      const query = String(input?.value || '').trim();
+      const state = _historyPanelSearchState();
+      const { query, source, undated, active } = state;
       const sequence = ++_historyPanelSearchSequence;
-      if (clear) clear.hidden = !query;
-      if (!query) {
+      ++_historyPanelSearchDetailSequence;
+      _historyPanelSearchAbort?.abort();
+      _historyPanelSearchOffset = Math.max(0, Number(offset) || 0);
+      if (clear) { clear.hidden = !active; clear.title = '검색·필터 초기화'; }
+      if (!active) {
         if (status) status.textContent = '';
-        _historyPanelSearchAbort?.abort();
         _restoreHistoryPanelYear();
         return;
       }
-      if (query.length < 2) {
+      if (query.length === 1 && !source && !undated) {
         if (status) status.textContent = '2자 이상';
-        if (content) content.innerHTML = '<div class="history-empty-state"><div><span>⌕</span>두 글자 이상 입력하면<br>전체 시대의 역사 기록을 검색합니다.</div></div>';
+        if (content) content.innerHTML = '<div class="history-empty-state"><div><span>⌕</span>두 글자 이상 입력하거나 사료·연도 필터를 선택해주세요.</div></div>';
         return;
       }
-      const cacheKey = query.toLocaleLowerCase('ko-KR');
+      const params = new URLSearchParams({ q:query, source, undated:undated ? '1' : '', paged:'1', limit:'100', offset:String(_historyPanelSearchOffset) });
+      const cacheKey = params.toString();
+      const label = [source, undated ? '연도 미지정' : '', query].filter(Boolean).join(' · ');
       if (_historyPanelSearchCache.has(cacheKey)) {
-        _renderHistoryPanelSearchResults(query, _historyPanelSearchCache.get(cacheKey));
+        const cached = _historyPanelSearchCache.get(cacheKey);
+        _renderHistoryPanelSearchResults(label, cached.records, cached);
         return;
       }
-      _historyPanelSearchAbort?.abort();
       _historyPanelSearchAbort = new AbortController();
       if (status) status.textContent = '검색 중…';
-      if (content) content.innerHTML = '<div style="color:#95a5a6;font-size:11px;padding:10px 0;">MongoDB 역사 기록을 검색하는 중…</div>';
+      if (content) content.innerHTML = '<div style="color:#95a5a6;font-size:11px;padding:10px 0;">역사 기록을 검색하는 중…</div>';
       try {
-        const response = await fetch(`/api/history/search?q=${encodeURIComponent(query)}&limit=100`, {
-          signal:_historyPanelSearchAbort.signal,
-          cache:'no-store'
-        });
+        const response = await fetch(`/api/history/search?${params}`, { signal:_historyPanelSearchAbort.signal, cache:'no-store' });
         if (!response.ok) throw new Error('역사 검색 실패');
-        const records = await response.json();
-        if (sequence !== _historyPanelSearchSequence || query !== String(input?.value || '').trim()) return;
-        _historyPanelSearchCache.set(cacheKey, Array.isArray(records) ? records : []);
+        const page = await response.json();
+        if (sequence !== _historyPanelSearchSequence || JSON.stringify(state) !== JSON.stringify(_historyPanelSearchState())) return;
+        // 마지막 남은 미지정 기록에 연도를 넣었으면 이전 페이지로 돌아간다.
+        if (page.offset > 0 && !page.records.length) return _runHistoryPanelSearch(Math.max(0, page.offset - 100));
+        _historyPanelSearchCache.set(cacheKey, page);
         if (_historyPanelSearchCache.size > 30) _historyPanelSearchCache.delete(_historyPanelSearchCache.keys().next().value);
-        _renderHistoryPanelSearchResults(query, records);
+        _renderHistoryPanelSearchResults(label, page.records, page);
       } catch (error) {
         if (error.name === 'AbortError' || sequence !== _historyPanelSearchSequence) return;
         if (status) status.textContent = '검색 실패';
         if (content) content.innerHTML = '<div class="history-empty-state"><div><span>⚠</span>검색 결과를 불러오지 못했습니다.<br><small>잠시 후 다시 시도해 주세요.</small></div></div>';
       }
     }
+
+    ['map-history-source-filter', 'map-history-undated-filter'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => {
+        clearTimeout(_historyPanelSearchTimer);
+        _runHistoryPanelSearch();
+      });
+    });
+    void _loadHistorySearchSources();
 
     document.getElementById('map-history-search-input')?.addEventListener('input', () => {
       clearTimeout(_historyPanelSearchTimer);
@@ -15549,6 +15720,10 @@ const loadingMessages = [
     document.getElementById('map-history-search-clear')?.addEventListener('click', () => {
       const input = document.getElementById('map-history-search-input');
       if (input) { input.value = ''; input.focus(); }
+      const source = document.getElementById('map-history-source-filter');
+      const undated = document.getElementById('map-history-undated-filter');
+      if (source) source.value = '';
+      if (undated) undated.checked = false;
       _runHistoryPanelSearch();
     });
 
@@ -15957,7 +16132,7 @@ const loadingMessages = [
 
       // 검색 중에도 연도별 자막 데이터는 계속 갱신하되, 패널의 전체 시대 검색
       // 결과는 연도 슬라이더 변경으로 덮어쓰지 않는다.
-      if (document.getElementById('map-history-search-input')?.value.trim()) {
+      if (_historyPanelSearchState().active) {
         updateHistoryCaption(year, historyRecords, sourceRecords);
         return;
       }
@@ -16352,14 +16527,7 @@ const loadingMessages = [
     cancelCitySelectionBtn.addEventListener('click', () => {
         closeEditPanel('editCitySelectionForm');
     });
-    editSelectedCityBtn.addEventListener('click', () => {
-        if (_selectedCityIdForEdit) {
-            closeEditPanel('editCitySelectionForm');
-            openCastleForm(_selectedCityIdForEdit);
-        } else {
-            alert('편집할 도시/성을 검색하여 선택해주세요!');
-        }
-    });
+    editSelectedCityBtn.addEventListener('click', openSelectedObjectForEdit);
 
     
     // ── 지도 클릭 기반 성 통치 기록 일괄 편집 ──────────────────────
@@ -16601,6 +16769,10 @@ const loadingMessages = [
 
     // 지도 클릭 시 성 추가 폼 열기 (편집 모드에서만)
     map.on('click', (e) => {
+      if (window._contributionLocationPickActive) {
+          window._completeContributionLocationPick(e.latlng);
+          return;
+      }
       // 🛡️ 마커 클릭이 map click으로 버블링된 경우 무시
       if (window._markerClickConsumed) {
           window._markerClickConsumed = false;
@@ -16612,8 +16784,7 @@ const loadingMessages = [
       // 🚩 [추가] 기여 모드일 때 폼 열기 (일반 유저도 가능하지만 게스트는 제외)
       if (contributionMode && !currentUser?.isGuest) {
           const latlng = e.latlng;
-          document.getElementById('contribLat').value = latlng.lat;
-          document.getElementById('contribLng').value = latlng.lng;
+          window._setContributionCoordinates(latlng.lat, latlng.lng);
           
           if (contributionMarker) map.removeLayer(contributionMarker);
           contributionMarker = L.marker(latlng).addTo(map);
@@ -16892,6 +17063,18 @@ const loadingMessages = [
       }
 
       popupContent.appendChild(copyButton);
+      if (privileged) {
+        const editTerritoryButton = document.createElement('button');
+        editTerritoryButton.innerText = '🧭 이 영토 경계 편집';
+        editTerritoryButton.className = 'primary';
+        editTerritoryButton.onclick = () => {
+          if (currentUser?.role !== 'admin' && currentUser?.role !== 'superuser') return;
+          map.closePopup();
+          if (!editMode) setEditModeState(true);
+          return window.openTerritoryGeomEditAt?.({ lat: latlng.lat, lng: latlng.lng });
+        };
+        popupContent.appendChild(editTerritoryButton);
+      }
       // 🚩 [추가] 편집 모드일 때만 '성 추가' 버튼을 팝업에 표시
       if (editMode && (currentUser?.role === 'superuser' || currentUser?.role === 'admin')) {
         popupContent.appendChild(addCastleButton);
@@ -16939,8 +17122,7 @@ const loadingMessages = [
           addContributionButton.onclick = () => {
               map.closePopup();
               // 기여 폼 열기
-              document.getElementById('contribLat').value = latlng.lat;
-              document.getElementById('contribLng').value = latlng.lng;
+              window._setContributionCoordinates(latlng.lat, latlng.lng);
               
               if (contributionMarker) map.removeLayer(contributionMarker);
               contributionMarker = L.marker(latlng).addTo(map);
@@ -17152,15 +17334,8 @@ const loadingMessages = [
         if (_photoMsg) { _photoMsg.style.display = 'none'; _photoMsg.textContent = ''; }
         if (_photoFile) _photoFile.value = '';
 
-        // 🚩 [추가] 제출 사관명 표시
-        const createdByRow = document.getElementById('castleCreatedByRow');
-        const createdByDisplay = document.getElementById('castleCreatedByDisplay');
-        if (castle.createdBy) {
-            createdByDisplay.textContent = castle.createdBy;
-            createdByRow.style.display = 'block';
-        } else {
-            createdByRow.style.display = 'none';
-        }
+        // 기여자 표시 이름은 관리자만 편집할 수 있습니다.
+        window.markerContributorForm?.populate(castle, currentUser);
 
         // 🆔 castle_id 칩 표시
         const _chip = document.getElementById('castleIdChip');
@@ -18396,6 +18571,8 @@ const loadingMessages = [
       // 🚩 [추가] 생성자 및 수정자 정보 추가
       if (isUpdate) {
         data.lastModifiedBy = currentUser.username;
+        const contributorError = window.markerContributorForm?.apply(data, editingCastleKey, currentUser);
+        if (contributorError) { alert(contributorError); return; }
       } else {
         // 🚩 [수정] 기여 변환인 경우 원본 기여자를 생성자로 설정
         const originContributor = document.getElementById('originContributor').value;
@@ -18490,7 +18667,8 @@ const loadingMessages = [
           // 원본 기여 승인은 기여를 새 마커로 처음 변환할 때만 처리한다.
           // 기존 마커 수정 시 provenance 용 originContributionId가 남아 있어도
           // 과거 기여를 다시 승인하면 잘못된 이름의 승인 로그와 점수가 중복된다.
-          if (originContributionId && !isUpdate) {
+          const originAlreadyApproved = contributions.some(item => String(item._id) === String(originContributionId) && item.status === 'approved');
+          if (originContributionId && !isUpdate && !originAlreadyApproved) {
               try {
                   await fetch(`${API_BASE_URL}/contributions/${originContributionId}/status`, {
                       method: 'PUT',
@@ -18534,6 +18712,7 @@ const loadingMessages = [
               }
               // 🖼️ 현재 열린 detail panel이 같은 castle이면 hero img 즉시 갱신
               const savedCastle = responseData.castle;
+              window.markerContributorForm?.syncDetail(savedCastle);
               if (savedCastle && window._currentDetailCastleId &&
                   (window._currentDetailCastleId === savedCastle._id || window._currentDetailCastleId === savedCastle.name)) {
                   const heroImg = document.getElementById('odp-hero-img');
@@ -22479,6 +22658,16 @@ kingSelect.addEventListener('change', () => {
             _coords = getCoords(JSON.parse(raw));
             if (_coords.length === 0) { showToast('편집할 수 있는 도형 데이터가 없습니다', 'warn'); return; }
 
+            // 포인트 마커는 Leaflet에서 편집하므로 3D 카메라를 2D로 인계한다.
+            if (window._is3dMode) {
+                if (typeof window._exitHistory3d !== 'function') {
+                    showToast('지도가 준비된 뒤 다시 시도해주세요', 'warn');
+                    return;
+                }
+                window._prefer2dEditing = true;
+                window._exitHistory3d();
+                map.invalidateSize({ animate: false, pan: false });
+            }
             window._vertexEditMode = true;
             map.dragging.disable();
             _vtxMarkers.addTo(map);
@@ -22622,6 +22811,54 @@ kingSelect.addEventListener('change', () => {
             alert(error.message);
         }
     });
+
+    // 3D 강 클릭은 렌더링용 지오메트리가 아닌 원본 레코드를 편집한다.
+    function setup3dRiverSelection(riverMap) {
+        const layerIds = ['3d-rivers-hit', '3d-rivers-fill'];
+        const getId = item => String(item?._id?.$oid || item?._id || '');
+        const canEdit = () => currentUser?.role === 'admin' || currentUser?.role === 'superuser';
+        const toolActive = () => window._globeLocationPickActive || window._vertexEditMode ||
+            window._segmentEraseMode || document.getElementById('territory-geom-edit-bar')?.classList.contains('open');
+        riverMap.on('click', event => {
+            if (event.defaultPrevented || toolActive() || event.originalEvent?.target?.closest?.('.maplibregl-marker')) return;
+            const layers = layerIds.filter(id => riverMap.getLayer(id));
+            if (!layers.length) return;
+            const hits = riverMap.queryRenderedFeatures(event.point, { layers });
+            let river, source;
+            for (const hit of hits) {
+                source = hit.properties?.river_source;
+                const records = source === 'drawing' ? drawings : source === 'natural-feature' ? naturalFeatures : [];
+                river = records.find(item => item.type === 'river' && getId(item) === hit.properties?.river_id);
+                if (river) break;
+            }
+            if (!river) return;
+            const openEditor = () => {
+                if (!canEdit() || toolActive()) return;
+                window._closeSharedPopup?.();
+                if (!editMode) setEditModeState(true);
+                if (source === 'drawing') openDrawingForm(river.geojson, river);
+                else openNaturalFeatureForm(river);
+            };
+            if (editMode && canEdit()) { openEditor(); return; }
+            const content = document.createElement('div');
+            const name = document.createElement('strong');
+            name.textContent = river.name || '강';
+            content.appendChild(name);
+            if (canEdit()) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.textContent = '🌊 이 강 편집';
+                button.style.cssText = 'display:block;margin-top:8px;padding:6px 10px;cursor:pointer;';
+                button.addEventListener('click', openEditor);
+                content.appendChild(button);
+            }
+            window._openSharedPopup(riverMap, event.lngLat, '').setDOMContent(content);
+        });
+        layerIds.forEach(id => {
+            riverMap.on('mouseenter', id, () => { if (!toolActive()) riverMap.getCanvas().style.cursor = 'pointer'; });
+            riverMap.on('mouseleave', id, () => { if (!toolActive()) riverMap.getCanvas().style.cursor = ''; });
+        });
+    }
 
     // --- 11. 그리기 폼 관리 --- (🚩 [신규 추가])
     function openDrawingForm(geojson, drawingData = null) {
@@ -25933,7 +26170,7 @@ kingSelect.addEventListener('change', () => {
                 video_url: String(fields.get('video_url') || '').trim() || null,
                 link_exclusions: [...sourceLinkExclusions]
             };
-            if (!Number.isFinite(data.year) || !data.source || !data.title || !data.content) return alert('시점, 출전, 제목, 본문을 입력해주세요.');
+            if (!String(fields.get('year') || '').trim() || !Number.isInteger(data.year) || !data.source || !data.title || !data.content) return alert('시점, 출전, 제목, 본문을 입력해주세요.');
             if (data.video_url && !window.markerVideo?.parse(data.video_url)) return alert('YouTube, Vimeo 또는 MP4·WebM·Ogg 동영상 주소를 입력해주세요.');
             const saveButton = form.querySelector('[type="submit"]');
             saveButton.disabled = true;
@@ -25960,6 +26197,7 @@ kingSelect.addEventListener('change', () => {
                 } else if (layerVisibility.historyPanel) {
                     await updateHistoryPanel(data.year);
                 }
+                await _refreshHistoryPanelSearchAfterSave();
                 await window.refreshOpenHeroHistoricalRelations?.();
                 if (typeof showToast === 'function') showToast(`「${savedRecord.title || data.title}」 수정 저장 완료`, 'success');
             } catch (error) {
@@ -26103,6 +26341,7 @@ kingSelect.addEventListener('change', () => {
             if (layerVisibility.historyPanel) {
                 await updateHistoryPanel(savedYear);
             }
+            await _refreshHistoryPanelSearchAfterSave();
             await window.refreshOpenHeroHistoricalRelations?.();
             const currentTime = getCurrentYearMonth();
             updateMap(currentTime.year, currentTime.month, false, true);
@@ -29704,6 +29943,7 @@ kingSelect.addEventListener('change', () => {
             function setupLayerEvents() {
                 if (_layerEventsSetup) return;
                 _layerEventsSetup = true;
+                setup3dRiverSelection(mlMap);
                 // 팝업: 영토 클릭
                 mlMap.on('click', 'territory-fill', (e) => {
                     const p = e.features[0].properties;
@@ -29722,6 +29962,8 @@ kingSelect.addEventListener('change', () => {
                 mlMap.on('mouseleave', 'castle-circle', () => { mlMap.getCanvas().style.cursor = ''; });
             }
 
+            let _lastRiverRecords = [];
+            let _riverDataVersion = 0;
             let _refreshLayersCacheKey = null;
             let _refreshTerritoryDataKey = null; // 영토 전용 캐시 키 (데이터 의존)
             let _refreshMarkerKey = null;        // 마커 전용 캐시 키 (zoom/LOD 의존)
@@ -29770,7 +30012,12 @@ kingSelect.addEventListener('change', () => {
                     && getEffectiveZoom(mlMap) >= 5.5;
 
                 // ── 영토 캐시 키: 연도/월/데이터 수/표시여부만 — zoom·pan 무관 ──
-                const newTerritoryKey = `${year}_${month}_${(_td?.country?.length||0)}_${(_td?.province?.length||0)}_${(_td?.city?.length||0)}_${_showTerritory}_${_showRivers}`;
+                const riverRecords = [...naturalFeatures, ...drawings].filter(item => item.type === 'river');
+                if (riverRecords.length !== _lastRiverRecords.length || riverRecords.some((item, i) => item !== _lastRiverRecords[i])) {
+                    _lastRiverRecords = riverRecords;
+                    _riverDataVersion++;
+                }
+                const newTerritoryKey = `${year}_${month}_${(_td?.country?.length||0)}_${(_td?.province?.length||0)}_${(_td?.city?.length||0)}_${_showTerritory}_${_showRivers}_${_riverDataVersion}`;
                 // ── 마커 캐시 키: 시점/데이터 버전/줌/화면 범위/토글 상태 ──
                 const _lv = (typeof layerVisibility !== 'undefined') ? layerVisibility : {};
                 const _lvKey = `${_lv.natural?1:0}${_lv.city?1:0}${_lv.military?1:0}${_lv.relic?1:0}`
@@ -30321,7 +30568,7 @@ kingSelect.addEventListener('change', () => {
                 if (typeof naturalFeatures !== 'undefined') {
                     naturalFeatures.forEach(f => {
                         if (f.type !== 'river' || !f.geometry) return;
-                        riverFeatures.push({ type: 'Feature', geometry: f.geometry, properties: { name: f.name || '', color: resolveRiverColor(f.color), line_width: Math.min(20, Math.max(0.5, Number(f.line_width) || 1.5)) } });
+                        riverFeatures.push({ type: 'Feature', geometry: f.geometry, properties: { river_id: String(f._id?.$oid || f._id || ''), river_source: 'natural-feature', name: f.name || '', color: resolveRiverColor(f.color), line_width: Math.min(20, Math.max(0.5, Number(f.line_width) || 1.5)) } });
                     });
                 }
                 if (typeof drawings !== 'undefined') {
@@ -30331,7 +30578,7 @@ kingSelect.addEventListener('change', () => {
                         const sy = d.start_year ?? d.startYear ?? -Infinity;
                         const ey = d.end_year   ?? d.endYear   ?? Infinity;
                         if (!(_rYear >= sy && _rYear <= ey)) return;
-                        riverFeatures.push({ type: 'Feature', geometry: d.geojson.geometry, properties: { name: d.name || '강', color: resolveRiverColor(d.color), line_width: Math.min(20, Math.max(0.5, Number(d.line_width) || 1.5)) } });
+                        riverFeatures.push({ type: 'Feature', geometry: d.geojson.geometry, properties: { river_id: String(d._id?.$oid || d._id || ''), river_source: 'drawing', name: d.name || '강', color: resolveRiverColor(d.color), line_width: Math.min(20, Math.max(0.5, Number(d.line_width) || 1.5)) } });
                     });
                 }
                 const riverFC = { type: 'FeatureCollection', features: riverFeatures };
@@ -30342,7 +30589,7 @@ kingSelect.addEventListener('change', () => {
                     if (_m.getLayer('3d-rivers-line')) _m.setPaintProperty('3d-rivers-line', 'line-color', ['get', 'color']);
                     if (_m.getLayer('3d-rivers-line')) _m.setPaintProperty('3d-rivers-line', 'line-width', ['get', 'line_width']);
                     const vis = (_showRivers && riverFeatures.length > 0) ? 'visible' : 'none';
-                    ['3d-rivers-fill', '3d-rivers-line'].forEach(id => { if (_m.getLayer(id)) _m.setLayoutProperty(id, 'visibility', vis); });
+                    ['3d-rivers-fill', '3d-rivers-line', '3d-rivers-hit'].forEach(id => { if (_m.getLayer(id)) _m.setLayoutProperty(id, 'visibility', vis); });
                 } else if (_showRivers && riverFeatures.length > 0) {
                     // ── 최초 렌더: 소스+레이어 생성 ──
                     _m.addSource('3d-rivers', { type: 'geojson', data: riverFC });
@@ -30353,6 +30600,13 @@ kingSelect.addEventListener('change', () => {
                     _m.addLayer({ id: '3d-rivers-line', type: 'line', source: '3d-rivers',
                         paint: { 'line-color': ['get', 'color'], 'line-width': ['get', 'line_width'], 'line-opacity': 0.9 },
                         layout: { 'line-cap': 'round', 'line-join': 'round' }
+                    });
+                }
+                // 가는 선도 2D와 같은 최소 14px 범위에서 선택할 수 있다.
+                if (_m.getSource('3d-rivers') && !_m.getLayer('3d-rivers-hit')) {
+                    _m.addLayer({ id: '3d-rivers-hit', type: 'line', source: '3d-rivers',
+                        paint: { 'line-width': ['max', 14, ['+', ['get', 'line_width'], 8]], 'line-opacity': 0 },
+                        layout: { 'line-cap': 'round', 'line-join': 'round', visibility: (_showRivers && riverFeatures.length) ? 'visible' : 'none' }
                     });
                 }
                 } // end rebuildTerritory
@@ -32080,9 +32334,14 @@ kingSelect.addEventListener('change', () => {
                         });
                         mlMap.on('click', event => {
                             if (!window._globeLocationPickActive) return;
+                            event.preventDefault();
                             const pickerMode = window._globeLocationPickActive;
                             window._globeLocationPickActive = false;
                             mlMap.getCanvas().style.cursor = '';
+                            if (pickerMode === 'contribution-coordinate') {
+                                window._completeContributionLocationPick(event.lngLat);
+                                return;
+                            }
                             if (pickerMode === 'form-coordinate') {
                                 const lat = Number(event.lngLat.lat.toFixed(6));
                                 const lng = Number(event.lngLat.lng.toFixed(6));
@@ -34540,7 +34799,61 @@ kingSelect.addEventListener('change', () => {
         const recordCreateHeroCheckbox = document.getElementById('recordCreateHero');
         const newHeroFields = document.getElementById('newHeroFields');
 
+        function readContributionCoordinates() {
+            const latValue = document.getElementById('contribLat')?.value.trim() || '';
+            const lngValue = document.getElementById('contribLng')?.value.trim() || '';
+            if (!latValue || !lngValue) return null;
+            const lat = Number(latValue), lng = Number(lngValue);
+            return Number.isFinite(lat) && Number.isFinite(lng)
+                && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180 ? { lat, lng } : null;
+        }
+
+        function updateContributionLocationStatus() {
+            const status = document.getElementById('contribLocationStatus');
+            if (!status) return;
+            const coordinates = readContributionCoordinates();
+            status.textContent = coordinates
+                ? `선택한 위치: 위도 ${coordinates.lat.toFixed(6)}, 경도 ${coordinates.lng.toFixed(6)}`
+                : '위치가 지정되지 않았습니다. 지도에서 위치를 선택해 주세요.';
+        }
+
+        function setContributionCoordinates(lat, lng) {
+            document.getElementById('contribLat').value = lat;
+            // 지도를 한 바퀴 넘게 이동한 경우에도 유효한 경도로 저장합니다.
+            document.getElementById('contribLng').value = ((lng + 180) % 360 + 360) % 360 - 180;
+            updateContributionLocationStatus();
+        }
+
+        window._setContributionCoordinates = setContributionCoordinates;
+
+        function beginContributionLocationPick() {
+            closeEditPanel('contributionForm');
+            ['hamburger-menu-panel', 'hamburger-menu-overlay', 'hamburger-menu-btn'].forEach(id => {
+                document.getElementById(id)?.classList.remove('active');
+            });
+            if (window._is3dMode && window.mlMap3d) {
+                window._globeLocationPickActive = 'contribution-coordinate';
+                window.mlMap3d.getCanvas().style.cursor = 'crosshair';
+            } else {
+                window._contributionLocationPickActive = true;
+                map.getContainer().style.cursor = 'crosshair';
+            }
+            showToast('📍 사료의 위치를 지도에서 선택하세요. 입력한 내용은 유지됩니다.', 'info', 5000);
+        }
+
+        window._completeContributionLocationPick = point => {
+            window._contributionLocationPickActive = false;
+            map.getContainer().style.cursor = '';
+            setContributionCoordinates(point.lat, point.lng);
+            const coordinates = readContributionCoordinates();
+            if (contributionMarker) map.removeLayer(contributionMarker);
+            if (coordinates) contributionMarker = L.marker([coordinates.lat, coordinates.lng]).addTo(map);
+            openUnifiedContributionForm('map_marker');
+        };
+        document.getElementById('contribPickLocation')?.addEventListener('click', beginContributionLocationPick);
+
         function syncUnifiedContributionForm() {
+            updateContributionLocationStatus();
             const mode = contribSubmissionType?.value || 'map_marker';
             const isMap = mode === 'map_marker';
             const isHero = mode === 'hero_research';
@@ -34779,6 +35092,12 @@ kingSelect.addEventListener('change', () => {
                 let data;
 
                 if (submissionType === 'map_marker') {
+                    const coordinates = readContributionCoordinates();
+                    if (!coordinates) {
+                        alert('지도 마커 연구는 위치 지정이 필수입니다. 지도에서 위치를 선택해 주세요.');
+                        beginContributionLocationPick();
+                        return;
+                    }
                     const placeType = document.getElementById('contribPlaceType')?.value || 'city';
                     const isNatural = placeType.startsWith('natural_');
                     const startYearVal = document.getElementById('contribStartYear')?.value;
@@ -34805,8 +35124,8 @@ kingSelect.addEventListener('change', () => {
 
                     data = {
                         name: document.getElementById('contribName').value.trim(),
-                        lat: parseFloat(document.getElementById('contribLat').value),
-                        lng: parseFloat(document.getElementById('contribLng').value),
+                        lat: coordinates.lat,
+                        lng: coordinates.lng,
                         category: document.getElementById('contribCategory').value,
                         description: document.getElementById('contribDesc').value,
                         evidence: document.getElementById('contribEvidence').value,
@@ -35189,8 +35508,8 @@ kingSelect.addEventListener('change', () => {
 
             // 마커 타입 결정
             let markerType = 'normal';
-            if (contrib.category === 'natural') markerType = 'natural';
-            else if (contrib.category === 'label') markerType = 'label';
+            if (contrib.is_natural_feature || contrib.placeType?.startsWith('natural_') || contrib.category === 'natural') markerType = 'natural';
+            else if (contrib.is_label || contrib.category === 'place_label' || contrib.category === 'label') markerType = 'label';
             else if (contrib.is_battle) markerType = 'battle';
             setActiveMarkerType(markerType);
 

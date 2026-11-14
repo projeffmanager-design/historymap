@@ -24,6 +24,43 @@ test('a detached polygon becomes part of the same MultiPolygon territory', () =>
     assert.deepEqual(original, before, 'preview must not change the input geometry');
 });
 
+test('existing zero-area backtracking spurs do not block a valid new polygon or its save', () => {
+    const original = { type: 'Polygon', coordinates: [[
+        [0, 0], [4, 0], [4, 4], [3, 4], [3, 3], [3, 3.5], [3, 4], [0, 4], [0, 0]
+    ]] };
+    const before = clone(original), mask = rectangle(6, 0, 2);
+    const result = applyPolygonOperation(original, mask, 'add');
+    assert.equal(result.type, 'MultiPolygon');
+    assert.equal(geometryArea(result), 20);
+    assert.equal(geometryContainsPoint(result, 3, 3.25), true);
+    assert.equal(geometryContainsPoint(result, 7, 1), true);
+    assert.equal(polygonEditAreaChange(original, result, [{ geometry: original, polygon: mask, operation: 'add' }]).unsafe, false);
+    assert.deepEqual(original, before, 'the existing in-memory boundary must not be changed by preview');
+});
+
+test('small collinear return paths at real map coordinates are cleaned without changing the surrounding boundary', () => {
+    const a = [127.09512660006018, 38.2813835755292];
+    const geometry = { type: 'Polygon', coordinates: [[
+        [127, 38], [128, 38], [128, 39], [127, 39], a,
+        [127.0950373212392, 38.28108076734428], [127.0950551770034, 38.28114132898126], a.slice(), [127, 38]
+    ]] };
+    const result = applyPolygonOperation(geometry, rectangle(129, 38, 0.1), 'add');
+    assert.equal(result.type, 'MultiPolygon');
+    assert.equal(geometryContainsPoint(result, 129.05, 38.05), true);
+    assert.ok(Math.abs(geometryArea(result) - geometryArea(geometry) - 0.01) < 1e-9);
+});
+
+test('validation identifies an invalid existing boundary separately from the newly drawn mask', () => {
+    const crossed = { type: 'Polygon', coordinates: [[[0, 0], [3, 3], [0, 3], [3, 0], [0, 0]]] };
+    const res = { status() { return this; }, json(body) { this.body = body; return this; } };
+    polygonPreviewHandler({ body: { geometry: crossed, polygon: rectangle(6, 0, 2), operation: 'add' } }, res);
+    assert.equal(res.body.geometryRole, 'existing');
+    assert.match(res.body.message, /기존 영토 경계/);
+    polygonPreviewHandler({ body: { geometry: rectangle(6, 0, 2), polygon: crossed, operation: 'add' } }, res);
+    assert.equal(res.body.geometryRole, 'drawn');
+    assert.match(res.body.message, /새로 그린 폴리곤/);
+});
+
 test('overlapping added polygons merge without double counting the overlap', () => {
     const result = applyPolygonOperation(rectangle(0, 0, 4), rectangle(2, 0, 4), 'add');
     assert.equal(result.type, 'Polygon');
@@ -72,6 +109,36 @@ test('self intersections, degenerate rings, malformed coordinates and total remo
     ]) assert.throws(() => applyPolygonOperation(original, { type: 'Polygon', coordinates: [ring] }, 'subtract'));
     assert.throws(() => applyPolygonOperation(original, rectangle(-1, -1, 12), 'subtract'), /전체/);
     assert.throws(() => applyPolygonOperation(original, rectangle(1, 1, 2), 'unknown'), /지원하지/);
+});
+
+test('large detailed territories complete add/subtract without a quadratic validation stall', () => {
+    const ring = Array.from({ length: 20000 }, (_, index) => {
+        const angle = 2 * Math.PI * index / 20000;
+        return [127 + Math.cos(angle), 38 + Math.sin(angle)];
+    });
+    ring.push(ring[0].slice());
+    const geometry = { type: 'Polygon', coordinates: [ring] };
+    const before = clone(geometry), start = performance.now();
+    const added = applyPolygonOperation(geometry, rectangle(130, 38, 0.1), 'add');
+    const excluded = applyPolygonOperation(geometry, rectangle(126.9, 37.9, 0.2), 'subtract');
+    assert.equal(added.type, 'MultiPolygon');
+    assert.equal(geometryContainsPoint(added, 130.05, 38.05), true);
+    assert.equal(geometryContainsPoint(excluded, 127, 38), false);
+    assert.deepEqual(geometry, before, 'all original detailed coordinates must be retained');
+    assert.ok(performance.now() - start < 5000, 'completion must not perform all point/segment pairs');
+});
+
+test('fast validation still rejects non-adjacent touches, backtracking, crossing components and invalid holes', () => {
+    const mask = rectangle(10, 10, 1);
+    const invalid = [
+        { type: 'Polygon', coordinates: [[[0,0],[4,0],[2,0],[4,4],[0,4],[0,0]]] },
+        { type: 'Polygon', coordinates: [[[0,0],[4,0],[4,4],[2,2],[0,4],[1,4],[2,2],[0,0]]] },
+        { type: 'MultiPolygon', coordinates: [rectangle(0,0,3).coordinates, rectangle(2,2,3).coordinates] },
+        { type: 'Polygon', coordinates: [rectangle(0,0,4).coordinates[0], rectangle(3,3,2).coordinates[0]] }
+    ];
+    for (const geometry of invalid) assert.throws(() => applyPolygonOperation(geometry, mask, 'add'));
+    const validCollinear = { type: 'Polygon', coordinates: [[[0,0],[2,0],[4,0],[4,4],[0,4],[0,0]]] };
+    assert.equal(geometryArea(applyPolygonOperation(validCollinear, mask, 'add')), 17);
 });
 
 test('intentional large additions and exclusions can be saved, while accidental area collapse stays blocked', () => {
@@ -172,7 +239,7 @@ function editorFixture(is3d = true) {
     const window = { _is3dMode: is3d, mlMap3d: is3d ? map : null, territoryEditLayerGroup: { clearLayers() {} } };
     const requests = [], messages = [];
     const context = vm.createContext({ window, document, map, L, console, localStorage: { getItem: () => 'test-token' },
-        sessionStorage: { getItem: () => null }, setTimeout() {}, setInterval() {}, clearInterval() {},
+        sessionStorage: { getItem: () => null }, location: {hostname:'test.invalid'}, confirm: () => true, setTimeout() {}, setInterval() {}, clearInterval() {},
         fetch: async (url, options) => {
             const body = JSON.parse(options.body); requests.push({ url, body });
             if (url.endsWith('geometry-preview')) {

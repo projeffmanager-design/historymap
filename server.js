@@ -2,6 +2,9 @@
 require('dotenv').config(); // .env 파일의 환경 변수를 로드합니다.
 require('dotenv').config({ path: '.env.local', override: false }); // .env.local 추가 로드 (GITHUB_TOKEN 등)
 const express = require('express');
+const { createEditableObjectHandlers } = require('./lib/editableObjects');
+const { validateContributorUpdate, createContributorMemberSearch } = require('./lib/markerContributor');
+const { searchHistoryRecords, listHistorySources } = require('./lib/historySearch');
 const { ObjectId } = require('mongodb');
 // 💡 [추가] 인증 관련 라이브러리
 const jwt = require('jsonwebtoken');
@@ -2038,25 +2041,44 @@ async function setupRoutesAndCollections() {
         // ─── git add/commit/push (타일 변경분만) ─────────────────────────────────
         async function _gitPushTiles(label) {
             try {
-                const { execSync } = require('child_process');
-                execSync('git add public/tiles/', { cwd: __dirname });
-                const diff = execSync('git diff --cached --stat', { cwd: __dirname }).toString().trim();
-                if (!diff) {
-                    // 이전 싱크에서 commit은 됐지만 push만 실패한 경우도 복구한다.
-                    const unpushedCount = Number(execSync('git rev-list --count origin/main..HEAD', { cwd: __dirname }).toString().trim());
-                    execSync('git push origin HEAD:main', { cwd: __dirname });
-                    console.log(`✅ [수동 싱크 확인] 신규 타일 커밋 없음 · 기존 미push 커밋 반영 (${label})`);
-                    return { ok: true, changed: unpushedCount > 0, message: '신규 타일 커밋 없음 · 기존 미push 커밋 싱크 완료' };
+                const { execFileSync } = require('child_process');
+                const git = (...args) => execFileSync('git', args, {
+                    cwd: __dirname, stdio: ['ignore', 'pipe', 'pipe']
+                }).toString().trim();
+                git('fetch', 'origin', 'main');
+                git('add', '--', 'public/tiles/');
+                const diff = git('diff', '--cached', '--name-only', '--', 'public/tiles/');
+                if (diff) {
+                    const today = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
+                    // 다른 편집 작업에서 stage한 코드는 타일 싱크에 포함하지 않는다.
+                    git('commit', '--only', '-m', `chore: 영토 타일 증분 갱신 ${label} (${today})`, '--', 'public/tiles/');
                 }
-                const today = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
-                execSync(`git commit -m "chore: 영토 타일 증분 갱신 ${label} (${today})"`, { cwd: __dirname });
-                // Codex worktree의 detached HEAD에서도 현재 타일 커밋을 main으로 전송한다.
-                execSync('git push origin HEAD:main', { cwd: __dirname });
-                console.log(`✅ [Vercel 배포] 타일 push 완료 → Vercel 자동 재배포 (${label})`);
-                return { ok: true, changed: true, message: '타일 push 완료' };
-            } catch (e) {
-                console.error(`❌ [Vercel 배포 실패] ${e.message}`);
-                return { ok: false, changed: false, message: e.message };
+                const behind = Number(git('rev-list', '--count', 'HEAD..origin/main'));
+                if (behind > 0) {
+                    try {
+                        // 충돌 검사는 작업 폴더/인덱스를 건드리지 않는 임시 트리에서 한다.
+                        git('merge-tree', '--write-tree', 'HEAD', 'origin/main');
+                    } catch (error) {
+                        return { ok: false, changed: false, message: '원격 main과 로컬 타일에 충돌이 있습니다. 양쪽 변경은 보존했습니다. 충돌을 통합한 뒤 서버 싱크를 다시 실행하세요.' };
+                    }
+                    try {
+                        // Git이 미저장 파일을 덮어쓰는 병합은 거절하게 한다. 자동 stash/강제 push는 하지 않는다.
+                        git('merge', '--no-edit', 'origin/main');
+                    } catch (error) {
+                        return { ok: false, changed: false, message: '원격 변경과 겹치는 미저장 작업이 있어 자동 통합을 중단했습니다. 로컬 작업은 보존했습니다. 변경을 통합한 뒤 다시 싱크하세요.' };
+                    }
+                }
+                const unpushedCount = Number(git('rev-list', '--count', 'origin/main..HEAD'));
+                git('push', 'origin', 'HEAD:main');
+                console.log(`✅ [서버 싱크] 원격 통합 및 타일 push 완료 (${label})`);
+                return { ok: true, changed: unpushedCount > 0,
+                    message: unpushedCount > 0 ? '원격 변경 통합 및 타일 싱크 완료' : '서버와 이미 동일합니다.' };
+            } catch (error) {
+                console.error(`❌ [서버 싱크 실패] ${error.message}`);
+                const detail = String(error.stderr || error.message);
+                return { ok: false, changed: false, message: /non-fast-forward|fetch first/.test(detail)
+                    ? '싱크 도중 원격 main이 갱신됐습니다. 로컬 작업은 보존했습니다. 서버 싱크를 다시 실행하세요.'
+                    : error.message };
             }
         }
 
@@ -2615,6 +2637,8 @@ async function setupRoutesAndCollections() {
                 if (!_id) return res.status(400).json({ message: "잘못된 ID 형식입니다." });
 
                 const updatedCastle = req.body;
+                const contributorError = await validateContributorUpdate(updatedCastle, req.user, { users:collections.users, toObjectId });
+                if (contributorError) return res.status(contributorError.status).json({ message:contributorError.message });
                 
                 // 🚩 [디버그] 서버가 받은 데이터 확인
                 console.log('📥 서버 수신 데이터 (Castle PUT):', JSON.stringify(updatedCastle, null, 2));
@@ -2855,6 +2879,11 @@ async function setupRoutesAndCollections() {
             }
         });
         
+        // 편집 검색은 화면에 로드된 마커와 연도/레이어 필터에 의존하지 않습니다.
+        const editableObjectHandlers = createEditableObjectHandlers({ collections, toObjectId });
+        app.get('/api/editable-objects/search', verifyToken, editableObjectHandlers.search);
+        app.get('/api/editable-objects/:source/:id', verifyToken, editableObjectHandlers.detail);
+
         // GET /api/castle/search?q=검색어&limit=10 — 영웅 위치 지명 검색용
         app.get('/api/castle/search', async (req, res) => {
             try {
@@ -5874,9 +5903,21 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        app.get('/api/history/search/sources', async (req, res) => {
+            try {
+                res.set('Cache-Control', 'private, max-age=30');
+                res.json(await listHistorySources(collections));
+            } catch (error) { res.status(500).json({ message: '사료 목록 조회 실패' }); }
+        });
+
         // GET: 역사 기록 키워드 검색
         app.get('/api/history/search', async (req, res) => {
             try {
+                // 패널의 사료·연도 필터는 키워드 없이도 전체 결과를 페이지로 탐색한다.
+                if (req.query.paged === '1') {
+                    res.set('Cache-Control', 'no-store');
+                    return res.json(await searchHistoryRecords(collections, req.query));
+                }
                 const searchStartedAt = Date.now();
                 const { q, limit: limitParam, type } = req.query;
                 if (!q || q.trim().length < 1) return res.json([]);
@@ -8554,6 +8595,8 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
             }
         });
 
+        app.get('/api/admin/contributor-members', verifyAdmin, createContributorMemberSearch({ collections }));
+
         // GET: 모든 사용자 목록 (관리자 전용)
         app.get('/api/users', verifyAdminOnly, async (req, res) => {
             try {
@@ -8904,6 +8947,15 @@ app.delete('/api/kings/:id', verifyAdmin, async (req, res) => {
                         _forceUsername, _forceUserId } = req.body;
                 const recordCategories = new Set(['historical_record', 'hero_research']);
                 if (category === TRANSLATION_CATEGORY) return res.status(400).json({ message:'기사의 번역 제안 버튼을 이용해 주세요.' });
+
+                // 지도 마커 연구는 위치를 지정한 경우에만 접수합니다.
+                if (!recordCategories.has(category)) {
+                    if (typeof lat !== 'number' || typeof lng !== 'number'
+                        || !Number.isFinite(lat) || !Number.isFinite(lng)
+                        || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+                        return res.status(400).json({ message: '지도에서 위치를 선택해 주세요. 유효한 위도(-90~90)와 경도(-180~180)가 필요합니다.' });
+                    }
+                }
 
                 // 🚩 [추가] 관리자가 대신 기여자 이름/ID를 지정할 수 있음
                 const isAdmin = req.user.position === 'admin';

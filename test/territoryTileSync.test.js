@@ -35,7 +35,7 @@ function fixture(t) {
         __dirname:project,
         require:name => {
             assert.equal(name, 'child_process');
-            return { execSync:(command, options) => execSync(command, { ...options, env, stdio:'pipe' }) };
+            return { execFileSync:(command, args, options) => execFileSync(command, args, { ...options, env, stdio:'pipe' }) };
         },
         console:{ log() {}, error() {} }
     });
@@ -66,7 +66,7 @@ test('retry pushes an existing tile commit without creating another commit', asy
     assert.equal((await f.sync()).changed, false, 'a second sync has no remaining changes');
 });
 
-test('tile sync preserves a newer remote main when histories diverge', async t => {
+test('tile sync merges a newer remote main without losing either side', async t => {
     const f = fixture(t);
     const other = path.join(f.root, 'other');
     git(f.root, 'clone', f.remote, other);
@@ -79,8 +79,47 @@ test('tile sync preserves a newer remote main when histories diverge', async t =
     const remoteHead = git(f.remote, 'rev-parse', 'main');
     fs.writeFileSync(path.join(f.project, 'public', 'tiles', 'index.json'), '[3]\n');
     const result = await f.sync();
+    assert.equal(result.ok, true, result.message);
+    assert.equal(git(f.remote, 'show', 'main:other.txt'), 'remote change');
+    assert.equal(git(f.remote, 'show', 'main:public/tiles/index.json'), '[3]');
+    git(f.remote, 'merge-base', '--is-ancestor', remoteHead, 'main');
+});
+
+test('tile sync leaves conflicting tile versions intact without starting a merge', async t => {
+    const f = fixture(t), other = path.join(f.root, 'other');
+    git(f.root, 'clone', f.remote, other);
+    git(other, 'config', 'user.name', 'Another editor');
+    git(other, 'config', 'user.email', 'other@example.test');
+    fs.writeFileSync(path.join(other, 'public', 'tiles', 'index.json'), '[9]\n');
+    git(other, 'add', '.'); git(other, 'commit', '-m', 'remote tile'); git(other, 'push', 'origin', 'HEAD:main');
+    const remoteHead = git(f.remote, 'rev-parse', 'main');
+    fs.writeFileSync(path.join(f.project, 'public', 'tiles', 'index.json'), '[3]\n');
+    const result = await f.sync();
     assert.equal(result.ok, false);
+    assert.match(result.message, /충돌/);
     assert.equal(git(f.remote, 'rev-parse', 'main'), remoteHead);
+    assert.equal(fs.readFileSync(path.join(f.project, 'public', 'tiles', 'index.json'), 'utf8'), '[3]\n');
+    assert.equal(fs.existsSync(path.join(f.project, '.git', 'MERGE_HEAD')), false);
+});
+
+test('tile sync preserves staged code and refuses to overwrite dirty files needed by a remote update', async t => {
+    const f = fixture(t), other = path.join(f.root, 'other');
+    fs.writeFileSync(path.join(f.project, 'code.js'), 'base\n');
+    git(f.project, 'add', 'code.js'); git(f.project, 'commit', '-m', 'base code'); git(f.project, 'push', 'origin', 'HEAD:main');
+    git(f.root, 'clone', f.remote, other); git(other, 'config', 'user.name', 'Another editor'); git(other, 'config', 'user.email', 'other@example.test');
+    fs.writeFileSync(path.join(other, 'code.js'), 'remote\n');
+    git(other, 'add', '.'); git(other, 'commit', '-m', 'remote code'); git(other, 'push', 'origin', 'HEAD:main');
+    fs.writeFileSync(path.join(f.project, 'code.js'), 'local unsaved\n');
+    git(f.project, 'add', 'code.js');
+    fs.writeFileSync(path.join(f.project, 'public', 'tiles', 'index.json'), '[5]\n');
+    const result = await f.sync();
+    assert.equal(result.ok, false);
+    assert.match(result.message, /미저장/);
+    assert.equal(fs.readFileSync(path.join(f.project, 'code.js'), 'utf8'), 'local unsaved\n');
+    assert.equal(git(f.project, 'show', ':code.js'), 'local unsaved');
+    assert.equal(git(f.project, 'show', 'HEAD:code.js'), 'base');
+    assert.equal(git(f.remote, 'show', 'main:code.js'), 'remote');
+    assert.equal(fs.existsSync(path.join(f.project, '.git', 'MERGE_HEAD')), false);
 });
 
 test('deployment status counts pending commits without a branch upstream', t => {
