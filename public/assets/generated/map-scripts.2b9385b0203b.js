@@ -3120,7 +3120,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
         titleEl.textContent = castleName;
 
         const placeType = activeHistoryRecord?.place_type || castle.place_type;
-        const PLACE_LABELS = { capital:'왕성', ju:'州', gun:'郡', hyeon:'縣', seong:'城', jin:'鎭', gateway:'關', battle:'戰場', normal:'일반' };
+        const PLACE_LABELS = { hwangseong:'皇', capital:'왕성', gyeong:'京', bu:'府', mok:'牧', ju:'州', gun:'郡', hyeon:'縣', seong:'城', jin:'鎭', gateway:'關', battle:'戰場', chon:'村', normal:'일반' };
         if (placeType && placeType !== 'normal') {
             badgeEl.textContent = PLACE_LABELS[placeType] || placeType;
             badgeEl.style.display = '';
@@ -7388,7 +7388,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             );
             const _isPoliticalSettlement = !!COUNTRY_POLITICAL_FORM_ICONS[_lodPoliticalForm];
             const _lodPlaceType = String(_activeLodRecord?.place_type || castle.place_type || '').toLowerCase();
-            const _isJu = (_lodPlaceType === 'ju' || _lodPlaceType === '주') && map.getZoom() >= 5.0;
+            const _isJu = ['ju', '주', 'gyeong', '경', 'bu', '부', 'mok', '목'].includes(_lodPlaceType) && map.getZoom() >= 5.0;
             const _isLargeCity = Number(castle.population || 0) > 100000 && map.getZoom() >= 4.3;
             if (_isMacro && !castle.is_natural_feature && !castle.is_label) return;
             if (_isMacro && castle.is_natural_feature) return; // 거시 모드: 자연지물 숨김
@@ -8039,6 +8039,9 @@ function updateMap(year, month, cacheOnly = false, force = false) {
         // place_type별 아이콘 설정 (capital은 별도 낙관 마커로 처리)
         const PLACE_TYPE_CONFIG = {
             hwangseong: { size: 25, hanja: '皇', label: '천자' },
+            gyeong:   { size: 26, hanja: '京', label: '경' },
+            bu:       { size: 24, hanja: '府', label: '부' },
+            mok:      { size: 24, hanja: '牧', label: '목' },
             ju:       { size: 20, hanja: '州', label: '주'   },
             gun:      { size: 15, hanja: '郡', label: '군'   },
             hyeon:    { size: 15, hanja: '縣', label: '현'   },
@@ -17711,6 +17714,12 @@ const loadingMessages = [
             ? (countries || []).find(country => String(country?._id?.$oid || country?._id || country?.id || '') === String(history.country_id?.$oid || history.country_id || ''))
             : null;
         const countryName = rawHistoryCountry?.name || history.country || '';
+        // 현재 목록 밖의 기존 유형도 선택값을 유지해 저장 시 일반으로 바뀌지 않게 한다.
+        const knownPlaceTypes = ['normal', 'hwangseong', 'capital', 'gyeong', 'bu', 'mok', 'ju', 'gun', 'hyeon', 'seong', 'jin', 'gateway', 'battle', 'chon'];
+        const existingPlaceType = String(history.place_type || 'normal');
+        const existingTypeOption = knownPlaceTypes.includes(existingPlaceType) ? ''
+            : `<option value="${_escapeHistoryInline(existingPlaceType)}" selected>${_escapeHistoryInline(existingPlaceType)} (기존 유형)</option>`;
+
 
         // 🚩 [수정] 한 줄 레이아웃으로 변경
         // 🚩 [수정] 각 입력 필드 위에 레이블 추가
@@ -17734,6 +17743,9 @@ const loadingMessages = [
                         <option value="normal"      ${(history.place_type||'normal')==='normal'    ? 'selected':''}>일반</option>
                         <option value="hwangseong" ${history.place_type==='hwangseong' ? 'selected':''}>천자(皇) - 황성</option>
                         <option value="capital"    ${(history.place_type==='capital'||(history.is_capital&&!history.place_type))  ? 'selected':''}>왕성(王)</option>
+                        <option value="gyeong"     ${history.place_type==='gyeong'   ? 'selected':''}>경(京)</option>
+                        <option value="bu"         ${history.place_type==='bu'       ? 'selected':''}>부(府)</option>
+                        <option value="mok"        ${history.place_type==='mok'      ? 'selected':''}>목(牧)</option>
                         <option value="ju"         ${history.place_type==='ju'       ? 'selected':''}>주(州)</option>
                         <option value="gun"        ${history.place_type==='gun'      ? 'selected':''}>군(郡)</option>
                         <option value="hyeon"      ${history.place_type==='hyeon'    ? 'selected':''}>현(縣)</option>
@@ -17742,6 +17754,7 @@ const loadingMessages = [
                         <option value="gateway"    ${(history.place_type==='gateway'||(history.is_gateway&&!history.place_type))  ? 'selected':''}>관(關)</option>
                         <option value="battle"     ${(history.place_type==='battle'||(history.is_battle&&!history.place_type))   ? 'selected':''}>전장(戰)</option>
                         <option value="chon"       ${history.place_type==='chon'     ? 'selected':''}>마을(村)</option>
+                        ${existingTypeOption}
                     </select>
                 </div>
                 <button type="button" class="history-delete-btn" onclick="this.closest('.history-record-row').remove(); rebuildCastleHistoryGapButtons();">✕</button>
@@ -30472,7 +30485,7 @@ kingSelect.addEventListener('change', () => {
                 if (c.is_military_flag)                        return 3; // 군대
                 if (effectivePlaceType === 'battle')           return 3; // 전장
                 if (c.population && c.population > 100000)    return 3; // 대도시
-                if (effectivePlaceType === '주' || effectivePlaceType === 'ju') return 3; // 주(州)
+                if (['ju', '주', 'gyeong', '경', 'bu', '부', 'mok', '목'].includes(effectivePlaceType)) return 3; // 주요 행정 거점
                 if (effectivePlaceType === 'chon')             return 5; // 마을은 가장 낮은 우선순위
                 return 4; // 일반 성/현
             }
@@ -30493,7 +30506,7 @@ kingSelect.addEventListener('change', () => {
                 if (c.is_natural_feature) {
                     return 6.0;
                 }
-                if (placeType === 'ju' || placeType === '주') return 5.0;
+                if (['ju', '주', 'gyeong', '경', 'bu', '부', 'mok', '목'].includes(placeType)) return 5.0;
                 if (placeType === 'seong' || placeType === '성') return 5.2;
                 if (placeType === 'city') return 5.5;
                 if (c.is_military_flag || placeType === 'battle') return 6.3;
@@ -30501,6 +30514,12 @@ kingSelect.addEventListener('change', () => {
                 if (placeType === 'hyeon' || placeType === '현') return 6.6;
                 if (placeType === 'chon' || placeType === '촌' || placeType === 'village') return 7.2;
                 return 5.5; // normal/진/관문 등 일반 성 계열
+            }
+
+            function get3dCastleMarkerKey(c, activeRec, ci) {
+                // 이름과 국가가 같아도 유형이 바뀌면 인장을 다시 만든다.
+                const placeType = activeRec?.place_type || c.place_type || 'normal';
+                return `mk_${c._id||c.name+'@'+c.lat+'_'+c.lng}_${activeRec?.name||c.name||''}_${ci?.color||''}_${ci?.name||''}_${placeType}`;
             }
 
             function _refreshLayersInner(rebuildTerritory = true, rebuildMarkers = true) {
@@ -30758,6 +30777,9 @@ kingSelect.addEventListener('change', () => {
 
                 const PLACE_TYPE_CONFIG_3D = {
                     hwangseong: { size: 25, hanja: '皇' },
+                    gyeong:  { size: 26, hanja: '京' },
+                    bu:      { size: 24, hanja: '府' },
+                    mok:     { size: 24, hanja: '牧' },
                     ju:      { size: 20, hanja: '州' },
                     gun:     { size: 15, hanja: '郡' },
                     hyeon:   { size: 15, hanja: '縣' },
@@ -30784,6 +30806,8 @@ kingSelect.addEventListener('change', () => {
                     const placeType = String(activeRec?.place_type || c.place_type || '').toLowerCase();
                     const isCapital = !!(activeRec?.is_capital || c.is_capital
                         || placeType === 'capital' || placeType === 'hwangseong');
+                    // 경·부·목은 모바일에서도 큰 사각 인장으로 표시한다.
+                    if (['gyeong', 'bu', 'mok'].includes(placeType)) return false;
                     if (isCapital || c.is_military_flag || placeType === 'battle'
                         || c.natural_feature_type === 'battle' || c.custom_icon) return false;
                     return true;
@@ -30793,6 +30817,7 @@ kingSelect.addEventListener('change', () => {
                     const labelType = c.is_label ? String(c.label_type || 'place') : '';
                     const kind = c.is_label ? 'label' : (c.is_natural_feature ? 'natural' : 'city');
                     const glyphByType = {
+                        gyeong:'京', '경':'京', bu:'府', '부':'府', mok:'牧', '목':'牧',
                         ju:'州', '주':'州', gun:'郡', '군':'郡', hyeon:'縣', '현':'縣',
                         seong:'城', '성':'城', jin:'鎭', '진':'鎭', gateway:'關', chon:'村', village:'村'
                     };
@@ -30811,7 +30836,7 @@ kingSelect.addEventListener('change', () => {
                 };
 
                 // ── diff를 위한 새 키셋 수집 (필터 통과 여부는 _makeMarker 내에서 판단) ──
-                // 마커 고유 키: 성ID + 활성이름 + 국가색 (연도/국가 변화 시 자동 재생성)
+                // 마커 고유 키: 성ID + 활성이름 + 국가 + 유형 (연혁의 인장 변경 반영)
                 const _newMarkerKeys = new Set();
 
                 // pre-scan: 어떤 마커가 살아남을지 미리 결정
@@ -30851,7 +30876,7 @@ kingSelect.addEventListener('change', () => {
                         _mobileSymbolFeatures.push(_mobileSymbolFeature(c, activeRec, ci));
                         continue;
                     }
-                    const _mk = `mk_${c._id||c.name+'@'+c.lat+'_'+c.lng}_${activeRec?.name||c.name||''}_${ci?.color||''}_${ci?.name||''}`;
+                    const _mk = get3dCastleMarkerKey(c, activeRec, ci);
                     _newMarkerKeys.add(_mk);
                 }
 
@@ -31316,7 +31341,7 @@ kingSelect.addEventListener('change', () => {
                         el.dataset.ml3dLabelType = c.label_type || 'place';
                     }
                     // diff Map에 등록
-                    const _entryKey = `mk_${c._id||c.name+'@'+c.lat+'_'+c.lng}_${activeRec?.name||c.name||''}_${ci?.color||''}_${ci?.name||''}`;
+                    const _entryKey = get3dCastleMarkerKey(c, activeRec, ci);
                     _3dMarkersMap.set(_entryKey, mk);
                     _3dMarkers.push(mk);
                 }; // end _makeMarker
@@ -31325,7 +31350,7 @@ kingSelect.addEventListener('change', () => {
                 // _3dMarkersMap에 아직 없는 것만 생성
                 const _toCreate = _sortedCastleData.filter(entry => {
                     const { castle: c, activeRec, countryInfo: ci } = entry;
-                    const _k = `mk_${c._id||c.name+'@'+c.lat+'_'+c.lng}_${activeRec?.name||c.name||''}_${ci?.color||''}_${ci?.name||''}`;
+                    const _k = get3dCastleMarkerKey(c, activeRec, ci);
                     return _newMarkerKeys.has(_k) && !_3dMarkersMap.has(_k);
                 });
                 // 한 프레임에 만드는 DOM 양을 줄여 모바일 터치/지도 렌더에 시간을 양보한다.

@@ -185,7 +185,7 @@ test('dense shared vertices do not cover the boundary with overlapping markers',
         _tg3dRemoveMarkers: () => { created.length = 0; },
         _tgCrossingVertices: () => new Set(),
         _tgPairMembers: [{}], _tgPairSharedLines: [line],
-        _tg3dMarkers: [], _tgEraserMode: false, _tgBoundarySelectMode: false
+        _tg3dMarkers: [], _tgEraserMode: false, _tg3dAddMode: false, _tgBoundarySelectMode: false
     };
     markerContext.maplibregl = markerContext.window.maplibregl;
     vm.createContext(markerContext);

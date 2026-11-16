@@ -90,7 +90,7 @@ function markerEditor(rings, canvas) {
         _tg3dRemoveMarkers: () => { markers.length = 0; },
         _tgCrossingVertices: () => new Set(),
         _tgPairMembers: [], _tgPairSharedLines: [], _tg3dMarkers: [],
-        _tgEditedGeometry: geometry, _tgEraserMode: false, _tgBoundarySelectMode: false,
+        _tgEditedGeometry: geometry, _tgEraserMode: false, _tg3dAddMode: false, _tgBoundarySelectMode: false,
         _tgSnapLngLat: () => null, _tg3dSetGeometry: () => {}, _tgSetMsg: () => {}
     });
     loadSection(context, '_tg3dRefreshMarkers(', '_tg3dClear(');

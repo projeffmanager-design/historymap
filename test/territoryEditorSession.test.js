@@ -76,7 +76,7 @@ function fixture(is3d = true) {
         console, setTimeout, clearTimeout
     });
     context.window.maplibregl = context.maplibregl = { Marker: class {
-        constructor() { this.events = {}; }
+        constructor(options) { this.events = {}; this.options = options; }
         setLngLat(coord) { this.position = coord; return this; }
         getLngLat() { return { lng: this.position[0], lat: this.position[1] }; }
         addTo() { markers.add(this); return this; }
@@ -326,4 +326,53 @@ test('a right-click lookup failure can use the rendered territory and fetch its 
     await flush();
     assert.match(f.get('edit-title').textContent, /Object ID: B/);
     assert.equal(f.get('save-btn').style.display, '');
+});
+
+
+test('right-click entry can immediately add a vertex and save a closed boundary', async () => {
+    const f = fixture();
+    await f.context.window.openTerritoryGeomEditAt({ lng: .5, lat: .5 });
+    await flush();
+    await f.get('add-vertex-btn').click();
+    assert.match(f.get('add-vertex-btn').textContent, /경계선 클릭 중/);
+    f.map.fire('click', { point: { x: 150, y: 100 }, lngLat: { lng: .5, lat: 0 } });
+    const geometry = f.sources.get('territory-3d-edit').data.features[0].geometry;
+    assert.equal(geometry.coordinates[0].length, 6);
+    assert.deepEqual(Array.from(geometry.coordinates[0][1]), [.5, 0]);
+    await f.get('save-btn').click();
+    const saved = JSON.parse(f.requests.find(req => req.method === 'PUT').body).geometry;
+    assert.equal(saved.coordinates[0].length, 6);
+    assert.deepEqual(saved.coordinates[0].at(-1), saved.coordinates[0][0]);
+});
+
+test('reopening direct vertex editing does not duplicate clicks or leave add mode active', async () => {
+    const f = fixture();
+    for (let i = 0; i < 3; i++) {
+        await f.context.window.openTerritoryGeomEditAt({ lng: .5, lat: .5 }); await flush();
+        const geometry = () => f.sources.get('territory-3d-edit').data.features[0].geometry;
+        f.map.fire('click', { point: { x: 150, y: 100 }, lngLat: { lng: .5, lat: 0 } });
+        assert.equal(geometry().coordinates[0].length, 5);
+        await f.get('add-vertex-btn').click();
+        f.map.fire('click', { point: { x: 150, y: 100 }, lngLat: { lng: .5, lat: 0 } });
+        assert.equal(geometry().coordinates[0].length, 6);
+        assert.equal(f.map.listenerCount('click'), 1);
+        await f.get('add-vertex-btn').click();
+        f.map.fire('click', { point: { x: 200, y: 150 }, lngLat: { lng: 1, lat: .5 } });
+        assert.equal(geometry().coordinates[0].length, 6);
+    }
+});
+
+test('add mode lets boundary clicks pass through existing draggable vertex handles', async () => {
+    const f = fixture();
+    await f.context.window.openTerritoryGeomEditAt({ lng: .5, lat: .5 }); await flush();
+    await f.get('add-vertex-btn').click();
+    for (const marker of f.markers) {
+        assert.equal(marker.options.draggable, false);
+        assert.match(marker.options.element.style.cssText, /pointer-events:none/);
+    }
+    await f.get('add-vertex-btn').click();
+    for (const marker of f.markers) {
+        assert.equal(marker.options.draggable, true);
+        assert.match(marker.options.element.style.cssText, /pointer-events:auto/);
+    }
 });

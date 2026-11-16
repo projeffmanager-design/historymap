@@ -1747,7 +1747,7 @@
         rememberPixel(pixel);
         var el=document.createElement('div');
         el.style.cssText='width:'+(crossing?'16':endpoint?'12':sharedLine?'9':'12')+'px;height:'+(crossing?'16':endpoint?'12':sharedLine?'9':'12')+'px;border-radius:50%;background:'+(crossing?'#ff2d2d':endpoint?'#ffe58f':sharedLine?'#ff56d8':'#fff')+';border:'+(crossing?'3px solid #fff':'2px solid '+(endpoint?'#634508':sharedLine?'#6f175d':'#3288ff'))+';box-sizing:border-box;box-shadow:'+(crossing?'0 0 0 3px rgba(255,45,45,.45),0 1px 5px #000':'0 1px 2px rgba(0,0,0,.65)')+';cursor:'+
-          (_tgEraserMode?'crosshair':'grab')+';pointer-events:'+(_tgEraserMode?'none':'auto');
+          (_tgEraserMode||_tg3dAddMode?'crosshair':'grab')+';pointer-events:'+(_tgEraserMode||_tg3dAddMode?'none':'auto');
         if(crossing)el.title='자기교차 선분의 꼭지점';
         el.addEventListener('contextmenu',function(event){
           event.preventDefault();event.stopPropagation();
@@ -1755,8 +1755,8 @@
           _tgRemoveVertexEverywhere(coord);
         });
         if(_tgBoundarySelectMode&&!_tgPairSharedLines.length)el.addEventListener('click',function(event){event.stopPropagation();_tgBoundarySelected.forEach(function(set){set.delete(coord);});_tg3dRefreshMarkers();});
-        var marker=new maplibregl.Marker({element:el,draggable:!_tgEraserMode&&!_tgBoundarySelectMode}).setLngLat(coord).addTo(m);
-        if(!_tgEraserMode&&!_tgBoundarySelectMode)marker.on('dragend',function(){
+        var marker=new maplibregl.Marker({element:el,draggable:!_tgEraserMode&&!_tg3dAddMode&&!_tgBoundarySelectMode}).setLngLat(coord).addTo(m);
+        if(!_tgEraserMode&&!_tg3dAddMode&&!_tgBoundarySelectMode)marker.on('dragend',function(){
           var ll=marker.getLngLat(),snapped=_tgSnapLngLat(ll);
           if(snapped){ll=snapped;marker.setLngLat([ll.lng,ll.lat]);}
           coord[0]=ll.lng;coord[1]=ll.lat;
@@ -1820,6 +1820,8 @@
     var session=_tgSessionVersion;
     try{
       var m=window.mlMap3d;
+      // 우클릭 직접 진입도 선택 화면을 거치지 않고 추가/지우개 입력을 연결한다.
+      _tgBind3dEraser();
       var displayId=_tgDisplayId(id);
       _tgHideLayerPicker();_tg3dSelecting=false;if(_tg3dClickHandler){m.off('click',_tg3dClickHandler);_tg3dClickHandler=null;}
       _tgEditMode=true;_tgEditId=displayId;_tgSetTitle('🧭 '+(name||displayId)+' 3D 경계 편집 · Object ID: '+displayId);_tgSetMsg('geometry 불러오는 중...');
@@ -2025,9 +2027,11 @@
     _tgSetMsg('꼭짓점 '+removed+'개 삭제됨 · 경계 저장으로 확정하세요.','dirty');
   }
   function _tgToggle3dAddVertex() {
-    if(!window._is3dMode||!_tgEditMode)return;
+    if(!window._is3dMode||!_tgEditMode||!_tgEditedGeometry||_tgSaving)return;
     if(_tgEraserMode){_tgStopEraser(true);_tg3dRefreshMarkers();}
     _tg3dAddMode=!_tg3dAddMode;
+    // 추가 중에는 조작점이 지도 클릭을 가로채지 않게 하고, 종료하면 드래그를 복원한다.
+    _tg3dRefreshMarkers();
     var btn=document.getElementById('territory-geom-add-vertex-btn');
     if(btn){btn.classList.toggle('active',_tg3dAddMode);btn.textContent=_tg3dAddMode?'➕ 경계선 클릭 중':'➕ 꼭짓점 추가';}
     if(window.mlMap3d)window.mlMap3d.getCanvas().style.cursor=_tg3dAddMode?'crosshair':'';
