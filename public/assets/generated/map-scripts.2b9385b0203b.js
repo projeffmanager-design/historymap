@@ -15767,7 +15767,7 @@ const loadingMessages = [
             ? `<button type="button" class="history-person-link" data-hero-id="${_escapeHistoryInline(targetId)}" data-hero-name="${_escapeHistoryInline(label)}" data-year="${Number(year) || 0}" data-month="${Number(month) || 1}" title="${_escapeHistoryInline(label)} 인물 상세 보기">${_escapeHistoryInline(label)}</button>`
             : linkType === 'country'
               ? `<button type="button" class="history-country-link" data-country-id="${_escapeHistoryInline(targetId)}" title="${_escapeHistoryInline(label)} 국가 상세 보기">${_escapeHistoryInline(label)}</button>`
-              : `<button type="button" class="history-place-link" data-castle-id="${_escapeHistoryInline(targetId)}" data-year="${Number(year) || 0}" data-month="${Number(month) || 1}" title="지도에서 ${_escapeHistoryInline(label)} 보기">${_escapeHistoryInline(label)}</button>`;
+              : `<button type="button" class="history-place-link" data-castle-id="${_escapeHistoryInline(targetId)}" data-year="${_historyRecordYear(year) ?? ''}" data-month="${Number(month) || 1}" title="지도에서 ${_escapeHistoryInline(label)} 보기">${_escapeHistoryInline(label)}</button>`;
           linkedIndex = manualLinkPattern.lastIndex;
         }
         return linkedHtml + _historyEntityLinks(rawText.slice(linkedIndex), year, month, heroFigures, options);
@@ -15928,7 +15928,7 @@ const loadingMessages = [
         } else {
           const castleId = String(target?.castle?._id || '');
           result += castleId
-            ? `<button type="button" class="history-place-link" data-castle-id="${_escapeHistoryInline(castleId)}" data-year="${Number(year) || 0}" data-month="${Number(month) || 1}" title="지도에서 ${_escapeHistoryInline(match[0])} 보기">${_escapeHistoryInline(match[0])}</button>`
+            ? `<button type="button" class="history-place-link" data-castle-id="${_escapeHistoryInline(castleId)}" data-year="${_historyRecordYear(year) ?? ''}" data-month="${Number(month) || 1}" title="지도에서 ${_escapeHistoryInline(match[0])} 보기">${_escapeHistoryInline(match[0])}</button>`
             : _escapeHistoryInline(match[0]);
         }
         lastIndex = matcher.lastIndex;
@@ -16054,30 +16054,122 @@ const loadingMessages = [
       }
     };
 
+    // 링크의 시점에 마커가 없으면 실제 표시 기간 중 가장 가까운 연·월을 고른다.
+    function _historyPlaceVisibleTime(castle, preferred) {
+      const monthValue = (value, fallback) => Math.min(12, Math.max(1, Number.parseInt(value, 10) || fallback));
+      const reference = yearMonthToTotalMonths(preferred.year, monthValue(preferred.month, 1));
+      const slider = document.getElementById('combinedSlider');
+      const min = slider?.min == null || slider.min === '' ? -Infinity : Number(slider.min);
+      const max = slider?.max == null || slider.max === '' ? Infinity : Number(slider.max);
+      const usesHistory = !castle.is_label && !castle.is_natural_feature && !castle.is_military_flag
+        && Array.isArray(castle.history) && castle.history.some(Boolean);
+      const periods = usesHistory ? castle.history.filter(Boolean) : [{
+        start_year:castle.start_year ?? castle.built_year ?? castle.start ?? castle.built,
+        start_month:castle.start_month ?? castle.built_month,
+        end_year:castle.end_year ?? castle.destroyed_year ?? castle.end,
+        end_month:castle.end_month ?? castle.destroyed_month
+      }];
+      let nearest = null;
+      periods.forEach(record => {
+        const startYear = _historyRecordYear(record.start_year ?? record.start);
+        const endYear = _historyRecordYear(record.end_year ?? record.end);
+        const start = Math.max(Number.isFinite(min) ? min : -Infinity,
+          startYear === null ? (usesHistory ? yearMonthToTotalMonths(-5000, 1) : -Infinity)
+            : yearMonthToTotalMonths(startYear, monthValue(record.start_month, 1)));
+        const end = Math.min(Number.isFinite(max) ? max : Infinity,
+          endYear === null ? Infinity : yearMonthToTotalMonths(endYear, monthValue(record.end_month, 12)));
+        if (start > end) return;
+        const total = Math.min(end, Math.max(start, reference));
+        const distance = Math.abs(total - reference);
+        if (!nearest || distance < nearest.distance || (distance === nearest.distance && total < nearest.total)) nearest = { total, distance };
+      });
+      return nearest ? totalMonthsToYearMonth(nearest.total) : preferred;
+    }
+
+    function _historyPlaceRevealLayer(castle) {
+      if (typeof layerVisibility === 'undefined') return false;
+      const relicTypes = ['tomb','construction','hunting','temple','palace','mine','port','kiln','farmland','heritage'];
+      const key = castle.is_label
+        ? (['country','admin'].includes(castle.label_type) ? 'adminLabel' : castle.label_type === 'ethnic' ? 'ethnicLabel' : 'placeLabel')
+        : castle.is_natural_feature ? (relicTypes.includes(castle.natural_feature_type) ? 'relic' : 'natural')
+          : castle.is_military_flag ? 'military' : 'city';
+      if (layerVisibility[key] !== false) return false;
+      layerVisibility[key] = true;
+      const checkboxId = { city:'city', placeLabel:'place-label', adminLabel:'admin-label', ethnicLabel:'ethnic-label', natural:'natural', relic:'relic', military:'military' }[key];
+      const checkbox = document.getElementById('menu-layer-' + checkboxId);
+      if (checkbox) checkbox.checked = true;
+      if (typeof applyLayerSettingsToUI === 'function') applyLayerSettingsToUI({ [key]:true });
+      return true;
+    }
+
+    var _historyPlaceNavigationSequence = 0;
     async function _openHistoryPlaceOnMap(castleId, targetYear, targetMonth) {
-      const castle = (castles || []).find(item => String(item?._id) === String(castleId));
-      if (!castle || !Number.isFinite(Number(castle.lat)) || !Number.isFinite(Number(castle.lng))) return;
-      const year = Number(targetYear);
-      const month = Number(targetMonth) || 1;
-      const mobileTransition = window.prepareMobilePanelTransition?.('map') === true;
-      if (Number.isFinite(year) && typeof updateTime === 'function') updateTime(year, month);
-      // 역사 패널의 지명을 누르면 해당 마커가 충분히 보이도록 확대 이동한다.
-      map.flyTo([Number(castle.lat), Number(castle.lng)], Math.max(map.getZoom(), 9), { animate:true, duration:.8 });
-      setTimeout(() => {
-        const marker = (allCastleMarkers || []).find(item => String(item?._castleData?._id) === String(castleId));
-        if (marker) {
-          marker.openPopup();
+      const sequence = ++_historyPlaceNavigationSequence;
+      const id = String(castleId || '');
+      if (!id) return;
+      let castle = (castles || []).find(item => String(item?._id?.$oid || item?._id || '') === id);
+      let addedToMap = false;
+      // 본문·번역문이 참조한 장소가 현재 화면 데이터에 없어도 단건을 조회한다.
+      if (!castle) {
+        try {
+          const response = await fetch(`/api/castle/${encodeURIComponent(id)}`, { cache:'no-store' });
+          if (!response.ok) throw new Error('장소 조회 실패');
+          castle = await response.json();
+        } catch (_) {
+          if (sequence === _historyPlaceNavigationSequence && typeof showToast === 'function') showToast('연결된 지명 정보를 불러오지 못했습니다.', 'warn');
           return;
         }
+      }
+      if (sequence !== _historyPlaceNavigationSequence) return;
+      if (castle.lat === null || castle.lat === undefined || castle.lat === '' || castle.lng === null || castle.lng === undefined || castle.lng === '') return;
+      const lat = Number(castle.lat), lng = Number(castle.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      // 단건 조회만 하면 상세 정보는 열려도 지도 마커 목록에는 들어가지 않는다.
+      if (!(castles || []).includes(castle)) {
+        _mergeCastlesIntoSession([castle]);
+        addedToMap = true;
+      }
+      const requestedYear = _historyRecordYear(targetYear);
+      const currentTime = getCurrentYearMonth();
+      const preferred = { year:requestedYear ?? currentTime.year,
+        month:Number(targetMonth) || (requestedYear === null ? currentTime.month : 1) };
+      const { year, month } = _historyPlaceVisibleTime(castle, preferred);
+      const layerRevealed = _historyPlaceRevealLayer(castle);
+      const mobileTransition = window.prepareMobilePanelTransition?.('map') === true;
+      if (year !== currentTime.year || month !== currentTime.month) {
+        if (typeof updateTime === 'function') updateTime(year, month);
+      } else if (addedToMap || layerRevealed) {
+        updateMap(year, month, false, true);
+      }
+      // 현재 보이는 지도에서 장소를 확대하며, 이미 더 확대되어 있으면 배율을 유지한다.
+      if (window._is3dMode && window.mlMap3d) {
+        const globe = window.mlMap3d;
+        globe.flyTo({ center:[lng, lat], zoom:Math.max(globe.getZoom(), 10), duration:800, essential:true });
+      } else {
+        map.flyTo([lat, lng], Math.max(map.getZoom(), 10), { animate:true, duration:.8 });
+      }
+      setTimeout(() => {
+        if (sequence !== _historyPlaceNavigationSequence) return;
+        if (!window._is3dMode) {
+          const marker = (allCastleMarkers || []).find(item => String(item?._castleData?._id) === id);
+          if (marker) { marker.openPopup(); return; }
+        }
         if (mobileTransition) return;
-        const activeRecord = getActiveHistoryInfo(
-          castle.history || [], yearMonthToTotalMonths(year, month)
-        )?.record || null;
+        const activeRecord = getActiveHistoryInfo(castle.history || [], yearMonthToTotalMonths(year, month))?.record || null;
         const countryInfo = getCountryInfoById(activeRecord?.country_id || castle.country_id || castle.countryId);
         if (typeof openDetailPanel === 'function') openDetailPanel(castle, activeRecord, countryInfo);
-      }, 650);
+      }, 850);
     }
     window._openHistoryPlaceOnMap = _openHistoryPlaceOnMap;
+
+    // 연도별 기사와 검색 상세처럼 동적으로 생성되는 본문의 지명 링크를 함께 처리한다.
+    document.getElementById('map-history-panel')?.addEventListener('click', event => {
+      const link = event.target.closest('.history-place-link[data-castle-id]');
+      if (!link) return;
+      event.preventDefault();
+      event.stopPropagation();
+      _openHistoryPlaceOnMap(link.dataset.castleId, link.dataset.year, link.dataset.month);
+    });
 
     async function _renderHistoryPlaceBacklinks(container, historyRecords = [], sourceRecords = []) {
       if (!container) return;
@@ -16120,7 +16212,7 @@ const loadingMessages = [
             button.title = `${label} 지도 위치 보기`;
             button.addEventListener('click', event => {
               event.stopPropagation();
-              _openHistoryPlaceOnMap(placeId, Number(record?.year), Number(record?.month) || 1);
+              _openHistoryPlaceOnMap(placeId, record?.year, Number(record?.month) || 1);
             });
             wrap.appendChild(button);
           });
@@ -16286,12 +16378,6 @@ const loadingMessages = [
           return;
         }
         mapAllRecordsContent.innerHTML = html;
-        mapAllRecordsContent.querySelectorAll('.history-place-link[data-castle-id]').forEach(link => {
-          link.addEventListener('click', event => {
-            event.stopPropagation();
-            _openHistoryPlaceOnMap(link.dataset.castleId, link.dataset.year, link.dataset.month);
-          });
-        });
         mapAllRecordsContent.querySelectorAll('.history-person-link[data-hero-id]').forEach(link => {
           link.addEventListener('click', event => {
             event.stopPropagation();

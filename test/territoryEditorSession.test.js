@@ -362,17 +362,40 @@ test('reopening direct vertex editing does not duplicate clicks or leave add mod
     }
 });
 
-test('add mode lets boundary clicks pass through existing draggable vertex handles', async () => {
+test('add mode supports moving existing and newly inserted vertices without adding duplicates', async () => {
     const f = fixture();
     await f.context.window.openTerritoryGeomEditAt({ lng: .5, lat: .5 }); await flush();
     await f.get('add-vertex-btn').click();
-    for (const marker of f.markers) {
-        assert.equal(marker.options.draggable, false);
-        assert.match(marker.options.element.style.cssText, /pointer-events:none/);
-    }
-    await f.get('add-vertex-btn').click();
+    const geometry = () => f.sources.get('territory-3d-edit').data.features[0].geometry;
     for (const marker of f.markers) {
         assert.equal(marker.options.draggable, true);
         assert.match(marker.options.element.style.cssText, /pointer-events:auto/);
     }
+    // A marker click reaches the map too, but must not insert a coincident vertex.
+    const markerClick = () => f.map.fire('click', {
+        point: { x: 100, y: 100 }, lngLat: { lng: 0, lat: 0 },
+        originalEvent: { target: { closest: selector => selector === '.territory-geom-vertex' } }
+    });
+    markerClick();
+    assert.equal(geometry().coordinates[0].length, 5);
+    // Moving the first vertex must also move the closing coordinate.
+    f.move();
+    assert.deepEqual(Array.from(geometry().coordinates[0][0]), [.1, .1]);
+    assert.deepEqual(Array.from(geometry().coordinates[0].at(-1)), [.1, .1]);
+    f.map.fire('click', { point: { x: 155, y: 105 }, lngLat: { lng: .55, lat: .05 } });
+    assert.equal(geometry().coordinates[0].length, 6);
+    const added = [...f.markers].find(marker => marker.position[0] === .55);
+    assert.ok(added);
+    assert.equal(added.options.draggable, true);
+    added.setLngLat([.55, -.1]);
+    added.events.dragend();
+    markerClick();
+    assert.equal(geometry().coordinates[0].length, 6);
+    assert.deepEqual(Array.from(geometry().coordinates[0][1]), [.55, -.1]);
+    assert.match(f.get('add-vertex-btn').textContent, /경계선 클릭 중/);
+    await f.get('save-btn').click();
+    const saved = JSON.parse(f.requests.find(req => req.method === 'PUT').body).geometry;
+    assert.equal(saved.coordinates[0].length, 6);
+    assert.deepEqual(saved.coordinates[0][1], [.55, -.1]);
+    assert.deepEqual(saved.coordinates[0].at(-1), saved.coordinates[0][0]);
 });
