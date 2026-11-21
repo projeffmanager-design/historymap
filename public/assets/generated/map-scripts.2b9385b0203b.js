@@ -4213,6 +4213,7 @@ function updateKingLabel(year, month) {
 
     /** 활성화된 폼을 제외한 모든 폼을 닫습니다. (동일) */
     function closeAllFormsExcept(exceptId) {
+        window._finishGlobePointEdit?.(true);
         EDIT_PANEL_IDS.forEach(id => {
             if (id !== exceptId) {
                 const el = document.getElementById(id);
@@ -22501,6 +22502,7 @@ kingSelect.addEventListener('change', () => {
 
     document.getElementById('editDrawingForm').addEventListener('submit', async (e) => {
         e.preventDefault();
+        window._finishGlobePointEdit?.(true);
         const drawingId = document.getElementById('drawingMongoId').value;
         const isUpdate = !!drawingId;
         const url = isUpdate ? `${API_BASE_URL}/drawings/${drawingId}` : `${API_BASE_URL}/drawings`;
@@ -22554,7 +22556,7 @@ kingSelect.addEventListener('change', () => {
             
             // 🚩 [최적화] 전체 fetch 대신 메모리에서 증분 업데이트
             if (isUpdate) {
-                updateDrawingInMemory(drawingId, data);
+                await updateDrawingInMemory(drawingId, data);
             } else {
                 const responseData = await response.json();
                 addDrawingInMemory({ ...data, _id: responseData.id });
@@ -22672,226 +22674,86 @@ kingSelect.addEventListener('change', () => {
     });
 
     // ================================================================
-    // 📍 포인트(버텍스) 편집 모드
-    // ================================================================
+    // 📍 기본 지도 포인트 편집. 폼 저장 전 draft를 반드시 반영한다.
     (function() {
-        var _vtxMarkers  = L.layerGroup();  // 꼭짓점 마커 그룹
-        var _previewLine = null;            // 실시간 미리보기 폴리라인
-        var _origGeoJson = null;            // 편집 취소용 원본 백업
-        var _coords      = [];              // 현재 편집 중인 좌표 배열 [[lat,lng], ...]
-
-        // 꼭짓점 마커 아이콘
-        var vtxIcon = L.divIcon({
-            html: '<div style="width:12px;height:12px;background:#3498db;border:2px solid white;border-radius:50%;margin:-6px 0 0 -6px;cursor:grab;box-shadow:0 1px 4px rgba(0,0,0,.6)"></div>',
-            className: '', iconSize: [1,1], iconAnchor: [0,0]
-        });
-        var delIcon = L.divIcon({
-            html: '<div style="width:12px;height:12px;background:#e74c3c;border:2px solid white;border-radius:50%;margin:-6px 0 0 -6px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.6)" title="삭제"></div>',
-            className: '', iconSize: [1,1], iconAnchor: [0,0]
-        });
-        // 중간 추가 마커 아이콘
-        var addIcon = L.divIcon({
-            html: '<div style="width:9px;height:9px;background:#27ae60;border:2px solid white;border-radius:50%;margin:-5px 0 0 -5px;cursor:crosshair;opacity:0.75"></div>',
-            className: '', iconSize: [1,1], iconAnchor: [0,0]
-        });
-
-        var _isPolygon = false;  // 현재 편집 도형이 폴리곤인지
-
-        function getCoords(geojson) {
-            var g = geojson && (geojson.geometry || geojson);
-            if (!g) return [];
-            if (g.type === 'LineString')      { _isPolygon = false; return g.coordinates.map(function(c){ return [c[1], c[0]]; }); }
-            if (g.type === 'MultiLineString') { _isPolygon = false; return g.coordinates[0].map(function(c){ return [c[1], c[0]]; }); }
-            if (g.type === 'Polygon') {
-                _isPolygon = true;
-                // 첫 번째 링, 마지막 닫힘 포인트(= 첫 포인트 반복) 제거
-                var ring = g.coordinates[0];
-                var pts = ring.slice(0, ring.length - 1);
-                return pts.map(function(c){ return [c[1], c[0]]; });
+        let editor = null, fieldId = null, original = null, starting = false;
+        window._finishGlobePointEdit = function(save) {
+            if (editor) editor.finish(save);
+        };
+        async function start(field) {
+            if (editor || starting) return;
+            if (document.getElementById('territory-geom-edit-bar')?.classList.contains('open')) {
+                showToast('영토 경계 편집을 먼저 종료하세요.', 'warn'); return;
             }
-            if (g.type === 'MultiPolygon') {
-                _isPolygon = true;
-                var ring = g.coordinates[0][0];
-                var pts = ring.slice(0, ring.length - 1);
-                return pts.map(function(c){ return [c[1], c[0]]; });
-            }
-            if (g.type === 'Feature') return getCoords(g.geometry);
-            return [];
-        }
-
-        function setCoords(geojson, latLngs) {
-            var raw = latLngs.map(function(ll){ return [ll[1] !== undefined ? ll[1] : ll.lng, ll[0] !== undefined ? ll[0] : ll.lat]; });
-            var g = geojson && (geojson.geometry || geojson);
-            if (!g) return geojson;
-            var clone = JSON.parse(JSON.stringify(geojson));
-            var target = clone.geometry || clone;
-            if (target.type === 'LineString') { target.coordinates = raw; }
-            else if (target.type === 'MultiLineString') { target.coordinates[0] = raw; }
-            else if (target.type === 'Polygon') {
-                // 닫힘 포인트 다시 추가
-                target.coordinates[0] = raw.concat([raw[0]]);
-            }
-            else if (target.type === 'MultiPolygon') {
-                target.coordinates[0][0] = raw.concat([raw[0]]);
-            }
-            return clone;
-        }
-
-        function drawPreview() {
-            if (_previewLine) { try { map.removeLayer(_previewLine); } catch(e){} }
-            if (_coords.length < 2) return;
-            if (_isPolygon) {
-                _previewLine = L.polygon(_coords, { color: '#3498db', weight: 3, dashArray: '6 4', opacity: 0.9, fillOpacity: 0.15, fillColor: '#3498db' }).addTo(map);
-            } else {
-                _previewLine = L.polyline(_coords, { color: '#3498db', weight: 3, dashArray: '6 4', opacity: 0.9 }).addTo(map);
-            }
-        }
-
-        function buildMarkers() {
-            var minPts = _isPolygon ? 3 : 2;
-            _vtxMarkers.clearLayers();
-            _coords.forEach(function(ll, i) {
-                // 꼭짓점 마커
-                var m = L.marker(ll, { icon: vtxIcon, draggable: true, zIndexOffset: 1000 });
-                m.on('drag', function(e) {
-                    _coords[i] = [e.latlng.lat, e.latlng.lng];
-                    drawPreview();
-                    rebuildAddMarkers();
-                });
-                // 오른쪽 클릭 or shift+클릭 → 삭제
-                m.on('click', function(e) {
-                    if (e.originalEvent.shiftKey || e.originalEvent.ctrlKey) {
-                        if (_coords.length <= minPts) { showToast('최소 ' + minPts + '개 포인트 필요', 'warn'); return; }
-                        _coords.splice(i, 1);
-                        buildMarkers();
-                        drawPreview();
-                    }
-                });
-                m.on('contextmenu', function(e) {
-                    L.DomEvent.stopPropagation(e);
-                    if (_coords.length <= minPts) { showToast('최소 ' + minPts + '개 포인트 필요', 'warn'); return; }
-                    _coords.splice(i, 1);
-                    buildMarkers();
-                    drawPreview();
-                });
-                _vtxMarkers.addLayer(m);
-            });
-            rebuildAddMarkers();
-        }
-
-        function rebuildAddMarkers() {
-            // 중간 추가 마커는 기존 addMarker 레이어를 매번 재생성
-            // _vtxMarkers에 포함시키되 vtx 마커 이후에 추가
-            // 기존 add 마커만 제거
-            _vtxMarkers.eachLayer(function(l) {
-                if (l._isAddMarker) { _vtxMarkers.removeLayer(l); }
-            });
-            for (var i = 0; i < _coords.length - 1; i++) {
-                (function(idx) {
-                    var midLat = (_coords[idx][0] + _coords[idx+1][0]) / 2;
-                    var midLng = (_coords[idx][1] + _coords[idx+1][1]) / 2;
-                    var am = L.marker([midLat, midLng], { icon: addIcon, zIndexOffset: 900 });
-                    am._isAddMarker = true;
-                    am.on('click', function(e) {
-                        L.DomEvent.stopPropagation(e);
-                        _coords.splice(idx+1, 0, [e.latlng.lat, e.latlng.lng]);
-                        buildMarkers();
-                        drawPreview();
-                    });
-                    _vtxMarkers.addLayer(am);
-                })(i);
-            }
-        }
-
-        function startVertexEdit() {
-            var raw = document.getElementById('drawingGeoJson').value;
-            if (!raw) { showToast('GeoJSON 없음', 'error'); return; }
-            _origGeoJson = raw;
-            _isPolygon = false;  // getCoords가 설정
-            _coords = getCoords(JSON.parse(raw));
-            if (_coords.length === 0) { showToast('편집할 수 있는 도형 데이터가 없습니다', 'warn'); return; }
-
-            // 포인트 마커는 Leaflet에서 편집하므로 3D 카메라를 2D로 인계한다.
-            if (window._is3dMode) {
-                if (typeof window._exitHistory3d !== 'function') {
-                    showToast('지도가 준비된 뒤 다시 시도해주세요', 'warn');
-                    return;
+            starting = true;
+            try {
+                const input = document.getElementById(field);
+                if (!input.value) throw new Error('편집할 도형이 없습니다.');
+                if (!window._is3dMode) window._enterHistoryGlobe?.(window._historyGlobeBasemap || 'satellite');
+                const started = Date.now();
+                while (!window.mlMap3d || !window.mlMap3d.isStyleLoaded()) {
+                    if (Date.now() - started > 12000) throw new Error('기본 지도가 준비되지 않았습니다. 잠시 후 다시 시도하세요.');
+                    await new Promise(resolve => setTimeout(resolve, 100));
                 }
-                window._prefer2dEditing = true;
-                window._exitHistory3d();
-                map.invalidateSize({ animate: false, pan: false });
-            }
-            window._vertexEditMode = true;
-            map.dragging.disable();
-            _vtxMarkers.addTo(map);
-            buildMarkers();
-            drawPreview();
-
-            // 강 레이어 숨김 (미리보기로 대체)
-            drawnItems.eachLayer(function(l) {
-                if (l._drawingDbId && l._drawingDbId === document.getElementById('drawingMongoId').value) {
-                    l._savedOpacity = l.options.opacity;
-                    try { l.setStyle({ opacity: 0, fillOpacity: 0 }); } catch(e) {}
+                fieldId = field; original = input.value;
+                editor = new window.GlobePointEditor({map:window.mlMap3d, geometry:JSON.parse(original), onFinish(value) {
+                    if (value) document.getElementById(fieldId).value = JSON.stringify(value);
+                    else document.getElementById(fieldId).value = original;
+                    editor = null; window._vertexEditMode = false;
+                    document.getElementById('vertexEditHint').style.display = 'none';
+                    document.getElementById('vertexEditBtn').textContent = '📍 포인트 편집';
+                }});
+                window._vertexEditMode = true;
+                ['hamburger-menu-panel','hamburger-menu-overlay','hamburger-menu-btn'].forEach(id=>document.getElementById(id)?.classList.remove('active'));
+                if (field === 'drawingGeoJson') {
+                    document.getElementById('vertexEditHint').style.display = 'block';
+                    document.getElementById('vertexEditBtn').textContent = '📍 편집 중...';
                 }
-            });
-
-            document.getElementById('vertexEditBtn').textContent = '📍 편집 중...';
-            document.getElementById('vertexEditBtn').style.background = 'rgba(52,152,219,0.4)';
-            document.getElementById('vertexEditHint').style.display = 'block';
-            showToast('📍 포인트 편집 모드: 파란 마커 드래그 | 녹색 마커 클릭으로 추가 | Shift+클릭 또는 우클릭으로 삭제', 'info', 4000);
+            } catch(error) { showToast(error.message, 'error'); }
+            finally { starting = false; }
         }
-
-        function finishVertexEdit(save) {
-            window._vertexEditMode = false;
-            map.dragging.enable();
-            _vtxMarkers.clearLayers();
-            try { _vtxMarkers.remove(); } catch(e) {}
-            if (_previewLine) { try { map.removeLayer(_previewLine); } catch(e){} _previewLine = null; }
-
-            // 강 레이어 복원
-            drawnItems.eachLayer(function(l) {
-                if (l._drawingDbId && l._drawingDbId === document.getElementById('drawingMongoId').value) {
-                    try { l.setStyle({ opacity: l._savedOpacity || 0.9, fillOpacity: l._savedOpacity || 0.5 }); } catch(e) {}
-                }
-            });
-
-            if (save) {
-                var updated = setCoords(JSON.parse(_origGeoJson), _coords.map(function(ll){ return { lat: ll[0], lng: ll[1] }; }));
-                document.getElementById('drawingGeoJson').value = JSON.stringify(updated);
-                showToast('✅ 포인트 편집 완료 — 저장 버튼으로 저장하세요', 'success');
-            } else {
-                document.getElementById('drawingGeoJson').value = _origGeoJson;
-                showToast('↩️ 포인트 편집 취소', 'info');
-            }
-
-            document.getElementById('vertexEditBtn').textContent = '📍 포인트 편집';
-            document.getElementById('vertexEditBtn').style.background = 'rgba(52,152,219,0.15)';
-            document.getElementById('vertexEditHint').style.display = 'none';
-        }
-
-        document.getElementById('vertexEditBtn').addEventListener('click', function() {
-            if (!window._vertexEditMode) { startVertexEdit(); }
-        });
-        document.getElementById('vertexEditDoneBtn').addEventListener('click', function() {
-            finishVertexEdit(true);
-        });
-        document.getElementById('vertexEditCancelBtn').addEventListener('click', function() {
-            finishVertexEdit(false);
-        });
-
-        // cancelDrawingBtn 클릭 시 편집 정리
-        document.getElementById('cancelDrawingBtn').addEventListener('click', function() {
-            if (window._vertexEditMode) finishVertexEdit(false);
-        });
-
-        // 포인트 편집 모드 중 지도 클릭 차단
-        map.on('click', function(e) {
-            if (window._vertexEditMode) L.DomEvent.stopPropagation(e);
-        });
+        document.getElementById('vertexEditBtn').addEventListener('click', () => start('drawingGeoJson'));
+        document.getElementById('nfVertexEditBtn').addEventListener('click', () => start('nfGeometry'));
+        document.getElementById('vertexEditDoneBtn').addEventListener('click', () => window._finishGlobePointEdit(true));
+        document.getElementById('vertexEditCancelBtn').addEventListener('click', () => window._finishGlobePointEdit(false));
+        ['cancelDrawingBtn','cancelNaturalFeatureBtn'].forEach(id => document.getElementById(id).addEventListener('click', () => window._finishGlobePointEdit(false)));
     })();
-    // ================================================================
 
-
+    // 영토 편집기는 렌더링 타일 대신 원본 강 레코드와 동일한 저장 경로를 사용한다.
+    window.RiverBoundaryBridge = {
+        show() {
+            if (layerVisibility.rivers) return;
+            layerVisibility.rivers = true;
+            document.querySelectorAll('input[data-layer="rivers"], #menu-layer-rivers').forEach(el=>el.checked=true);
+            const {year,month} = getCurrentYearMonth(); updateMap(year,month); window._3dRefreshLayers?.();
+        },
+        linked(territoryId) {
+            return [['drawing',drawings],['natural-feature',naturalFeatures]].flatMap(([source,records]) => records.filter(r=>r.type==='river').flatMap(r =>
+                (r.territory_boundaries||[]).filter(l=>String(l.territory_id)===territoryId).map(l=>({...l,source,river_id:String(r._id?.$oid||r._id),direction:'river'}))));
+        },
+        async load(source, id) {
+            if (!['drawing','natural-feature'].includes(source)) throw new Error('강 원본 종류를 확인할 수 없습니다.');
+            const response = await fetch(`${API_BASE_URL}/${source === 'drawing' ? 'drawings' : 'natural-features'}/${encodeURIComponent(id)}`, {headers:{Authorization:`Bearer ${token}`}});
+            const record = await response.json();
+            if (!response.ok) throw new Error(record.message || '강 원본을 불러오지 못했습니다.');
+            if (record.type !== 'river') throw new Error('강을 선택하세요.');
+            return {source, id:String(id), record, geometry:source === 'drawing' ? record.geojson : record.geometry};
+        },
+        async save(river, geometry, links) {
+            const data = river.source === 'drawing' ? {geojson:geometry} : {geometry};
+            data.territory_boundaries = links;
+            const response = await fetch(`${API_BASE_URL}/${river.source === 'drawing' ? 'drawings' : 'natural-features'}/${encodeURIComponent(river.id)}`, {
+                method:'PUT', headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}, body:JSON.stringify(data)
+            });
+            if (!response.ok) { const json = await response.json(); throw new Error(json.message || '강 저장 실패'); }
+            const idOf = item => String(item._id?.$oid || item._id || '');
+            if (river.source === 'drawing') {
+                drawings = drawings.map(item => idOf(item) === river.id ? {...item,...data} : item);
+                saveDrawingsCache(drawings).catch(console.warn);
+            } else naturalFeatures = naturalFeatures.map(item => idOf(item) === river.id ? {...item,...data} : item);
+            const {year,month} = getCurrentYearMonth(); updateMap(year,month); window._3dRefreshLayers?.();
+        }
+    };
 
     // 🚩 [추가] 색상 선택기 이벤트 - 선택한 색상 hex 값 표시
     document.getElementById('drawingColor').addEventListener('input', (e) => {
@@ -23015,6 +22877,7 @@ kingSelect.addEventListener('change', () => {
 
     // --- 11. 그리기 폼 관리 --- (🚩 [신규 추가])
     function openDrawingForm(geojson, drawingData = null) {
+        window._finishGlobePointEdit?.(true);
         closeAllFormsExcept('drawingForm');
         const form = document.getElementById('drawingForm');
         
@@ -23085,6 +22948,7 @@ kingSelect.addEventListener('change', () => {
     // --- 🌊 naturalFeatures 편집 폼 함수 ---
 
     function openNaturalFeatureForm(featureData) {
+        window._finishGlobePointEdit?.(true);
         closeAllFormsExcept('naturalFeatureForm');
         const form = document.getElementById('naturalFeatureForm');
         const wasDragged = form.dataset.dragged === 'true';
@@ -23098,6 +22962,8 @@ kingSelect.addEventListener('change', () => {
         form.style.display = 'block';
         document.getElementById('editNaturalFeatureForm').reset();
         const id = featureData._id?.$oid || featureData._id?.toString?.() || featureData._id;
+        document.getElementById('nfGeometry').value = JSON.stringify(featureData.geometry);
+        document.getElementById('nfVertexEditBtn').style.display = RiverGeometry.paths(featureData.geometry).length ? 'inline-block' : 'none';
         document.getElementById('nfMongoId').value = id;
         document.getElementById('nfName').value = featureData.name || '';
         document.getElementById('nfNameEn').value = featureData.name_en || '';
@@ -23139,11 +23005,13 @@ kingSelect.addEventListener('change', () => {
     // naturalFeatureForm 저장
     document.getElementById('editNaturalFeatureForm').addEventListener('submit', async (e) => {
         e.preventDefault();
+        window._finishGlobePointEdit?.(true);
         const id = document.getElementById('nfMongoId').value;
         if (!id) return alert('ID가 없습니다.');
         const data = {
             name: document.getElementById('nfName').value,
             name_en: document.getElementById('nfNameEn').value || null,
+            geometry: JSON.parse(document.getElementById('nfGeometry').value),
             start_year: parseInt(document.getElementById('nfStartYear').value),
             end_year: document.getElementById('nfEndYear').value ? parseInt(document.getElementById('nfEndYear').value) : null,
         };
@@ -23161,7 +23029,8 @@ kingSelect.addEventListener('change', () => {
                 const fid = f._id?.$oid || f._id?.toString?.() || f._id;
                 return fid === id ? { ...f, ...data } : f;
             });
-            updateMap();
+            const {year,month} = getCurrentYearMonth();
+            updateMap(year,month); window._3dRefreshLayers?.();
         } catch (err) { alert(err.message); }
     });
 

@@ -1597,6 +1597,136 @@
       }
     };m.on('click',_tgPairClickHandler);
   }
+  // 강↔영토 맞춤은 선택 구간만 바꾸며, 저장과 수동 갱신을 분리한다.
+  var _tgRiverLinks=[],_tgRiverDraft=null,_tgRiverPick=null,_tgRiverHandler=null,_tgRiverBusy=false;
+  function _tgRiverButtons(show){
+    ['territory-river-fit-btn','territory-river-reverse-btn','territory-river-refresh-btn'].forEach(function(id){var b=document.getElementById(id);if(b){b.style.display=show?'':'none';b.classList.toggle('active',id===(_tgRiverPick?.direction==='territory'?'territory-river-fit-btn':_tgRiverPick?.direction==='river'?'territory-river-reverse-btn':''));}});
+    ['territory-river-save-btn','territory-river-cancel-btn'].forEach(function(id){var b=document.getElementById(id);if(b)b.style.display=show&&_tgRiverDraft?'':'none';});
+  }
+  function _tgRiverGuide(line,point){
+    var m=window.mlMap3d;if(!m)return;
+    var features=[];if(line?.length>1)features.push({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:line}});
+    if(point)features.push({type:'Feature',properties:{},geometry:{type:'Point',coordinates:point}});
+    var data={type:'FeatureCollection',features:features};
+    if(m.getSource('territory-river-guide'))m.getSource('territory-river-guide').setData(data);
+    else{
+      m.addSource('territory-river-guide',{type:'geojson',data:data});
+      m.addLayer({id:'territory-river-guide-line',type:'line',source:'territory-river-guide',filter:['==',['geometry-type'],'LineString'],paint:{'line-color':'#58e5ff','line-width':5}});
+      m.addLayer({id:'territory-river-guide-point',type:'circle',source:'territory-river-guide',filter:['==',['geometry-type'],'Point'],paint:{'circle-radius':7,'circle-color':'#58e5ff','circle-stroke-width':2,'circle-stroke-color':'#fff'}});
+    }
+  }
+  function _tgRiverStopPick(){
+    var m=window.mlMap3d;if(m&&_tgRiverHandler)m.off('click',_tgRiverHandler);
+    _tgRiverHandler=null;_tgRiverPick=null;window._territoryRiverPickActive=false;
+    if(m)m.getCanvas().style.cursor='';
+    _tgRiverButtons(!!_tgEditMode);
+    if(_tgEditMode&&_tgEditedGeometry)_tg3dRefreshMarkers();
+  }
+  function _tgRiverClear(){
+    _tgRiverStopPick();_tgRiverDraft=null;_tgRiverLinks=[];_tgRiverBusy=false;
+    var m=window.mlMap3d;
+    ['territory-river-guide-point','territory-river-guide-line'].forEach(function(id){if(m?.getLayer(id))m.removeLayer(id);});
+    if(m?.getSource('territory-river-guide'))m.removeSource('territory-river-guide');
+    document.getElementById('territory-river-link-picker')?.remove?.();_tgRiverButtons(false);
+  }
+  function _tgRiverApply(river,link,end){
+    var G=window.RiverGeometry,points=G.at(river.geometry,link.path);
+    if(!G.validLine(points))throw new Error('선택한 강 줄기가 바뀌었습니다. 구간을 다시 선택하세요.');
+    var r=G.range(points,link.start,end||link.end),extent=r.line.reduce((b,p)=>[Math.min(b[0],p[0]),Math.max(b[1],p[0])],[Infinity,-Infinity]),span=extent[1]-extent[0];
+    var maxGap=Math.max(.05,Math.min(.5,Math.max(span,Math.abs(r.line.at(-1)[1]-r.line[0][1]))*.25));
+    if(r.a.distance>maxGap||r.b.distance>maxGap)throw new Error('기존 연결 구간에서 강이 멀어졌습니다. 양끝을 다시 선택하세요.');
+    link=Object.assign({},link,{link_id:link.link_id||('river-'+Date.now()+'-'+Math.random().toString(36).slice(2)),start:r.a.point,end:r.b.point,name:river.record.name||'강'});
+    if(link.direction==='territory'){
+      var fit=G.fitBoundary(_tgEditedGeometry,r.line),candidate=fit.geometry;
+      if(fit.score>maxGap*4||_tgGeometryHasSelfIntersection(candidate)||_tgLargeAreaChange(_tgEditedGeometry,candidate))
+        throw new Error('영토 경계를 안전하게 맞출 수 없습니다. 더 가까운 구간으로 양끝을 좁혀 선택하세요.');
+      _tgEditedGeometry=candidate;
+      // 같은 구간을 다시 맞춘 경우 연결을 중복 등록하지 않는다.
+      var key=l=>(l.link_id&&l.link_id===link.link_id)||l.source===link.source&&l.river_id===link.river_id&&JSON.stringify(l.path)===JSON.stringify(link.path)&&Math.hypot(l.start[0]-link.start[0],l.start[1]-link.start[1])<.00001&&Math.hypot(l.end[0]-link.end[0],l.end[1]-link.end[1])<.00001;
+      var i=_tgRiverLinks.findIndex(key);if(i<0)_tgRiverLinks.push(link);else _tgRiverLinks[i]=link;
+      _tg3dSetGeometry(candidate);_tg3dRefreshMarkers();_tgRiverGuide(r.line);
+      _tgSetMsg('🌊 선택한 강 구간에 영토를 맞췄습니다. ‘경계 저장’으로 확정하세요. 연결 구간은 수동으로 갱신합니다.','dirty');
+    }else{
+      var boundary=G.bestBoundary(_tgEditedGeometry,r.line);
+      if(boundary.score>maxGap*4)throw new Error('강과 영토 경계가 너무 멉니다. 가까운 구간을 선택하세요.');
+      var fitted=G.replaceRange(points,r.a.point,r.b.point,boundary.line);
+      if(!G.validLine(fitted))throw new Error('강 구간이 유효하지 않습니다.');
+      link.start=boundary.line[0];link.end=boundary.line.at(-1);link.territory_id=String(_tgEditId);
+      _tgRiverDraft={river:river,geometry:G.replace(river.geometry,link.path,fitted),link:link};
+      _tgRiverGuide(boundary.line);_tgRiverButtons(true);
+      _tgSetMsg('↔ 현재 영토 경계에 강 구간을 맞췄습니다. ‘강 변경 저장’으로 강을 저장하세요. 영토 수정은 ‘경계 저장’으로 따로 저장합니다.','dirty');
+    }
+  }
+  function _tgRiverStart(direction){
+    if(!_tgEditMode||!_tgEditedGeometry||!window.mlMap3d||_tgSaving||_tgRiverBusy)return;
+    if(_tgRiverDraft){_tgSetMsg('강 변경을 먼저 저장하거나 취소하세요.','err');return;}
+    if(_tgRiverHandler){
+      var sameDirection=_tgRiverPick?.direction===direction;_tgRiverStopPick();_tgRiverGuide([]);
+      if(sameDirection){_tgSetMsg('강 구간 선택을 취소했습니다.');return;}
+    }
+    if(_tgPairMembers.length||_tgPolygonMode){_tgSetMsg('공유 영토·폴리곤 편집을 끝낸 뒤 강 구간을 맞추세요.','err');return;}
+    if(window._vertexEditMode){_tgSetMsg('강 포인트 편집을 먼저 완료하세요.','err');return;}
+    window.RiverBoundaryBridge.show();
+    _tgClearCoastGuide();if(_tgEraserMode)_tgStopEraser(true);if(_tg3dAddMode)_tgToggle3dAddVertex();
+    var m=window.mlMap3d,session=_tgSessionVersion,loading=false;
+    _tgRiverPick={direction:direction};_tgRiverButtons(true);window._territoryRiverPickActive=true;m.getCanvas().style.cursor='crosshair';_tg3dRemoveMarkers();_tgRiverGuide([]);
+    _tgSetMsg((direction==='territory'?'🌊 강에 영토 맞춤':'↔ 영토에 강 맞춤')+' · 강 구간의 시작점을 클릭한 뒤 같은 줄기의 끝점을 클릭하세요. 버튼을 다시 누르면 취소합니다.','dirty');
+    _tgRiverHandler=async function(e){
+      if(loading||!_tgRiverPick||e.originalEvent?.target?.closest?.('.maplibregl-marker'))return;
+      var point=[e.lngLat.lng,e.lngLat.lat],pick=_tgRiverPick;
+      try{
+        if(!pick.river){
+          var layers=['3d-rivers-hit','3d-rivers-fill'].filter(id=>m.getLayer(id));
+          var hits=layers.length?m.queryRenderedFeatures(e.point,{layers:layers}):[];
+          var hit=hits.find(f=>f.properties?.river_id&&['drawing','natural-feature'].includes(f.properties.river_source));
+          if(!hit)throw new Error('시작할 강의 선 위를 클릭하세요. 강 레이어가 켜져 있는지 확인하세요.');
+          loading=true;var river=await window.RiverBoundaryBridge.load(hit.properties.river_source,hit.properties.river_id);loading=false;
+          if(session!==_tgSessionVersion||_tgRiverPick!==pick)return;
+          var candidates=window.RiverGeometry.paths(river.geometry).filter(p=>!p.closed).map(p=>({part:p,near:window.RiverGeometry.nearest(window.RiverGeometry.at(river.geometry,p.path),point,c=>m.project(c))})).filter(p=>p.near).sort((a,b)=>a.near.distance-b.near.distance);
+          if(!candidates.length||candidates[0].near.distance>28)throw new Error('선으로 저장된 강 줄기 가까이를 클릭하세요.');
+          pick.river=river;pick.path=candidates[0].part.path;pick.start=candidates[0].near.point;_tgRiverGuide([],pick.start);
+          _tgSetMsg('📍 '+(river.record.name||'강')+' 시작점 선택됨 · 같은 줄기의 끝점을 클릭하세요.','dirty');return;
+        }
+        var near=window.RiverGeometry.nearest(window.RiverGeometry.at(pick.river.geometry,pick.path),point,c=>m.project(c));
+        if(!near||near.distance>28)throw new Error('선택한 강의 같은 줄기 위에서 끝점을 클릭하세요.');
+        var link={source:pick.river.source,river_id:pick.river.id,path:pick.path,start:pick.start,end:near.point,direction:direction};
+        _tgRiverApply(pick.river,link);_tgRiverStopPick();
+      }catch(error){loading=false;if(session===_tgSessionVersion)_tgSetMsg('❌ '+error.message,'err');}
+    };
+    m.on('click',_tgRiverHandler);
+  }
+  async function _tgRiverSave(){
+    if(!_tgRiverDraft||_tgSaving||_tgRiverBusy)return;
+    var draft=_tgRiverDraft;_tgRiverBusy=true;_tgSetSaving(true);_tgSetMsg('강 변경 저장 중…');
+    try{
+      var links=(Array.isArray(draft.river.record.territory_boundaries)?draft.river.record.territory_boundaries:[]).filter(function(link){
+        return !(String(link.territory_id)===String(_tgEditId)&&link.link_id===draft.link.link_id);
+      });
+      links.push(draft.link);await window.RiverBoundaryBridge.save(draft.river,draft.geometry,links);
+      _tgRiverDraft=null;_tgRiverButtons(true);_tgRiverGuide([]);
+      _tgSetMsg('✅ 강 구간 저장 완료 · 연결은 수동 갱신합니다. 영토에 수정 사항이 있으면 ‘경계 저장’도 실행하세요.','ok');
+    }catch(error){_tgSetMsg('❌ '+error.message+' · 강 변경 미리보기를 유지했습니다. 다시 저장하거나 취소하세요.','err');}
+    finally{_tgRiverBusy=false;_tgSetSaving(false);}
+  }
+  function _tgRiverRefresh(){
+    if(!_tgEditMode||_tgRiverBusy||_tgSaving)return;
+    if(_tgRiverDraft){_tgSetMsg('강 변경을 먼저 저장하거나 취소하세요.','err');return;}
+    if(_tgPairMembers.length||_tgPolygonMode){_tgSetMsg('공유 영토·폴리곤 편집을 끝낸 뒤 연결 구간을 갱신하세요.','err');return;}
+    _tgRiverStopPick();
+    var links=_tgRiverLinks.concat(window.RiverBoundaryBridge.linked(String(_tgEditId)));
+    if(!links.length){_tgSetMsg('저장된 연결 구간이 없습니다. 먼저 강 구간을 선택해 맞춘 뒤 저장하세요.');return;}
+    document.getElementById('territory-river-link-picker')?.remove?.();
+    var picker=document.createElement('div');picker.id='territory-river-link-picker';picker.style.cssText='position:fixed;bottom:170px;left:50%;transform:translateX(-50%);z-index:10030;max-height:40vh;overflow:auto;background:#172a38;color:white;padding:12px;border:1px solid #d3b861;border-radius:6px;display:flex;flex-direction:column;gap:8px';
+    var title=document.createElement('strong');title.textContent='수동 갱신할 연결 구간 선택';picker.appendChild(title);
+    links.forEach(function(link,i){var button=document.createElement('button');button.type='button';button.textContent=(i+1)+'. '+(link.name||'강')+' · '+(link.direction==='territory'?'강 → 영토':'영토 → 강');button.onclick=async function(){
+      picker.remove();var session=_tgSessionVersion;_tgRiverBusy=true;_tgSetSaving(true);_tgSetMsg('연결된 강 원본을 불러오는 중…');
+      try{var river=await window.RiverBoundaryBridge.load(link.source,link.river_id);if(session!==_tgSessionVersion)return;_tgRiverApply(river,link);}
+      catch(error){if(session===_tgSessionVersion)_tgSetMsg('❌ '+error.message,'err');}
+      finally{_tgRiverBusy=false;_tgSetSaving(false);}
+    };picker.appendChild(button);});
+    var close=document.createElement('button');close.type='button';close.textContent='닫기';close.onclick=()=>picker.remove();picker.appendChild(close);document.body.appendChild(picker);
+  }
+
   function _tgClearCoastGuide(){
     var m=window.mlMap3d;
     if(m&&_tgCoastClickHandler){m.off('click',_tgCoastClickHandler);_tgCoastClickHandler=null;}
@@ -1790,6 +1920,7 @@
     }
   }
   function _tg3dClear() {
+    _tgRiverClear();
     _tgStopPolygonDraw(false);
     _tgPolygonButtons(false);
     var m=window.mlMap3d;
@@ -1834,11 +1965,12 @@
       _tgCurrentHidden=full.hidden===true;
       _tgSetTitle('🧭 '+(name||full.name||displayId)+' 3D 경계 편집 · Object ID: '+displayId);
       _tgOriginalGeom=JSON.parse(JSON.stringify(geom));_tgEditedGeometry=JSON.parse(JSON.stringify(geom));_tgPolygonOperations=[];
+      _tgRiverLinks=JSON.parse(JSON.stringify(Array.isArray(full.river_boundaries)?full.river_boundaries:[]));_tgRiverButtons(true);
       _tgClearPair();
       _tg3dSetGeometry(_tgEditedGeometry);_tg3dRefreshMarkers();_tgSaveBtn(true);_tgEraserBtn(true);_tgAddVertexBtn(true);_tgSimplifyBtn(true);_tgHideBtn(true,_tgCurrentHidden);_tgSnapBtn(true);_tgPairBtn(true,false);_tgReversePairBtn(true,false);_tgPairRangeBtn(true);_tgCoastBtn(true,false);
       _tgPolygonButtons(true);
       if(_tg3dZoomHandler)m.off('moveend',_tg3dZoomHandler);
-      _tg3dZoomHandler=function(){if(_tgEditMode&&_tgEditedGeometry&&!_tgPolygonMode)_tg3dRefreshMarkers();};
+      _tg3dZoomHandler=function(){if(_tgEditMode&&_tgEditedGeometry&&!_tgPolygonMode&&!window._territoryRiverPickActive)_tg3dRefreshMarkers();};
       m.on('moveend',_tg3dZoomHandler);
       _tgSetMsg('편집 준비 완료 · 저장된 폴리곤 좌표가 기준입니다. 접경마다 상대 영토를 선택해 맞출 수 있습니다.');
     }catch(e){if(session!==_tgSessionVersion)return;_tgClearPair();_tgSetMsg('❌ '+e.message,'err');_tgEditMode=false;}
@@ -2083,6 +2215,7 @@
       // 마커 입력은 이동용이다. 지도까지 전달된 마커 클릭으로 중복 점을 넣지 않는다.
       var target=e.originalEvent&&e.originalEvent.target;
       if(target&&target.closest&&target.closest('.territory-geom-vertex'))return;
+      if(window._territoryRiverPickActive)return;
       if(_tg3dAddMode&&_tgEditMode&&window._is3dMode)_tg3dInsertVertex(e.point,e.lngLat);
     });
     document.addEventListener('mouseup',function(){
@@ -2333,6 +2466,7 @@
   function _tgCanLeaveEdit(){
     if(_tgSaving)return false;
     var dirty=_tgEditedGeometry&&_tgOriginalGeom&&JSON.stringify(_tgEditedGeometry)!==JSON.stringify(_tgOriginalGeom);
+    dirty=dirty||!!_tgRiverDraft||JSON.stringify(_tgRiverLinks)!==JSON.stringify(_tgFullCache[_tgEditId]?.river_boundaries||[]);
     dirty=dirty||_tgPairMembers.some(function(member){return JSON.stringify(member.geometry)!==JSON.stringify(member.original);});
     return !dirty||confirm('저장하지 않은 경계 수정이 있습니다. 변경을 취소하고 이동할까요?');
   }
@@ -2490,6 +2624,8 @@
 
   async function _tgSave() {
     if (!_tgEditId||_tgSaving) return;
+    if(_tgRiverDraft){_tgSetMsg('강 변경을 먼저 저장하거나 취소한 뒤 영토 경계를 저장하세요.','err');return;}
+    if(_tgRiverHandler){_tgSetMsg('강 구간 선택을 완료하거나 취소하세요.','err');return;}
     if(_tgPolygonMode){_tgSetMsg('그리기를 완료하거나 취소한 뒤 경계를 저장하세요.','err');return;}
     var token=_tgToken();
     if (!token||token==='null'||token==='undefined') {
@@ -2527,7 +2663,7 @@
         headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
         body:JSON.stringify(pairMode?{
           updates:[{id:_tgEditId,geometry:geometry,bbox:bbox}].concat(pairUpdates)
-        }:{geometry:geometry,bbox:bbox,geometry_operations:_tgPolygonOperations.length?_tgPolygonOperations:undefined})
+        }:{geometry:geometry,bbox:bbox,river_boundaries:_tgRiverLinks,geometry_operations:_tgPolygonOperations.length?_tgPolygonOperations:undefined})
       });
       var json=await res.json();
       if (!res.ok){
@@ -2537,7 +2673,7 @@
       _tgWatchTileBuild(saveStartedAt);
 
       /* ② 캐시 갱신 */
-      _tgFullCache[_tgEditId]=Object.assign({},_tgFullCache[_tgEditId]||{},json,{geometry:geometry,bbox:bbox});
+      _tgFullCache[_tgEditId]=Object.assign({},_tgFullCache[_tgEditId]||{},json,{geometry:geometry,bbox:bbox,river_boundaries:_tgRiverLinks});
       pairUpdates.forEach(function(update){_tgFullCache[update.id]=Object.assign({},_tgFullCache[update.id]||{},{geometry:update.geometry,bbox:update.bbox});});
 
       /* ③ 수정 좌표를 즉시 유지한다. 재빌드 전 구 타일을 다시 읽어 덮어쓰지 않는다. */
@@ -2672,6 +2808,23 @@
     var unlinkBtn=document.getElementById('territory-geom-unlink-btn');
     if(unlinkBtn)unlinkBtn.addEventListener('click',_tgUnlinkSharedBoundary);
 
+    document.getElementById('territory-river-fit-btn')?.addEventListener('click',()=>_tgRiverStart('territory'));
+    document.getElementById('territory-river-reverse-btn')?.addEventListener('click',()=>_tgRiverStart('river'));
+    document.getElementById('territory-river-refresh-btn')?.addEventListener('click',_tgRiverRefresh);
+    document.getElementById('territory-river-save-btn')?.addEventListener('click',_tgRiverSave);
+    document.getElementById('territory-river-cancel-btn')?.addEventListener('click',function(){if(_tgRiverBusy)return;_tgRiverDraft=null;_tgRiverGuide([]);_tgRiverButtons(true);_tgSetMsg('강 변경을 취소했습니다.');});
+    document.getElementById('territory-geom-edit-bar')?.addEventListener('click',function(e){
+      var button=e.target.closest('button');if(!button)return;
+      if(button.id!=='territory-river-refresh-btn')document.getElementById('territory-river-link-picker')?.remove?.();
+      if(button.id.startsWith('territory-river-'))return;
+      if(_tgRiverHandler)_tgRiverStopPick();
+      if(['territory-geom-pair-btn','territory-geom-reverse-pair-btn'].includes(button.id)&&JSON.stringify(_tgRiverLinks)!==JSON.stringify(_tgFullCache[_tgEditId]?.river_boundaries||[])){
+        e.stopImmediatePropagation();_tgSetMsg('강에 맞춘 경계를 먼저 저장한 뒤 공유 영토를 편집하세요.','err');return;
+      }
+      if(_tgRiverDraft&&!['territory-geom-cancel-btn','territory-geom-exit-btn'].includes(button.id)){
+        e.stopImmediatePropagation();_tgSetMsg('강 변경을 먼저 저장하거나 취소하세요.','err');
+      }
+    },true);
     var coastBtn=document.getElementById('territory-geom-coast-btn');
     if(coastBtn)coastBtn.addEventListener('click',_tgStartCoastFit);
 

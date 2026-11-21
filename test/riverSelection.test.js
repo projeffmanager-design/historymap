@@ -143,17 +143,24 @@ test('river data replacement, addition and deletion invalidate the 3D cache', ()
     assert.notEqual(key(), edited);
 });
 
-test('point editing transfers the 3D camera before creating Leaflet vertices', () => {
-    const code = section('        function startVertexEdit()', '        function finishVertexEdit(');
-    const calls = [], fields = new Proxy({}, { get: (_, id) => ({ value: id === 'drawingGeoJson' ? '{}' : 'same-id', style: {} }) });
-    const context = vm.createContext({
-        document: { getElementById: id => fields[id] }, window: { _is3dMode: true,
-            _exitHistory3d() { calls.push('exit3d'); } },
-        map: { invalidateSize() {}, dragging: { disable() {} } }, _vtxMarkers: { addTo() { calls.push('vertices'); } },
-        getCoords: () => [[1,2],[3,4]], buildMarkers() {}, drawPreview() {}, drawnItems: { eachLayer() {} }, showToast() {}
-    });
-    vm.runInContext(code + '\nstartVertexEdit();', context);
-    assert.deepEqual(calls, ['exit3d', 'vertices']);
-    assert.equal(context.window._prefer2dEditing, true);
-    assert.equal(context.window._vertexEditMode, true);
+test('point editing uses the globe editor and flushes its draft into the form', async () => {
+    const code = section('    // 📍 기본 지도 포인트 편집.', '    // 영토 편집기는 렌더링');
+    const fields = new Map();
+    for(const id of ['drawingGeoJson','nfGeometry','vertexEditBtn','nfVertexEditBtn','vertexEditHint','vertexEditDoneBtn','vertexEditCancelBtn','cancelDrawingBtn','cancelNaturalFeatureBtn','territory-geom-edit-bar']) {
+        fields.set(id, {value:JSON.stringify({type:'LineString',coordinates:[[1,2],[3,4]]}),style:{},classList:{contains:()=>false,remove(){}},listeners:{},addEventListener(name,fn){this.listeners[name]=fn;}});
+    }
+    let options, instance;
+    const window={_is3dMode:true,mlMap3d:{isStyleLoaded:()=>true},GlobePointEditor:class {
+        constructor(opts){options=opts;instance=this;}
+        finish(save){options.onFinish(save?{type:'LineString',coordinates:[[5,6],[7,8]]}:null);}
+    },_exitHistory3d(){throw new Error('must keep default map');}};
+    const context=vm.createContext({window,document:{getElementById:id=>fields.get(id)},showToast(){},setTimeout,Date,Promise});
+    vm.runInContext(code,context);
+    await fields.get('vertexEditBtn').listeners.click();
+    assert.equal(options.map,window.mlMap3d);assert.equal(window._vertexEditMode,true);
+    window._finishGlobePointEdit(true);
+    assert.deepEqual(JSON.parse(fields.get('drawingGeoJson').value).coordinates,[[5,6],[7,8]]);
+    assert.equal(window._vertexEditMode,false);
+    await fields.get('nfVertexEditBtn').listeners.click();instance.finish(false);
+    assert.deepEqual(JSON.parse(fields.get('nfGeometry').value).coordinates,[[1,2],[3,4]]);
 });
