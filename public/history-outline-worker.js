@@ -1,7 +1,7 @@
 /* 국가 폴리곤 합성은 무거우므로 지도 UI와 분리된 Worker에서 처리한다. */
-importScripts('https://cdn.jsdelivr.net/npm/@turf/turf@7.3.1/turf.min.js');
+importScripts('/public/map-memory.js?v=20261121-2', 'https://cdn.jsdelivr.net/npm/@turf/turf@7.3.1/turf.min.js');
 
-const cache = new Map();
+const cache = new MapMemory.BudgetCache({ maxBytes:16 * 1024 * 1024, maxEntries:16 });
 
 // union 결과에서 외곽 링만 남긴다. GeoJSON의 두 번째 이후 링은 완전히
 // 둘러싸인 내부 구멍이므로 제거하면 외부 미점유지는 건드리지 않고 빵꾸만 메워진다.
@@ -16,6 +16,22 @@ function fillEnclosedHoles(feature) {
             .map(polygon => [polygon[0]]);
     }
     return feature;
+}
+
+// Sweep-line validation avoids running quadratic unkinking on already valid,
+// detailed borders. Repair is reserved for rings that actually intersect.
+function ringNeedsRepair(ring) {
+    const count = ring.length - 1, seen = new Set();
+    for (let i = 0; i < count; i++) {
+        const a = ring[(i + count - 1) % count], b = ring[i], c = ring[(i + 1) % count];
+        const key = b[0] + ',' + b[1];
+        if (seen.has(key)) return true;
+        seen.add(key);
+        const ax = a[0] - b[0], ay = a[1] - b[1], cx = c[0] - b[0], cy = c[1] - b[1];
+        if (ax * cy - ay * cx === 0 && ax * cx + ay * cy > 0) return true;
+    }
+    return turf.lineIntersect({ type:'LineString', coordinates:ring }, turf.featureCollection([]),
+        { ignoreSelfIntersections:false }).features.length > 0;
 }
 
 self.onmessage = event => {
@@ -35,10 +51,13 @@ self.onmessage = event => {
                 const level = feature?.properties?.level || 'city';
                 (byLevel[level] || byLevel.city).push(feature);
             });
-            const repairFeature = feature => {
+            const repairUncached = feature => {
                 if (!feature?.geometry) return null;
                 try {
                     const cleaned = turf.cleanCoords(feature, { mutate: false });
+                    const rings = cleaned.geometry.type === 'Polygon' ? cleaned.geometry.coordinates
+                        : cleaned.geometry.type === 'MultiPolygon' ? cleaned.geometry.coordinates.flat() : [];
+                    if (!rings.some(ringNeedsRepair)) return cleaned;
                     if (cleaned.geometry.type === 'Polygon') {
                         const pieces = turf.unkinkPolygon(cleaned)?.features || [];
                         return pieces.length > 1 ? turf.union(turf.featureCollection(pieces)) : (pieces[0] || cleaned);
@@ -56,6 +75,17 @@ self.onmessage = event => {
                     catch (_) { return null; }
                 }
             };
+            const repairedFeatures = new WeakMap();
+            const repairFeature = feature => {
+                if (!feature || typeof feature !== 'object') return null;
+                if (!repairedFeatures.has(feature)) repairedFeatures.set(feature, repairUncached(feature));
+                return repairedFeatures.get(feature);
+            };
+            const boundsCache = new WeakMap();
+            const boundsFor = feature => {
+                if (!boundsCache.has(feature)) boundsCache.set(feature, turf.bbox(feature));
+                return boundsCache.get(feature);
+            };
             const safeUnion = list => {
                 const valid = list.map(repairFeature).filter(Boolean);
                 if (!valid.length) return null;
@@ -72,6 +102,12 @@ self.onmessage = event => {
                 }
             };
             const safeDifference = (feature, mask) => {
+                if (feature && mask) {
+                    try {
+                        const a = boundsFor(feature), b = boundsFor(mask);
+                        if (a[0] >= b[2] || b[0] >= a[2] || a[1] >= b[3] || b[1] >= a[3]) return feature;
+                    } catch (_) { /* malformed bounds use the normal repair path */ }
+                }
                 const repaired = repairFeature(feature);
                 if (!repaired) return null;
                 if (!mask) return repaired;
@@ -138,14 +174,12 @@ self.onmessage = event => {
             }
             const result = turf.featureCollection(output);
             cache.set(key, result);
-            if (cache.size > 400) cache.delete(cache.keys().next().value);
             self.postMessage({ key, countryId, outline: result });
             return;
         }
         const outline = fillEnclosedHoles(turf.union(turf.featureCollection(features)));
         if (outline) outline.properties = { country_id: countryId };
         cache.set(key, outline || null);
-        if (cache.size > 400) cache.delete(cache.keys().next().value);
         self.postMessage({ key, countryId, outline: outline || null });
     } catch (error) {
         self.postMessage({ key, countryId, outline: null, error: error?.message || String(error) });

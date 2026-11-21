@@ -399,3 +399,16 @@ test('add mode supports moving existing and newly inserted vertices without addi
     assert.deepEqual(saved.coordinates[0][1], [.55, -.1]);
     assert.deepEqual(saved.coordinates[0].at(-1), saved.coordinates[0][0]);
 });
+
+
+test('ending an edit releases full boundary snapshots and reopening fetches fresh geometry', async () => {
+    const f=fixture();
+    await f.context.window.openTerritoryGeomEditAt({lng:.5,lat:.5});await flush();
+    assert.deepEqual(Array.from(f.context.window._getTerritoryEditMemoryPins()),['A']);
+    f.move();f.get('close-btn').click();
+    assert.equal(f.context.window._getTerritoryEditMemoryPins().length,0);
+    await f.context.window.openTerritoryGeomEditAt({lng:.5,lat:.5});await flush();
+    assert.equal(f.requests.filter(req=>req.url==='/api/territories/A').length,2);
+    const geometry=f.sources.get('territory-3d-edit').data.features[0].geometry;
+    assert.deepEqual(Array.from(geometry.coordinates[0][0]),[0,0]);
+});

@@ -828,22 +828,15 @@
         });
     }
 
-    const _historyCountryOutlineCache = new Map();
+    const _historyCountryOutlineCache = new MapMemory.BudgetCache({ maxBytes:32 * 1024 * 1024, maxEntries:32 });
     const _historyCountryOutlinePending = new Map();
     let _historyCountryOutlineWorker = null;
+    let _historyOutlineQueue = null;
     let _globeTerritoryMergeSequence = 0;
     let historyVectorHierarchyPending = false;
 
     function getHistoryCountryOutlineKey(features, countryId) {
-        const geometryHash = geometry => {
-            const text = JSON.stringify(geometry || null);
-            let hash = 2166136261;
-            for (let i = 0; i < text.length; i++) {
-                hash ^= text.charCodeAt(i);
-                hash = Math.imul(hash, 16777619);
-            }
-            return (hash >>> 0).toString(36);
-        };
+        const geometryHash = MapMemory.geometryHash;
         const signature = `${countryId}:${features.map(f => {
             const id = f.id || f.properties?._id || f.properties?.territory_id || f.properties?.name || '';
             return `${id}@${geometryHash(f.geometry)}`;
@@ -853,22 +846,44 @@
 
     function ensureHistoryCountryOutlineWorker() {
         if (_historyCountryOutlineWorker || typeof Worker === 'undefined') return _historyCountryOutlineWorker;
-        _historyCountryOutlineWorker = new Worker('/public/history-outline-worker.js?v=20260907-part-mask-single-fill-v3');
+        const workerUrl = '/public/history-outline-worker.js?v=memory-20261121-3';
+        _historyCountryOutlineWorker = new Worker(workerUrl);
+        _historyOutlineQueue = new MapMemory.LatestJobQueue({
+            maxQueued:6,
+            // If a newer snapshot is waiting, release the old Worker's geometry
+            // after a short grace period instead of waiting for a costly obsolete union.
+            cancelActive:() => {
+                const previous = _historyCountryOutlineWorker;
+                const onmessage = previous.onmessage, onerror = previous.onerror;
+                previous.onmessage = null; previous.onerror = null; previous.terminate();
+                _historyCountryOutlineWorker = null;
+                const next = new Worker(workerUrl);
+                next.onmessage = onmessage; next.onerror = onerror;
+                _historyCountryOutlineWorker = next;
+            },
+            send:job => _historyCountryOutlineWorker.postMessage(job),
+            drop:job => {
+                const callbacks = _historyCountryOutlinePending.get(job.key) || [];
+                _historyCountryOutlinePending.delete(job.key);
+                callbacks.forEach(callback => callback(null));
+            }
+        });
         _historyCountryOutlineWorker.onmessage = ({ data }) => {
             if (!data?.key) return;
             _historyCountryOutlineCache.set(data.key, data.outline || null);
-            if (_historyCountryOutlineCache.size > 400) {
-                _historyCountryOutlineCache.delete(_historyCountryOutlineCache.keys().next().value);
-            }
             const callbacks = _historyCountryOutlinePending.get(data.key) || [];
             _historyCountryOutlinePending.delete(data.key);
-            callbacks.forEach(callback => callback(data.outline || null));
+            try { callbacks.forEach(callback => callback(data.outline || null)); }
+            finally {
+                _historyOutlineQueue.complete(data.key);
+                if (typeof location !== 'undefined' && ['localhost','127.0.0.1'].includes(location.hostname)) {
+                    console.debug('[MapMemoryWorker] ' + JSON.stringify({ outlines:_historyCountryOutlineCache.stats(), worker:_historyOutlineQueue.stats() }));
+                }
+            }
         };
         _historyCountryOutlineWorker.onerror = error => {
             console.warn('국가 외곽선 Worker 오류:', error.message || error);
-            for (const callbacks of _historyCountryOutlinePending.values()) {
-                callbacks.forEach(callback => callback(null));
-            }
+            _historyOutlineQueue?.clear();
             _historyCountryOutlinePending.clear();
             _historyCountryOutlineWorker?.terminate();
             _historyCountryOutlineWorker = null;
@@ -890,11 +905,12 @@
         const worker = ensureHistoryCountryOutlineWorker();
         if (!worker) return;
         _historyCountryOutlinePending.set(key, [callback]);
-        worker.postMessage({ key, countryId, features });
+        _historyOutlineQueue.enqueue({ key, countryId, features }, 'country:' + countryId);
     }
 
     function requestHistoryTerritoryHierarchy(features, key, callback, mode = 'hierarchy') {
         if (!Array.isArray(features) || features.length === 0) return;
+        if (_historyCountryOutlineCache.has(key)) { callback(_historyCountryOutlineCache.get(key)); return; }
         if (_historyCountryOutlinePending.has(key)) {
             _historyCountryOutlinePending.get(key).push(callback);
             return;
@@ -902,7 +918,7 @@
         const worker = ensureHistoryCountryOutlineWorker();
         if (!worker) return;
         _historyCountryOutlinePending.set(key, [callback]);
-        worker.postMessage({ key, countryId: '__hierarchy__', features, mode });
+        _historyOutlineQueue.enqueue({ key, countryId: '__hierarchy__', features, mode }, 'hierarchy:' + mode);
     }
 
     function mergeGlobeTerritoriesByCountry(sourceData, year, month) {
@@ -10881,7 +10897,7 @@ const loadingMessages = [
           bufferDeg:              0,    // 모바일은 보이는 뷰포트만 먼저 로드 (주변 5° 대형 타일 제외)
           prefetchNextZoomDeg:    false,
           prefetchPrevZoomDeg:    false,
-          maxConcurrent:          4,
+          maxConcurrent:          2,
           moveThrottleMs:         140,
           swapCoverageThreshold:  0.72, // 72% 이상 준비돼야 렌더링
           fadeMs:                 120,
@@ -10894,10 +10910,10 @@ const loadingMessages = [
           // ── 방향성 prefetch ────────────────────────────────────────
           directionalBias:        1.5,  // 이동 방향 타일 우선 가중치 (1.0 = bias 없음)
       } : {
-          bufferDeg:              10,   // 3D Globe 메모리 절약: 현재 뷰포트 인접 10°
+          bufferDeg:              0,    // 보이는 범위만 파싱하고 재방문은 HTTP/메모리 캐시에서 복구
           prefetchNextZoomDeg:    false,
           prefetchPrevZoomDeg:    false,
-          maxConcurrent:          8,
+          maxConcurrent:          4,
           moveThrottleMs:         80,
           swapCoverageThreshold:  0.85, // 85% 이상 준비돼야 렌더링
           fadeMs:                 140,
@@ -10917,24 +10933,53 @@ const loadingMessages = [
       const MOVE_THROTTLE_MS    = _tileStrategyConfig.moveThrottleMs;
       const TILE_FADE_MS        = _tileStrategyConfig.fadeMs;
 
-      // 🎨 [Quality-first] 타일 피처 메모리 LRU 캐시 (최대 200 타일 — re-pan 즉시 복원)
-      const MEMORY_TILE_CACHE_SIZE = 200;
-      const _tileFeaturesMemCache  = new Map(); // filename → features[]
-      function _tileCacheGet(filename) {
-          const cacheKey = `${_tileContentVersion}:${filename}`;
-          if (!_tileFeaturesMemCache.has(cacheKey)) return null;
-          const val = _tileFeaturesMemCache.get(cacheKey);
-          _tileFeaturesMemCache.delete(cacheKey); // LRU: 재삽입으로 최신화
-          _tileFeaturesMemCache.set(cacheKey, val);
-          return val;
-      }
-      function _tileCacheSet(filename, features) {
-          if (_tileFeaturesMemCache.size >= MEMORY_TILE_CACHE_SIZE) {
-              const firstKey = _tileFeaturesMemCache.keys().next().value;
-              _tileFeaturesMemCache.delete(firstKey); // 가장 오래된 항목 축출
+      // Parsed coordinates have a byte budget; raw files remain in the browser HTTP cache.
+      const _tileFeaturesMemCache = new MapMemory.BudgetCache({
+          maxBytes:(_tileDeviceMode === 'mobile' ? 16 : 32) * 1024 * 1024, maxEntries:24
+      });
+      const _tileResidency = new MapMemory.TileResidency({
+          maxBytes:(_tileDeviceMode === 'mobile' ? 32 : 64) * 1024 * 1024,
+          maxTiles:_tileDeviceMode === 'mobile' ? 8 : 16
+      });
+      function _tileCacheGet(filename) { return _tileFeaturesMemCache.get(`${_tileContentVersion}:${filename}`); }
+      function _tileCacheSet(filename, features) { _tileFeaturesMemCache.set(`${_tileContentVersion}:${filename}`, features); }
+      function _pruneTerritoryTiles(requiredTiles) {
+          const pins = new Set(window._getTerritoryEditMemoryPins?.() || []);
+          const removed = _tileResidency.prune(new Set(requiredTiles.map(tile => tile.filename)), pins);
+          if (!removed.length) return 0;
+          removed.forEach(filename => _loadedTileFiles.delete(filename));
+          allTerritoriesLoaded = false;
+          const retained = _tileResidency.retainedFeatures();
+          let count = 0;
+          for (let i = territories.length - 1; i >= 0; i--) {
+              const territory = territories[i];
+              const id = String(territory._id?.$oid || territory._id || '');
+              if (!territory.fromTile || pins.has(id)) continue;
+              const feature = retained.get(id);
+              if (!feature) {
+                  territories.splice(i, 1); window._sessionMapCache.territoriesById.delete(id); count++;
+              } else if (feature.geometry && territory.coordinates !== feature.geometry.coordinates) {
+                  // A territory may span several files. Keep the retained tile's piece
+                  // instead of retaining coordinates owned only by an evicted tile.
+                  territory.type = feature.geometry.type;
+                  territory.coordinates = feature.geometry.coordinates;
+                  territory.bbox = feature.properties?.bbox;
+                  count++;
+              }
           }
-          _tileFeaturesMemCache.set(`${_tileContentVersion}:${filename}`, features);
+          if (count) {
+              window._invalidateUniqueTerritoriesRenderCache?.();
+              _historyCountryOutlineCache.clear(); _simplifiedCoordsCache.clear();
+              _dominantCountryCache.clear(); _activeCastleTerritoryCache.clear();
+              if (['localhost','127.0.0.1'].includes(location.hostname)) console.debug('[MapMemory] ' + JSON.stringify(window._mapMemoryStats()));
+          }
+          return count;
       }
+      window._mapMemoryStats = () => ({
+          parsedTiles:_tileFeaturesMemCache.stats(), residentTiles:_tileResidency.stats(),
+          outlines:_historyCountryOutlineCache.stats(), worker:_historyOutlineQueue?.stats() || { active:0, queued:0 },
+          territories:territories.length
+      });
 
       // 뷰포트 bounds → 해당 타일 목록 필터 (10도 패딩 포함)
       function _tilesForBounds(tileIndex, vBounds, pad) {
@@ -11112,11 +11157,12 @@ const loadingMessages = [
 
       // 타일 파일 1개 fetch → feature 배열 반환 (메모리 LRU 캐시 + 브라우저 캐시 활용)
       async function _fetchTile(tile, origin, basePath, version) {
-          if (_loadedTileFiles.has(tile.filename))  return []; // 이미 병합됨
+          if (_loadedTileFiles.has(tile.filename)) { _tileResidency.touch(tile.filename); return []; } // already merged
           if (_loadingTileFiles.has(tile.filename)) return []; // 현재 로딩 중
           // 🎨 [Quality-first] 메모리 LRU 캐시 확인 (force-refresh 후에도 재fetch 없이 즉시 복원)
           const cached = _tileCacheGet(tile.filename);
           if (cached) {
+              _tileResidency.track(tile.filename, cached);
               _loadedTileFiles.add(tile.filename);
               return cached;
           }
@@ -11128,7 +11174,8 @@ const loadingMessages = [
               const data = await resp.json();
               const features = data.features || [];
               _loadedTileFiles.add(tile.filename);
-              _tileCacheSet(tile.filename, features); // 메모리 캐시에 저장
+              _tileCacheSet(tile.filename, features);
+              _tileResidency.track(tile.filename, features);
               return features;
           } catch(e) {
               console.warn(`타일 오류: ${tile.filename}`, e);
@@ -11261,6 +11308,8 @@ const loadingMessages = [
                   west:  bounds.getWest(),  east:  bounds.getEast()
               };
               const viewportTiles = _tilesForBounds(tileIndex, vBounds, TILE_BUFFER_DEG); // 여유 pad
+              _pruneTerritoryTiles(viewportTiles);
+              viewportTiles.forEach(tile => _tileResidency.touch(tile.filename));
               const newViewportTiles = viewportTiles.filter(t => !_loadedTileFiles.has(t.filename));
 
               if (newViewportTiles.length > 0) {
@@ -11274,6 +11323,7 @@ const loadingMessages = [
                       )).flat();
                       added += _mergeFeatures(vpFeatures);
                   }
+                  _pruneTerritoryTiles(viewportTiles);
                   const elapsed1 = ((Date.now() - startTime) / 1000).toFixed(2);
                   console.log(`✅ 뷰포트 로드 완료: +${added}개 (누계 ${territories.length}개, ${elapsed1}초)`);
                   _updateTerritoryBtn();
@@ -11343,7 +11393,7 @@ const loadingMessages = [
       // moveend 시 아직 안 로드된 새 뷰포트 타일 lazy-load
       // 🔄 [Coverage-based Swap] required 타일이 threshold 이상 준비될 때만 렌더링 호출
       async function _loadNewViewportTiles(boundsOverride = null) {
-          if (allTerritoriesLoaded || _tileLoadBg) return 0;
+          if (_tileLoadBg) return 0;
           // 🔒 동시 실행 방지 — 진행 중이면 재실행 플래그만 세우고 리턴
           if (window._tileViewportLoading) {
               window._tileViewportPending = true;
@@ -11353,6 +11403,7 @@ const loadingMessages = [
           window._tileViewportLoading = true;
           window._tileViewportPending = false;
           let addedTotal = 0;
+          let removedTotal = 0;
           try {
           if (!_tileIndexCache) {
               try {
@@ -11372,6 +11423,8 @@ const loadingMessages = [
 
           // ── required tiles: 현재 뷰포트 (buffer 포함) ────────────────────
           const requiredTiles = _tilesForBounds(_tileIndexCache, vBounds, TILE_BUFFER_DEG);
+          removedTotal += _pruneTerritoryTiles(requiredTiles);
+          requiredTiles.forEach(tile => _tileResidency.touch(tile.filename));
           let newRequired = requiredTiles.filter(t => !_loadedTileFiles.has(t.filename) && !_loadingTileFiles.has(t.filename));
 
           // ── coverage 계산: required 중 이미 로드된 비율 ──────────────────
@@ -11446,6 +11499,7 @@ const loadingMessages = [
               }
           }
 
+          removedTotal += _pruneTerritoryTiles(requiredTiles);
           _updateTerritoryBtn();
 
           // ── background prefetch: zoom 인접 레벨 타일 미리 로드 ────────────
@@ -11500,7 +11554,7 @@ const loadingMessages = [
                   setTimeout(() => _loadNewViewportTiles(pendingBounds), 0);
               }
           }
-          if (addedTotal > 0 && window._historyVectorMode && typeof updateMap === 'function') {
+          if ((addedTotal > 0 || removedTotal > 0) && window._historyVectorMode && typeof updateMap === 'function') {
               const current = typeof getCurrentYearMonth === 'function'
                   ? getCurrentYearMonth()
                   : { year: parseInt(yearInput?.value || 400, 10), month: 1 };
@@ -29419,6 +29473,7 @@ kingSelect.addEventListener('change', () => {
                     _loadingTileFiles = new Set();
                     _tileIndexCache = null;
                     _tilesBasePathCache = null;
+                    _tileFeaturesMemCache.clear(); _tileResidency.clear();
                     allTerritoriesLoaded = false;
                     await loadTerritoryTiles();
                     if (territories.length > 0) {

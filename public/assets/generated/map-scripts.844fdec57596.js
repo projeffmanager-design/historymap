@@ -2091,6 +2091,19 @@
     });
   }
 
+  // The editor owns its unsaved geometry independently of the map tile cache.
+  window._getTerritoryEditMemoryPins = function(){
+    return [_tgEditId].concat(_tgPairMembers.map(function(member){return member.id;})).filter(Boolean).map(String);
+  };
+  function _tgCacheFull(id, full){
+    delete _tgFullCache[id];_tgFullCache[id]=full;
+    var pins=new Set(window._getTerritoryEditMemoryPins());
+    Object.keys(_tgFullCache).forEach(function(key){
+      if(Object.keys(_tgFullCache).length>8&&!pins.has(String(key)))delete _tgFullCache[key];
+    });
+    return full;
+  }
+
   /* ── API: full territory (geometry 포함) ─────────────────── */
   async function _tgFetch(id) {
     if (_tgFullCache[id]) return _tgFullCache[id];
@@ -2099,8 +2112,7 @@
     var res = await fetch('/api/territories/'+id, {headers:headers});
     if (!res.ok) throw new Error('territory API: HTTP '+res.status);
     var json = await res.json();
-    _tgFullCache[id] = json;
-    return json;
+    return _tgCacheFull(id,json);
   }
 
   /* ── geoman 편집 이벤트 → geometry 동기화 ────────────────── */
@@ -2304,6 +2316,7 @@
     _tg3dClear();
     _tgHideLayerPicker();
     _tgEditId=null; _tgEditedGeometry=null; _tgOriginalGeom=null; _tgEditableLayer=null;
+    _tgFullCache={};
     _tgPolygonOperations=[];
     map.off('click',_tgMapClick);
     map.getContainer().style.cursor='';
