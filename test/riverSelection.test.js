@@ -132,7 +132,7 @@ test('hidden or stale river features do not open an editor', () => {
 test('river data replacement, addition and deletion invalidate the 3D cache', () => {
     const code = section('                const riverRecords = ', '                // ── 마커 캐시 키:');
     const context = vm.createContext({ drawings: [], naturalFeatures: [], year: 400, month: 1,
-        _td: {}, _showTerritory: true, _showRivers: true, _lastRiverRecords: [], _riverDataVersion: 0 });
+        _td: {}, _showTerritory: true, _showRivers: true, _lastRiverRecords: [], _riverDataVersion: 0, _territoryDataVersion: 0 });
     const key = () => vm.runInContext('{ ' + code + '\nnewTerritoryKey; }', context);
     const initial = key();
     context.drawings.push({ type: 'river' });

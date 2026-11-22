@@ -97,7 +97,7 @@ test('a pinned unsaved boundary is neither removed nor changed by map cache clea
 
 test('dropping old requests clears callbacks and only posts the newest hierarchy after the active job', () => {
     const workers=[],calls=[];
-    const context=vm.createContext({MapMemory:Memory,Map,console,
+    const context=vm.createContext({MapMemory:Memory,Map,console,MapRuntime:require('../public/map-runtime'),window:{},
         Worker:class {constructor(){workers.push(this);}postMessage(job){calls.push(job);}terminate(){}},
         _historyCountryOutlineCache:new Memory.BudgetCache({maxBytes:10000}),_historyCountryOutlinePending:new Map(),
         _historyCountryOutlineWorker:null,_historyOutlineQueue:null
@@ -189,4 +189,32 @@ test('obsolete heavy Worker jobs are cancelled after a grace period without spaw
     queue.complete('old-world');assert.equal(queue.stats().active,1);
     queue.complete('latest-999');assert.equal(queue.stats().active,0);assert.equal(timers.size,0);
     assert.equal(dropped.length,1000);
+});
+
+test('a stuck Worker is terminated without waiting for a newer same-group job',()=>{
+ let time=0,id=0;const timers=new Map(),sent=[],dropped=[],killed=[];
+ const queue=new Memory.LatestJobQueue({send:j=>sent.push(j.key),drop:(j,reason)=>dropped.push([j.key,reason]),cancelActive:j=>killed.push(j.key),maxActiveMs:15000,now:()=>time,schedule:(fn,ms)=>{const k=++id;timers.set(k,{fn,at:time+ms});return k;},unschedule:k=>timers.delete(k)});
+ queue.enqueue({key:'stuck'},'hierarchy');queue.enqueue({key:'next'},'different-group');assert.equal(timers.size,1);
+ const first=[...timers.values()][0];time=first.at;timers.clear();first.fn();
+ assert.deepEqual(killed,['stuck']);assert.deepEqual(dropped,[['stuck','timeout']]);assert.deepEqual(sent,['stuck','next']);assert.equal(queue.stats().timeouts,1);
+ queue.complete('next');assert.equal(timers.size,0);assert.equal(queue.stats().active,0);
+});
+test('oversized geometry is rejected before any structured clone and queue cancellation clears deadline',()=>{
+ const sent=[],dropped=[],timers=new Map();let n=0;
+ const queue=new Memory.LatestJobQueue({send:j=>sent.push(j.key),drop:(j,reason)=>dropped.push([j.key,reason]),cancelActive(){},maxActiveMs:100,maxJobBytes:100,weigh:j=>j.bytes,schedule:fn=>{timers.set(++n,fn);return n;},unschedule:id=>timers.delete(id)});
+ queue.enqueue({key:'huge',bytes:101},'a');assert.equal(sent.length,0);assert.deepEqual(dropped,[['huge','budget']]);assert.equal(queue.stats().oversized,1);
+ queue.enqueue({key:'small',bytes:50},'a');assert.equal(sent.length,1);assert.equal(timers.size,1);queue.clear();assert.equal(timers.size,0);
+});
+test('globe timeout keeps original geometry and persisted coordinates rather than substituting fallback shapes',()=>{
+ const original={country:[feature('country')],province:[feature('province')],city:[feature('city')]},before=structuredClone(original);let callback,refreshes=0;
+ const context=vm.createContext({window:{_3dRefreshLayers(){refreshes++;}},getHistoryCountryOutlineKey:()=> 'key',requestHistoryTerritoryHierarchy:(features,key,fn)=>callback=fn,getCurrentYearMonth:()=>({year:400,month:1}),_globeTerritoryMergeSequence:0,historyVectorHierarchyPending:false});
+ vm.runInContext(section('    function mergeGlobeTerritoriesByCountry(', '    function selectHierarchyFallback('),context);
+ context.mergeGlobeTerritoriesByCountry(original,400,1);callback({aborted:true});
+ assert.equal(context.window._3dTerritoryData,original);assert.deepEqual(original,before);assert.equal(refreshes,1);assert.equal(context.historyVectorHierarchyPending,false);
+});
+
+test('bounded geometry estimates stop walking oversized input while default estimates remain exact',()=>{
+ let reads=0;const array=Array.from({length:1000},()=>({get x(){reads++;return 1;}}));
+ assert.equal(Memory.estimateBytes(array,10000),10001);assert.ok(reads<1000);
+ assert.equal(Memory.estimateBytes([1,2]),64);assert.equal(Memory.estimateBytes([1,2],10000),64);
 });

@@ -1,5 +1,5 @@
 /* 국가 폴리곤 합성은 무거우므로 지도 UI와 분리된 Worker에서 처리한다. */
-importScripts('/public/map-memory.js?v=20261121-2', 'https://cdn.jsdelivr.net/npm/@turf/turf@7.3.1/turf.min.js');
+importScripts('/public/map-memory.js?v=20261122-speed-1', 'https://cdn.jsdelivr.net/npm/@turf/turf@7.3.1/turf.min.js');
 
 const cache = new MapMemory.BudgetCache({ maxBytes:16 * 1024 * 1024, maxEntries:16 });
 

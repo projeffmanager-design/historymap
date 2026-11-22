@@ -836,20 +836,31 @@
     let historyVectorHierarchyPending = false;
 
     function getHistoryCountryOutlineKey(features, countryId) {
-        const geometryHash = MapMemory.geometryHash;
+        const index=window._territoryGeometryIndex ||= new MapRuntime.GeometryIndex();
+        const geometryIdentity = geometry=>index.identity(geometry);
         const signature = `${countryId}:${features.map(f => {
             const id = f.id || f.properties?._id || f.properties?.territory_id || f.properties?.name || '';
-            return `${id}@${geometryHash(f.geometry)}`;
+            const p=f.properties||{};
+            return `${id}@${geometryIdentity(f.geometry)}@${JSON.stringify([p.country_id,p.level,p.color_key,p.fillColor,p.lineColor,p.fillOpacity,p.lineOpacity,p.name])}`;
         }).sort().join('|')}`;
         return signature;
     }
 
     function ensureHistoryCountryOutlineWorker() {
         if (_historyCountryOutlineWorker || typeof Worker === 'undefined') return _historyCountryOutlineWorker;
-        const workerUrl = '/public/history-outline-worker.js?v=memory-20261121-3';
+        const workerUrl = '/public/history-outline-worker.js?v=speed-20261122-1';
         _historyCountryOutlineWorker = new Worker(workerUrl);
         _historyOutlineQueue = new MapMemory.LatestJobQueue({
-            maxQueued:6,
+            maxQueued:6, maxActiveMs:15000, maxJobBytes:16*1024*1024,
+            weigh:job=>{
+                const index=window._territoryGeometryIndex ||= new MapRuntime.GeometryIndex();
+                let bytes=32;
+                for(const feature of job.features||[]){
+                    bytes+=MapMemory.estimateBytes({...feature,geometry:null})+index.weight(feature.geometry,g=>MapMemory.estimateBytes(g,16*1024*1024));
+                    if(bytes>16*1024*1024)break;
+                }
+                return bytes;
+            },
             // If a newer snapshot is waiting, release the old Worker's geometry
             // after a short grace period instead of waiting for a costly obsolete union.
             cancelActive:() => {
@@ -862,10 +873,13 @@
                 _historyCountryOutlineWorker = next;
             },
             send:job => _historyCountryOutlineWorker.postMessage(job),
-            drop:job => {
+            drop:(job,reason) => {
+                const aborted=reason==='timeout'||reason==='budget';
+                const value=aborted&&job.countryId==='__hierarchy__'?{aborted:true}:null;
+                if(aborted)_historyCountryOutlineCache.set(job.key,value);
                 const callbacks = _historyCountryOutlinePending.get(job.key) || [];
                 _historyCountryOutlinePending.delete(job.key);
-                callbacks.forEach(callback => callback(null));
+                callbacks.forEach(callback => callback(value));
             }
         });
         _historyCountryOutlineWorker.onmessage = ({ data }) => {
@@ -939,6 +953,14 @@
                 ? getCurrentYearMonth()
                 : { year, month };
             if (current.year !== year || current.month !== month) return;
+            if(result?.aborted){
+                // A bounded background computation must not replace or simplify saved boundaries.
+                window._3dTerritoryData=sourceData;
+                window._3dPopulationVisibleMasks=features.map(feature=>({country_id:String(feature.properties?.country_id||''),level:feature.properties?.level||'city',geometry:feature.geometry}));
+                window._3dRefreshLayers?.();
+                if(window._refresh3dPopulation)setTimeout(window._refresh3dPopulation,0);
+                return;
+            }
             const resolved = result?.features || [];
             if (!resolved.length) {
                 // Worker 실패 시 소유권별 가장 큰 계층만 남겨 공백과 중첩을 최소화한다.
@@ -3933,6 +3955,10 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     function getActiveHistoryInfo(historyList, currentTotalMonths) {
         if (!Array.isArray(historyList) || historyList.length === 0) return null;
 
+        const memo=getActiveHistoryInfo._frameMemo;
+        const cache=memo?.month===currentTotalMonths?memo.values:null;
+        if(cache?.has(historyList))return cache.get(historyList);
+
         for (let index = historyList.length - 1; index >= 0; index--) {
             const record = historyList[index];
             if (!record) continue;
@@ -3953,7 +3979,7 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                 : Infinity;
 
             if (currentTotalMonths >= startTotalMonths && currentTotalMonths <= endTotalMonths) {
-                return {
+                const result = {
                     record,
                     startYear,
                     startMonth,
@@ -3962,9 +3988,12 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
                     startTotalMonths,
                     endTotalMonths
                 };
+                cache?.set(historyList,result);
+                return result;
             }
         }
 
+        cache?.set(historyList,null);
         return null;
     }
 
@@ -4590,13 +4619,9 @@ function updateKingLabel(year, month) {
 
     function geometryContainsAnyPoint(geometry, points) {
         if (!geometry || !Array.isArray(points) || points.length === 0) return false;
-        let rings = [];
-        if (geometry.type === 'Polygon' && geometry.coordinates?.[0]) {
-            rings = [geometry.coordinates[0].map(c => [c[1], c[0]])];
-        } else if (geometry.type === 'MultiPolygon') {
-            rings = (geometry.coordinates || []).map(poly => poly?.[0]?.map(c => [c[1], c[0]])).filter(Boolean);
-        }
-        return points.some(point => rings.some(ring => isPointInPolygon(point, ring)));
+        const index=window._territoryGeometryIndex ||= new MapRuntime.GeometryIndex();
+        const prepared=index.prepare(geometry);
+        return points.some(point=>prepared.polygons.some(polygon=>index.contains(polygon,point[0],point[1])));
     }
 
     // 🚩 [v3.1] 구역 점유 알고리즘
@@ -4617,34 +4642,9 @@ function updateKingLabel(year, month) {
         const currentTotalMonths = yearMonthToTotalMonths(year, month);
         const countryCount = {};  // countryId → 가중치 합
         
-        // Polygon 또는 MultiPolygon 처리 및 좌표 변환 (캐싱)
-        let polygonData = [];
-        if (geometry.type === 'Polygon') {
-            const coords = geometry.coordinates[0];
-            const converted = coords.map(coord => [coord[1], coord[0]]);
-            const bounds = calculateBounds(converted);
-            polygonData = [{ coords: converted, bounds }];
-        } else if (geometry.type === 'MultiPolygon') {
-            polygonData = geometry.coordinates.map(poly => {
-                const coords = poly[0];
-                const converted = coords.map(coord => [coord[1], coord[0]]);
-                const bounds = calculateBounds(converted);
-                return { coords: converted, bounds };
-            });
-        } else {
-            return null;
-        }
-
-        // 영토 폴리곤 전체의 중심점(centroid) 계산 (마커가 전혀 없을 때 fallback 전용)
-        let centLat = 0, centLng = 0, centCount = 0;
-        for (const pg of polygonData) {
-            for (const [lat, lng] of pg.coords) {
-                centLat += lat; centLng += lng; centCount++;
-            }
-        }
-        const centroid = centCount > 0
-            ? { lat: centLat / centCount, lng: centLng / centCount }
-            : null;
+        const index=window._territoryGeometryIndex ||= new MapRuntime.GeometryIndex();
+        const prepared=index.prepare(geometry),polygonData=prepared.polygons,centroid=prepared.centroid;
+        if(!polygonData.length)return null;
 
         // 모든 성/도시 마커를 순회
         const castleList = (window._activeCastlesForTerritory) || castles;
@@ -4676,7 +4676,7 @@ function updateKingLabel(year, month) {
                     cLng < polygon.bounds.minLng || cLng > polygon.bounds.maxLng) {
                     continue;
                 }
-                if (isPointInPolygon([cLat, cLng], polygon.coords)) {
+                if (index.contains(polygon,cLat,cLng)) {
                     isInside = true;
                     break;
                 }
@@ -5640,21 +5640,15 @@ function getTerritoryHasActiveCastle(territory, geometry, year, month) {
     if (_activeCastleTerritoryCache.has(cacheKey)) return _activeCastleTerritoryCache.get(cacheKey);
 
     const bounds = getTerritoryBounds(territory);
-    let rings = [];
-    if (geometry.type === 'Polygon') {
-        if (geometry.coordinates?.[0]) rings = [geometry.coordinates[0].map(c => [c[1], c[0]])];
-    } else if (geometry.type === 'MultiPolygon') {
-        rings = (geometry.coordinates || [])
-            .map(poly => poly?.[0] ? poly[0].map(c => [c[1], c[0]]) : null)
-            .filter(Boolean);
-    }
+    const index=window._territoryGeometryIndex ||= new MapRuntime.GeometryIndex();
+    const prepared=index.prepare(geometry);
 
-    const hasCastle = rings.length > 0 && (window._activeCastlesForTerritory || []).some(castle => {
+    const hasCastle = prepared.polygons.length > 0 && (window._activeCastlesForTerritory || []).some(castle => {
         if (bounds && (
             castle.lat < bounds.minLat || castle.lat > bounds.maxLat ||
             castle.lng < bounds.minLng || castle.lng > bounds.maxLng
         )) return false;
-        return rings.some(ring => isPointInPolygon([castle.lat, castle.lng], ring));
+        return prepared.polygons.some(polygon=>index.contains(polygon,castle.lat,castle.lng));
     });
 
     _activeCastleTerritoryCache.set(cacheKey, hasCastle);
@@ -5673,6 +5667,7 @@ let _uniqueTerritoriesSource = null;
 let _uniqueTerritoriesLength = -1;
 let _uniqueTerritoriesCache = [];
 window._invalidateUniqueTerritoriesRenderCache = function() {
+    window._territoryGeometryIndex?.clear();
     _uniqueTerritoriesSource = null;
     _uniqueTerritoriesLength = -1;
     _uniqueTerritoriesCache = [];
@@ -5702,7 +5697,7 @@ function getUniqueTerritoriesForRender(source) {
 let _requestUpdateMapTimer = null;
 function requestUpdateMap(force = false) {
     clearTimeout(_requestUpdateMapTimer);
-    const delay = isMobileOnLoad ? 600 : 800; // idle 콜백 4개를 한 번에 흡수
+    const delay = isMobileOnLoad ? 180 : 150; // 가까운 데이터 갱신만 합치고 첫 화면을 지연시키지 않는다
     _requestUpdateMapTimer = setTimeout(() => {
         // 기본 진입은 Globe다. 캐시로 3D 영토 데이터까지 준비된 뒤 Globe 생성만
         // 기다리는 구간에서는 숨겨질 Leaflet 지도를 다시 만들지 않는다.
@@ -5730,7 +5725,12 @@ function requestOverlayUpdate() {
     }, 600);
 }
 
+window._mapSpeed = new MapRuntime.SpeedMetrics({enabled:['localhost','127.0.0.1'].includes(location.hostname),emit:sample=>console.debug('[MapSpeed] '+JSON.stringify(sample))});
 function updateMap(year, month, cacheOnly = false, force = false) {
+        const _mapTiming=window._mapSpeed?.start('updateMap',{year,month});
+        const _previousHistoryMemo=getActiveHistoryInfo._frameMemo;
+        getActiveHistoryInfo._frameMemo={month:yearMonthToTotalMonths(year,month),values:new WeakMap()};
+        try {
         // 일식 오버레이는 영토/도시 데이터 유무와 무관하게 현재 연·월을 따라간다.
         window.eclipseLayer?.update(year, month);
         // � 줌 애니메이션 중에는 territory 재렌더 차단 (zoomend에서 1회 렌더)
@@ -6096,6 +6096,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             });
 
             // 🔍 [진단] territory 렌더링 결과 로그
+            _mapTiming?.phase('ownership');
             console.log(`[TERR] total=${territories.length} rendered=${renderedCount} skip=${JSON.stringify(skipReasons)} allFeatureKeys=${allTerritoryFeatures.size} activeCastles=${(window._activeCastlesForTerritory||[]).length}`);
             
             //  [v3.6 핵심] 2차 패스: 국가별 FeatureCollection 렌더링
@@ -6318,7 +6319,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
             // MapLibre Globe에서는 아래의 _3dTerritoryData만 생성하고,
             // 화면 뒤에 숨은 Leaflet GeoJSON 레이어는 만들지 않는다.
-            if (!window._historyVectorMode && !window._is3dMode) {
+            if (!window._historyVectorMode && !window._is3dMode && window._prefer2dEditing === true) {
                 renderFeatureMap(allTerritoryFeatures);
             }
 
@@ -6352,21 +6353,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 const weight      = bucket.style.weight || 0.5;
                 for (const f of bucket.features) {
                     const geom = f.geometry;
-                    let area = 0;
-                    if (geom) {
-                        let polys = [];
-                        if (geom.type === 'Polygon') polys = [geom.coordinates[0] || []];
-                        else if (geom.type === 'MultiPolygon') polys = geom.coordinates.map(p => p[0] || []);
-                        for (const ring of polys) {
-                            if (ring.length < 2) continue;
-                            let mnLng=Infinity, mxLng=-Infinity, mnLat=Infinity, mxLat=-Infinity;
-                            for (const c of ring) {
-                                if(c[0]<mnLng)mnLng=c[0]; if(c[0]>mxLng)mxLng=c[0];
-                                if(c[1]<mnLat)mnLat=c[1]; if(c[1]>mxLat)mxLat=c[1];
-                            }
-                            area += (mxLng-mnLng)*(mxLat-mnLat);
-                        }
-                    }
+                    const area=(window._territoryGeometryIndex ||= new MapRuntime.GeometryIndex()).prepare(geom).bboxArea;
                     const lv = isNeutral ? 'city' : (f.properties?.level || 'city');
                     _3d_allItems.push({ f, area, cidStr, isNeutral, fillColor, lineColor, lineOpacity, weight, level: lv });
                 }
@@ -6378,33 +6365,6 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 if (la !== lb) return la - lb;
                 return b.area - a.area;
             });
-
-            // Step 2: centroid absorption — 2D renderBucket과 동일 로직
-            const _3d_countryRings  = new Map(); // cidStr → rings[] (country 레벨)
-            const _3d_provinceRings = new Map(); // cidStr → rings[] (country + province 레벨)
-            const _3d_cityPoints = _3d_allItems.filter(item => item.level === 'city')
-                .map(item => getGeometryRepresentativePoint(item.f.geometry)).filter(Boolean);
-            const _3d_provincePoints = _3d_allItems.filter(item => item.level === 'province')
-                .map(item => getGeometryRepresentativePoint(item.f.geometry)).filter(Boolean);
-
-            const _3d_getCentroid = (g) => {
-                let coords;
-                if (g.type === 'Polygon') coords = g.coordinates[0];
-                else if (g.type === 'MultiPolygon') coords = (g.coordinates[0] || [[]])[0];
-                if (!coords || coords.length < 3) return null;
-                const len = Math.min(coords.length, 60);
-                let sLng = 0, sLat = 0;
-                for (let i = 0; i < len; i++) { sLng += coords[i][0]; sLat += coords[i][1]; }
-                return [sLat/len, sLng/len];
-            };
-            const _3d_pushRings = (map, key, g) => {
-                if (!map.has(key)) map.set(key, []);
-                const rings = map.get(key);
-                if (g.type === 'Polygon') rings.push(g.coordinates[0].map(c => [c[1], c[0]]));
-                else if (g.type === 'MultiPolygon') {
-                    for (const poly of g.coordinates) { if (poly[0]) rings.push(poly[0].map(c => [c[1], c[0]])); }
-                }
-            };
 
             // Step 3: absorption 체크 후 _3dTerr에 수집
             const _3dPopulationAnchors = [];
@@ -6431,12 +6391,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
                 // 모든 계층을 Worker에 넘긴 뒤 city → province → country 순서로
                 // 실제 차집합한다. 여기서 미리 부모를 제거하면 빈 공간을 복구할 수 없다.
-                if (level === 'country') {
-                    _3d_pushRings(_3d_countryRings, cidStr, geom);
-                    _3d_pushRings(_3d_provinceRings, cidStr, geom);
-                } else if (level === 'province') {
-                    _3d_pushRings(_3d_provinceRings, cidStr, geom);
-                }
+
 
                 // 2D와 동일한 level별 opacity
                 const bucketKey = level === 'country' ? 'country' : level === 'province' ? 'province' : 'city';
@@ -6474,6 +6429,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             window._3dPopulationVisibleMasks = [];
             window._3dTerritoryData = _3dTerr;
             if (window._refresh3dPopulation) setTimeout(window._refresh3dPopulation, 0);
+            _mapTiming?.phase('source-data');
             mergeGlobeTerritoriesByCountry(_3dTerr, year, month);
             console.log(`[3D] 렌더 완료: country=${_3dTerr.country.length} province=${_3dTerr.province.length} city=${_3dTerr.city.length} 주변 동일국가 보정=${surroundedTerritoryFillCount}`);
 
@@ -6488,6 +6444,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             });
         }
 
+        _mapTiming?.phase('territories');
+        if (!window._is3dMode && window._prefer2dEditing === true) {
         // 🌊 [추가] 자연 지형지물 (강) 렌더링 — 별도 레이어 그룹 + 전용 SVG 렌더러 사용
         riverLayerGroup.clearLayers();
         // 기존 강 렌더러 제거
@@ -7242,6 +7200,8 @@ function updateMap(year, month, cacheOnly = false, force = false) {
                 drawnItems.addLayer(makeLayer(deletedCoords, { color: '#ff2222', weight: 3, opacity: 0.6, dashArray: '6,5' }));
         }
 
+        }
+        _mapTiming?.phase('overlays');
         castleLayerGroup.clearLayers(); // 마커 레이어는 기존처럼 클리어 후 다시 추가
         naturalFeatureLayerGroup.clearLayers();
         markers.length = 0;
@@ -7309,16 +7269,19 @@ function updateMap(year, month, cacheOnly = false, force = false) {
             });
         }
 
+        _mapTiming?.phase('marker-data');
         // � [메모리 최적화] 마커 렌더링 시 현재 padded bounds 기록 (moveend 재렌더링 판단용)
         window._lastMarkerRenderBounds = map.getBounds().pad(1.0);
 
         // 국가명은 수도가 나타나기 전 거시 LOD에서만 갱신
-        renderMacroCountryNames();
-        if (!map.hasLayer(macroCountryLayer)) macroCountryLayer.addTo(map);
+        if(window._prefer2dEditing === true&&!window._is3dMode){
+            renderMacroCountryNames();
+            if (!map.hasLayer(macroCountryLayer)) macroCountryLayer.addTo(map);
+        }
 
         // 3D에서는 위에서 시간 유효 마커를 이미 수집했다. 숨겨진 Leaflet 마커를
         // 다시 만드는 작업은 DOM/메모리만 늘리므로 3D 갱신으로 바로 넘긴다.
-        if (window._is3dMode) {
+        if (window._is3dMode || window._prefer2dEditing !== true) {
             labelLayerGroup.clearLayers();
             castleLayerGroup.clearLayers();
             naturalFeatureLayerGroup.clearLayers();
@@ -8574,6 +8537,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
         // 🏷️ 마커 이름 라벨 겹침 방지 — DOM 렌더링 완료 후 실행
         requestAnimationFrame(() => _applyMarkerLabelDeclutter());
+        } finally {getActiveHistoryInfo._frameMemo=_previousHistoryMemo;_mapTiming?.finish();}
     }
 
 // 🏷️ 마커 이름 라벨 겹침 방지 함수
@@ -29990,6 +29954,7 @@ kingSelect.addEventListener('change', () => {
             let _refreshLayersCacheKey = null;
             let _refreshTerritoryDataKey = null; // 영토 전용 캐시 키 (데이터 의존)
             let _refreshMarkerKey = null;        // 마커 전용 캐시 키 (zoom/LOD 의존)
+            let _lastTerritoryDataRef = null, _territoryDataVersion = 0;
             let _lastMarkerDataRef = null;
             let _markerDataVersion = 0;
             let _refreshLayersTimer = null;
@@ -30007,17 +29972,17 @@ kingSelect.addEventListener('change', () => {
                     _refreshLayersThrottled();
                     return;
                 }
-                // 모바일 시대 이동은 계산이 끝난 뒤 3D 반영을 오래 대기시키지 않는다.
+                // 시대 이동은 계산이 끝난 뒤 3D 반영을 오래 대기시키지 않는다.
                 // 연속 이동은 여전히 마지막 호출로 합쳐 중복 GPU 업로드를 피한다.
                 clearTimeout(_refreshLayersTimer);
                 _refreshLayersTimer = setTimeout(() => {
                     _refreshLayersThrottled();
-                }, mobileFirstPaint ? 80 : 400);
+                }, 80);
             }
 
             function _refreshLayersThrottled() {
                 if (!mlMap) return;
-                if (!mlMap.isStyleLoaded()) {
+                if (!MapRuntime.canRefreshStyle(mlMap)) {
                     if (!_waitingForStyleLoad) {
                         _waitingForStyleLoad = true;
                         mlMap.once('style.load', () => {
@@ -30029,18 +29994,19 @@ kingSelect.addEventListener('change', () => {
                 }
                 const { year, month } = (typeof getCurrentYearMonth === 'function') ? getCurrentYearMonth() : { year: 0, month: 1 };
                 const _td = window._3dTerritoryData;
+                if(_td!==_lastTerritoryDataRef){_lastTerritoryDataRef=_td;_territoryDataVersion++;}
                 const _lodMode = getLodMode(mlMap);
                 const _showTerritory = (typeof layerVisibility === 'undefined') || layerVisibility.territoryPolygon !== false;
                 const _showRivers    = ((typeof layerVisibility === 'undefined') || layerVisibility.rivers !== false)
                     && getEffectiveZoom(mlMap) >= 5.5;
 
-                // ── 영토 캐시 키: 연도/월/데이터 수/표시여부만 — zoom·pan 무관 ──
+                // 영토 캐시: 연·월/표시 상태/데이터 교체에만 갱신하고, pan은 마커만 갱신한다.
                 const riverRecords = [...naturalFeatures, ...drawings].filter(item => item.type === 'river');
                 if (riverRecords.length !== _lastRiverRecords.length || riverRecords.some((item, i) => item !== _lastRiverRecords[i])) {
                     _lastRiverRecords = riverRecords;
                     _riverDataVersion++;
                 }
-                const newTerritoryKey = `${year}_${month}_${(_td?.country?.length||0)}_${(_td?.province?.length||0)}_${(_td?.city?.length||0)}_${_showTerritory}_${_showRivers}_${_riverDataVersion}`;
+                const newTerritoryKey = `${year}_${month}_${(_td?.country?.length||0)}_${(_td?.province?.length||0)}_${(_td?.city?.length||0)}_${_showTerritory}_${_showRivers}_${_riverDataVersion}_${_territoryDataVersion}`;
                 // ── 마커 캐시 키: 시점/데이터 버전/줌/화면 범위/토글 상태 ──
                 const _lv = (typeof layerVisibility !== 'undefined') ? layerVisibility : {};
                 const _lvKey = `${_lv.natural?1:0}${_lv.city?1:0}${_lv.military?1:0}${_lv.relic?1:0}`
@@ -30090,7 +30056,8 @@ kingSelect.addEventListener('change', () => {
                 _refreshLayersCacheKey = newTerritoryKey + '|' + newMarkerKey;
 
                 try {
-                    _refreshLayersInner(territoryChanged, doRebuildMarkers);
+                    const _renderTiming=window._mapSpeed?.start('globe-render',{territory:territoryChanged?1:0,markers:doRebuildMarkers?1:0});
+                    try {_refreshLayersInner(territoryChanged, doRebuildMarkers);}finally{_renderTiming?.finish();}
                     _schedule3dHeroPins(markerChanged || territoryChanged);
                 } catch(e) { console.error('[3D] refreshLayers ERROR:', e); }
             }
@@ -30416,7 +30383,7 @@ kingSelect.addEventListener('change', () => {
                         // Top-down globe does not draw this effect. Requesting
                         // another frame here kept MapLibre's GPU readback loop
                         // running forever even though no pixels changed.
-                        if (pitch < 15) return;
+                        if (pitch < 15 || !_starIdleLoop?.active()) return;
                         const pn = Math.min(1.0, (pitch - 15) / 45);
 
                         gl.useProgram(this._prog);
@@ -30449,7 +30416,7 @@ kingSelect.addEventListener('change', () => {
                             if (!this._nextRepaintTimer) {
                                 this._nextRepaintTimer = setTimeout(() => {
                                     this._nextRepaintTimer = null;
-                                    map.triggerRepaint();
+                                    if(_starIdleLoop?.active())map.triggerRepaint();
                                 }, 80);
                             }
                         } else {
@@ -31993,6 +31960,38 @@ kingSelect.addEventListener('change', () => {
                 return control;
             }
 
+            // Decorations must not keep the renderer busy for an unattended session.
+            let _starIdleLoop = null;
+            const _memoryTrail = new MapRuntime.DiagnosticTrail({storage:window.localStorage});
+            let _lastMemoryWarning = 0;
+            function _wakeMapDecorations(){_starIdleLoop?.wake();}
+            ['pointerdown','wheel','keydown'].forEach(type=>window.addEventListener(type,_wakeMapDecorations,{passive:true}));
+            document.addEventListener('visibilitychange',()=>_starIdleLoop?.setHidden(document.hidden));
+            const _sampleMapMemory = () => {
+                const memory=performance.memory,stats=window._mapMemoryStats?.()||{};
+                const row=_memoryTrail.record({
+                    heapUsed:memory?.usedJSHeapSize||0,heapLimit:memory?.jsHeapSizeLimit||0,
+                    parsedBytes:stats.parsedTiles?.estimatedBytes||0,residentBytes:stats.residentTiles?.estimatedBytes||0,
+                    outlineBytes:stats.outlines?.estimatedBytes||0,workerQueued:stats.worker?.queued||0,workerActive:stats.worker?.active||0,workerTimeouts:stats.worker?.timeouts||0,workerOversized:stats.worker?.oversized||0,
+                    territories:stats.territories||0,markers:document.querySelectorAll('.maplibregl-marker').length,
+                    domNodes:document.getElementsByTagName('*').length,decorativeFrames:_starIdleLoop?.frames||0,
+                    hidden:document.hidden?1:0,globe:window._is3dMode?1:0
+                });
+                if(['localhost','127.0.0.1'].includes(location.hostname))console.debug('[MapRuntime] '+JSON.stringify(row));
+                if(row.heapLimit&&row.heapUsed>Math.min(row.heapLimit*.65,1800*1024*1024)&&Date.now()-_lastMemoryWarning>5*60*1000){
+                    _lastMemoryWarning=Date.now();
+                    showToast('지도 메모리 사용량이 높습니다. 편집 내용을 저장한 뒤 새로고침해 주세요. 메뉴의 ‘메모리 진단 저장’으로 기록을 받을 수 있습니다.','warning',12000);
+                }
+            };
+            const _memorySampleTimer=setInterval(_sampleMapMemory,30000);
+            window.addEventListener('pagehide',()=>{_starIdleLoop?.setHidden(true);_sampleMapMemory();});
+            window.addEventListener('pageshow',()=>_starIdleLoop?.setHidden(document.hidden));
+            document.getElementById('menu-memory-report')?.addEventListener('click',()=>{
+                _sampleMapMemory();
+                const blob=new Blob([JSON.stringify(_memoryTrail.report(),null,2)],{type:'application/json'});
+                const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='history-map-memory-diagnostics.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+            });
+
             function enter3d() {
                 is3d = true;
                 if (window._enter3dPopulationMode) window._enter3dPopulationMode();
@@ -32105,7 +32104,7 @@ kingSelect.addEventListener('change', () => {
                             }));
                         };
                         const drawStarBackdrop = timestamp => {
-                            requestAnimationFrame(drawStarBackdrop);
+                            // IdleLoop owns scheduling; no permanent animation-frame chain.
                             // 모바일은 별 수와 함께 갱신률도 약 12.5fps로 제한한다.
                             // 지도 WebGL 렌더가 사용할 메인 스레드 시간을 확보하기 위함이다.
                             const starFrameInterval = isMobileStarfield() ? 80 : 33;
@@ -32225,7 +32224,11 @@ kingSelect.addEventListener('change', () => {
                         };
                         resizeStarBackdrop();
                         window.addEventListener('resize', resizeStarBackdrop, { passive: true });
-                        requestAnimationFrame(drawStarBackdrop);
+                        _starIdleLoop=new MapRuntime.IdleLoop({draw:drawStarBackdrop,
+                            visible:()=>is3d&&!!window._historyGlobeMode&&starBackdrop.style.display!=='none',
+                            wakeRender:()=>mlMap?.triggerRepaint(),intervalMs:80});
+                        _starIdleLoop.setHidden(document.hidden);
+                        _starIdleLoop.wake();
 
                         // 닫기 버튼 없음 — 타일 토글의 3D 버튼으로 종료
                     }
@@ -32748,6 +32751,7 @@ kingSelect.addEventListener('change', () => {
                             else { window.mlMap3d.once('load', () => { _addPalaceLayer(); _loadPalacesFromDB(); }); }
                         })();
 
+                        mlMap.on('movestart',_wakeMapDecorations);
                         mlMap.on('load', () => {
                             console.log('[3D] map load fired!');
                             if (window._historyGlobeMode) {
@@ -32974,6 +32978,7 @@ kingSelect.addEventListener('change', () => {
 
                 // ★ 1. mlOverlay 즉시 숨김 (가장 먼저 — 이게 안 꺼지면 UI 가림)
                 if (mlOverlay) mlOverlay.style.display = 'none';
+                _starIdleLoop?.pause();
                 // 커스텀 네비게이션 버튼 제거
                 if (window._ml3dNavEl) { window._ml3dNavEl.remove(); window._ml3dNavEl = null; }
                 // 3D 마커 전체 제거 + diff Map 초기화
@@ -33232,6 +33237,7 @@ kingSelect.addEventListener('change', () => {
                 const backdrop = document.getElementById('globe-star-backdrop');
                 const visible = !!window._historyGlobeMode;
                 if (backdrop) backdrop.style.display = visible ? 'block' : 'none';
+                if(visible)_starIdleLoop?.wake();else _starIdleLoop?.pause();
                 if (!mlMap || !visible) return;
                 try {
                     const canvasContainer = mlMap.getCanvasContainer();

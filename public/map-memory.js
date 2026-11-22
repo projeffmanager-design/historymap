@@ -5,7 +5,7 @@
     else root.MapMemory = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function() {
     'use strict';
-    function estimateBytes(value) {
+    function estimateBytes(value, maxBytes = Infinity) {
         function visit(item, depth) {
             if (item == null) return 8;
             if (typeof item === 'string') return 24 + item.length * 2;
@@ -13,9 +13,9 @@
             if (depth > 64) return Number.MAX_SAFE_INTEGER;
             let bytes = Array.isArray(item) ? 32 + item.length * 8 : 48;
             if (Array.isArray(item)) {
-                for (let i = 0; i < item.length; i++) bytes += visit(item[i], depth + 1);
+                for (let i = 0; i < item.length; i++) {bytes += visit(item[i], depth + 1);if(bytes>maxBytes)return maxBytes+1;}
             } else {
-                for (const key of Object.keys(item)) bytes += 16 + key.length * 2 + visit(item[key], depth + 1);
+                for (const key of Object.keys(item)) {bytes += 16 + key.length * 2 + visit(item[key], depth + 1);if(bytes>maxBytes)return maxBytes+1;}
             }
             return bytes;
         }
@@ -55,14 +55,17 @@
     // of the same country or hierarchy are replaced by the latest request.
     class LatestJobQueue {
         constructor({ send, drop, maxQueued = 6, cancelActive = null, staleAfterMs = 1500,
-            schedule = setTimeout, unschedule = clearTimeout, now = Date.now }) {
+            schedule = (fn,ms) => setTimeout(fn,ms), unschedule = id => clearTimeout(id), now = Date.now,
+            maxActiveMs = 0, maxJobBytes = Infinity, weigh = job => estimateBytes(job.features || []) }) {
             this.send = send; this.drop = drop; this.maxQueued = maxQueued;
             this.cancelActive = cancelActive; this.staleAfterMs = staleAfterMs;
+            this.maxActiveMs=maxActiveMs; this.maxJobBytes=maxJobBytes; this.weigh=weigh; this.deadline=null; this.timeouts=0; this.oversized=0;
             this.schedule = schedule; this.unschedule = unschedule; this.now = now;
             this.active = null; this.activeGroup = null; this.waiting = new Map(); this.cancelTimer = null;
         }
         enqueue(job, group) {
             if (this.active?.key === job.key) return;
+            if (this.maxJobBytes !== Infinity && this.weigh(job)>this.maxJobBytes) {this.oversized++;this.drop(job,'budget');return;}
             const previous = this.waiting.get(group);
             if (previous) { this.waiting.delete(group); this.drop(previous); }
             this.waiting.set(group, job);
@@ -76,6 +79,7 @@
                     this.cancelTimer = null;
                     if (!this.active || !this.waiting.has(this.activeGroup)) return;
                     const stale = this.active;
+                    this.clearDeadline();
                     try { this.cancelActive(stale); } catch (_) { /* send failures release remaining jobs below */ }
                     this.active = null; this.activeGroup = null; this.drop(stale); this.pump();
                 }, Math.max(0, this.staleAfterMs - (this.now() - this.startedAt)));
@@ -86,17 +90,29 @@
             const group = this.waiting.keys().next().value;
             this.active = this.waiting.get(group); this.waiting.delete(group);
             this.activeGroup = group; this.startedAt = this.now();
+            if(this.cancelActive&&this.maxActiveMs>0){
+                const key=this.active.key;
+                this.deadline=this.schedule(()=>{
+                    this.deadline=null;
+                    if(this.active?.key!==key)return;
+                    const expired=this.active;this.clearTimer();
+                    try{this.cancelActive(expired);}catch(_){}
+                    this.active=null;this.activeGroup=null;this.timeouts++;
+                    this.drop(expired,'timeout');this.pump();
+                },this.maxActiveMs);
+            }
             try { this.send(this.active); }
-            catch (_) { const failed = this.active; this.active = null; this.drop(failed); this.pump(); }
+            catch (_) { const failed = this.active; this.clearDeadline();this.clearTimer();this.active = null; this.activeGroup=null;this.drop(failed); this.pump(); }
         }
+        clearDeadline() { if(this.deadline!==null){this.unschedule(this.deadline);this.deadline=null;} }
         clearTimer() { if (this.cancelTimer !== null) { this.unschedule(this.cancelTimer); this.cancelTimer = null; } }
-        complete(key) { if (this.active?.key === key) { this.clearTimer(); this.active = null; this.activeGroup = null; this.pump(); } }
+        complete(key) { if (this.active?.key === key) { this.clearTimer();this.clearDeadline(); this.active = null; this.activeGroup = null; this.pump(); } }
         clear() {
-            this.clearTimer();
+            this.clearTimer();this.clearDeadline();
             const jobs = [this.active, ...this.waiting.values()].filter(Boolean);
             this.active = null; this.activeGroup = null; this.waiting.clear(); jobs.forEach(job => this.drop(job));
         }
-        stats() { return { active:this.active ? 1 : 0, queued:this.waiting.size, maxQueued:this.maxQueued }; }
+        stats() { return { active:this.active ? 1 : 0, queued:this.waiting.size, maxQueued:this.maxQueued, timeouts:this.timeouts, oversized:this.oversized }; }
     }
     class TileResidency {
         constructor({ maxBytes, maxTiles }) { this.maxBytes = maxBytes; this.maxTiles = maxTiles; this.tiles = new Map(); this.bytes = 0; }
