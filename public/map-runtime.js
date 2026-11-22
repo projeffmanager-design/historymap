@@ -72,11 +72,30 @@
 
  // isStyleLoaded also waits for every background tile and glyph. Our sources
  // prove style.load has completed, even while unrelated tiles are still loading.
- function canRefreshStyle(map){return !!map&&(!!map.isStyleLoaded()||!!map.getSource?.('territories-country'));}
+ function canRefreshStyle(map){return !!map&&(!!map.isStyleLoaded()||['country','province','city'].some(level=>!!map.getSource?.('territories-'+level)));}
+ // Retain one small signature per live source, never a second coordinate tree.
+ // The geometry identity changes after an editor invalidates the shared index.
+ class SourceDataCache {
+  constructor(geometryKey){this.geometryKey=geometryKey;this.sources=new WeakMap();this.uploads=0;this.skipped=0;}
+  key(data){return JSON.stringify((data.features||[]).map(feature=>{
+   const {geometry,...attributes}=feature;
+   return [attributes,geometry?.type,this.geometryKey(geometry)];
+  }));}
+  remember(source,data){this.sources.set(source,this.key(data));this.uploads++;}
+  write(source,data){
+   const key=this.key(data);
+   if(this.sources.get(source)===key){this.skipped++;return false;}
+   source.setData(data);this.sources.set(source,key);this.uploads++;return true;
+  }
+ }
+ class CameraGate {
+  constructor(){this.previous=null;}
+  changed(values){if(this.previous&&values.length===this.previous.length&&values.every((value,i)=>Object.is(value,this.previous[i])))return false;this.previous=values;return true;}
+ }
  class SpeedMetrics {
   constructor({enabled=true,now=()=>performance.now(),emit=null,maxSamples=40}={}){Object.assign(this,{enabled,now,emit,maxSamples});this.samples=[];}
   record(name,ms,info={}){if(!this.enabled)return;const sample={name,ms:Math.round(ms*10)/10,...info};this.samples.push(sample);if(this.samples.length>this.maxSamples)this.samples.shift();this.emit?.(sample);}
   start(name,info={}){if(!this.enabled)return null;const start=this.now();let previous=start,done=false;return {phase:label=>{const time=this.now();this.record(name+':'+label,time-previous,info);previous=time;},finish:()=>{if(done)return;done=true;this.record(name,this.now()-start,info);}};}
  }
- return {IdleLoop,DiagnosticTrail,SpeedMetrics,GeometryIndex,canRefreshStyle};
+ return {IdleLoop,DiagnosticTrail,SpeedMetrics,GeometryIndex,canRefreshStyle,SourceDataCache,CameraGate};
 });

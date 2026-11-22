@@ -73,3 +73,68 @@ test('pending background tiles never stall year refresh after historical sources
  const body=section('            function _refreshLayersThrottled()', '            // updateMap() 완료 후 자동 호출');
  assert.match(body,/MapRuntime.canRefreshStyle\(mlMap\)/);assert.match(body,/once\('style.load'/);
 });
+
+test('territory uploads skip identical snapshots while keeping style, source replacement and edits fresh',()=>{
+ const {SourceDataCache}=require('../public/map-runtime'),index=new GeometryIndex(),writes=[],writer=new SourceDataCache(g=>index.identity(g));
+ const geometry={type:'MultiPolygon',coordinates:[[[[0,0],[2,0],[2,2],[0,0]],[[.1,.1],[.2,.1],[.2,.2],[.1,.1]]],[[[4,4],[5,4],[5,5],[4,4]]]]};
+ const f={type:'Feature',id:'t',properties:{fillColor:'#123',country_id:'a'},geometry},data={type:'FeatureCollection',features:[f]},source={setData:value=>writes.push(value)};
+ const before=structuredClone(data);writer.remember(source,data);
+ for(let i=0;i<100;i++)assert.equal(writer.write(source,{...data,features:[{...f,properties:{...f.properties},geometry:{...geometry}}]}),false);
+ assert.equal(writes.length,0);assert.deepEqual(data,before);assert.equal(writer.skipped,100);
+ f.properties.fillColor='#456';assert.equal(writer.write(source,data),true);
+ f.properties.country_id='b';assert.equal(writer.write(source,data),true);
+ geometry.coordinates[0][0][1]=[3,0];index.clear();assert.equal(writer.write(source,data),true);
+ assert.equal(writer.write({setData:value=>writes.push(value)},data),true);
+ assert.equal(writes.length,4);assert.equal(writes[0],data);
+ const failing={setData(){throw Error('retry');}};assert.throws(()=>writer.write(failing,data),/retry/);assert.throws(()=>writer.write(failing,data),/retry/);
+});
+test('country phase memo preserves month priority and reads edits again after each frame',()=>{
+ const context=vm.createContext({document:{getElementById:id=>({value:id==='yearInput'?'983':'1'})}});
+ vm.runInContext(section('function getEffectiveCountryInfo(', '\nfunction getCountryInfoById('),context);
+ const fn=context.getEffectiveCountryInfo,country={_id:'c',name:'base',color:'#123',history:[{name:'A',start_year:900,end_year:1000},{name:'B',color:'#456',start_year:983,start_month:2}]};
+ fn._frameMemo={point:983*12,values:new WeakMap()};const first=fn(country);assert.equal(first.name,'A');assert.equal(fn(country,983,1),first);assert.equal(fn(country,983,2).name,'B');
+ fn._frameMemo=undefined;country.history[0].color='#789';assert.equal(fn(country,983,1).color,'#789');
+ assert.match(source,/finally \{getActiveHistoryInfo\._frameMemo=_previousHistoryMemo;getEffectiveCountryInfo\._frameMemo=_previousCountryMemo/);
+});
+test('stationary render frames do not repeat marker projection; camera, viewport and new chunks do',()=>{
+ const {CameraGate}=require('../public/map-runtime');let now=0,projected=0,lng=0,zoom=4;
+ const marker=()=>({getLngLat:()=>({lng:0,lat:0}),getElement:()=>el}),el={style:{},dataset:{ml3dPriority:'1'},classList:{contains:()=>false}};
+ const context=vm.createContext({_cullCameraGate:new CameraGate(),_last3dCullAt:0,performance:{now:()=>now},_mobile3dPerformance:false,window:{},_3dMarkers:[marker()],_haverDist:()=>1,
+ _cullCanvas:{clientWidth:1000,clientHeight:800,getBoundingClientRect:()=>({width:1000,height:800})},
+ _m:{getCenter:()=>({lng,lat:0}),getZoom:()=>zoom,getPitch:()=>0,getBearing:()=>0,unproject:()=>({lng:0,lat:0}),project:()=>{projected++;return{x:500,y:400};}}});
+ vm.runInContext(section('                _3dRenderListener = () => {', "                _m.on('render', _3dRenderListener);"),context);
+ const render=()=>{now+=100;context._3dRenderListener();};for(let i=0;i<100;i++)render();assert.equal(projected,1);
+ lng=1;render();assert.equal(projected,2);zoom=5;render();assert.equal(projected,3);
+ context._cullCanvas.clientWidth=900;render();assert.equal(projected,4);context._3dMarkers.push(marker());render();assert.equal(projected,6);
+ context._m.getTerrain=()=>({source:'dem'});render();assert.equal(projected,8);render();assert.equal(projected,10);
+ assert.equal(el.style.visibility,'');
+});
+
+test('country fallback checks dates only for matching names and still picks the first active match',()=>{
+ let checked=0;const countries=Array.from({length:200},(_,i)=>({_id:String(i),name:'unrelated'+i}));
+ countries.splice(100,0,{_id:'old',name:'China',active:false},{_id:'first',name_eng:'China',active:true},{_id:'second',name_chi:'China',active:true});
+ const context=vm.createContext({window:{_activeCastlesForTerritory:[]},MapRuntime:require('../public/map-runtime'),countries,castles:[],yearMonthToTotalMonths:(y,m)=>y*12+m,isCountryActiveAt:c=>{checked++;return !!c.active;}});
+ vm.runInContext(section('    function calculateDominantCountry(', '    // 🚩 [수정] territory의 Bounding Box'),context);
+ const territory={country:'China',type:'Polygon',coordinates:[[[0,0],[2,0],[2,2],[0,0]]]};
+ assert.equal(context.calculateDominantCountry(territory,982,1).countryId,'first');assert.equal(checked,2);
+ checked=0;territory.country='missing';assert.equal(context.calculateDominantCountry(territory,982,1),null);assert.equal(checked,0);
+});
+test('pending background tiles do not stall province-only or city-only territory sources',()=>{
+ const {canRefreshStyle}=require('../public/map-runtime');
+ for(const level of ['province','city'])assert.equal(canRefreshStyle({isStyleLoaded:()=>false,getSource:id=>id==='territories-'+level?{}:undefined}),true);
+});
+
+test('country labels retain loaded DOM and SVGs across pans but update names, colors, ethnicity and positions',()=>{
+ let svgs=0,elements=0,htmlWrites=0,moves=0;
+ const context=vm.createContext({countryId:'c',_lYear:982,_lMonth:1,layerVisibility:{ethnicLabel:true},_3dMarkersMap:new Map(),_3dMarkers:[],_m:{},createCountryFlagSvg:color=>{svgs++;return '<svg fill="'+color+'"></svg>' ;},
+ getMapCountryDisplayName:c=>c.name,document:{createElement(){elements++;return {style:{},dataset:{},set innerHTML(v){htmlWrites++;this.html=v;}};}},
+ maplibregl:{Marker:class{constructor({element}){this.el=element;}setLngLat([lng,lat]){this.position={lng,lat};moves++;return this;}getLngLat(){return this.position;}getElement(){return this.el;}addTo(){return this;}}}});
+ const body=section('                        const countryColor = country.color', '                    });\n                }\n\n                // ── behind-globe culling');
+ vm.runInContext('function renderLabel(country,labelLat,labelLng){'+body+'}',context);
+ const country={_id:'c',name:'old',color:'#123',start:900,end:1000,ethnicity:'x'};
+ context.renderLabel(country,38,127);for(let i=0;i<100;i++)context.renderLabel(country,38,127);
+ assert.equal(svgs,1);assert.equal(elements,1);assert.equal(htmlWrites,1);assert.equal(moves,1);
+ context.renderLabel(country,39,128);assert.equal(moves,2);assert.equal(svgs,1);
+ for(const [property,value] of [['name','new'],['color','#456'],['ethnicity','y']]){country[property]=value;context.renderLabel(country,39,128);}
+ assert.equal(svgs,4);assert.equal(elements,1);assert.equal(htmlWrites,4);assert.equal(moves,2);
+});

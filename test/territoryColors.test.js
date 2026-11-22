@@ -82,6 +82,7 @@ test('initial rendering and subsequent territory updates use the same basemap op
         setLayoutProperty() {}, setPaintProperty:(...args) => paint.push(args)
     };
     const context = vm.createContext({
+        _territorySourceWrites:new (require('../public/map-runtime').SourceDataCache)(()=>1),
         window:{ mlMap3d:map, _historyGlobeBasemap:'satellite', _3dTerritoryData:{ city:[{
             type:'Feature', properties:{ country_id:'country', fillColor:'#00ff00' },
             geometry:{ type:'Polygon', coordinates:[[[0, 0], [1, 0], [0, 1], [0, 0]]] }

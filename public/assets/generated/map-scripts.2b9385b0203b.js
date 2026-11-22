@@ -4710,10 +4710,9 @@ function updateKingLabel(year, month) {
                     }
                 } else {
                     const matched = countries.find(c =>
-                        isCountryActiveAt(c, year, month) && (
-                            c.name === fallbackStr || c.name_kor === fallbackStr ||
-                            c.name_eng === fallbackStr || c.name_chi === fallbackStr
-                        )
+                        (c.name === fallbackStr || c.name_kor === fallbackStr ||
+                            c.name_eng === fallbackStr || c.name_chi === fallbackStr)
+                        && isCountryActiveAt(c, year, month)
                     );
                     if (matched && matched._id) {
                         const resolvedId = typeof matched._id === 'object' ? (matched._id.$oid || String(matched._id)) : String(matched._id);
@@ -5729,6 +5728,8 @@ window._mapSpeed = new MapRuntime.SpeedMetrics({enabled:['localhost','127.0.0.1'
 function updateMap(year, month, cacheOnly = false, force = false) {
         const _mapTiming=window._mapSpeed?.start('updateMap',{year,month});
         const _previousHistoryMemo=getActiveHistoryInfo._frameMemo;
+        const _previousCountryMemo=getEffectiveCountryInfo._frameMemo;
+        getEffectiveCountryInfo._frameMemo={point:year*12+month-1,values:new WeakMap()};
         getActiveHistoryInfo._frameMemo={month:yearMonthToTotalMonths(year,month),values:new WeakMap()};
         try {
         // 일식 오버레이는 영토/도시 데이터 유무와 무관하게 현재 연·월을 따라간다.
@@ -8537,7 +8538,7 @@ function updateMap(year, month, cacheOnly = false, force = false) {
 
         // 🏷️ 마커 이름 라벨 겹침 방지 — DOM 렌더링 완료 후 실행
         requestAnimationFrame(() => _applyMarkerLabelDeclutter());
-        } finally {getActiveHistoryInfo._frameMemo=_previousHistoryMemo;_mapTiming?.finish();}
+        } finally {getActiveHistoryInfo._frameMemo=_previousHistoryMemo;getEffectiveCountryInfo._frameMemo=_previousCountryMemo;_mapTiming?.finish();}
     }
 
 // 🏷️ 마커 이름 라벨 겹침 방지 함수
@@ -8658,6 +8659,11 @@ function getEffectiveCountryInfo(country, year = null, month = null) {
     const mapYear = year ?? (Number.parseInt(document.getElementById('yearInput')?.value, 10) || 0);
     const mapMonth = month ?? (Number.parseInt(document.getElementById('monthInput')?.value, 10) || 1);
     const point = mapYear * 12 + Math.min(12, Math.max(1, mapMonth)) - 1;
+    // The memo exists only during one synchronous map render. An edit, even in
+    // the same month, is read again on the next render.
+    const memo=getEffectiveCountryInfo._frameMemo;
+    const cache=memo?.point===point?memo.values:null;
+    if(cache?.has(country))return cache.get(country);
     const phase = (Array.isArray(country.history) ? country.history : [])
         .filter(item => {
             const startYear = Number.parseInt(item.start_year ?? item.start, 10);
@@ -8675,8 +8681,8 @@ function getEffectiveCountryInfo(country, year = null, month = null) {
             Number.parseInt(b.start_year ?? b.start, 10) - Number.parseInt(a.start_year ?? a.start, 10) ||
             (Number.parseInt(b.start_month, 10) || 1) - (Number.parseInt(a.start_month, 10) || 1)
         ))[0];
-    if (!phase) return country;
-    return {
+    if (!phase) {cache?.set(country,country);return country;}
+    const result = {
         ...country,
         ...phase,
         _id: country._id,
@@ -8690,6 +8696,8 @@ function getEffectiveCountryInfo(country, year = null, month = null) {
         aliases: [...new Set([...(country.aliases || []), ...(phase.aliases || [])])],
         active_country_phase: phase
     };
+    cache?.set(country,result);
+    return result;
 }
 
 function getCountryInfoById(id, year = null, month = null) {
@@ -29949,6 +29957,8 @@ kingSelect.addEventListener('change', () => {
                 mlMap.on('mouseleave', 'castle-circle', () => { mlMap.getCanvas().style.cursor = ''; });
             }
 
+            const _territorySourceWrites=new MapRuntime.SourceDataCache(geometry=>
+                (window._territoryGeometryIndex ||= new MapRuntime.GeometryIndex()).identity(geometry));
             let _lastRiverRecords = [];
             let _riverDataVersion = 0;
             let _refreshLayersCacheKey = null;
@@ -29977,7 +29987,7 @@ kingSelect.addEventListener('change', () => {
                 clearTimeout(_refreshLayersTimer);
                 _refreshLayersTimer = setTimeout(() => {
                     _refreshLayersThrottled();
-                }, 80);
+                }, mobileFirstPaint ? 80 : 32);
             }
 
             function _refreshLayersThrottled() {
@@ -30057,7 +30067,17 @@ kingSelect.addEventListener('change', () => {
 
                 try {
                     const _renderTiming=window._mapSpeed?.start('globe-render',{territory:territoryChanged?1:0,markers:doRebuildMarkers?1:0});
-                    try {_refreshLayersInner(territoryChanged, doRebuildMarkers);}finally{_renderTiming?.finish();}
+                    const _previousCountryMemo=getEffectiveCountryInfo._frameMemo;
+                    const _previousHistoryMemo=getActiveHistoryInfo._frameMemo;
+                    getEffectiveCountryInfo._frameMemo={point:year*12+month-1,values:new WeakMap()};
+                    getActiveHistoryInfo._frameMemo={month:yearMonthToTotalMonths(year,month),values:new WeakMap()};
+                    const _uploadsBefore=_territorySourceWrites.uploads,_skippedBefore=_territorySourceWrites.skipped;
+                    try {_refreshLayersInner(territoryChanged, doRebuildMarkers);}finally{
+                        getEffectiveCountryInfo._frameMemo=_previousCountryMemo;
+                        getActiveHistoryInfo._frameMemo=_previousHistoryMemo;
+                        _renderTiming?.finish();
+                        window._mapSpeed?.record('territory-uploads',0,{uploaded:_territorySourceWrites.uploads-_uploadsBefore,skipped:_territorySourceWrites.skipped-_skippedBefore});
+                    }
                     _schedule3dHeroPins(markerChanged || territoryChanged);
                 } catch(e) { console.error('[3D] refreshLayers ERROR:', e); }
             }
@@ -30530,7 +30550,7 @@ kingSelect.addEventListener('change', () => {
 
                     if (_m.getSource(srcId)) {
                         // ── 소스가 이미 있으면 setData()로 깜빡임 없이 업데이트 ──
-                        _m.getSource(srcId).setData(fc);
+                        _territorySourceWrites.write(_m.getSource(srcId),fc);
                         const vis = (features.length > 0 && _showTerritory) ? 'visible' : 'none';
                         [fillId, outlineId].forEach(id => { if (_m.getLayer(id)) _m.setLayoutProperty(id, 'visibility', vis); });
                         if (_m.getLayer(fillId)) _m.setPaintProperty(fillId, 'fill-opacity', territoryFillOpacity);
@@ -30538,6 +30558,7 @@ kingSelect.addEventListener('change', () => {
                         // ── 최초 렌더: terrain 우회 후 소스+레이어 생성 ──
                         if (features.length === 0 || !_showTerritory) return;
                         _m.addSource(srcId, { type: 'geojson', data: fc });
+                        _territorySourceWrites.remember(_m.getSource(srcId),fc);
                         _m.addLayer({ id: fillId, type: 'fill', source: srcId,
                             paint: {
                                 'fill-color':   ['coalesce', ['get', 'fillColor'], '#888888'],
@@ -31401,6 +31422,14 @@ kingSelect.addEventListener('change', () => {
                             ? `<div class="macro-country-period">${periodStartText}${periodEndText ? `–${periodEndText}` : '–'}</div>`
                             : '';
                         const _3dLblSealChar = country.sealText || (()=>{ const n=country.name||''; const hj=(n.match(/[\u4E00-\u9FFF\uF900-\uFAFF]/g)||[]); if(hj.length) return hj.slice(-1)[0]; const hg=(n.match(/[가-힣]/g)||[]); return hg.length ? hg.slice(-1)[0] : '?'; })();
+                        const lblKey = `lbl_${countryId}`;
+                        const existingLabel = _3dMarkersMap.get(lblKey);
+                        const labelContentKey=JSON.stringify([displayName,periodStartText,periodEndText,countryColor,_3dLblSealChar,country.flag,country.ethnicity,layerVisibility?.ethnicLabel]);
+                        if(existingLabel&&existingLabel.getElement?.()._historyCountryLabelKey===labelContentKey){
+                            const previousPosition=existingLabel.getLngLat();
+                            if(previousPosition.lng!==labelLng||previousPosition.lat!==labelLat)existingLabel.setLngLat([labelLng,labelLat]);
+                            return;
+                        }
                         const flagHtml = country.flag
                             ? `<img src="${(typeof toRawImageUrl === 'function') ? toRawImageUrl(country.flag) : country.flag}" style="width:calc(77px * var(--macro-flag-scale,1));height:auto;object-fit:contain;display:block;flex-shrink:0;opacity:1;" onerror="this.style.display='none'">`
                             : `<div style="display:inline-block;flex-shrink:0;line-height:0;width:calc(37px * var(--macro-flag-scale,1));height:calc(81px * var(--macro-flag-scale,1));">${(typeof createCountryFlagSvg === 'function') ? createCountryFlagSvg(countryColor, _3dLblSealChar, 37).replace(/width="37" height="81"/, 'width="100%" height="100%"') : ''}</div>`;
@@ -31415,30 +31444,34 @@ kingSelect.addEventListener('change', () => {
                                 ${periodHtml}${ethnicHtml}
                             </div>
                         </div>`;
-                        const labelEl = document.createElement('div');
-                        // 국가명 클릭을 상세 패널로 전달한다. 부모가 none이면 3D 마커의
-                        // 자식만 auto여도 브라우저/지도 이벤트 경로에서 누락될 수 있다.
-                        labelEl.style.cssText = 'pointer-events:auto;cursor:pointer;';
-                        labelEl.dataset.ml3dPriority = '3'; // 국가명 최우선
-                        if (country.ethnicity) labelEl.dataset.ml3dEthnicLabel = '1';
-                        labelEl.innerHTML = `<div class="ml3d-txt" style="display:flex;flex-direction:column;align-items:center;">${labelHtml}</div>`;
-                        const lblKey = `lbl_${countryId}`;
-                        const existingLabel = _3dMarkersMap.get(lblKey);
+                        const countryLabelHtml=`<div class="ml3d-txt" style="display:flex;flex-direction:column;align-items:center;">${labelHtml}</div>`;
                         if (existingLabel) {
-                            // 같은 국가 객체의 시대별 국호가 바뀌어도 마커 키는 동일하다.
-                            // 기존 DOM을 재사용하되 이름·기간·국기·민족과 위치는 현재 연도로 갱신한다.
                             const existingEl = existingLabel.getElement?.();
-                            if (existingEl) {
-                                existingEl.innerHTML = labelEl.innerHTML;
+                            if (existingEl && existingEl._historyCountryLabelHtml !== countryLabelHtml) {
+                                existingEl.innerHTML = countryLabelHtml;
+                                existingEl._historyCountryLabelHtml = countryLabelHtml;
                                 existingEl.style.pointerEvents = 'auto';
                                 existingEl.style.cursor = 'pointer';
                                 existingEl.dataset.ml3dPriority = '3';
                                 if (country.ethnicity) existingEl.dataset.ml3dEthnicLabel = '1';
                                 else delete existingEl.dataset.ml3dEthnicLabel;
                             }
-                            existingLabel.setLngLat([labelLng, labelLat]);
+                            if(existingEl){
+                                existingEl._historyCountryLabelKey=labelContentKey;
+                                if(country.ethnicity)existingEl.dataset.ml3dEthnicLabel='1';
+                                else delete existingEl.dataset.ml3dEthnicLabel;
+                            }
+                            const previousPosition=existingLabel.getLngLat();
+                            if(previousPosition.lng!==labelLng||previousPosition.lat!==labelLat)existingLabel.setLngLat([labelLng, labelLat]);
                             return;
                         }
+                        const labelEl = document.createElement('div');
+                        labelEl.style.cssText = 'pointer-events:auto;cursor:pointer;';
+                        labelEl.dataset.ml3dPriority = '3';
+                        if (country.ethnicity) labelEl.dataset.ml3dEthnicLabel = '1';
+                        labelEl.innerHTML = countryLabelHtml;
+                        labelEl._historyCountryLabelHtml = countryLabelHtml;
+                        labelEl._historyCountryLabelKey = labelContentKey;
                         const mk = new maplibregl.Marker({ element: labelEl, anchor: 'bottom', offset: [0, 0], occludedOpacity: 0 })
                             .setLngLat([labelLng, labelLat]).addTo(_m);
                         _3dMarkersMap.set(lblKey, mk);
@@ -31461,6 +31494,7 @@ kingSelect.addEventListener('change', () => {
                 };
 
                 let _last3dCullAt = 0;
+                const _cullCameraGate=new MapRuntime.CameraGate();
                 _3dRenderListener = () => {
                     // MapLibre render는 이동 중 초당 수십 회 발생한다. 모든 HTML 마커를
                     // 매 프레임 project/Haversine 계산하면 모바일 메인 스레드를 독점한다.
@@ -31476,6 +31510,12 @@ kingSelect.addEventListener('change', () => {
                     const canvasRect = _cullCanvas.getBoundingClientRect();
                     const cw = _cullCanvas.clientWidth || canvasRect.width;
                     const ch = _cullCanvas.clientHeight || canvasRect.height;
+                    const cameraCenter=_m.getCenter(),cameraPadding=_m.getPadding?.();
+                    // DEM tiles can shift projected points without moving the camera.
+                    // Keep terrain's existing culling until its elevations settle.
+                    const cameraChanged=_cullCameraGate.changed([cameraCenter.lng,cameraCenter.lat,_m.getZoom(),_m.getPitch(),_m.getBearing(),cw,ch,_3dMarkers.length,!!window._historyGlobeMode,cameraPadding?.top,cameraPadding?.bottom,cameraPadding?.left,cameraPadding?.right]);
+                    if(!_m.getTerrain?.()&&!cameraChanged)return;
+
                     const sidePad = _mobile3dPerformance ? 80 : 300; // 좌우/아래 화면 밖 여유
                     const topCut  = -60;  // 위(하늘/지구 뒤): 거의 허용 안 함
 
