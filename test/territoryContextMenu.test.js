@@ -18,11 +18,11 @@ function popupFor(role, editMode = false) {
         map: { on(_event, callback) { handler = callback; }, closePopup: () => calls.push('close') },
         L: { popup() { return { setLatLng() { return this; }, setContent(value) { content = value; return this; }, openOn() {} }; } },
         setEditModeState: state => calls.push({ editMode: state }),
-        window: { openTerritoryGeomEditAt: point => calls.push({ point: { ...point } }) }
+        window: { openTerritoryGeomEditAt: point => calls.push({ point: { ...point } }), _openGlobeDrawingTool: point => calls.push({ drawingPoint:{...point} }) }
     });
     vm.runInContext(source.slice(start, end), context);
     handler({ latlng: { lat: 35.674499, lng: 119.558415 } });
-    return { context, calls, button: content.children.find(button => button.innerText === '🧭 이 영토 경계 편집') };
+    return { context, calls, drawingButton:content.children.find(button=>button.innerText==='✏️ 그리기 툴'), button: content.children.find(button => button.innerText === '🧭 이 영토 경계 편집') };
 }
 
 test('territory edit is offered to admins and superusers, including outside edit mode', () => {
@@ -45,4 +45,10 @@ test('a stale admin menu cannot start an edit after the user loses admin status'
     context.currentUser = { role: 'user' };
     button.onclick();
     assert.deepEqual(calls, []);
+});
+
+test('drawing tool appears in the same context menu for admins and rechecks stale privileges',()=>{
+ for(const role of ['admin','superuser']){const f=popupFor(role);assert.ok(f.drawingButton);f.drawingButton.onclick();assert.deepEqual(f.calls.at(-1),{drawingPoint:{lat:35.674499,lng:119.558415}});}
+ for(const role of ['guest','user',null])assert.equal(popupFor(role).drawingButton,undefined);
+ const f=popupFor('admin');f.context.currentUser={role:'user'};f.drawingButton.onclick();assert.deepEqual(f.calls,[]);
 });

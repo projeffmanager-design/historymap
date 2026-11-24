@@ -17180,6 +17180,18 @@ const loadingMessages = [
 
       popupContent.appendChild(copyButton);
       if (privileged) {
+        const drawingToolButton = document.createElement('button');
+        drawingToolButton.innerText = '✏️ 그리기 툴';
+        drawingToolButton.className = 'primary';
+        drawingToolButton.onclick = () => {
+          if (currentUser?.role !== 'admin' && currentUser?.role !== 'superuser') return;
+          map.closePopup();
+          if (!editMode) setEditModeState(true);
+          window._openGlobeDrawingTool?.({ lat:latlng.lat, lng:latlng.lng });
+        };
+        popupContent.appendChild(drawingToolButton);
+      }
+      if (privileged) {
         const editTerritoryButton = document.createElement('button');
         editTerritoryButton.innerText = '🧭 이 영토 경계 편집';
         editTerritoryButton.className = 'primary';
@@ -22654,6 +22666,7 @@ kingSelect.addEventListener('change', () => {
         };
         async function start(field) {
             if (editor || starting) return;
+            if(window._globeDrawingActive){showToast('새 도형 그리기를 먼저 완료하거나 취소하세요.','warning');return;}
             if (document.getElementById('territory-geom-edit-bar')?.classList.contains('open')) {
                 showToast('영토 경계 편집을 먼저 종료하세요.', 'warn'); return;
             }
@@ -22689,6 +22702,42 @@ kingSelect.addEventListener('change', () => {
         document.getElementById('vertexEditDoneBtn').addEventListener('click', () => window._finishGlobePointEdit(true));
         document.getElementById('vertexEditCancelBtn').addEventListener('click', () => window._finishGlobePointEdit(false));
         ['cancelDrawingBtn','cancelNaturalFeatureBtn'].forEach(id => document.getElementById(id).addEventListener('click', () => window._finishGlobePointEdit(false)));
+    })();
+
+    // 새 도형도 기본 지도에서 작성하고 기존 그리기 저장 폼으로 전달한다.
+    (function() {
+        let tool=null;
+        const canDraw=()=>currentUser?.role==='admin'||currentUser?.role==='superuser';
+        window._finishGlobeDrawing=()=>tool?.finish(false);
+        window._openGlobeDrawingTool=function(start) {
+            if(!canDraw())return;
+            if(tool){showToast('그리기 툴이 이미 열려 있습니다.','info');return;}
+            if(window._vertexEditMode||window._segmentEraseMode||window._globeLocationPickActive||document.getElementById('territory-geom-edit-bar')?.classList.contains('open')){
+                showToast('진행 중인 지도 편집을 먼저 완료하거나 취소하세요.','warning');return;
+            }
+            if(document.getElementById('drawingForm')?.style.display==='block'){
+                showToast('열려 있는 도형을 먼저 저장하거나 취소하세요.','warning');return;
+            }
+            if(!window._is3dMode||!window.mlMap3d||!window.MapRuntime.canRefreshStyle(window.mlMap3d)){
+                showToast('기본 지도가 준비된 뒤 그리기 툴을 열어주세요.','warning');return;
+            }
+            try {
+                window._closeSharedPopup?.(0);
+                tool=new window.GlobeDrawingTool({map:window.mlMap3d,start,isAllowed:canDraw,
+                    validate(geometry){
+                        if(geometry.type==='Polygon'&&turf.kinks(geometry).features.length)throw new Error('영역의 선이 서로 교차합니다. 마지막 점을 취소해 수정하세요.');
+                    },
+                    onFinish(feature){
+                        tool=null;isDrawing=false;window._globeDrawingActive=false;window._vertexEditMode=false;
+                        if(!feature||!canDraw())return;
+                        openDrawingForm(feature);
+                        document.getElementById('drawingType').value='river';
+                        document.getElementById('drawingName').focus();
+                    }
+                });
+                isDrawing=true;window._globeDrawingActive=true;window._vertexEditMode=true;
+            } catch(error){tool=null;showToast(error.message,'error');}
+        };
     })();
 
     // 영토 편집기는 렌더링 타일 대신 원본 강 레코드와 동일한 저장 경로를 사용한다.
@@ -22912,7 +22961,7 @@ kingSelect.addEventListener('change', () => {
             document.getElementById('duplicateDrawingBtn').style.display = 'none';
             document.getElementById('segmentEraseBtn').style.display = 'none';
             document.getElementById('segmentEraseHint').style.display = 'none';
-            document.getElementById('vertexEditBtn').style.display = 'none';
+            document.getElementById('vertexEditBtn').style.display = RiverGeometry.paths(geojson).length ? 'block' : 'none';
             document.getElementById('vertexEditHint').style.display = 'none';
             document.getElementById('saveDrawingBtn').textContent = '저장';
         }
@@ -31875,7 +31924,7 @@ kingSelect.addEventListener('change', () => {
 
             // 기존 Leaflet 우클릭 메뉴의 폼 로직을 재사용하되 화면은 MapLibre Popup으로 옮긴다.
             function openGlobeLocationTools(lngLat) {
-                if (!mlMap || !lngLat) return;
+                if (!mlMap || !lngLat || window._globeDrawingActive || window._vertexEditMode) return;
                 if (isGlobeAdmin() && !editMode && typeof window.setEditModeState === 'function') {
                     window.setEditModeState(true);
                 }
@@ -32986,6 +33035,7 @@ kingSelect.addEventListener('change', () => {
 
             // ── 3D 모드 종료 ──
             function exit3d() {
+                window._finishGlobeDrawing?.();
                 // 3D에서 보던 지점을 2D 편집 지도의 진입 지점으로 그대로 인계
                 if (mlMap && map) {
                     try {
@@ -34369,7 +34419,7 @@ kingSelect.addEventListener('change', () => {
             console.log('setEditModeState 호출:', {newState, currentUser, currentRole: currentUser?.role});
             const privileged = currentUser?.role === 'superuser' || currentUser?.role === 'admin';
             editMode = privileged ? !!newState : false;
-            if (!editMode) window._closeCastleRuleBulkEditor?.();
+            if (!editMode) {window._closeCastleRuleBulkEditor?.();window._finishGlobeDrawing?.();}
             console.log('편집 모드 상태 변경:', {editMode, privileged});
             if (editDropdownContainer) {
                 editDropdownContainer.style.display = (editMode && privileged) ? 'inline-block' : 'none';
