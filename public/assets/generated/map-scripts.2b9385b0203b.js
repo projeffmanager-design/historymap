@@ -22724,14 +22724,14 @@ kingSelect.addEventListener('change', () => {
             try {
                 window._closeSharedPopup?.(0);
                 tool=new window.GlobeDrawingTool({map:window.mlMap3d,start,isAllowed:canDraw,
-                    validate(geometry){
-                        if(geometry.type==='Polygon'&&turf.kinks(geometry).features.length)throw new Error('영역의 선이 서로 교차합니다. 마지막 점을 취소해 수정하세요.');
-                    },
-                    onFinish(feature){
+                    defaults:{start_year:document.getElementById('yearInput')?.value||getCurrentYearMonth().year,type:'river'},
+                    onFinish(feature,metadata){
                         tool=null;isDrawing=false;window._globeDrawingActive=false;window._vertexEditMode=false;
                         if(!feature||!canDraw())return;
                         openDrawingForm(feature);
-                        document.getElementById('drawingType').value='river';
+                        const values={drawingName:metadata?.name||'',drawingType:metadata?.type||'river',drawingColor:metadata?.color||'#3388ff',drawingLineWidth:metadata?.line_width||1.5,drawingStartYear:metadata?.start_year??getCurrentYearMonth().year,drawingEndYear:metadata?.end_year??'',drawingPathLabel:metadata?.path_label||''};
+                        Object.entries(values).forEach(([id,value])=>{const field=document.getElementById(id);if(field)field.value=value;});
+                        document.getElementById('drawingColorHex').textContent=values.drawingColor;
                         document.getElementById('drawingName').focus();
                     }
                 });
@@ -30008,6 +30008,7 @@ kingSelect.addEventListener('change', () => {
 
             const _territorySourceWrites=new MapRuntime.SourceDataCache(geometry=>
                 (window._territoryGeometryIndex ||= new MapRuntime.GeometryIndex()).identity(geometry));
+            const _globeDrawingLayers=new window.GlobeDrawingLayer();
             let _lastRiverRecords = [];
             let _riverDataVersion = 0;
             let _refreshLayersCacheKey = null;
@@ -30065,7 +30066,8 @@ kingSelect.addEventListener('change', () => {
                     _lastRiverRecords = riverRecords;
                     _riverDataVersion++;
                 }
-                const newTerritoryKey = `${year}_${month}_${(_td?.country?.length||0)}_${(_td?.province?.length||0)}_${(_td?.city?.length||0)}_${_showTerritory}_${_showRivers}_${_riverDataVersion}_${_territoryDataVersion}`;
+                const _drawingLayerKey=_globeDrawingLayers.key(drawings,year,typeof layerVisibility==='undefined'?{}:layerVisibility);
+                const newTerritoryKey = `${year}_${month}_${(_td?.country?.length||0)}_${(_td?.province?.length||0)}_${(_td?.city?.length||0)}_${_showTerritory}_${_showRivers}_${_riverDataVersion}_${_territoryDataVersion}_${_drawingLayerKey}`;
                 // ── 마커 캐시 키: 시점/데이터 버전/줌/화면 범위/토글 상태 ──
                 const _lv = (typeof layerVisibility !== 'undefined') ? layerVisibility : {};
                 const _lvKey = `${_lv.natural?1:0}${_lv.city?1:0}${_lv.military?1:0}${_lv.relic?1:0}`
@@ -30794,6 +30796,18 @@ kingSelect.addEventListener('change', () => {
                     }
                 })();
 
+
+                _globeDrawingLayers.render(_m,drawings,year,layerVisibility,(drawing,event)=>{
+                    if(window._vertexEditMode||window._globeDrawingActive||window._globeLocationPickActive||document.getElementById('territory-geom-edit-bar')?.classList.contains('open'))return;
+                    const content=document.createElement('div'),title=document.createElement('strong');title.textContent=drawing.name||'도형';content.appendChild(title);
+                    if(currentUser?.role==='admin'||currentUser?.role==='superuser'){
+                        const button=document.createElement('button');button.textContent='✏️ 도형 편집';button.onclick=()=>{
+                            if(currentUser?.role!=='admin'&&currentUser?.role!=='superuser')return;
+                            if(!editMode)setEditModeState(true);window._closeSharedPopup?.(0);openDrawingForm(drawing.geojson,drawing);
+                        };content.appendChild(button);
+                    }
+                    window._openSharedPopup(_m,event.lngLat,'').setDOMContent(content);
+                });
 
                 if (!rebuildMarkers) return; // 마커 변경 없으면 종료
 

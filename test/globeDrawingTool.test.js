@@ -48,9 +48,9 @@ test('typing in form fields never completes or erases a drawing',()=>{
     assert.equal(f.tool.points.length,2);assert.equal(f.tool.closed,false);assert.equal(f.results.length,0);f.tool.finish(false);
 });
 function bridge(role='admin'){
-    const fields={drawingForm:{style:{display:'none'}},drawingName:{focus(){}},drawingType:{value:''},'territory-geom-edit-bar':{classList:{contains:()=>false}}};
+    const fields={drawingForm:{style:{display:'none'}},drawingName:{focus(){}},drawingType:{value:''},drawingColorHex:{textContent:''},yearInput:{value:'981'},'territory-geom-edit-bar':{classList:{contains:()=>false}}};
     let options;const opened=[],messages=[];
-    const context=vm.createContext({currentUser:role?{role}:null,isDrawing:false,openDrawingForm:feature=>opened.push(feature),showToast:message=>messages.push(message),turf:require('@turf/turf'),
+    const context=vm.createContext({currentUser:role?{role}:null,isDrawing:false,openDrawingForm:feature=>opened.push(feature),showToast:message=>messages.push(message),getCurrentYearMonth:()=>({year:981,month:1}),
         document:{getElementById:id=>fields[id]},window:{_is3dMode:true,mlMap3d:{},MapRuntime:{canRefreshStyle:()=>true},GlobeDrawingTool:class{constructor(o){options=o;}finish(){options.onFinish(null);}}}});
     const start=main.indexOf('    // 새 도형도 기본 지도에서'),end=main.indexOf('    // 영토 편집기는',start);assert.ok(start>=0&&end>start);vm.runInContext(main.slice(start,end),context);
     return {context,fields,opened,messages,options:()=>options};
@@ -71,4 +71,20 @@ test('a newly drawn river area also opens as river so the default map renders it
  const f=bridge();f.context.window._openGlobeDrawingTool({lng:127,lat:38});
  f.options().onFinish({type:'Feature',properties:{},geometry:{type:'Polygon',coordinates:[[[127,38],[128,38],[128,39],[127,38]]]}});
  assert.equal(f.fields.drawingType.value,'river');
+});
+
+test('completion validates polygons without a global Turf dependency and preserves name and drawing settings',()=>{
+ const f=fixture();f.tool.setKind('Polygon');f.click(128,38);f.click(128,39);f.tool.fields.name.value='검증 영역';f.tool.fields.type.value='general';f.tool.finish(true);assert.equal(f.results.length,1);
+ const b=bridge();b.context.window._openGlobeDrawingTool({lng:127,lat:38});assert.equal(b.options().validate,undefined);
+ b.fields.drawingColor={};b.fields.drawingLineWidth={};b.fields.drawingStartYear={};
+ b.options().onFinish(f.results[0],{name:'검증 영역',type:'general',color:'#ff0000',line_width:3,start_year:100});
+ assert.equal(b.fields.drawingName.value,'검증 영역');assert.equal(b.fields.drawingType.value,'general');assert.equal(b.fields.drawingColor.value,'#ff0000');assert.equal(b.fields.drawingStartYear.value,100);
+});
+test('rectangle, circle and point generate usable geometry and recover from invalid dimensions',()=>{
+ const rectangle=fixture();rectangle.tool.setKind('Rectangle');rectangle.click(128,38);rectangle.tool.finish(true);assert.equal(rectangle.results.length,0);rectangle.click(128,39);rectangle.tool.finish(true);assert.equal(rectangle.results[0].geometry.coordinates[0].length,5);
+ const circle=fixture();circle.tool.setKind('Circle');circle.click(127.1,38);circle.tool.fields.type.value='general';circle.tool.finish(true);const ring=circle.results[0].geometry.coordinates[0];assert.equal(ring.length,65);assert.ok(ring.every(p=>p.every(Number.isFinite)));assert.deepEqual(Array.from(ring[0]),Array.from(ring.at(-1)));
+ const point=fixture();point.tool.setKind('Point');assert.equal(point.tool.fields.type.value,'general');point.click(128,39);point.tool.finish(true);assert.equal(point.results[0].geometry.type,'Point');assert.deepEqual(Array.from(point.results[0].geometry.coordinates),[128,39]);
+});
+test('self-crossing polygons are rejected without Turf and can still be edited or cancelled',()=>{
+ const f=fixture();f.tool.setKind('Polygon');f.click(129,40);f.click(127,40);f.click(129,38);f.tool.finish(true);assert.equal(f.results.length,0);assert.match(f.tool.status.textContent,/교차/);assert.equal(f.tool.closed,false);f.tool.finish(false);
 });
