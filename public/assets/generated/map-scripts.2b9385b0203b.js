@@ -3860,9 +3860,11 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     
     /** 국가 이름으로 국가 정보를 찾습니다. */
     function getCountryInfo(name) {
-      const raw = countries.find(c => c.name === name || (Array.isArray(c.history) && c.history.some(phase => (
+      if (!name) return null;
+      // A historical alias must never override an exact base country name.
+      const raw = countries.find(c => c.name === name) || countries.find(c => Array.isArray(c.history) && c.history.some(phase => (
           phase.name === name || phase.name_zh === name || (phase.aliases || []).includes(name)
-      ))));
+      )));
       return raw ? getEffectiveCountryInfo(raw) : null;
     }
 
@@ -4017,24 +4019,38 @@ const generalPhotoInput = document.getElementById('generalPhoto'); // 1단계에
     
 
     /** 특정 연도에 재위 중인 왕 정보를 가져옵니다. */
-function getKingByYear(countryName, year, month) {
-  // 🚩 수정: 국가 이름으로 해당 국가의 ObjectId를 찾습니다.
-  const country = getCountryInfo(countryName);
-  if (!country) return null;
-  const kingKey = country._id; // <- ObjectId를 키로 사용
-  const list = kings[kingKey];
-      
-      if (!list) return null;
-      return list.find(k => {
-        const startCombined = yearMonthToTotalMonths(k.start, k.start_month);
-        const endCombined = (k.end === null || k.end === undefined || isNaN(k.end)) 
-                            ? Infinity 
-                            : yearMonthToTotalMonths(k.end, k.end_month);
-        const currentCombined = yearMonthToTotalMonths(year, month);
-
-        return startCombined <= currentCombined && currentCombined <= endCombined;
-      });
+function getKingByYear(countryReference, year, month) {
+    const idOf = country => String(country?._id?.$oid || country?._id || country?.id || '');
+    // Panel rows already have a country. Resolving its old name again can borrow
+    // an unrelated king from another country's merged historical timeline.
+    let country = countryReference && typeof countryReference === 'object' ? countryReference : null;
+    if (!country && countryReference) {
+        const reference = String(countryReference);
+        country = countries.find(c => idOf(c) === reference)
+            || countries.find(c => c.name === reference)
+            || countries.find(c => {
+                if (!isCountryActiveAt(c, year, month)) return false;
+                const phase = getEffectiveCountryInfo(c, year, month)?.active_country_phase;
+                return phase && (phase.name === reference || phase.name_zh === reference
+                    || (phase.aliases || []).includes(reference));
+            });
     }
+    if (!country || !isCountryActiveAt(country, year, month)) return null;
+    const list = kings[idOf(country)];
+    if (!Array.isArray(list)) return null;
+    const point = yearMonthToTotalMonths(year, month);
+    return list.find(king => {
+        if (!king) return false;
+        const startYear = normalizeHistoryNumber(king.start ?? king.start_year, null);
+        if (startYear === null) return false;
+        const startMonth = Math.min(12, Math.max(1, normalizeHistoryNumber(king.start_month, 1)));
+        const endYear = normalizeHistoryNumber(king.end ?? king.end_year, null);
+        const endMonth = Math.min(12, Math.max(1, normalizeHistoryNumber(king.end_month, 12)));
+        const start = yearMonthToTotalMonths(startYear, startMonth);
+        const end = endYear === null ? Infinity : yearMonthToTotalMonths(endYear, endMonth);
+        return start <= point && point <= end;
+    }) || null;
+}
 
     /** 현재 연도와 월의 왕 정보를 패널에 업데이트합니다. */
 function updateKingLabel(year, month) {
@@ -4043,8 +4059,9 @@ function updateKingLabel(year, month) {
       // 같은 이름의 국가 레코드가 중복되어도 동일 왕이 패널에 두 번 나타나지 않게 한다.
       const renderedKingRows = new Set();
       countries.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko')).forEach(rawCountry => { // 🚩 [수정] 국가명 가나다순 정렬
+        if (!isCountryActiveAt(rawCountry, year, month)) return;
         const country = getEffectiveCountryInfo(rawCountry, year, month);
-        const king = getKingByYear(rawCountry.name, year, month); // 객체 연결은 변하지 않는 기본 국가명으로 조회
+        const king = getKingByYear(rawCountry, year, month);
        if (king) { // <-- Now the 'if' statement works because 'king' is defined
             const rowKey = [
                 String(country.name || '').normalize('NFKC').replace(/\s+/g, ''),
@@ -4061,8 +4078,10 @@ function updateKingLabel(year, month) {
             
             const startMonth = king.start_month || 1;
             const endMonth = king.end_month || 12;
-            const endYearText = king.end === null ? '현재' : `${king.end}년 ${endMonth}월`; 
-            const period = `${king.start}년 ${startMonth}월 ~ ${endYearText}`;
+            const startYear = king.start ?? king.start_year;
+            const endYear = normalizeHistoryNumber(king.end ?? king.end_year, null);
+            const endYearText = endYear === null ? '현재' : `${endYear}년 ${endMonth}월`;
+            const period = `${startYear}년 ${startMonth}월 ~ ${endYearText}`;
             let iconHtml;
             const countryColor = country.color || 'gray'; 
 
